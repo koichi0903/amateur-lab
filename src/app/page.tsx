@@ -6,9 +6,14 @@ export default async function Home() {
     .from("works")
     .select("*")
     .order("score", { ascending: false });
+    
 const actressStats: Record<
   string,
-  { count: number; total: number }
+  {
+    count: number;
+    total: number;
+    image: string;
+  }
 > = {};
 
 data?.forEach((work) => {
@@ -18,11 +23,12 @@ data?.forEach((work) => {
     work.actress.split(" / ")[0];
 
   if (!actressStats[actress]) {
-    actressStats[actress] = {
-      count: 0,
-      total: 0,
-    };
-  }
+  actressStats[actress] = {
+    count: 0,
+    total: 0,
+    image: work.image_url || "",
+  };
+}
 
   actressStats[actress].count++;
   actressStats[actress].total +=
@@ -38,6 +44,7 @@ const topActresses = Object.entries(
     average: Math.round(
       stats.total / stats.count
     ),
+    image: stats.image,
   }))
   .sort(
     (a, b) =>
@@ -133,30 +140,39 @@ const topActresses = Object.entries(
   {topActresses.map((actress, index) => (
     <div
       key={actress.name}
-      className="mb-4 pb-4 border-b"
+      className="flex gap-4 items-center mb-4 pb-4 border-b"
     >
-      <Link
-        href={`/actress/${encodeURIComponent(
-          actress.name
-        )}`}
-      >
-        <p className="text-xl font-bold text-pink-600 hover:underline">
-          {index === 0 && "🥇 "}
-          {index === 1 && "🥈 "}
-          {index === 2 && "🥉 "}
-          {index >= 3 && `${index + 1}位 `}
+      {actress.image && (
+        <img
+          src={actress.image}
+          alt={actress.name}
+          className="w-24 rounded-lg"
+        />
+      )}
 
-          {actress.name}
+      <div>
+        <Link
+          href={`/actress/${encodeURIComponent(
+            actress.name
+          )}`}
+        >
+          <p className="text-xl font-bold text-pink-600 hover:underline">
+            {index === 0 && "🥇 "}
+            {index === 1 && "🥈 "}
+            {index === 2 && "🥉 "}
+            {index >= 3 && `${index + 1}位 `}
+            {actress.name}
+          </p>
+        </Link>
+
+        <p>
+          登録作品数: {actress.count}件
         </p>
-      </Link>
 
-      <p>
-        登録作品数: {actress.count}件
-      </p>
-
-      <p>
-        平均スコア: {actress.average}
-      </p>
+        <p>
+          平均スコア: {actress.average}
+        </p>
+      </div>
     </div>
   ))}
 </div>
