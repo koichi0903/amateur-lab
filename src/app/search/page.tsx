@@ -9,18 +9,18 @@ export default function SearchPage() {
   const [results, setResults] = useState<any[]>([]);
 
   const handleSearch = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
   .from("works")
   .select("*")
   .or(
-    `title.ilike.%${keyword}%,
-     genre.ilike.%${keyword}%,
-     actress.ilike.%${keyword}%,
-     product_id.ilike.%${keyword}%`
+    `title.ilike.%${keyword}%,genre.ilike.%${keyword}%,actress.ilike.%${keyword}%,product_id.ilike.%${keyword}%`
   )
   .order("score", { ascending: false });
 
-    setResults(data || []);
+console.log(data);
+console.log(error);
+
+setResults(data || []);
   };
 
   return (
