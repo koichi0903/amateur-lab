@@ -130,9 +130,13 @@ const topActress = Object.entries(
       🏆 今週の発掘女優
     </h2>
 
-    <p className="text-2xl font-bold">
-      {topActress.name}
-    </p>
+    <Link
+  href={`/actress/${encodeURIComponent(topActress.name)}`}
+>
+  <p className="text-2xl font-bold text-pink-600 hover:underline">
+    {topActress.name}
+  </p>
+</Link>
 
     <p className="mt-2">
       登録作品数: {topActress.count}件
