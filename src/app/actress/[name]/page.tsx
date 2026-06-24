@@ -80,6 +80,27 @@ const topWorks =
   ))}
 </div>
 
+<div className="bg-white border rounded-xl p-6 mb-8">
+  <h2 className="text-2xl font-bold mb-4">
+    📸 出演作品ギャラリー
+  </h2>
+
+  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    {data?.map((work) => (
+      <Link
+        key={work.id}
+        href={`/works/${work.id}`}
+      >
+        <img
+          src={work.image_url}
+          alt={work.title}
+          className="rounded-lg hover:opacity-80"
+        />
+      </Link>
+    ))}
+  </div>
+</div>
+
       {data?.map((work) => (
         <div
           key={work.id}
