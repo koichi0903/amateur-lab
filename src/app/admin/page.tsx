@@ -4,6 +4,13 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 export default function AdminPage() {
+  const ADMIN_PASSWORD = "koichi0903";
+
+const [authenticated, setAuthenticated] =
+  useState(false);
+
+const [password, setPassword] =
+  useState("");
   const [title, setTitle] = useState("");
   const [genre, setGenre] = useState("");
   const [score, setScore] = useState("");
@@ -360,6 +367,46 @@ const handleSearch = async () => {
     data.result?.items || []
   );
 };
+
+if (!authenticated) {
+  return (
+    <main className="min-h-screen flex items-center justify-center">
+      <div className="bg-white p-8 rounded shadow w-96">
+        <h1 className="text-2xl font-bold mb-4">
+          管理画面ログイン
+        </h1>
+
+        <input
+          type="password"
+          value={password}
+          onChange={(e) =>
+            setPassword(e.target.value)
+          }
+          className="border p-2 w-full"
+          placeholder="パスワード"
+        />
+
+        <button
+          onClick={() => {
+            if (
+              password ===
+              ADMIN_PASSWORD
+            ) {
+              setAuthenticated(true);
+            } else {
+              alert(
+                "パスワードが違います"
+              );
+            }
+          }}
+          className="bg-black text-white px-4 py-2 mt-4 rounded w-full"
+        >
+          ログイン
+        </button>
+      </div>
+    </main>
+  );
+}
 
   return (
     <main className="min-h-screen p-8 overflow-auto">
