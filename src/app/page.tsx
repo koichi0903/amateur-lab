@@ -29,7 +29,7 @@ data?.forEach((work) => {
     work.score || 0;
 });
 
-const topActress = Object.entries(
+const topActresses = Object.entries(
   actressStats
 )
   .map(([name, stats]) => ({
@@ -41,8 +41,9 @@ const topActress = Object.entries(
   }))
   .sort(
     (a, b) =>
-      b.average - a.average
-  )[0];
+      b.count - a.count
+  )
+  .slice(0, 5);
 
 
   return (
@@ -124,29 +125,41 @@ const topActress = Object.entries(
   )}
 </div>
 
-{topActress && (
-  <div className="bg-pink-50 border border-pink-200 rounded-xl p-6 mb-8">
-    <h2 className="text-2xl font-bold mb-4">
-      🏆 今週の発掘女優
-    </h2>
+<div className="bg-pink-50 border border-pink-200 rounded-xl p-6 mb-8">
+  <h2 className="text-2xl font-bold mb-4">
+    🏆 発掘女優TOP5
+  </h2>
 
-    <Link
-  href={`/actress/${encodeURIComponent(topActress.name)}`}
->
-  <p className="text-2xl font-bold text-pink-600 hover:underline">
-    {topActress.name}
-  </p>
-</Link>
+  {topActresses.map((actress, index) => (
+    <div
+      key={actress.name}
+      className="mb-4 pb-4 border-b"
+    >
+      <Link
+        href={`/actress/${encodeURIComponent(
+          actress.name
+        )}`}
+      >
+        <p className="text-xl font-bold text-pink-600 hover:underline">
+          {index === 0 && "🥇 "}
+          {index === 1 && "🥈 "}
+          {index === 2 && "🥉 "}
+          {index >= 3 && `${index + 1}位 `}
 
-    <p className="mt-2">
-      登録作品数: {topActress.count}件
-    </p>
+          {actress.name}
+        </p>
+      </Link>
 
-    <p>
-      平均スコア: {topActress.average}
-    </p>
-  </div>
-)}
+      <p>
+        登録作品数: {actress.count}件
+      </p>
+
+      <p>
+        平均スコア: {actress.average}
+      </p>
+    </div>
+  ))}
+</div>
 
         <div className="rounded-xl bg-white p-6 shadow">
   <h2 className="text-2xl font-bold mb-4">
