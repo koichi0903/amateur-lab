@@ -6,6 +6,65 @@ export default async function Home() {
     .from("works")
     .select("*")
     .order("score", { ascending: false });
+const actressStats: Record<
+  string,
+  { count: number; total: number }
+> = {};
+
+data?.forEach((work) => {
+  if (!work.actress) return;
+
+  const actress =
+    work.actress.split(" / ")[0];
+
+  if (!actressStats[actress]) {
+    actressStats[actress] = {
+      count: 0,
+      total: 0,
+    };
+  }
+
+  actressStats[actress].count++;
+  actressStats[actress].total +=
+    work.score || 0;
+});
+
+const topActress = Object.entries(
+  actressStats
+)
+  .map(([name, stats]) => ({
+    name,
+    count: stats.count,
+    average: Math.round(
+      stats.total / stats.count
+    ),
+  }))
+  .sort(
+    (a, b) =>
+      b.average - a.average
+  )[0];
+
+{topActress && (
+  <div className="bg-pink-50 border border-pink-200 rounded-xl p-6 mb-8">
+    <h2 className="text-2xl font-bold mb-4">
+      🏆 今週の発掘女優
+    </h2>
+
+    <p className="text-2xl font-bold">
+      {topActress.name}
+    </p>
+
+    <p className="mt-2">
+      登録作品数:
+      {topActress.count}件
+    </p>
+
+    <p>
+      平均スコア:
+      {topActress.average}
+    </p>
+  </div>
+)}
 
   return (
 <>
