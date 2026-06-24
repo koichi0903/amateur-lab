@@ -193,7 +193,22 @@ if (existing) {
     .map((g: any) => g.name)
     .join(" / ") || "未分類",
         score,
-        memo: "DMM検索から登録",
+        memo:
+`${item.iteminfo?.actress
+  ?.map((a: any) => a.name)
+  .slice(0, 3)
+  .join("・") || "人気女優"}出演作品。
+
+${item.iteminfo?.genre
+  ?.filter(
+    (g: any) =>
+      !ignoreGenres.includes(g.name)
+  )
+  .slice(0, 4)
+  .map((g: any) => g.name)
+  .join("・") || "人気ジャンル"}を楽しめる作品。
+
+発掘スコア${score}の注目作品。`,
 
         image_url:
           item.imageURL?.large ||
