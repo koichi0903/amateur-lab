@@ -44,27 +44,6 @@ const topActress = Object.entries(
       b.average - a.average
   )[0];
 
-{topActress && (
-  <div className="bg-pink-50 border border-pink-200 rounded-xl p-6 mb-8">
-    <h2 className="text-2xl font-bold mb-4">
-      🏆 今週の発掘女優
-    </h2>
-
-    <p className="text-2xl font-bold">
-      {topActress.name}
-    </p>
-
-    <p className="mt-2">
-      登録作品数:
-      {topActress.count}件
-    </p>
-
-    <p>
-      平均スコア:
-      {topActress.average}
-    </p>
-  </div>
-)}
 
   return (
 <>
@@ -127,6 +106,7 @@ const topActress = Object.entries(
         )}
 
         <div>
+
           <p className="text-xl font-bold text-blue-600">
             {data[0].title}
           </p>
@@ -143,6 +123,26 @@ const topActress = Object.entries(
     </Link>
   )}
 </div>
+
+{topActress && (
+  <div className="bg-pink-50 border border-pink-200 rounded-xl p-6 mb-8">
+    <h2 className="text-2xl font-bold mb-4">
+      🏆 今週の発掘女優
+    </h2>
+
+    <p className="text-2xl font-bold">
+      {topActress.name}
+    </p>
+
+    <p className="mt-2">
+      登録作品数: {topActress.count}件
+    </p>
+
+    <p>
+      平均スコア: {topActress.average}
+    </p>
+  </div>
+)}
 
         <div className="rounded-xl bg-white p-6 shadow">
   <h2 className="text-2xl font-bold mb-4">
