@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { supabase } from "../lib/supabase";
+import WorkCard from "../components/WorkCard";
 
 export default function SearchPage() {
   const [keyword, setKeyword] = useState("");
@@ -34,41 +35,37 @@ setResults(data || []);
         placeholder="作品名・女優名・品番・ジャンル"
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
-        className="border p-2 w-full max-w-md"
+        className="border-2 rounded-lg p-3 w-full max-w-xl text-lg"
       />
 
       <button
         onClick={handleSearch}
-        className="bg-black text-white px-4 py-2 ml-2 rounded"
+        className="bg-pink-600 hover:bg-pink-700 text-white px-6 py-3 rounded-lg font-bold"
       >
         検索
       </button>
 
-      <div className="mt-8">
-        {results.map((work) => (
-          <div
-            key={work.id}
-            className="border p-4 mb-3 rounded"
-          >
-            <Link href={`/works/${work.id}`}>
-              <p className="font-bold text-blue-600 hover:underline">
-                {work.title}
-              </p>
-            </Link>
+      {results.length > 0 && (
+  <p className="mt-4 text-gray-600">
+    {results.length}件見つかりました
+  </p>
+)}
 
-           <p>
-  ジャンル: {
-    work.genre
-      ?.split(" / ")
-      .slice(0, 4)
-      .join(" / ")
-  }
-  {work.genre?.split(" / ").length > 4 && " ..."}
-</p>
-            <p>スコア: {work.score}</p>
-          </div>
-        ))}
-      </div>
+      <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+  {results.length === 0 && keyword !== "" && (
+  <div className="mt-10 text-center text-gray-500">
+    該当する作品が見つかりませんでした。
+  </div>
+)}
+  
+  {results.map((work) => (
+  <WorkCard
+    key={work.id}
+    work={work}
+  />
+))}
+</div>
+
     </main>
   );
 }

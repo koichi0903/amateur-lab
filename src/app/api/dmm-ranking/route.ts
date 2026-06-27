@@ -9,28 +9,44 @@ export async function GET() {
   const apiId = process.env.DMM_API_ID;
   const affiliateId = process.env.DMM_AFFILIATE_ID;
 
+  
+
+  async function fetchRanking(offset: number) {
   const url =
-    `https://api.dmm.com/affiliate/v3/ItemList` +
+    "https://api.dmm.com/affiliate/v3/ItemList" +
     `?api_id=${apiId}` +
     `&affiliate_id=${affiliateId}` +
-    `&site=FANZA` +
-    `&service=digital` +
-    `&floor=videoa` +
-    `&hits=100` +
-    `&sort=rank` +
-    `&output=json`;
+    "&site=FANZA" +
+    "&service=digital" +
+    "&floor=videoa" +
+    "&hits=100" +
+    `&offset=${offset}` +
+    "&sort=rank" +
+    "&output=json";
 
   const res = await fetch(url);
   const data = await res.json();
 
- const rankingItems = data.result.items.map(
+  return data.result.items;
+}
+const allItems = [];
+
+for (let offset = 1; offset <= 901; offset += 100) {
+  const items = await fetchRanking(offset);
+  allItems.push(...items);
+}
+
+console.log(allItems.length);
+
+
+  
+
+ const rankingItems = allItems.map(
   (item: any, index: number) => ({
     ...item,
     rank: index + 1,
   })
-); 
-
-console.log(data.result.items[0]);
+);
 
   const genreScore: Record<string, number> = {};
   const actressScore: Record<string, number> = {};
@@ -114,6 +130,14 @@ await supabase
     )
   );
 
+  const actressScoreMap = new Map(
+  actressRanking.map((a) => [a.actress, a.score])
+);
+
+const genreScoreMap = new Map(
+  ranking.map((g) => [g.genre, g.score])
+);
+
   const { data: works } =
   await supabase
     .from("works")
@@ -121,17 +145,22 @@ await supabase
       "id, product_id, actress, genre"
     );
 
+  const rankingUpdates = [];
+
     for (const item of rankingItems) {
-  await supabase
-    .from("works")
-    .update({
-      ranking: item.rank,
-    })
-    .eq(
-      "product_id",
-      item.content_id
-    );
+  rankingUpdates.push({
+  product_id: item.content_id,
+  ranking: item.rank,
+});
 }
+
+await supabase
+  .from("works")
+  .upsert(rankingUpdates, {
+    onConflict: "product_id",
+  });
+
+  const workUpdates = [];
 
 for (const work of works || []) {
 
@@ -149,39 +178,31 @@ for (const work of works || []) {
       .map((v: string) => v.trim()) || [];
 
   actresses.forEach((name: string) => {
-    const found =
-      actressRanking.find(
-        (a) =>
-          name.includes(a.actress)
-      );
+  const score = actressScoreMap.get(name);
 
-    if (found) {
-      actressScore += found.score;
-    }
-  });
+  if (score) {
+    actressScore += score;
+  }
+});
 
   genres.forEach((name: string) => {
-    const found =
-      ranking.find(
-        (g) =>
-          g.genre === name
-      );
+  const score = genreScoreMap.get(name);
 
-    if (found) {
-      genreScore += found.score;
-    }
-  });
+  if (score) {
+    genreScore += score;
+  }
+});
 
-  await supabase
-    .from("works")
-    .update({
-      actress_score:
-        actressScore,
-      genre_score:
-        genreScore,
-    })
-    .eq("id", work.id);
+  workUpdates.push({
+  id: work.id,
+  actress_score: actressScore,
+  genre_score: genreScore,
+});
 }
+
+await supabase
+  .from("works")
+  .upsert(workUpdates);
 
 return Response.json(
   ranking.slice(0, 30)
