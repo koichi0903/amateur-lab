@@ -50,6 +50,8 @@ const loadWorks = async () => {
   setWorks(data || []);
 };
 
+
+
 const updateWork = async () => {
   if (!editingId) return;
 
@@ -159,9 +161,166 @@ const handleSubmit = async () => {
 };
 
 const saveDmmItem = async (
-  item: any,
-  score = 80
+  item: any
 ) => {
+
+  console.log(item);
+
+const { data: actressRanking } =
+  await supabase
+    .from("actress_rankings")
+    .select("*");
+
+const { data: genreRanking } =
+  await supabase
+    .from("genre_rankings")
+    .select("*");
+
+let actressScore = 0;
+let genreScore = 0;
+
+const actresses =
+  item.iteminfo?.actress?.map(
+    (a: any) => a.name
+  ) || [];
+
+const genres =
+  item.iteminfo?.genre?.map(
+    (g: any) => g.name
+  ) || [];
+
+actresses.forEach((name: string) => {
+  const found =
+    actressRanking?.find(
+      (a: any) =>
+        name.includes(a.name)
+    );
+
+  if (found) {
+    actressScore = Math.max(
+      actressScore,
+      found.score
+    );
+  }
+});
+
+genres.forEach((name: string) => {
+  const found =
+    genreRanking?.find(
+      (g: any) =>
+        g.name === name
+    );
+
+  if (found) {
+    genreScore += found.score;
+  }
+});
+
+const reviewAverage =
+  Number(item.review?.average || 0);
+
+const reviewCount =
+  Number(item.review?.count || 0);
+
+const { data: work } = await supabase
+  .from("works")
+  .select("ranking")
+  .eq("product_id", item.content_id)
+  .maybeSingle();
+
+const ranking =
+  work?.ranking || 9999;
+
+ let rankingScore = 0;
+
+if (ranking <= 10) {
+  rankingScore = 20;
+} else if (ranking <= 30) {
+  rankingScore = 15;
+} else if (ranking <= 50) {
+  rankingScore = 10;
+} else if (ranking <= 100) {
+  rankingScore = 5;
+}
+
+const discountRate =
+  item.prices?.list_price
+    ? Math.round(
+        (
+          1 -
+          Number(item.prices.price) /
+          Number(item.prices.list_price)
+        ) * 100
+      )
+    : 0;
+
+const releaseDate = item.date
+  ? new Date(item.date)
+  : null;
+
+const today = new Date();
+
+const daysFromRelease = releaseDate
+  ? Math.floor(
+      (today.getTime() -
+        releaseDate.getTime()) /
+        (1000 * 60 * 60 * 24)
+    )
+  : 9999;
+
+  let newReleaseBonus = 0;
+
+if (daysFromRelease <= 7) {
+  newReleaseBonus = 20;
+} else if (daysFromRelease <= 30) {
+  newReleaseBonus = 12;
+} else if (daysFromRelease <= 90) {
+  newReleaseBonus = 6;
+} else if (daysFromRelease <= 180) {
+  newReleaseBonus = 3;
+}
+
+const actressPoint =
+  actressScore / 20;
+
+const genrePoint =
+  genreScore / 500;
+
+const reviewPoint =
+  reviewAverage * 5;
+
+const reviewCountPoint =
+  Math.min(reviewCount, 50) / 5;
+
+const discountPoint =
+  discountRate / 2;
+
+const score = Math.min(
+  100,
+  Math.round(
+    actressPoint +
+    genrePoint +
+    reviewPoint +
+    reviewCountPoint +
+    discountPoint +
+    rankingScore +
+    newReleaseBonus
+  )
+);
+
+  console.log(item);
+  console.log("prices=", item.prices);
+  console.log(
+  "price=",
+  item.prices?.price
+);
+
+console.log(
+  "list_price=",
+  item.prices?.list_price
+);
+  console.log("review=", item.review);
+  console.log("iteminfo=", item.iteminfo);
 
   const { data: existing } = await supabase
   .from("works")
@@ -184,11 +343,26 @@ if (existing) {
   "サンプル動画",
   ];
 
+  console.log("prices object", item.prices);
+console.log("price raw", item.prices?.price);
+console.log("list raw", item.prices?.list_price);
+
+console.log("rank=", item.rank);
+console.log("ranking=", item.ranking);
+
+console.log("favorite=", item.favorite);
+console.log("favorite_count=", item.favorite_count);
+
   const { error } = await supabase
     .from("works")
     .insert([
       {
         title: item.title,
+        actress:
+  item.iteminfo?.actress
+    ?.slice(0, 10)
+    .map((a: any) => a.name)
+    .join(" / ") || "",
         
         genre:
   item.iteminfo?.genre
@@ -200,6 +374,20 @@ if (existing) {
     .map((g: any) => g.name)
     .join(" / ") || "未分類",
         score,
+
+        actress_score: actressScore,
+genre_score: genreScore,
+
+review_score: Math.round(reviewPoint),
+
+review_count_score: Math.round(reviewCountPoint),
+
+discount_score: Math.round(discountPoint),
+
+ranking_score: rankingScore,
+
+new_release_score: newReleaseBonus,
+        
         memo:
 `${item.iteminfo?.actress
   ?.map((a: any) => a.name)
@@ -228,16 +416,44 @@ ${item.iteminfo?.genre
 
           url:
   item.URL || "",
-  actress:
-  item.iteminfo?.actress
-    ?.map((a: any) => a.name)
-    .join(" / ") || "",
-
+  
     product_id:
   item.content_id || "",
+
+  release_date:
+  item.date || null,
+
+maker:
+  item.iteminfo?.maker?.[0]?.name || "",
+
+series:
+  item.iteminfo?.series?.[0]?.name || "",
+
+  price:
+  parseInt(item.prices?.list_price || "0"),
+
+sale_price:
+  parseInt(item.prices?.price || "0"),
+
+  review_count:
+  item.review?.count || 0,
+
+review_average:
+  item.review?.average || 0,
+
+  discount_rate:
+  item.prices?.list_price
+    ? Math.round(
+        (
+          1 -
+          Number(item.prices.price) /
+          Number(item.prices.list_price)
+        ) * 100
+      )
+    : 0,
       },
     ]);
-
+    
   if (error) {
     alert("登録失敗");
     console.log(error);
@@ -247,57 +463,385 @@ ${item.iteminfo?.genre
   loadWorks();
 };
 
+const updateDmmItem = async (
+  item: any
+) => {
+
+  const { data: actressRanking } =
+  await supabase
+    .from("actress_rankings")
+    .select("*");
+
+const { data: genreRanking } =
+  await supabase
+    .from("genre_rankings")
+    .select("*");
 
 
 
+let actressScore = 0;
+let genreScore = 0;
+
+const actresses =
+  item.iteminfo?.actress?.map(
+    (a: any) => a.name
+  ) || [];
+
+const genres =
+  item.iteminfo?.genre?.map(
+    (g: any) => g.name
+  ) || [];
+
+  actresses.forEach((name: string) => {
+  const found =
+    actressRanking?.find(
+      (a: any) =>
+        name.includes(a.name)
+    );
+
+  if (found) {
+    actressScore = Math.max(
+      actressScore,
+      found.score
+    );
+  }
+});
+
+genres.forEach((name: string) => {
+  const found =
+    genreRanking?.find(
+      (g: any) =>
+        g.name === name
+    );
+
+  if (found) {
+    genreScore += found.score;
+  }
+});
+
+const reviewAverage =
+  Number(item.review?.average || 0);
+
+const reviewCount =
+  Number(item.review?.count || 0);
+
+  console.log(
+  item.content_id,
+  item.prices
+);
+
+const { data: work } = await supabase
+  .from("works")
+  .select("ranking")
+  .eq("product_id", item.content_id)
+  .maybeSingle();
+
+const ranking =
+  work?.ranking || 9999;
+
+ let rankingScore = 0;
+
+if (ranking <= 10) {
+  rankingScore = 20;
+} else if (ranking <= 30) {
+  rankingScore = 15;
+} else if (ranking <= 50) {
+  rankingScore = 10;
+} else if (ranking <= 100) {
+  rankingScore = 5;
+}
+
+const discountRate =
+  parseInt(item.prices?.list_price || "0")
+    ? Math.round(
+        (
+          1 -
+          parseInt(item.prices?.price || "0") /
+          parseInt(item.prices?.list_price || "1")
+        ) * 100
+      )
+    : 0;
+
+ 
+
+const releaseDate = item.date
+  ? new Date(item.date)
+  : null;
+
+const today = new Date();
+
+const daysFromRelease = releaseDate
+  ? Math.floor(
+      (today.getTime() -
+        releaseDate.getTime()) /
+        (1000 * 60 * 60 * 24)
+    )
+  : 9999;
+
+  let newReleaseBonus = 0;
+
+if (daysFromRelease <= 7) {
+  newReleaseBonus = 20;
+} else if (daysFromRelease <= 30) {
+  newReleaseBonus = 12;
+} else if (daysFromRelease <= 90) {
+  newReleaseBonus = 6;
+} else if (daysFromRelease <= 180) {
+  newReleaseBonus = 3;
+}
+
+const actressPoint =
+  actressScore / 20;
+
+const genrePoint =
+  genreScore / 500;
+
+const reviewPoint =
+  reviewAverage * 5;
+
+const reviewCountPoint =
+  Math.min(reviewCount, 50) / 5;
+
+const discountPoint =
+  discountRate / 2;
+
+const score = Math.min(
+  100,
+  Math.round(
+    actressPoint +
+    genrePoint +
+    reviewPoint +
+    reviewCountPoint +
+    discountPoint +
+    rankingScore +
+    newReleaseBonus
+  )
+);
+
+console.log("UPDATE DATA", {
+  score,
+  actress_score: actressScore,
+  genre_score: genreScore,
+  release_date: item.date,
+  maker: item.iteminfo?.maker?.[0]?.name,
+  series: item.iteminfo?.series?.[0]?.name,
+  price: Number(
+    item.prices?.list_price?.replace("~", "")
+  ) || 0,
+  sale_price: Number(
+    item.prices?.price?.replace("~", "")
+  ) || 0,
+  review_count: item.review?.count || 0,
+  review_average:
+    Number(item.review?.average) || 0,
+});
+
+  const { error } = await supabase
+    .from("works")
+    .update({
+
+      score: score,
+actress_score: actressScore,
+genre_score: genreScore,
+
+review_score: Math.round(reviewPoint),
+
+review_count_score: Math.round(reviewCountPoint),
+
+discount_score: Math.round(discountPoint),
+
+ranking_score: rankingScore,
+
+new_release_score: newReleaseBonus,
+
+ranking:
+  ranking,
+      
+      release_date:
+        item.date || null,
+
+      maker:
+        item.iteminfo?.maker?.[0]?.name || "",
+
+      series:
+        item.iteminfo?.series?.[0]?.name || "",
+
+      price:
+  Number(
+    item.prices?.list_price?.replace("~", "")
+  ) || 0,
+
+sale_price:
+  Number(
+    item.prices?.price?.replace("~", "")
+  ) || 0,
+      review_count:
+        item.review?.count || 0,
+
+      review_average:
+        Number(item.review?.average) || 0,
+       
+      discount_rate:
+  parseInt(item.prices?.list_price || "0")
+    ? Math.round(
+        (
+          1 -
+          parseInt(item.prices?.price || "0") /
+          parseInt(item.prices?.list_price || "1")
+        ) * 100
+      )
+    : 0,
+
+      last_updated:
+        new Date().toISOString(),
+    })
+    .eq(
+      "product_id",
+      item.content_id
+    )
+
+  console.log(
+  "UPDATE ERROR",
+  error
+);
+};
+
+const updateAllWorks = async () => {
+  const { data: works } = await supabase
+    .from("works")
+    .select("id, product_id");
+
+  if (!works) return;
+
+  const batchSize = 10;
+
+  for (let i = 0; i < works.length; i += batchSize) {
+    const batch = works.slice(i, i + batchSize);
+
+    await Promise.all(
+      batch.map(async (work) => {
+        if (!work.product_id) return;
+
+        try {
+          const res = await fetch(
+            `/api/dmm?cid=${work.product_id}`
+          );
+
+          const data = await res.json();
+
+          const item =
+            data?.result?.items?.[0];
+
+          if (!item) return;
+
+          await updateDmmItem(item);
+        } catch (e) {
+          console.log(
+            "更新失敗",
+            work.product_id,
+            e
+          );
+        }
+      })
+    );
+
+    console.log(
+      `${Math.min(i + batchSize, works.length)} / ${works.length} 件更新`
+    );
+  }
+
+  alert("更新完了");
+  loadWorks();
+};
 
 
 const saveAllResults = async () => {
-  for (const item of searchResults) {
-    await saveDmmItem(item);
+  const batchSize = 10;
+
+  for (
+    let i = 0;
+    i < searchResults.length;
+    i += batchSize
+  ) {
+    const batch = searchResults.slice(
+      i,
+      i + batchSize
+    );
+
+    await Promise.all(
+      batch.map((item) =>
+        saveDmmItem(item)
+      )
+    );
+
+    console.log(
+      `${Math.min(i + batchSize, searchResults.length)} / ${searchResults.length} 件登録`
+    );
   }
 
   alert("全件登録完了");
 };
 
 const actresses = [
-  "河北彩花",
-  "石川澪",
-  "葵つかさ",
-  "美谷朱里",
-  "七沢みあ",
-  "楪カレン",
-  "楓ふうあ",
-  "八木奈々",
-  "天使もえ",
-  "深田えいみ",
   "瀬戸環奈",
+  "琴音華",
+  "三岳ゆうな",
+  "河北彩伽",
+  "松本いちか",
+  "美園和花",
+  "MINAMO",
+  "七原さゆ",
+  "石川澪",
+  "北岡果林",
+  "小野六花",
+  "青空ひかり",
+  "新妻ゆうか",
+  "川越にこ",
+  "伊藤舞雪",
+  "篠田ゆう",
+  "紗倉まな",
+  "乙アリス",
+  "逢沢みゆ",
+  "凪ひかる",
+  "美咲かんな",
+  "波多野結衣",
+  "七沢みあ",
+  "石原希望",
+  "宮下玲奈",
+  "姫咲はな",
+  "神宮寺ナオ",
+  "深田えいみ",
+  "柏木こなつ",
+  "美谷朱音",
+  "葵いぶき",
+  "風間ゆみ",
+  "森日向子",
 ];
 
 const keywords = [
-  "素人",
-  "ナンパ",
-  "女子大生",
+  "熟女",
   "人妻",
   "中出し",
-  "フェラ",
   "巨乳",
-  "美少女",
+  "寝取り",
+  "乳首",
+  "レズ",
   "ギャル",
-"OL",
-"寝取り",
-"痴女",
-"パイズリ",
-"騎乗位",
-"潮吹き",
-"顔射",
-"温泉",
+  "アナル",
+"ニューハーフ",
 "マジックミラー号",
-"企画",
-"寝取られ",
-"童顔",
-"美乳",
-"ハメ撮り",
+"潮吹き",
+"爆乳",
+"痴女",
+"コスプレ",
+"単体作品",
+"母乳",
+"ハーレム",
+"素人",
+"電車",
+"オナニー",
+"剛毛",
+"洗脳",
 ];
 
 const fetchPopularActresses = async () => {
@@ -311,9 +855,17 @@ const fetchPopularActresses = async () => {
 
     const items = data.result?.items || [];
 
-    for (const item of items) {
-      await saveDmmItem(item, 90);
-    }
+const batchSize = 10;
+
+for (let i = 0; i < items.length; i += batchSize) {
+  const batch = items.slice(i, i + batchSize);
+
+  await Promise.all(
+    batch.map(async (item: any) => {
+      await saveDmmItem(item);
+    })
+  );
+}
   }
 
   alert("人気女優取得完了");
@@ -325,11 +877,21 @@ const fetchRanking = async () => {
 
   const data = await res.json();
 
+  console.log("ランキングAPI", data);
+
   const items = data.result?.items || [];
 
-  for (const item of items) {
-    await saveDmmItem(item, 95);
-  }
+  const batchSize = 10;
+
+for (let i = 0; i < items.length; i += batchSize) {
+  const batch = items.slice(i, i + batchSize);
+
+  await Promise.all(
+    batch.map(async (item: any) => {
+      await saveDmmItem(item);
+    })
+  );
+}
 
   alert("ランキング取得完了");
 
@@ -346,9 +908,17 @@ const fetchAmateurWorks = async () => {
 
     const items = data.result?.items || [];
 
-    for (const item of items) {
-      await saveDmmItem(item, 92);
-    }
+    const batchSize = 10;
+
+for (let i = 0; i < items.length; i += batchSize) {
+  const batch = items.slice(i, i + batchSize);
+
+  await Promise.all(
+    batch.map(async (item: any) => {
+      await saveDmmItem(item);
+    })
+  );
+}
   }
 
   alert("素人系作品取得完了");
@@ -459,6 +1029,13 @@ if (!authenticated) {
   🔥 素人系取得
 </button>
 
+<button
+  onClick={updateAllWorks}
+  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 mt-2 ml-2 rounded font-bold"
+>
+  📥 DMMデータ再取得
+</button>
+
 </div>
 
         <input
@@ -506,6 +1083,9 @@ if (!authenticated) {
   >
     更新
   </button>
+
+
+
 ) : (
   <button
     onClick={handleSubmit}
@@ -565,6 +1145,16 @@ if (!authenticated) {
       <p>
         スコア: {work.score}
       </p>
+
+<p>
+  女優スコア: {work.actress_score}
+</p>
+
+<p>
+  ジャンルスコア: {work.genre_score}
+</p>
+
+
       <p>
   メモ: {work.memo}
 </p>

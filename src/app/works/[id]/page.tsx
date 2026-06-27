@@ -16,12 +16,18 @@ export default async function WorkDetailPage(
     return <div>作品が見つかりません</div>;
   }
 
-  const { data: relatedWorks } = await supabase
+  const mainActress =
+  work.actress?.split(" / ")[0] || "";
+
+const { data: relatedWorks } = await supabase
   .from("works")
   .select("*")
-  .eq("actress", work.actress)
+  .ilike(
+    "actress",
+    `%${mainActress}%`
+  )
   .neq("id", work.id)
-  .limit(3);
+  .limit(6);
 
   return (
     <main className="min-h-screen p-8">
@@ -44,9 +50,45 @@ export default async function WorkDetailPage(
   女優: {work.actress}
 </p>
 
-      <p className="mt-2">
-        発掘スコア: {work.score}
-      </p>
+      <div className="mt-4 space-y-2">
+  {work.score >= 60 && (
+  <p className="font-bold text-lg">
+    発掘スコア: {work.score}
+  </p>
+)}
+
+  {work.review_average > 0 && (
+    <p className="text-yellow-600 font-bold">
+      ⭐ {work.review_average}
+      {work.review_count > 0 &&
+        `（${work.review_count}件）`}
+    </p>
+  )}
+
+  {work.discount_rate > 0 && (
+    <p className="text-red-600 font-bold">
+      🔥 {work.discount_rate}%OFF
+    </p>
+  )}
+
+  {work.sale_price > 0 && (
+    <p className="font-bold text-lg">
+      💰 ¥{work.sale_price.toLocaleString()}
+    </p>
+  )}
+</div>
+
+<p className="mt-2">
+  メーカー: {work.maker || "不明"}
+</p>
+
+<p className="mt-2">
+  シリーズ: {work.series || "なし"}
+</p>
+
+<p className="mt-2">
+  発売日: {work.release_date || "不明"}
+</p>
 
      <div className="mt-6 bg-yellow-50 border border-yellow-300 rounded-lg p-4">
   <h2 className="font-bold text-lg mb-2">

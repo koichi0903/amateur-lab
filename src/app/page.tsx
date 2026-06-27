@@ -38,6 +38,9 @@ data?.forEach((work) => {
 const topActresses = Object.entries(
   actressStats
 )
+
+
+
   .map(([name, stats]) => ({
     name,
     count: stats.count,
@@ -52,6 +55,31 @@ const topActresses = Object.entries(
   )
   .slice(0, 5);
 
+  const genreStats: Record<string, number> = {};
+
+data?.forEach((work) => {
+  if (!work.genre) return;
+
+  work.genre.split(" / ").forEach((genre: string) => {
+    if (!genreStats[genre]) {
+      genreStats[genre] = 0;
+    }
+
+    genreStats[genre]++;
+  });
+});
+
+const topGenres = Object.entries(
+  genreStats
+)
+  .map(([name, count]) => ({
+    name,
+    count,
+  }))
+  .sort(
+    (a, b) => b.count - a.count
+  )
+  .slice(0, 5);
 
   return (
 <>
@@ -131,8 +159,40 @@ const topActresses = Object.entries(
     </Link>
   )}
 </div>
+<div className="grid md:grid-cols-2 gap-6 mb-8 items-stretch">
+<div className="bg-blue-50 border border-blue-200 rounded-xl p-6 h-full">
+  <h2 className="text-2xl font-bold mb-4">
+    🏷️ 人気ジャンルTOP5
+  </h2>
 
-<div className="bg-pink-50 border border-pink-200 rounded-xl p-6 mb-8">
+  {topGenres.map((genre, index) => (
+    <div
+      key={genre.name}
+      className="flex justify-between py-3 border-b"
+    >
+      <p className="font-bold text-blue-600">
+        {index === 0 && "🥇 "}
+        {index === 1 && "🥈 "}
+        {index === 2 && "🥉 "}
+        {index >= 3 && `${index + 1}位 `}
+        {genre.name}
+      </p>
+
+      <p className="font-bold">
+        {genre.count}件
+      </p>
+    </div>
+  ))}
+
+  <Link
+    href="/genre"
+    className="block text-center mt-4 bg-blue-600 text-white py-2 rounded-lg"
+  >
+    全ジャンルを見る →
+  </Link>
+</div>
+
+<div className="bg-pink-50 border border-pink-200 rounded-xl p-6">
   <h2 className="text-2xl font-bold mb-4">
     🏆 発掘女優TOP5
   </h2>
@@ -176,6 +236,9 @@ const topActresses = Object.entries(
     </div>
   ))}
 </div>
+</div>
+
+
 
         <div className="rounded-xl bg-white p-6 shadow">
   <h2 className="text-2xl font-bold mb-4">
@@ -183,7 +246,7 @@ const topActresses = Object.entries(
   </h2>
 
   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-    {data?.map((work, index) => (
+  {data?.slice(0, 10).map((work, index) => (
       <div
         key={work.id}
         className="bg-white rounded-xl shadow p-4"
@@ -248,13 +311,57 @@ const topActresses = Object.entries(
     </span>
   )}
 
+  {work.review_average > 0 && (
+  <p className="text-sm text-yellow-600 font-bold mt-2">
+    ⭐ {work.review_average}
+    {work.review_count > 0 &&
+      `（${work.review_count}件）`}
+  </p>
+)}
+
+{work.discount_rate > 0 && (
+  <p className="text-sm text-red-600 font-bold">
+    🔥 {work.discount_rate}%OFF
+  </p>
+)}
+
+{work.price > 0 && (
+  <div className="mt-2">
+    {work.sale_price > 0 &&
+    work.sale_price < work.price ? (
+      <>
+        <p className="text-gray-500 line-through">
+          通常価格 ¥{work.price.toLocaleString()}
+        </p>
+
+        <p className="text-red-600 font-bold text-lg">
+          セール ¥{work.sale_price.toLocaleString()}
+        </p>
+      </>
+    ) : (
+      <p className="font-bold">
+        ¥{work.price.toLocaleString()}
+      </p>
+    )}
+  </div>
+)}
+
+  {work.score >= 60 && (
   <p className="mt-2">
     発掘スコア: {work.score}
   </p>
+)}
 </div>
+
             </div>
           ))}
          </div>
+         <Link
+  href="/ranking"
+  className="block text-center mt-6 bg-pink-600 text-white py-3 rounded-lg"
+>
+  発掘ランキングをもっと見る →
+</Link>
 </div>
       </section>
     </main>
