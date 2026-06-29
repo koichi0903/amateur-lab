@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { IGNORE_GENRES } from "../lib/genre";
 
 export default function AdminPage() {
   const ADMIN_PASSWORD = "koichi0903";
@@ -332,17 +333,6 @@ if (existing) {
   return;
 }
 
-  const ignoreGenres = [
-    "ハイビジョン",
-    "4K",
-    "独占配信",
-    "単体作品",
-    "デジモ",
-    "期間限定セール",
-  "セット商品",
-  "サンプル動画",
-  ];
-
   console.log("prices object", item.prices);
 console.log("price raw", item.prices?.price);
 console.log("list raw", item.prices?.list_price);
@@ -367,9 +357,9 @@ console.log("favorite_count=", item.favorite_count);
         genre:
   item.iteminfo?.genre
     ?.filter(
-      (g: any) =>
-        !ignoreGenres.includes(g.name)
-    )
+  (g: any) =>
+    !IGNORE_GENRES.includes(g.name)
+)
     .slice(0, 5)
     .map((g: any) => g.name)
     .join(" / ") || "未分類",
@@ -396,9 +386,9 @@ new_release_score: newReleaseBonus,
 
 ${item.iteminfo?.genre
   ?.filter(
-    (g: any) =>
-      !ignoreGenres.includes(g.name)
-  )
+  (g: any) =>
+    !IGNORE_GENRES.includes(g.name)
+)
   .slice(0, 4)
   .map((g: any) => g.name)
   .join("・") || "人気ジャンル"}を楽しめる作品。

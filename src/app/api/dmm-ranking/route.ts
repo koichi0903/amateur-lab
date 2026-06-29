@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { IGNORE_GENRES } from "../../lib/genre";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -51,18 +52,22 @@ console.log(allItems.length);
   const genreScore: Record<string, number> = {};
   const actressScore: Record<string, number> = {};
 
+  
+
 rankingItems.forEach(
   (item: any, index: number) => {
-    const point = 100 - index;
+    const point = 1000- index;
 
     const genres =
       item.iteminfo?.genre || [];
 
     genres.forEach((g: any) => {
-      genreScore[g.name] =
-        (genreScore[g.name] || 0) +
-        point;
-    });
+  if (IGNORE_GENRES.includes(g.name)) return;
+
+  genreScore[g.name] =
+    (genreScore[g.name] || 0) +
+    point;
+});
     const actresses =
   item.iteminfo?.actress || [];
 
