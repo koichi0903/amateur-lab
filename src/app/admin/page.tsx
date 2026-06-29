@@ -235,64 +235,26 @@ const discountRate =
       )
     : 0;
 
-const releaseDate = item.date
-  ? new Date(item.date)
-  : null;
-
-const today = new Date();
-
-const daysFromRelease = releaseDate
-  ? Math.floor(
-      (today.getTime() -
-        releaseDate.getTime()) /
-        (1000 * 60 * 60 * 24)
-    )
-  : 9999;
-
-  let newReleaseBonus = 0;
-
-if (daysFromRelease <= 7) {
-  newReleaseBonus = 20;
-} else if (daysFromRelease <= 30) {
-  newReleaseBonus = 12;
-} else if (daysFromRelease <= 90) {
-  newReleaseBonus = 6;
-} else if (daysFromRelease <= 180) {
-  newReleaseBonus = 3;
-}
-
-const genrePoint =
-  genreScore / 500;
-
-const rankingPoint =
-  item.rank
-    ? Math.max(0, (1000 - item.rank) / 40)
-    : 0;
-
 const {
+  score,
   actressPoint,
+  genrePoint,
   reviewPoint,
   reviewCountPoint,
   discountPoint,
+  rankingPoint,
+  newReleaseBonus,
 } = calculateScore({
   reviewAverage,
   reviewCount,
   discountRate,
   actressScore,
+  genreScore,
+  ranking: item.rank,
+  releaseDate: item.date,
 });
 
-const score = Math.min(
-  100,
-  Math.round(
-    actressPoint +
-    genrePoint +
-    reviewPoint +
-    reviewCountPoint +
-    discountPoint +
-    rankingPoint +
-    newReleaseBonus
-  )
-);
+
 
   console.log(item);
   console.log("prices=", item.prices);
@@ -518,66 +480,24 @@ const discountRate =
       )
     : 0;
 
- 
-
-const releaseDate = item.date
-  ? new Date(item.date)
-  : null;
-
-const today = new Date();
-
-const daysFromRelease = releaseDate
-  ? Math.floor(
-      (today.getTime() -
-        releaseDate.getTime()) /
-        (1000 * 60 * 60 * 24)
-    )
-  : 9999;
-
-  let newReleaseBonus = 0;
-
-if (daysFromRelease <= 7) {
-  newReleaseBonus = 20;
-} else if (daysFromRelease <= 30) {
-  newReleaseBonus = 12;
-} else if (daysFromRelease <= 90) {
-  newReleaseBonus = 6;
-} else if (daysFromRelease <= 180) {
-  newReleaseBonus = 3;
-}
-
-const genrePoint =
-  genreScore / 500;
-
-const rankingPoint =
-  item.rank
-    ? Math.max(0, (1000 - item.rank) / 40)
-    : 0;
-
 const {
+  score,
   actressPoint,
+  genrePoint,
   reviewPoint,
   reviewCountPoint,
   discountPoint,
+  rankingPoint,
+  newReleaseBonus,
 } = calculateScore({
   reviewAverage,
   reviewCount,
   discountRate,
   actressScore,
+  genreScore,
+  ranking: item.rank,
+  releaseDate: item.date,
 });
-
-const score = Math.min(
-  100,
-  Math.round(
-    actressPoint +
-    genrePoint +
-    reviewPoint +
-    reviewCountPoint +
-    discountPoint +
-    rankingPoint +
-    newReleaseBonus
-  )
-);
 
 console.log("UPDATE DATA", {
   score,
