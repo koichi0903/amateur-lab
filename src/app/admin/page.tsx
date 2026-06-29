@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { IGNORE_GENRES } from "../lib/genre";
+import { calculateScore } from "../lib/score";
 
 export default function AdminPage() {
   const ADMIN_PASSWORD = "koichi0903";
@@ -223,27 +224,6 @@ const reviewAverage =
 const reviewCount =
   Number(item.review?.count || 0);
 
-const { data: work } = await supabase
-  .from("works")
-  .select("ranking")
-  .eq("product_id", item.content_id)
-  .maybeSingle();
-
-const ranking =
-  work?.ranking || 9999;
-
- let rankingScore = 0;
-
-if (ranking <= 10) {
-  rankingScore = 20;
-} else if (ranking <= 30) {
-  rankingScore = 15;
-} else if (ranking <= 50) {
-  rankingScore = 10;
-} else if (ranking <= 100) {
-  rankingScore = 5;
-}
-
 const discountRate =
   item.prices?.list_price
     ? Math.round(
@@ -281,20 +261,25 @@ if (daysFromRelease <= 7) {
   newReleaseBonus = 3;
 }
 
-const actressPoint =
-  actressScore / 20;
-
 const genrePoint =
   genreScore / 500;
 
-const reviewPoint =
-  reviewAverage * 5;
+const rankingPoint =
+  item.rank
+    ? Math.max(0, (1000 - item.rank) / 40)
+    : 0;
 
-const reviewCountPoint =
-  Math.min(reviewCount, 50) / 5;
-
-const discountPoint =
-  discountRate / 2;
+const {
+  actressPoint,
+  reviewPoint,
+  reviewCountPoint,
+  discountPoint,
+} = calculateScore({
+  reviewAverage,
+  reviewCount,
+  discountRate,
+  actressScore,
+});
 
 const score = Math.min(
   100,
@@ -304,7 +289,7 @@ const score = Math.min(
     reviewPoint +
     reviewCountPoint +
     discountPoint +
-    rankingScore +
+    rankingPoint +
     newReleaseBonus
   )
 );
@@ -374,7 +359,7 @@ review_count_score: Math.round(reviewCountPoint),
 
 discount_score: Math.round(discountPoint),
 
-ranking_score: rankingScore,
+ranking_score: Math.round(rankingPoint),
 
 new_release_score: newReleaseBonus,
         
@@ -520,26 +505,7 @@ const reviewCount =
   item.prices
 );
 
-const { data: work } = await supabase
-  .from("works")
-  .select("ranking")
-  .eq("product_id", item.content_id)
-  .maybeSingle();
 
-const ranking =
-  work?.ranking || 9999;
-
- let rankingScore = 0;
-
-if (ranking <= 10) {
-  rankingScore = 20;
-} else if (ranking <= 30) {
-  rankingScore = 15;
-} else if (ranking <= 50) {
-  rankingScore = 10;
-} else if (ranking <= 100) {
-  rankingScore = 5;
-}
 
 const discountRate =
   parseInt(item.prices?.list_price || "0")
@@ -580,20 +546,25 @@ if (daysFromRelease <= 7) {
   newReleaseBonus = 3;
 }
 
-const actressPoint =
-  actressScore / 20;
-
 const genrePoint =
   genreScore / 500;
 
-const reviewPoint =
-  reviewAverage * 5;
+const rankingPoint =
+  item.rank
+    ? Math.max(0, (1000 - item.rank) / 40)
+    : 0;
 
-const reviewCountPoint =
-  Math.min(reviewCount, 50) / 5;
-
-const discountPoint =
-  discountRate / 2;
+const {
+  actressPoint,
+  reviewPoint,
+  reviewCountPoint,
+  discountPoint,
+} = calculateScore({
+  reviewAverage,
+  reviewCount,
+  discountRate,
+  actressScore,
+});
 
 const score = Math.min(
   100,
@@ -603,7 +574,7 @@ const score = Math.min(
     reviewPoint +
     reviewCountPoint +
     discountPoint +
-    rankingScore +
+    rankingPoint +
     newReleaseBonus
   )
 );
@@ -612,6 +583,7 @@ console.log("UPDATE DATA", {
   score,
   actress_score: actressScore,
   genre_score: genreScore,
+  ranking_score: Math.round(rankingPoint),
   release_date: item.date,
   maker: item.iteminfo?.maker?.[0]?.name,
   series: item.iteminfo?.series?.[0]?.name,
@@ -640,12 +612,9 @@ review_count_score: Math.round(reviewCountPoint),
 
 discount_score: Math.round(discountPoint),
 
-ranking_score: rankingScore,
+ranking_score: Math.round(rankingPoint),
 
 new_release_score: newReleaseBonus,
-
-ranking:
-  ranking,
       
       release_date:
         item.date || null,
