@@ -121,7 +121,7 @@ const rankingPoint =
       )
     : 0;
 
-let newReleaseBonus = SCORE.NEW_RELEASE_MAX;
+let newReleaseBonus = 0;
 
 if (releaseDate) {
   const release = new Date(releaseDate);
@@ -152,11 +152,7 @@ if (releaseDate) {
   reviewCountPoint +
   discountPoint +
   rankingPoint +
-  seriesPoint +
-  newReleaseBonus;
-
-// 最終スコア
-let score = Math.round(rawScore);
+  seriesPoint;
 
 // ======================
 // ボーナス
@@ -164,31 +160,25 @@ let score = Math.round(rawScore);
 
 let bonus = 0;
 
-// 信頼できる高評価作品
-if (
-  reviewAverage >= 4.7 &&
-  reviewCount >= 100
-) {
+bonus += newReleaseBonus;
+
+if (reviewAverage >= 4.7 && reviewCount >= 100) {
   bonus += 5;
 }
 
-// 半額以上セール
 if (discountRate >= 50) {
   bonus += 3;
 }
 
-// 高評価 × 半額セール
-if (
-  reviewAverage >= 4.5 &&
-  discountRate >= 50
-) {
+if (reviewAverage >= 4.5 && discountRate >= 50) {
   bonus += 2;
 }
 
-score += bonus;
-
-// 100点を上限にする
-score = Math.min(100, score);
+// 最終スコア
+const score = Math.min(
+  100,
+  Math.round(rawScore + bonus)
+);
 
 return {
   score,
