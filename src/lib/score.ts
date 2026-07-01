@@ -4,17 +4,24 @@
 // ======================
 
 const SCORE = {
-    // ========= 最大点 =========
+  // =========================
+  // 最大点
+  // =========================
 
   REVIEW_MAX: 15,
-  ACTRESS_MAX: 15,
-  GENRE_MAX: 15,
+  REVIEW_COUNT_MAX: 5,
   DISCOUNT_MAX: 10,
   RANKING_MAX: 20,
-  NEW_RELEASE_MAX: 10,
+
+  ACTRESS_MAX: 15,
+  GENRE_MAX: 15,
   MAKER_MAX: 5,
   SERIES_MAX: 5,
-  REVIEW_COUNT_MAX: 5,
+
+  NEW_RELEASE_MAX: 10,
+  NEW_RELEASE_30: 7,
+  NEW_RELEASE_90: 4,
+  NEW_RELEASE_180: 2,
 
   // ========= 基本評価 =========
 
@@ -126,13 +133,13 @@ if (releaseDate) {
   );
 
   if (daysFromRelease <= 7) {
-  newReleaseBonus = 12;
+  newReleaseBonus = SCORE.NEW_RELEASE_MAX;
 } else if (daysFromRelease <= 30) {
-  newReleaseBonus = 8;
+  newReleaseBonus = SCORE.NEW_RELEASE_30;
 } else if (daysFromRelease <= 90) {
-  newReleaseBonus = 4;
+  newReleaseBonus = SCORE.NEW_RELEASE_90;
 } else if (daysFromRelease <= 180) {
-  newReleaseBonus = 2;
+  newReleaseBonus = SCORE.NEW_RELEASE_180;
 }
 }
   
