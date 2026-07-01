@@ -1,7 +1,8 @@
 import Link from "next/link";
+import type { Work } from "@/types/work";
 
 type Props = {
-  work: any;
+  work: Work;
 };
 
 export default function FeaturedWorkCard({ work }: Props) {

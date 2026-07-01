@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../../lib/supabase";
 import WorkCard from "../components/WorkCard";
+import type { Work } from "@/types/work";
 
 export default function SearchPage() {
   const [keyword, setKeyword] = useState("");
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<Work[]>([]);
 
   const handleSearch = async () => {
     const { data, error } = await supabase

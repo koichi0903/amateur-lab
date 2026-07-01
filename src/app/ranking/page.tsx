@@ -2,15 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../../lib/supabase";
 import WorkCard from "../components/WorkCard";
+import type { Work } from "@/types/work";
 
 export default function RankingPage() {
-  const [works, setWorks] = useState<any[]>([]);
-
-  useEffect(() => {
-    loadWorks();
-  }, []);
+  const [works, setWorks] = useState<Work[]>([]);
 
   async function loadWorks() {
     const { data } = await supabase
@@ -21,6 +18,10 @@ export default function RankingPage() {
 
     setWorks(data || []);
   }
+
+  useEffect(() => {
+  void loadWorks();
+}, []);
 
   return (
     <main className="min-h-screen p-8">

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "../../../lib/supabase";
 
 export default async function WorkDetailPage(
   { params }: { params: Promise<{ id: string }> }

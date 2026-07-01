@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { IGNORE_GENRES } from "../../lib/genre";
+import { IGNORE_GENRES } from "../../../lib/genre";
+import type { DmmItem } from "@/types/dmm";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,7 +13,9 @@ export async function GET() {
 
   
 
-  async function fetchRanking(offset: number) {
+  async function fetchRanking(
+  offset: number
+): Promise<DmmItem[]> {
   const url =
     "https://api.dmm.com/affiliate/v3/ItemList" +
     `?api_id=${apiId}` +
@@ -28,22 +31,22 @@ export async function GET() {
   const res = await fetch(url);
   const data = await res.json();
 
-  return data.result.items;
+  return data.result.items as DmmItem[];
 }
-const allItems = [];
+const allItems: DmmItem[] = [];
 
 for (let offset = 1; offset <= 901; offset += 100) {
   const items = await fetchRanking(offset);
+
+  if (!items || items.length === 0) {
+    break;
+  }
+
   allItems.push(...items);
 }
 
-console.log(allItems.length);
-
-
-  
-
  const rankingItems = allItems.map(
-  (item: any, index: number) => ({
+  (item, index) => ({
     ...item,
     rank: index + 1,
   })
@@ -51,17 +54,19 @@ console.log(allItems.length);
 
   const genreScore: Record<string, number> = {};
   const actressScore: Record<string, number> = {};
+  const makerScore: Record<string, number> = {};
+  const seriesScore: Record<string, number> = {};
 
   
 
 rankingItems.forEach(
-  (item: any, index: number) => {
-    const point = 1000- index;
+  (item: DmmItem, index: number) => {
+    const point = Math.max(1, 1000 - index);
 
     const genres =
       item.iteminfo?.genre || [];
 
-    genres.forEach((g: any) => {
+    genres.forEach((g: { name: string }) => {
   if (IGNORE_GENRES.includes(g.name)) return;
 
   genreScore[g.name] =
@@ -69,12 +74,33 @@ rankingItems.forEach(
     point;
 });
     const actresses =
-  item.iteminfo?.actress || [];
+  item.iteminfo?.actress?.map(
+    (a: { name: string }) => a.name
+  ) || [];
 
-actresses.forEach((a: any) => {
-  actressScore[a.name] =
-    (actressScore[a.name] || 0) +
-    point;
+actresses.forEach((name) => {
+  actressScore[name] =
+    (actressScore[name] || 0) + point;
+});
+
+    const makers =
+  item.iteminfo?.maker?.map(
+    (m: { name: string }) => m.name
+  ) || [];
+
+makers.forEach((name) => {
+  makerScore[name] =
+    (makerScore[name] || 0) + point;
+});
+
+const series =
+  item.iteminfo?.series?.map(
+    (s: { name: string }) => s.name
+  ) || [];
+
+series.forEach((name) => {
+  seriesScore[name] =
+    (seriesScore[name] || 0) + point;
 });
   }
 );
@@ -100,6 +126,31 @@ const ranking = Object.entries(
   .sort(
     (a, b) => b.score - a.score
   );
+
+const makerRanking = Object.entries(
+  makerScore
+)
+  .map(([name, score]) => ({
+    maker: name,
+    score,
+  }))
+  .sort(
+    (a, b) => b.score - a.score
+  );
+
+const seriesRanking =
+  Object.entries(seriesScore)
+    .map(([series, score]) => ({
+      series,
+      score,
+    }))
+    .sort(
+  (
+    a: { score: number },
+    b: { score: number }
+  ) =>
+    b.score - a.score
+);
 
 await supabase
   .from("actress_rankings")
@@ -135,6 +186,40 @@ await supabase
     )
   );
 
+await supabase
+  .from("maker_rankings")
+  .delete()
+  .neq("id", 0);
+
+await supabase
+  .from("maker_rankings")
+  .insert(
+    makerRanking
+      .slice(0, 30)
+      .map((m) => ({
+        name: m.maker,
+        score: m.score,
+        updated_at: new Date(),
+      }))
+  );
+
+await supabase
+  .from("series_rankings")
+  .delete()
+  .neq("id", 0);
+
+await supabase
+  .from("series_rankings")
+  .insert(
+    seriesRanking
+      .slice(0, 50)
+      .map((s) => ({
+        name: s.series,
+        score: s.score,
+        updated_at: new Date(),
+      }))
+  );
+
   const actressScoreMap = new Map(
   actressRanking.map((a) => [a.actress, a.score])
 );
@@ -143,20 +228,35 @@ const genreScoreMap = new Map(
   ranking.map((g) => [g.genre, g.score])
 );
 
+const makerScoreMap = new Map(
+  makerRanking.map((m) => [m.maker, m.score])
+);
+
+const seriesScoreMap = new Map(
+  seriesRanking.map((s) => [s.series, s.score])
+);
+
   const { data: works } =
   await supabase
     .from("works")
     .select(
-      "id, product_id, actress, genre"
+      "id, product_id, actress, genre, maker, series"
     );
 
-  const rankingUpdates = [];
+  await supabase
+  .from("works")
+  .update({
+    ranking: 9999,
+  })
+  .neq("id", 0);
 
-    for (const item of rankingItems) {
+const rankingUpdates = [];
+
+for (const item of rankingItems) {
   rankingUpdates.push({
-  product_id: item.content_id,
-  ranking: item.rank,
-});
+    product_id: item.content_id,
+    ranking: item.rank,
+  });
 }
 
 await supabase
@@ -171,6 +271,8 @@ for (const work of works || []) {
 
   let actressScore = 0;
   let genreScore = 0;
+  let makerScore = 0;
+  let seriesScore = 0;
 
   const actresses =
     work.actress
@@ -181,6 +283,16 @@ for (const work of works || []) {
     work.genre
       ?.split("/")
       .map((v: string) => v.trim()) || [];
+
+  const makers =
+  work.maker
+    ?.split("/")
+    .map((v: string) => v.trim()) || [];
+    
+  const series =
+  work.series
+    ?.split("/")
+    .map((v: string) => v.trim()) || [];
 
   actresses.forEach((name: string) => {
   const score = actressScoreMap.get(name);
@@ -198,10 +310,28 @@ for (const work of works || []) {
   }
 });
 
+  makers.forEach((name: string) => {
+  const score = makerScoreMap.get(name);
+
+  if (score) {
+    makerScore += score;
+  }
+});
+
+  series.forEach((name: string) => {
+  const score = seriesScoreMap.get(name);
+
+  if (score) {
+    seriesScore += score;
+  }
+});
+
   workUpdates.push({
   id: work.id,
   actress_score: actressScore,
   genre_score: genreScore,
+  maker_score: makerScore,
+  series_score: seriesScore,
 });
 }
 

@@ -14,14 +14,6 @@ export async function GET() {
     }
   );
 
-  console.log("URL", page.url());
-
-console.log("TITLE", await page.title());
-
-console.log(await page.content());
-
-  console.log(await page.title());
-
   await browser.close();
 
   return Response.json({

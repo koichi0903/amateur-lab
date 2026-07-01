@@ -1,4 +1,4 @@
-import { supabase } from "./lib/supabase";
+import { supabase } from "../lib/supabase";
 import Link from "next/link";
 import WorkCard from "./components/WorkCard";
 
@@ -7,6 +7,25 @@ export default async function Home() {
     .from("works")
     .select("*")
     .order("score", { ascending: false });
+
+  const { data: saleWorks } =
+  await supabase
+    .from("works")
+    .select("*")
+    .gt("discount_rate", 20)
+    .order("discount_rate", {
+      ascending: false,
+    })
+    .limit(4);
+
+const { data: newWorks } =
+  await supabase
+    .from("works")
+    .select("*")
+    .order("release_date", {
+      ascending: false,
+    })
+    .limit(4);
     
 const actressStats: Record<
   string,
@@ -216,6 +235,42 @@ const topGenres = Object.entries(
 </div>
 
 
+  <div className="rounded-xl bg-pink-50 border border-pink-200 p-6 shadow mb-8">
+  <h2 className="text-2xl font-bold mb-4">
+    🎁 今日のセール作品
+  </h2>
+
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    {saleWorks?.map((work) => (
+      <WorkCard
+        key={work.id}
+        work={work}
+      />
+    ))}
+  </div>
+</div>
+
+  <div className="rounded-xl bg-green-50 border border-green-200 p-6 shadow mb-8">
+  <h2 className="text-2xl font-bold mb-4">
+    🆕 新着作品
+  </h2>
+
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    {newWorks?.map((work) => (
+      <WorkCard
+        key={work.id}
+        work={work}
+      />
+    ))}
+  </div>
+
+  <Link
+    href="/new"
+    className="block text-center mt-6 bg-green-600 text-white py-3 rounded-lg"
+  >
+    新着作品をもっと見る →
+  </Link>
+</div>
 
         <div className="rounded-xl bg-white p-6 shadow">
   <h2 className="text-2xl font-bold mb-4">

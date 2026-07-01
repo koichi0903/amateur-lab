@@ -1,7 +1,8 @@
 import Link from "next/link";
+import type { Work } from "@/types/work";
 
 type Props = {
-  work: any;
+  work: Work;
   large?: boolean;
 };
 
@@ -145,6 +146,23 @@ export default function WorkCard({
       >
         詳細 →
       </Link>
+
+    {/* デバッグ用（後で消す） */}
+<div className="mt-3 w-full text-[11px] text-gray-500 border-t pt-2">
+  <div>女優　　{work.actress_point}</div>
+  <div>ジャンル{work.genre_point}</div>
+  <div>メーカー{work.maker_point}</div>
+  <div>シリーズ{work.series_point}</div>
+
+  <div>レビュー{work.review_score}</div>
+  <div>件数　　{work.review_count_score}</div>
+
+  <div>割引　　{work.discount_score}</div>
+
+  <div>順位　　{work.ranking_score}</div>
+
+  <div>新作　　{work.new_release_score}</div>
+</div>
 
     </div>
 
