@@ -106,13 +106,39 @@ const topGenres = Object.entries(
 
   <main className="min-h-screen bg-gray-100 p-8">
   <section className="mx-auto max-w-7xl">
-        <h1 className="text-4xl font-bold mb-4">
-          素人発掘研究所
-        </h1>
+       <h1 className="text-5xl font-black tracking-tight mb-3">
+  🔬 発掘LAB
+</h1>
 
-        <p className="text-lg mb-8">
-          隠れた人気作品を発掘する作品分析メディア
-        </p>
+<p className="text-2xl font-semibold text-pink-600 mb-4">
+  FANZA作品分析メディア
+</p>
+
+<p className="text-lg text-gray-600 leading-8 max-w-3xl mb-8">
+  FANZA作品をレビュー・人気女優・ランキング・セール情報から独自分析。
+  毎日更新される発掘スコアで、
+  「今、本当におすすめできる作品」を見つける分析メディアです。
+</p>
+
+<div className="flex flex-wrap gap-3 mb-8">
+
+  <span className="bg-indigo-100 text-indigo-700 px-3 py-2 rounded-full">
+    📊 独自スコア分析
+  </span>
+
+  <span className="bg-pink-100 text-pink-700 px-3 py-2 rounded-full">
+    🏆 FANZAランキング連動
+  </span>
+
+  <span className="bg-green-100 text-green-700 px-3 py-2 rounded-full">
+    🆕 毎日データ更新
+  </span>
+
+  <span className="bg-yellow-100 text-yellow-700 px-3 py-2 rounded-full">
+    🔥 セール情報
+  </span>
+
+</div>
 
        <div className="flex gap-4 mb-8 flex-wrap">
   <Link
@@ -142,6 +168,46 @@ const topGenres = Object.entries(
 >
   🆕 新着作品
 </Link>
+
+</div>
+
+  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 my-10">
+
+  <div className="bg-white rounded-xl p-5 shadow text-center">
+    <p className="text-3xl font-bold text-indigo-600">
+      {data?.length}
+    </p>
+    <p className="text-gray-500">
+      登録作品
+    </p>
+  </div>
+
+  <div className="bg-white rounded-xl p-5 shadow text-center">
+    <p className="text-3xl font-bold text-pink-600">
+      {topActresses.length}
+    </p>
+    <p className="text-gray-500">
+      人気女優
+    </p>
+  </div>
+
+  <div className="bg-white rounded-xl p-5 shadow text-center">
+    <p className="text-3xl font-bold text-blue-600">
+      {topGenres.length}
+    </p>
+    <p className="text-gray-500">
+      人気ジャンル
+    </p>
+  </div>
+
+  <div className="bg-white rounded-xl p-5 shadow text-center">
+    <p className="text-3xl font-bold text-green-600">
+      毎日
+    </p>
+    <p className="text-gray-500">
+      データ更新
+    </p>
+  </div>
 
 </div>
 

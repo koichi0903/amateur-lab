@@ -7,6 +7,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+function getRankingPoint(rank: number) {
+  return Math.max(
+    1,
+    Math.floor(500 / Math.sqrt(rank))
+  );
+}
+
 export async function GET() {
   const apiId = process.env.DMM_API_ID;
   const affiliateId = process.env.DMM_AFFILIATE_ID;
@@ -29,9 +36,15 @@ export async function GET() {
     "&output=json";
 
   const res = await fetch(url);
-  const data = await res.json();
+const data = await res.json();
 
-  return data.result.items as DmmItem[];
+console.log({
+  title: data.result.items[0].title,
+  content_id: data.result.items[0].content_id,
+  rank: data.result.items[0].rank,
+});
+
+return data.result.items as DmmItem[];
 }
 const allItems: DmmItem[] = [];
 
@@ -61,7 +74,7 @@ for (let offset = 1; offset <= 901; offset += 100) {
 
 rankingItems.forEach(
   (item: DmmItem, index: number) => {
-    const point = Math.max(1, 1000 - index);
+    const point = getRankingPoint(index + 1);
 
     const genres =
       item.iteminfo?.genre || [];
@@ -151,6 +164,8 @@ const seriesRanking =
   ) =>
     b.score - a.score
 );
+
+console.log(actressRanking.slice(0, 10));
 
 await supabase
   .from("actress_rankings")
@@ -259,11 +274,18 @@ for (const item of rankingItems) {
   });
 }
 
-await supabase
-  .from("works")
-  .upsert(rankingUpdates, {
-    onConflict: "product_id",
-  });
+for (const item of rankingItems) {
+  const { error } = await supabase
+    .from("works")
+    .update({
+      ranking: item.rank,
+    })
+    .eq("product_id", item.content_id);
+
+  if (error) {
+    console.log(error);
+  }
+}
 
   const workUpdates = [];
 

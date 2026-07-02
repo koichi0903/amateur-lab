@@ -65,6 +65,15 @@ for (const work of works) {
     releaseDate: work.release_date,
   });
 
+  if (work.ranking <= 5) {
+  console.log({
+    ranking: work.ranking,
+    rankingPoint: result.rankingPoint,
+    discountPoint: result.discountPoint,
+    newReleaseBonus: result.newReleaseBonus,
+  });
+}
+
   workUpdates.push({
     id: work.id,
 
@@ -96,9 +105,11 @@ series_point: Math.round(result.seriesPoint),
 
 console.log("更新件数:", workUpdates.length);
 
-  await supabase
+  const { error } = await supabase
   .from("works")
   .upsert(workUpdates);
+
+console.log(error);
 
 console.log("スコア更新完了");
 

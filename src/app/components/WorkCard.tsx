@@ -10,6 +10,29 @@ export default function WorkCard({
   work,
   large = false,
 }: Props) {
+
+const reasons: string[] = [];
+
+if ((work.ranking_score ?? 0) >= 18) {
+  reasons.push("🏆 FANZAランキング上位");
+}
+
+if ((work.actress_point ?? 0) >= 18) {
+  reasons.push("👩 人気女優出演");
+}
+
+if ((work.review_score ?? 0) >= 14) {
+  reasons.push("⭐ 高評価作品");
+}
+
+if ((work.discount_score ?? 0) >= 5) {
+  reasons.push("💰 セール対象");
+}
+
+if ((work.new_release_score ?? 0) >= 8) {
+  reasons.push("🆕 新作");
+}
+
   return (
     <div
       className="border rounded-xl p-5 shadow hover:shadow-lg transition flex gap-5"
@@ -114,6 +137,25 @@ export default function WorkCard({
 
       <div className="flex flex-col gap-2 items-start">
 
+        {reasons.length > 0 && (
+  <div className="mt-3 rounded-lg bg-blue-50 p-3 w-full">
+    <p className="text-xs font-bold text-blue-700 mb-2">
+      この作品のおすすめ理由
+    </p>
+
+    <div className="flex flex-col gap-1">
+      {reasons.map((reason) => (
+        <span
+          key={reason}
+          className="text-xs text-gray-700"
+        >
+          {reason}
+        </span>
+      ))}
+    </div>
+  </div>
+)}
+
         {work.score >= 95 && (
           <span className="bg-red-500 text-white px-2 py-1 rounded-full text-xs">
             🔥急上昇
@@ -148,20 +190,54 @@ export default function WorkCard({
       </Link>
 
     {/* デバッグ用（後で消す） */}
-<div className="mt-3 w-full text-[11px] text-gray-500 border-t pt-2">
-  <div>女優　　{work.actress_point}</div>
-  <div>ジャンル{work.genre_point}</div>
-  <div>メーカー{work.maker_point}</div>
-  <div>シリーズ{work.series_point}</div>
 
-  <div>レビュー{work.review_score}</div>
-  <div>件数　　{work.review_count_score}</div>
+<div className="mt-3 w-full text-[11px] text-gray-500 border-t pt-2 space-y-1">
 
-  <div>割引　　{work.discount_score}</div>
+  <div className="flex justify-between">
+    <span>👩 女優</span>
+    <span>{work.actress_point}</span>
+  </div>
 
-  <div>順位　　{work.ranking_score}</div>
+  <div className="flex justify-between">
+    <span>🏷 ジャンル</span>
+    <span>{work.genre_point}</span>
+  </div>
 
-  <div>新作　　{work.new_release_score}</div>
+  <div className="flex justify-between">
+    <span>🏢 メーカー</span>
+    <span>{work.maker_point}</span>
+  </div>
+
+  <div className="flex justify-between">
+    <span>📚 シリーズ</span>
+    <span>{work.series_point}</span>
+  </div>
+
+  <div className="flex justify-between">
+    <span>⭐ レビュー</span>
+    <span>{work.review_score}</span>
+  </div>
+
+  <div className="flex justify-between">
+    <span>📝 件数</span>
+    <span>{work.review_count_score}</span>
+  </div>
+
+  <div className="flex justify-between">
+    <span>💰 割引</span>
+    <span>{work.discount_score}</span>
+  </div>
+
+  <div className="flex justify-between">
+    <span>🏆 順位</span>
+    <span>{work.ranking_score}</span>
+  </div>
+
+  <div className="flex justify-between font-bold text-indigo-600">
+    <span>🚀 新作</span>
+    <span>{work.new_release_score}</span>
+  </div>
+
 </div>
 
     </div>

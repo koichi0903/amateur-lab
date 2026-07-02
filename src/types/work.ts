@@ -16,6 +16,11 @@ export interface Work {
   maker_score: number;
   series_score: number;
 
+  actress_point: number;
+genre_point: number;
+maker_point: number;
+series_point: number;
+
   review_score: number;
   review_count_score: number;
   discount_score: number;
