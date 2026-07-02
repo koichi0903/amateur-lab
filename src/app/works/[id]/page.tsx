@@ -80,13 +80,13 @@ if ((work.new_release_score ?? 0) >= 8) {
 }
 
 let summary =
-  "人気・評価・価格を総合分析した結果、現在おすすめできる作品です。";
+  "人気・評価・価格を総合分析した結果、おすすめできる作品です。";
 
 if (points.length > 0) {
   summary +=
-    " 特に「" +
+    "\n\n" +
     points.join("・") +
-    "」が高く評価されています。";
+    " が評価されています。";
 }
 
 if ((work.review_average ?? 0) >= 4.7) {
