@@ -8,7 +8,7 @@ type Props = {
   large?: boolean;
 };
 
-export default function WorkCard({
+export default function RankingCard({
   work,
   rank,
   large = false,
@@ -81,7 +81,7 @@ if ((work.new_release_score ?? 0) >= 8) {
 
       <div
   className={`flex flex-col items-center self-start ${
-    large ? "w-[220px]" : "w-[170px]"
+    large ? "w-[320px]" : "w-[170px]"
   }`}
  >
 

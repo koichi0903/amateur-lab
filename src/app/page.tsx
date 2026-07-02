@@ -232,13 +232,16 @@ const topGenres = Object.entries(
       key={genre.name}
       className="flex justify-between py-3 border-b"
     >
-      <p className="font-bold text-blue-600">
-        {index === 0 && "🥇 "}
-        {index === 1 && "🥈 "}
-        {index === 2 && "🥉 "}
-        {index >= 3 && `${index + 1}位 `}
-        {genre.name}
-      </p>
+      <Link
+  href={`/genre/${encodeURIComponent(genre.name)}`}
+  className="font-bold text-blue-600 hover:underline"
+>
+  {index === 0 && "🥇 "}
+  {index === 1 && "🥈 "}
+  {index === 2 && "🥉 "}
+  {index >= 3 && `${index + 1}位 `}
+  {genre.name}
+</Link>
 
       <p className="font-bold">
         {genre.count}件

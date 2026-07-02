@@ -2,7 +2,7 @@ import { supabase } from "../../../lib/supabase";
 import Link from "next/link";
 import WorkCard from "../../components/WorkCard";
 
-export default async function ActressDetailPage(
+export default async function MakerDetailPage(
   { params }: { params: Promise<{ name: string }> }
 ) {
   const { name } = await params;
@@ -10,7 +10,10 @@ export default async function ActressDetailPage(
   const { data } = await supabase
     .from("works")
     .select("*")
-    .ilike("actress", `%${decodeURIComponent(name)}%`)
+    .ilike(
+  "maker",
+  decodeURIComponent(name)
+)
     .order("score", { ascending: false });
 
     const workCount = data?.length || 0;
@@ -76,7 +79,7 @@ const topWorks =
 
 
     <h1 className="text-4xl font-extrabold">
-      👩 {decodeURIComponent(name)}
+     🏢️ {decodeURIComponent(name)}
     </h1>
 
     <div className="mt-6 bg-white rounded-xl border p-6 shadow-sm">
@@ -138,7 +141,7 @@ const topWorks =
 
   <p className="text-gray-700 mb-4">
     {decodeURIComponent(name)}は、
-    発掘LAB独自スコアによる分析で
+発掘LABに登録されているメーカー作品を分析した結果、
     平均スコア<strong>{averageScore}</strong>点、
     平均レビュー<strong>{averageReview}</strong>点を獲得しています。
   </p>

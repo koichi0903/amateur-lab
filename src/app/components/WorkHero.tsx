@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 type Props = {
   work: any;
   reasons: string[];
@@ -35,27 +37,62 @@ export default function WorkHero({
           <div className="grid grid-cols-2 gap-6">
 
             <div>
-              <p className="text-xs text-gray-500">👩 女優</p>
-              <p className="font-bold">{work.actress}</p>
-            </div>
+  <p className="text-xs text-gray-500">👩 女優</p>
+
+  <div className="flex flex-wrap gap-2 mt-1">
+    {work.actress?.split(" / ").map((actress: string) => (
+      <Link
+        key={actress}
+        href={`/actress/${encodeURIComponent(actress)}`}
+        className="font-bold text-blue-600 hover:underline"
+      >
+        {actress}
+      </Link>
+    ))}
+  </div>
+</div>
 
             <div>
               <p className="text-xs text-gray-500">🏷 ジャンル</p>
-              <p className="font-bold">{work.genre}</p>
-            </div>
+             <div className="flex flex-wrap gap-2 mt-1">
+  {work.genre?.split(" / ").map((genre: string) => (
+    <Link
+      key={genre}
+      href={`/genre/${encodeURIComponent(genre)}`}
+      className="font-bold text-blue-600 hover:underline"
+    >
+      {genre}
+    </Link>
+  ))}
+</div>
+</div>
 
             <div>
   <p className="text-xs text-gray-500">🏢 メーカー</p>
-  <p className="font-bold">
-    {work.maker || "-"}
-  </p>
+ {work.maker ? (
+  <Link
+    href={`/maker/${encodeURIComponent(work.maker)}`}
+    className="font-bold text-blue-600 hover:underline"
+  >
+    {work.maker}
+  </Link>
+) : (
+  <p className="font-bold">-</p>
+)}
 </div>
 
 <div>
   <p className="text-xs text-gray-500">📚 シリーズ</p>
-  <p className="font-bold">
-    {work.series || "-"}
-  </p>
+  {work.series ? (
+  <Link
+    href={`/series/${encodeURIComponent(work.series)}`}
+    className="font-bold text-blue-600 hover:underline"
+  >
+    {work.series}
+  </Link>
+) : (
+  <p className="font-bold">-</p>
+)}
 </div>
 
             {work.review_average > 0 && (
