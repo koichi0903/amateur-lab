@@ -7,6 +7,7 @@ import type { Work } from "@/types/work";
 import { getAllWorks } from "@/lib/getAllWorks";
 import SiteStatistics from "./components/SiteStatistics";
 import { getSiteStatistics } from "@/lib/getSiteStatistics";
+import CollectionPageJsonLd from "./components/CollectionPageJsonLd";
 
 export default async function Home() {
   const data = await getAllWorks();
@@ -142,7 +143,12 @@ const topGenres = Object.entries(
   .slice(0, 5);
 
   return (
-<>
+  <>
+    <CollectionPageJsonLd
+      title="発掘LAB"
+      description="FANZA作品を独自アルゴリズムで分析するレビュー・ランキングメディア"
+      url="https://amateur-lab.vercel.app/"
+    />
 
   <main className="min-h-screen bg-gray-100 p-8">
   <section className="mx-auto max-w-7xl">

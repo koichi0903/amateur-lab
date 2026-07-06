@@ -2,6 +2,7 @@ import { supabase } from "../../lib/supabase";
 import Link from "next/link";
 import Breadcrumb from "@/app/components/Breadcrumb";
 import { getAllWorks } from "@/lib/getAllWorks";
+import CollectionPageJsonLd from "@/app/components/CollectionPageJsonLd";
 
 export default async function SeriesPage() {
  const data = await getAllWorks();
@@ -23,7 +24,14 @@ seriesCount[name] =
     .sort((a, b) => b[1] - a[1]);
 
   return (
-    <main className="min-h-screen p-8">
+    <>
+  <CollectionPageJsonLd
+    title="シリーズ一覧 | 発掘LAB"
+    description="シリーズ作品を独自スコア順に掲載しています。"
+    url="https://amateur-lab.vercel.app/series"
+  />
+
+  <main className="min-h-screen bg-gray-100 p-8">
       
     <Breadcrumb
   items={[
@@ -55,5 +63,6 @@ seriesCount[name] =
         </div>
       ))}
     </main>
+</>
   );
 }

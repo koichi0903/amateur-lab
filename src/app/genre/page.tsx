@@ -2,6 +2,7 @@ import { supabase } from "../../lib/supabase";
 import Link from "next/link";
 import Breadcrumb from "@/app/components/Breadcrumb";
 import { getAllWorks } from "@/lib/getAllWorks";
+import CollectionPageJsonLd from "@/app/components/CollectionPageJsonLd";
 
 export default async function GenrePage() {
   const data = await getAllWorks();
@@ -23,7 +24,14 @@ export default async function GenrePage() {
     .sort((a, b) => b[1] - a[1]);
 
   return (
-    <main className="min-h-screen p-8">
+    <>
+  <CollectionPageJsonLd
+    title="ジャンル一覧 | 発掘LAB"
+    description="ジャンル別におすすめ作品を一覧表示しています。"
+    url="https://amateur-lab.vercel.app/genre"
+  />
+
+  <main className="min-h-screen bg-gray-100 p-8">
 
       <Breadcrumb
   items={[
@@ -54,6 +62,7 @@ export default async function GenrePage() {
           </p>
         </div>
       ))}
-    </main>
+   </main>
+</>
   );
 }

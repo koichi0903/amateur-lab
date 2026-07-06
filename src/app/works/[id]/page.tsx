@@ -6,6 +6,8 @@ import AIAnalysis from "../../components/AIAnalysis";
 import RelatedWorks from "../../components/RelatedWorks";
 import Breadcrumb from "@/app/components/Breadcrumb";
 import BreadcrumbJsonLd from "@/app/components/BreadcrumbJsonLd";
+import Link from "next/link";
+import ProductJsonLd from "@/app/components/ProductJsonLd";
 
 
 export async function generateMetadata(
@@ -183,6 +185,8 @@ if ((work.new_release_score ?? 0) >= 8) {
   ]}
 />
 
+<ProductJsonLd work={work} />
+
 <WorkHero
       work={work}
       reasons={reasons}
@@ -196,6 +200,52 @@ if ((work.new_release_score ?? 0) >= 8) {
     <WorkInfo work={work} />
 
     <RelatedWorks works={relatedWorks} />
+
+    <div className="mt-10 rounded-xl border bg-white p-6 shadow-sm">
+  <h2 className="mb-4 text-2xl font-bold">
+    🔗 関連ページ
+  </h2>
+
+  <div className="flex flex-wrap gap-3">
+
+    {mainActress && (
+      <Link
+        href={`/actress/${encodeURIComponent(mainActress)}`}
+        className="rounded-lg bg-pink-100 px-4 py-2 font-semibold hover:bg-pink-200"
+      >
+        👩 {mainActress}の作品一覧
+      </Link>
+    )}
+
+    {work.genre && (
+      <Link
+        href={`/genre/${encodeURIComponent(work.genre)}`}
+        className="rounded-lg bg-indigo-100 px-4 py-2 font-semibold hover:bg-indigo-200"
+      >
+        🏷 {work.genre}
+      </Link>
+    )}
+
+    {work.maker && (
+      <Link
+        href={`/maker/${encodeURIComponent(work.maker)}`}
+        className="rounded-lg bg-green-100 px-4 py-2 font-semibold hover:bg-green-200"
+      >
+        🏢 {work.maker}
+      </Link>
+    )}
+
+    {work.series && (
+      <Link
+        href={`/series/${encodeURIComponent(work.series)}`}
+        className="rounded-lg bg-yellow-100 px-4 py-2 font-semibold hover:bg-yellow-200"
+      >
+        📚 {work.series}
+      </Link>
+    )}
+
+  </div>
+</div>
 
   </div>
 </main>

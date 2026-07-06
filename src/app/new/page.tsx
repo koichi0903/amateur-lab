@@ -1,6 +1,7 @@
 import { supabase } from "../../lib/supabase";
 import Link from "next/link";
 import Image from "next/image";
+import CollectionPageJsonLd from "@/app/components/CollectionPageJsonLd";
 
 export default async function NewPage() {
   const { data } = await supabase
@@ -9,7 +10,14 @@ export default async function NewPage() {
     .order("id", { ascending: false });
 
   return (
-    <main className="min-h-screen p-8">
+    <>
+  <CollectionPageJsonLd
+    title="新着作品 | 発掘LAB"
+    description="最新のFANZA作品を独自分析しています。"
+    url="https://amateur-lab.vercel.app/new"
+  />
+
+  <main className="min-h-screen bg-gray-100 p-8">
       
       <h1 className="text-3xl font-bold mb-6">
         🆕 新着作品
@@ -60,5 +68,6 @@ export default async function NewPage() {
         ))}
       </div>
     </main>
+</>
   );
 }

@@ -6,6 +6,7 @@ import RankingCard from "../components/RankingCard";
 import RankingHero from "../components/RankingHero";
 import type { Work } from "@/types/work";
 import Breadcrumb from "@/app/components/Breadcrumb";
+import CollectionPageJsonLd from "../components/CollectionPageJsonLd";
 
 export default function RankingPage() {
   const [works, setWorks] = useState<Work[]>([]);
@@ -25,6 +26,13 @@ export default function RankingPage() {
 }, []);
 
   return (
+  <>
+    <CollectionPageJsonLd
+      title="発掘ランキング"
+      description="発掘LAB独自スコアによるFANZA作品ランキング"
+      url="https://amateur-lab.vercel.app/ranking"
+    />
+
     <main className="min-h-screen bg-gray-100 p-8">
   <div className="max-w-7xl mx-auto">
   <p className="text-sm text-blue-600 font-semibold tracking-widest uppercase">
@@ -66,6 +74,7 @@ export default function RankingPage() {
 ))}
 </div>
 </div>
-    </main>
-  );
+</main>
+</>
+);
 }
