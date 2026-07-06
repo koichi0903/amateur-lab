@@ -1,10 +1,10 @@
 import { supabase } from "../../lib/supabase";
 import Link from "next/link";
+import Breadcrumb from "@/app/components/Breadcrumb";
+import { getAllWorks } from "@/lib/getAllWorks";
 
 export default async function MakerPage() {
-  const { data } = await supabase
-    .from("works")
-    .select("maker")
+  const data = await getAllWorks();
 
   const makerCount: Record<string, number> = {};
 
@@ -23,6 +23,13 @@ export default async function MakerPage() {
   return (
     <main className="min-h-screen p-8">
       
+      <Breadcrumb
+  items={[
+    { label: "TOP", href: "/" },
+    { label: "メーカー" },
+  ]}
+/>
+
       <h1 className="text-3xl font-bold mb-6">
         🏢 メーカーランキング
       </h1>

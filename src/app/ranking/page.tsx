@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { supabase } from "../../lib/supabase";
 import RankingCard from "../components/RankingCard";
 import RankingHero from "../components/RankingHero";
 import type { Work } from "@/types/work";
+import Breadcrumb from "@/app/components/Breadcrumb";
 
 export default function RankingPage() {
   const [works, setWorks] = useState<Work[]>([]);
@@ -30,6 +30,13 @@ export default function RankingPage() {
   <p className="text-sm text-blue-600 font-semibold tracking-widest uppercase">
     発掘 LAB
   </p>
+
+<Breadcrumb
+  items={[
+    { label: "TOP", href: "/" },
+    { label: "ランキング" },
+  ]}
+/>
 
   <h1 className="mt-2 text-4xl font-extrabold">
     発掘ランキング

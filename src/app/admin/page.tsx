@@ -10,6 +10,8 @@ import type { Work } from "../../types/work";
 import type { DmmItem } from "../../types/dmm";
 import type { RankingItem } from "../../types/ranking";
 import { updateDmmItem } from "@/lib/admin/update";
+import Image from "next/image";
+import { updateStatistics } from "@/lib/statistics/updateStatistics";
 
 export default function AdminPage() {
   const ADMIN_PASSWORD = "koichi0903";
@@ -242,10 +244,14 @@ if (!item) {
     console.log(
   `更新進捗: ${Math.min(i + batchSize, works.length)} / ${works.length}`
 );
-  }
+}
 
-  alert("更新完了");
-  loadWorks();
+console.log("★★★★ updateStatisticsを呼びます ★★★★");
+// 全作品の更新が終わったら統計を更新
+await updateStatistics();
+
+alert("更新完了");
+loadWorks();
 };
 
 
@@ -581,11 +587,13 @@ if (!authenticated) {
         {item.title}
       </p>
       {item.imageURL?.large && (
-  <img
-    src={item.imageURL.large}
-    alt={item.title}
-    className="w-40 mt-2 rounded"
-  />
+  <Image
+  src={item.imageURL.large}
+  alt={item.title}
+  width={160}
+  height={225}
+  className="w-40 h-auto mt-2 rounded"
+/>
   
 )}
 <button

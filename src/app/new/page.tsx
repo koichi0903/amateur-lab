@@ -1,5 +1,6 @@
 import { supabase } from "../../lib/supabase";
 import Link from "next/link";
+import Image from "next/image";
 
 export default async function NewPage() {
   const { data } = await supabase
@@ -21,11 +22,13 @@ export default async function NewPage() {
             className="bg-white rounded-xl shadow p-4"
           >
             {work.image_url && (
-              <img
-                src={work.image_url}
-                alt={work.title}
-                className="w-48 rounded mb-3"
-              />
+              <Image
+  src={work.image_url}
+  alt={work.title}
+  width={192}
+  height={270}
+  className="w-48 h-auto rounded mb-3"
+/>
             )}
 
             <Link href={`/works/${work.id}`}>

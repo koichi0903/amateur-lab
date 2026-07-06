@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Work } from "@/types/work";
+import Image from "next/image";
 
 type Props = {
   work: Work;
@@ -13,11 +14,13 @@ export default function FeaturedWorkCard({ work }: Props) {
       <div className="w-[170px] flex flex-col items-center self-start">
 
   {work.image_url && (
-    <img
-      src={work.image_url}
-      alt={work.title}
-      className="w-[170px] h-[130px] object-contain rounded-lg bg-white"
-    />
+   <Image
+  src={work.image_url}
+  alt={work.title}
+  width={170}
+  height={241}
+  className="object-contain rounded-lg bg-white"
+/>
   )}
 
   {work.score > 0 && (

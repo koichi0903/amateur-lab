@@ -1,5 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
 import { calculateScore } from "@/lib/score";
+import { updateStatistics } from "@/lib/statistics/updateStatistics";
+
+type ScoreUpdateWork = {
+  id: number;
+  review_average: number | null;
+  review_count: number | null;
+  discount_rate: number | null;
+  ranking: number | null;
+  actress_score: number | null;
+  genre_score: number | null;
+  maker_score: number | null;
+  series_score: number | null;
+  release_date: string | null;
+};
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,7 +22,7 @@ const supabase = createClient(
 
 export async function GET() {
 
-  const works: any[] = [];
+  const works: ScoreUpdateWork[] = [];
 
   let from = 0;
   const limit = 1000;
@@ -60,12 +74,12 @@ for (const work of works) {
     makerScore: work.maker_score || 0,
     seriesScore: work.series_score || 0,
 
-    ranking: work.ranking,
+    ranking: work.ranking ?? undefined,
 
     releaseDate: work.release_date,
   });
 
-  if (work.ranking <= 5) {
+  if (work.ranking !== null && work.ranking <= 5) {
   console.log({
     ranking: work.ranking,
     rankingPoint: result.rankingPoint,
@@ -113,7 +127,12 @@ console.log(error);
 
 console.log("スコア更新完了");
 
-  return Response.json({
+// サイト全体の統計を更新
+await updateStatistics();
+
+console.log("統計更新完了");
+
+return Response.json({
   count: works.length,
   updates: workUpdates.length,
   message: "スコア更新完了",

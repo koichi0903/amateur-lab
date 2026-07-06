@@ -1,10 +1,10 @@
 import { supabase } from "../../lib/supabase";
 import Link from "next/link";
+import Breadcrumb from "@/app/components/Breadcrumb";
+import { getAllWorks } from "@/lib/getAllWorks";
 
 export default async function SeriesPage() {
-  const { data } = await supabase
-    .from("works")
-    .select("series")
+ const data = await getAllWorks();
 
   const seriesCount: Record<string, number> = {};
 
@@ -25,6 +25,13 @@ seriesCount[name] =
   return (
     <main className="min-h-screen p-8">
       
+    <Breadcrumb
+  items={[
+    { label: "TOP", href: "/" },
+    { label: "シリーズ" },
+  ]}
+/>
+
       <h1 className="text-3xl font-bold mb-6">
         📚 シリーズランキング
       </h1>

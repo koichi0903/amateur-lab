@@ -1,11 +1,11 @@
 import { supabase } from "../../lib/supabase";
 import Link from "next/link";
+import Breadcrumb from "@/app/components/Breadcrumb";
+import { getAllWorks } from "@/lib/getAllWorks";
 
 export default async function GenrePage() {
-  const { data } = await supabase
-    .from("works")
-    .select("genre");
-
+  const data = await getAllWorks();
+  
   const genreCount: Record<string, number> = {};
 
   data?.forEach((work) => {
@@ -24,6 +24,13 @@ export default async function GenrePage() {
 
   return (
     <main className="min-h-screen p-8">
+
+      <Breadcrumb
+  items={[
+    { label: "TOP", href: "/" },
+    { label: "ジャンル" },
+  ]}
+/>
       
       <h1 className="text-3xl font-bold mb-6">
         🏷️ ジャンルランキング

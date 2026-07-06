@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Work } from "@/types/work";
-import ScoreBar from "./ScoreBar";
+import Image from "next/image";
+import MiniBar from "./MiniBar";
 
 type Props = {
   work: Work;
@@ -13,39 +14,6 @@ export default function WorkCard({
   rank,
   large = false,
 }: Props) {
-
-  const MiniBar = ({
-  label,
-  value,
-  max,
-}: {
-  label: string;
-  value: number;
-  max: number;
-}) => (
-  <div className="flex items-center gap-2">
-
-    <span className="w-16 text-[11px] text-gray-600 font-medium">
-  {label}
-</span>
-
-    <div className="w-16 h-1.5 rounded-full bg-gray-200 overflow-hidden">
-
-      <div
-        className="h-full rounded-full bg-indigo-600"
-        style={{
-          width: `${Math.min((value / max) * 100, 100)}%`,
-        }}
-      />
-
-    </div>
-
-    <span className="w-5 text-right text-[11px] font-bold text-gray-700">
-      {value}
-    </span>
-
-  </div>
-);
 
 const reasons: string[] = [];
 
@@ -86,15 +54,13 @@ if ((work.new_release_score ?? 0) >= 8) {
  >
 
   {work.image_url && (
-    <img
-      src={work.image_url}
-      alt={work.title}
-      className={`object-contain rounded-lg bg-white ${
-  large
-    ? "w-[220px] h-[170px]"
-    : "w-[170px] h-[130px]"
-}`}
-    />
+    <Image
+  src={work.image_url}
+  alt={work.title}
+  width={large ? 220 : 170}
+  height={large ? 312 : 241}
+  className="rounded-lg bg-white object-contain"
+/>
   )}
 
   {work.score > 0 && (

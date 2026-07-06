@@ -4,6 +4,8 @@ import WorkHero from "../../components/WorkHero";
 import WorkInfo from "../../components/WorkInfo";
 import AIAnalysis from "../../components/AIAnalysis";
 import RelatedWorks from "../../components/RelatedWorks";
+import Breadcrumb from "@/app/components/Breadcrumb";
+
 
 export async function generateMetadata(
   { params }: { params: Promise<{ id: string }> }
@@ -13,7 +15,7 @@ export async function generateMetadata(
 
   const { data: work } = await supabase
     .from("works")
-    .select("title, actress, score")
+    .select("title, actress, score, image_url")
     .eq("id", id)
     .single();
 
@@ -27,7 +29,25 @@ export async function generateMetadata(
     title: `${work.title}｜レビュー・発掘スコア${work.score} | 発掘LAB`,
     description:
       `${work.title}のレビュー・評価・発掘スコアを掲載。女優「${work.actress}」出演作品を独自アルゴリズムで分析しています。`,
-  };
+    
+  keywords: [
+  work.title,
+  work.actress,
+  "FANZA",
+  "レビュー",
+  "AV",
+  "発掘LAB",
+  "おすすめ作品",
+],
+
+  openGraph: {
+  title: `${work.title} | 発掘LAB`,
+  description: `${work.title}のレビュー・評価・発掘スコアを掲載しています。`,
+  type: "article",
+  images: [work.image_url],
+},
+  
+    };
 }
 
 export default async function WorkDetailPage(
@@ -142,6 +162,14 @@ if ((work.new_release_score ?? 0) >= 8) {
   return (
   <main className="min-h-screen bg-gray-100 p-8">
   <div className="max-w-7xl mx-auto">
+
+
+    <Breadcrumb
+  items={[
+    { label: "🏠 TOP", href: "/" },
+    { label: work.title },
+  ]}
+/>
 
     <WorkHero
       work={work}

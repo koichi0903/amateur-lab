@@ -1,12 +1,17 @@
 import { supabase } from "../lib/supabase";
 import Link from "next/link";
 import WorkCard from "./components/WorkCard";
+import Image from "next/image";
+import TopRankingCard from "./components/TopRankingCard";
+import type { Work } from "@/types/work";
+import { getAllWorks } from "@/lib/getAllWorks";
+import SiteStatistics from "./components/SiteStatistics";
+import { getSiteStatistics } from "@/lib/getSiteStatistics";
 
 export default async function Home() {
-  const { data } = await supabase
-    .from("works")
-    .select("*")
-    .order("score", { ascending: false });
+  const data = await getAllWorks();
+
+  const statistics = await getSiteStatistics();
 
   const { data: saleWorks } =
   await supabase
@@ -17,6 +22,7 @@ export default async function Home() {
       ascending: false,
     })
     .limit(4);
+    
 
 const { data: newWorks } =
   await supabase
@@ -39,20 +45,20 @@ const actressStats: Record<
 data?.forEach((work) => {
   if (!work.actress) return;
 
-  const actress =
-    work.actress.split(" / ")[0];
+  work.actress
+    .split(" / ")
+    .forEach((actress: string) => {
+      if (!actressStats[actress]) {
+        actressStats[actress] = {
+          count: 0,
+          total: 0,
+          image: work.image_url || "",
+        };
+      }
 
-  if (!actressStats[actress]) {
-  actressStats[actress] = {
-    count: 0,
-    total: 0,
-    image: work.image_url || "",
-  };
-}
-
-  actressStats[actress].count++;
-  actressStats[actress].total +=
-    work.score || 0;
+      actressStats[actress].count++;
+      actressStats[actress].total += work.score || 0;
+    });
 });
 
 const topActresses = Object.entries(
@@ -75,6 +81,40 @@ const topActresses = Object.entries(
   )
   .slice(0, 5);
 
+  const makerStats: Record<string, number> = {};
+
+data?.forEach((work) => {
+  if (!work.maker) return;
+
+  makerStats[work.maker] =
+    (makerStats[work.maker] || 0) + 1;
+});
+
+const seriesStats: Record<string, number> = {};
+
+data?.forEach((work) => {
+  if (!work.series) return;
+
+  seriesStats[work.series] =
+    (seriesStats[work.series] || 0) + 1;
+});
+
+const topSeries = Object.entries(seriesStats)
+  .map(([name, count]) => ({
+    name,
+    count,
+  }))
+  .sort((a, b) => b.count - a.count)
+  .slice(0, 5);
+
+const topMakers = Object.entries(makerStats)
+  .map(([name, count]) => ({
+    name,
+    count,
+  }))
+  .sort((a, b) => b.count - a.count)
+  .slice(0, 5);
+  
   const genreStats: Record<string, number> = {};
 
 data?.forEach((work) => {
@@ -171,45 +211,14 @@ const topGenres = Object.entries(
 
 </div>
 
-  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 my-10">
-
-  <div className="bg-white rounded-xl p-5 shadow text-center">
-    <p className="text-3xl font-bold text-indigo-600">
-      {data?.length}
-    </p>
-    <p className="text-gray-500">
-      登録作品
-    </p>
-  </div>
-
-  <div className="bg-white rounded-xl p-5 shadow text-center">
-    <p className="text-3xl font-bold text-pink-600">
-      {topActresses.length}
-    </p>
-    <p className="text-gray-500">
-      人気女優
-    </p>
-  </div>
-
-  <div className="bg-white rounded-xl p-5 shadow text-center">
-    <p className="text-3xl font-bold text-blue-600">
-      {topGenres.length}
-    </p>
-    <p className="text-gray-500">
-      人気ジャンル
-    </p>
-  </div>
-
-  <div className="bg-white rounded-xl p-5 shadow text-center">
-    <p className="text-3xl font-bold text-green-600">
-      毎日
-    </p>
-    <p className="text-gray-500">
-      データ更新
-    </p>
-  </div>
-
-</div>
+<SiteStatistics
+  totalWorks={statistics.total_works}
+  totalActresses={statistics.total_actresses}
+  totalMakers={statistics.total_makers}
+  totalSeries={statistics.total_series}
+  totalGenres={statistics.total_genres}
+  lastUpdatedAt={statistics.last_updated_at}
+/>
 
 <div className="bg-red-50 border border-red-200 rounded-xl p-6 mb-8">
   <h2 className="text-2xl font-bold mb-4">
@@ -219,47 +228,16 @@ const topGenres = Object.entries(
   {data?.[0] && (
   <WorkCard work={data[0]} large  />
 )}
-
 </div>
-<div className="grid md:grid-cols-2 gap-6 mb-8 items-stretch">
-<div className="bg-blue-50 border border-blue-200 rounded-xl p-6 h-full">
-  <h2 className="text-2xl font-bold mb-4">
-    🏷️ 人気ジャンルTOP5
-  </h2>
 
-  {topGenres.map((genre, index) => (
-    <div
-      key={genre.name}
-      className="flex justify-between py-3 border-b"
-    >
-      <Link
-  href={`/genre/${encodeURIComponent(genre.name)}`}
-  className="font-bold text-blue-600 hover:underline"
->
-  {index === 0 && "🥇 "}
-  {index === 1 && "🥈 "}
-  {index === 2 && "🥉 "}
-  {index >= 3 && `${index + 1}位 `}
-  {genre.name}
-</Link>
+<div className="grid md:grid-cols-[55%_45%] gap-6 mb-8 items-start">
 
-      <p className="font-bold">
-        {genre.count}件
-      </p>
-    </div>
-  ))}
-
-  <Link
-    href="/genre"
-    className="block text-center mt-4 bg-blue-600 text-white py-2 rounded-lg"
-  >
-    全ジャンルを見る →
-  </Link>
-</div>
+     {/* 左 */}
+  <div>
 
 <div className="bg-pink-50 border border-pink-200 rounded-xl p-6">
   <h2 className="text-2xl font-bold mb-4">
-    🏆 発掘女優TOP5
+    🏆 人気女優TOP5
   </h2>
 
   {topActresses.map((actress, index) => (
@@ -268,11 +246,15 @@ const topGenres = Object.entries(
       className="flex gap-4 items-center mb-4 pb-4 border-b"
     >
       {actress.image && (
-        <img
-          src={actress.image}
-          alt={actress.name}
-          className="w-24 rounded-lg"
-        />
+        <Image
+  src={actress.image}
+  alt={actress.name}
+  width={110}
+height={155}
+  className="w-24 rounded-lg object-cover"
+/>
+
+
       )}
 
       <div>
@@ -281,7 +263,7 @@ const topGenres = Object.entries(
             actress.name
           )}`}
         >
-          <p className="text-xl font-bold text-pink-600 hover:underline">
+          <p className="text-2xl font-bold text-pink-600 hover:underline">
             {index === 0 && "🥇 "}
             {index === 1 && "🥈 "}
             {index === 2 && "🥉 "}
@@ -290,17 +272,71 @@ const topGenres = Object.entries(
           </p>
         </Link>
 
-        <p>
-          登録作品数: {actress.count}件
-        </p>
+        <div className="mt-2 space-y-1 text-sm">
 
-        <p>
-          平均スコア: {actress.average}
-        </p>
+  <p className="flex items-center text-sm">
+  <span className="mr-2">📀</span>
+
+  <span className="w-24">
+    登録作品
+  </span>
+
+  <span className="font-bold">
+    {actress.count}作品
+  </span>
+</p>
+
+<p className="mt-1 flex items-center text-sm">
+  <span className="mr-2">⭐</span>
+
+  <span className="w-24">
+    平均スコア
+  </span>
+
+  <span className="font-bold text-pink-600">
+    {actress.average}点
+  </span>
+</p>
+
+</div>
       </div>
     </div>
   ))}
+  <Link
+  href="/actress"
+  className="mt-4 block rounded-lg bg-pink-600 py-2 text-center text-sm font-bold text-white hover:bg-pink-700"
+>
+  全女優を見る →
+</Link>
 </div>
+</div>
+
+  {/* 右 */}
+  <div className="flex flex-col gap-6">
+
+<TopRankingCard
+  title="人気ジャンルTOP3"
+  icon="🏷️"
+  items={topGenres}
+  href="/genre"
+/>
+
+<TopRankingCard
+      title="人気メーカーTOP3"
+      icon="🏭"
+      items={topMakers}
+      href="/maker"
+    />
+
+    <TopRankingCard
+      title="人気シリーズTOP3"
+      icon="📚"
+      items={topSeries}
+      href="/series"
+    />
+
+  </div>
+
 </div>
 
 

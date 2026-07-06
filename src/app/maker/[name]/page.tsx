@@ -1,6 +1,7 @@
 import { supabase } from "../../../lib/supabase";
-import Link from "next/link";
 import WorkCard from "../../components/WorkCard";
+import Breadcrumb from "@/app/components/Breadcrumb";
+import Image from "next/image";
 
 export default async function MakerDetailPage(
   { params }: { params: Promise<{ name: string }> }
@@ -63,16 +64,27 @@ const topWorks =
   return (
     <main className="min-h-screen bg-gray-100 p-8">
   <div className="max-w-7xl mx-auto">
+
+    <Breadcrumb
+  items={[
+    { label: "🏠 TOP", href: "/" },
+    { label: "🏷️ ジャンル", href: "/genre" },
+    { label: decodeURIComponent(name) },
+  ]}
+/>
+
       <div className="grid lg:grid-cols-[220px_1fr] gap-8 mb-8">
 
   <div>
     {topImage && (
-      <img
-        src={topImage}
-        alt={decodeURIComponent(name)}
-        className="w-full rounded-xl shadow-lg"
-      />
-    )}
+  <Image
+    src={topImage}
+    alt={decodeURIComponent(name)}
+    width={220}
+    height={310}
+    className="w-full h-auto rounded-xl shadow-lg"
+  />
+)}
   </div>
 
   <div>

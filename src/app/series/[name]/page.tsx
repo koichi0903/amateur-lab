@@ -1,6 +1,6 @@
 import { supabase } from "../../../lib/supabase";
-import Link from "next/link";
 import WorkCard from "../../components/WorkCard";
+import Image from "next/image";
 
 export default async function SeriesDetailPage(
   { params }: { params: Promise<{ name: string }> }
@@ -67,12 +67,14 @@ const topWorks =
 
   <div>
     {topImage && (
-      <img
-        src={topImage}
-        alt={decodeURIComponent(name)}
-        className="w-full rounded-xl shadow-lg"
-      />
-    )}
+  <Image
+    src={topImage}
+    alt={decodeURIComponent(name)}
+    width={220}
+    height={310}
+    className="w-full h-auto rounded-xl shadow-lg"
+  />
+)}
   </div>
 
   <div>

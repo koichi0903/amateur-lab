@@ -1,7 +1,9 @@
 import Link from "next/link";
+import Image from "next/image";
+import type { Work } from "@/types/work";
 
 type Props = {
-  work: any;
+  work: Work;
   reasons: string[];
 };
 
@@ -16,12 +18,14 @@ export default function WorkHero({
       <div className="sticky top-6">
 
         {work.image_url && (
-          <img
-            src={work.image_url}
-            alt={work.title}
-            className="w-full max-w-[320px] rounded-xl shadow-lg"
-          />
-        )}
+  <Image
+    src={work.image_url}
+    alt={work.title}
+    width={320}
+    height={450}
+    className="w-full max-w-[320px] h-auto rounded-xl shadow-lg"
+  />
+)}
 
       </div>
 
