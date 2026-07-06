@@ -22,6 +22,9 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://amateur-lab.vercel.app"),
+  alternates: {
+  canonical: "/",
+},
 
   title: "発掘LAB | FANZA作品分析メディア",
 

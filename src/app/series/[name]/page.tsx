@@ -1,6 +1,25 @@
 import { supabase } from "../../../lib/supabase";
 import WorkCard from "../../components/WorkCard";
 import Image from "next/image";
+import Breadcrumb from "@/app/components/Breadcrumb";
+import BreadcrumbJsonLd from "@/app/components/BreadcrumbJsonLd";
+
+import type { Metadata } from "next";
+
+export async function generateMetadata(
+  { params }: { params: Promise<{ name: string }> }
+): Promise<Metadata> {
+  const { name } = await params;
+  const seriesName = decodeURIComponent(name);
+
+  return {
+    title: `${seriesName}シリーズ作品一覧 | 発掘LAB`,
+    description: `${seriesName}シリーズのおすすめ作品を発掘LAB独自スコア順で掲載。レビュー・評価・人気作品をまとめてチェックできます。`,
+    alternates: {
+      canonical: `/series/${encodeURIComponent(seriesName)}`,
+    },
+  };
+}
 
 export default async function SeriesDetailPage(
   { params }: { params: Promise<{ name: string }> }
@@ -63,7 +82,27 @@ const topWorks =
   return (
     <main className="min-h-screen bg-gray-100 p-8">
   <div className="max-w-7xl mx-auto">
-      <div className="grid lg:grid-cols-[220px_1fr] gap-8 mb-8">
+
+  <Breadcrumb
+    items={[
+      { label: "🏠 TOP", href: "/" },
+      { label: "📚 シリーズ", href: "/series" },
+      { label: decodeURIComponent(name) },
+    ]}
+  />
+
+  <BreadcrumbJsonLd
+    items={[
+      { name: "TOP", url: "/" },
+      { name: "シリーズ", url: "/series" },
+      {
+        name: decodeURIComponent(name),
+        url: `/series/${encodeURIComponent(decodeURIComponent(name))}`,
+      },
+    ]}
+  />
+
+  <div className="grid lg:grid-cols-[220px_1fr] gap-8 mb-8">
 
   <div>
     {topImage && (
@@ -143,7 +182,7 @@ const topWorks =
 
   <p className="text-gray-700 mb-4">
     {decodeURIComponent(name)}は、
-発掘LABに登録されているメーカー作品を分析した結果、
+発掘LABに登録されているシリーズ作品を分析した結果、
     平均スコア<strong>{averageScore}</strong>点、
     平均レビュー<strong>{averageReview}</strong>点を獲得しています。
   </p>

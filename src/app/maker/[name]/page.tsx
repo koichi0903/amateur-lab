@@ -2,6 +2,24 @@ import { supabase } from "../../../lib/supabase";
 import WorkCard from "../../components/WorkCard";
 import Breadcrumb from "@/app/components/Breadcrumb";
 import Image from "next/image";
+import type { Metadata } from "next";
+import BreadcrumbJsonLd from "@/app/components/BreadcrumbJsonLd";
+
+
+export async function generateMetadata(
+  { params }: { params: Promise<{ name: string }> }
+): Promise<Metadata> {
+  const { name } = await params;
+  const makerName = decodeURIComponent(name);
+
+  return {
+    title: `${makerName}作品一覧 | 発掘LAB`,
+    description: `${makerName}のおすすめ作品を発掘LAB独自スコア順で掲載。レビュー・評価・人気作品をまとめてチェックできます。`,
+    alternates: {
+      canonical: `/maker/${encodeURIComponent(makerName)}`,
+    },
+  };
+}
 
 export default async function MakerDetailPage(
   { params }: { params: Promise<{ name: string }> }
@@ -68,8 +86,19 @@ const topWorks =
     <Breadcrumb
   items={[
     { label: "🏠 TOP", href: "/" },
-    { label: "🏷️ ジャンル", href: "/genre" },
+    { label: "📚 シリーズ", href: "/series" },
     { label: decodeURIComponent(name) },
+  ]}
+/>
+
+<BreadcrumbJsonLd
+  items={[
+    { name: "TOP", url: "/" },
+    { name: "シリーズ", url: "/series" },
+    {
+      name: decodeURIComponent(name),
+      url: `/series/${encodeURIComponent(decodeURIComponent(name))}`,
+    },
   ]}
 />
 

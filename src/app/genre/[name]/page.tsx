@@ -2,6 +2,23 @@ import { supabase } from "../../../lib/supabase";
 import WorkCard from "../../components/WorkCard";
 import Breadcrumb from "@/app/components/Breadcrumb";
 import Image from "next/image";
+import type { Metadata } from "next";
+import BreadcrumbJsonLd from "@/app/components/BreadcrumbJsonLd";
+
+export async function generateMetadata(
+  { params }: { params: Promise<{ name: string }> }
+): Promise<Metadata> {
+  const { name } = await params;
+  const genreName = decodeURIComponent(name);
+
+  return {
+    title: `${genreName}作品一覧 | 発掘LAB`,
+    description: `${genreName}ジャンルのおすすめ作品を発掘LAB独自スコア順で掲載。レビュー・評価・人気作品をまとめてチェックできます。`,
+    alternates: {
+      canonical: `/genre/${encodeURIComponent(genreName)}`,
+    },
+  };
+}
 
 export default async function GenreDetailPage(
   { params }: { params: Promise<{ name: string }> }
@@ -70,6 +87,17 @@ const topWorks =
     { label: "🏠 TOP", href: "/" },
     { label: "🏷️ ジャンル", href: "/genre" },
     { label: decodeURIComponent(name) },
+  ]}
+/>
+
+    <BreadcrumbJsonLd
+  items={[
+    { name: "TOP", url: "/" },
+    { name: "ジャンル", url: "/genre" },
+    {
+      name: decodeURIComponent(name),
+      url: `/genre/${encodeURIComponent(decodeURIComponent(name))}`,
+    },
   ]}
 />
 

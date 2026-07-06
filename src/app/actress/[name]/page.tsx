@@ -2,7 +2,24 @@ import { supabase } from "../../../lib/supabase";
 import WorkCard from "../../components/WorkCard";
 import Breadcrumb from "@/app/components/Breadcrumb";
 import Image from "next/image";
+import type { Metadata } from "next";
+import BreadcrumbJsonLd from "@/app/components/BreadcrumbJsonLd";
 
+
+export async function generateMetadata(
+  { params }: { params: Promise<{ name: string }> }
+): Promise<Metadata> {
+  const { name } = await params;
+  const actressName = decodeURIComponent(name);
+
+  return {
+    title: `${actressName}出演作品一覧 | 発掘LAB`,
+    description: `${actressName}出演作品を発掘LAB独自スコア順で掲載。レビュー・評価・おすすめ作品をまとめてチェックできます。`,
+    alternates: {
+      canonical: `/actress/${encodeURIComponent(actressName)}`,
+    },
+  };
+}
 export default async function ActressDetailPage(
   { params }: { params: Promise<{ name: string }> }
 ) {
@@ -67,6 +84,17 @@ const topWorks =
     { label: "🏠 TOP", href: "/" },
     { label: "👩 女優", href: "/actress" },
     { label: decodeURIComponent(name) },
+  ]}
+/>
+
+    <BreadcrumbJsonLd
+  items={[
+    { name: "TOP", url: "/" },
+    { name: "女優", url: "/actress" },
+    {
+      name: decodeURIComponent(name),
+      url: `/actress/${encodeURIComponent(decodeURIComponent(name))}`,
+    },
   ]}
 />
 

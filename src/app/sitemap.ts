@@ -1,9 +1,9 @@
 import type { MetadataRoute } from "next";
 import { supabase } from "@/lib/supabase";
 
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+const BASE_URL = "https://amateur-lab.vercel.app";
 
-    const BASE_URL = "https://amateur-lab.vercel.app";
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   
   const { data: works, error } = await supabase
   .from("works")
@@ -20,6 +20,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 if (error) {
   throw error;
 }
+  
+  function splitValues(value?: string): string[] {
+  return value
+    ? value
+        .split(" / ")
+        .map((name) => name.trim())
+        .filter(Boolean)
+    : [];
+}
+  
   function createPages(
   values: string[],
   path: string
@@ -77,40 +87,22 @@ if (error) {
   })) ?? [];
 
   const actressPages = createPages(
-  works?.flatMap((work) =>
-    work.actress
-      ? work.actress
-          .split(" / ")
-          .map((name: string) => name.trim())
-          .filter(Boolean)
-      : []
-  ) ?? [],
+  works?.flatMap((work) => splitValues(work.actress)) ?? [],
   "actress"
 );
 
   const genrePages = createPages(
-  works?.flatMap((work) =>
-    work.genre
-      ? work.genre
-          .split(" / ")
-          .map((name: string) => name.trim())
-          .filter(Boolean)
-      : []
-  ) ?? [],
+  works?.flatMap((work) => splitValues(work.genre)) ?? [],
   "genre"
 );
 
    const makerPages = createPages(
-  works
-    ?.map((work) => work.maker?.trim())
-    .filter((maker): maker is string => !!maker) ?? [],
+  works?.flatMap((work) => splitValues(work.maker)) ?? [],
   "maker"
 );
 
    const seriesPages = createPages(
-  works
-    ?.map((work) => work.series?.trim())
-    .filter((series): series is string => !!series) ?? [],
+  works?.flatMap((work) => splitValues(work.series)) ?? [],
   "series"
 );
   

@@ -5,6 +5,7 @@ import WorkInfo from "../../components/WorkInfo";
 import AIAnalysis from "../../components/AIAnalysis";
 import RelatedWorks from "../../components/RelatedWorks";
 import Breadcrumb from "@/app/components/Breadcrumb";
+import BreadcrumbJsonLd from "@/app/components/BreadcrumbJsonLd";
 
 
 export async function generateMetadata(
@@ -26,10 +27,14 @@ export async function generateMetadata(
   }
 
   return {
-    title: `${work.title}｜レビュー・発掘スコア${work.score} | 発掘LAB`,
-    description:
-      `${work.title}のレビュー・評価・発掘スコアを掲載。女優「${work.actress}」出演作品を独自アルゴリズムで分析しています。`,
-    
+  title: `${work.title}｜レビュー・発掘スコア${work.score} | 発掘LAB`,
+  description:
+    `${work.title}のレビュー・評価・発掘スコアを掲載。女優「${work.actress}」出演作品を独自アルゴリズムで分析しています。`,
+
+  alternates: {
+    canonical: `/works/${id}`,
+  },
+
   keywords: [
   work.title,
   work.actress,
@@ -171,7 +176,14 @@ if ((work.new_release_score ?? 0) >= 8) {
   ]}
 />
 
-    <WorkHero
+<BreadcrumbJsonLd
+  items={[
+    { name: "TOP", url: "/" },
+    { name: work.title, url: `/works/${work.id}` },
+  ]}
+/>
+
+<WorkHero
       work={work}
       reasons={reasons}
     />
