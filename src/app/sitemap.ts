@@ -2,6 +2,8 @@ import type { MetadataRoute } from "next";
 import { supabase } from "@/lib/supabase";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+
+    const BASE_URL = "https://amateur-lab.vercel.app";
   
   const { data: works, error } = await supabase
   .from("works")
@@ -25,7 +27,7 @@ if (error) {
   return [...new Set(values)]
     .filter((value) => value.trim() !== "")
     .map((value) => ({
-      url: `https://amateur-lab.vercel.app/${path}/${encodeURIComponent(value)}`,
+      url: `${BASE_URL}/${path}/${encodeURIComponent(value)}`,
       changeFrequency: "weekly" as const,
       priority: 0.7,
     }));
@@ -33,32 +35,32 @@ if (error) {
 
    const staticPages: MetadataRoute.Sitemap = [
   {
-    url: "https://amateur-lab.vercel.app",
+    url: BASE_URL,
     changeFrequency: "daily",
     priority: 1,
   },
   {
-    url: "https://amateur-lab.vercel.app/ranking",
+    url: `${BASE_URL}/ranking`,
     changeFrequency: "daily",
     priority: 0.9,
   },
   {
-    url: "https://amateur-lab.vercel.app/search",
+    url: `${BASE_URL}/search`,
     changeFrequency: "weekly",
     priority: 0.9,
   },
   {
-    url: "https://amateur-lab.vercel.app/actress",
+    url: `${BASE_URL}/actress`,
     changeFrequency: "daily",
     priority: 0.9,
   },
   {
-    url: "https://amateur-lab.vercel.app/genre",
+    url: `${BASE_URL}/genre`,
     changeFrequency: "weekly",
     priority: 0.8,
   },
   {
-    url: "https://amateur-lab.vercel.app/new",
+    url: `${BASE_URL}/new`,
     changeFrequency: "daily",
     priority: 0.9,
   },
@@ -66,7 +68,7 @@ if (error) {
 
  const workPages: MetadataRoute.Sitemap =
   works?.map((work) => ({
-    url: `https://amateur-lab.vercel.app/works/${work.id}`,
+    url: `${BASE_URL}/works/${work.id}`,
     lastModified: work.created_at
   ? new Date(work.created_at)
   : undefined,
