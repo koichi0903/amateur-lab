@@ -53,7 +53,11 @@ export const metadata: Metadata = {
   },
 },
 
-  openGraph: {
+verification: {
+  google: "RqNgPmvAuSMFhPc9FSpAwXN6UC57Co-GzYysdq_pCTI",
+},
+
+openGraph: {
     title: "発掘LAB | FANZA作品分析メディア",
     description:
       "FANZA作品をレビュー・人気女優・ランキング・セール情報から独自分析。",
