@@ -13,6 +13,8 @@ import { updateDmmItem } from "@/lib/admin/update";
 import Image from "next/image";
 import { updateStatistics } from "@/lib/statistics/updateStatistics";
 
+
+
 export default function AdminPage() {
   const ADMIN_PASSWORD = "koichi0903";
 
@@ -176,82 +178,43 @@ const handleSubmit = async () => {
 };
 
 const updateAllWorks = async () => {
-  const works = [];
+  setLoading(true);
 
-let from = 0;
-const limit = 1000;
+  try {
+    const res = await fetch("/api/update-all", {
+      method: "POST",
+    });
 
-while (true) {
-  const { data } = await supabase
-    .from("works")
-    .select("id, product_id")
-    .range(from, from + limit - 1);
+    const data = await res.json();
 
-  if (!data || data.length === 0) {
-    break;
+    alert(data.message);
+
+    await loadWorks();
+  } catch (e) {
+    console.error(e);
+
+    alert("更新失敗");
+  } finally {
+    setLoading(false);
   }
+};
 
-  works.push(...data);
+const testPlaywright = async () => {
+  setLoading(true);
 
-  if (data.length < limit) {
-    break;
+  try {
+    const res = await fetch("/api/playwright-test", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    console.log(data);
+
+    alert("テスト終了");
+  } finally {
+    setLoading(false);
   }
-
-  from += limit;
-}
-
-console.log("取得件数:", works.length);
-
-if (works.length === 0) return;
-  const batchSize = 10;
-
-  for (let i = 0; i < works.length; i += batchSize) {
-    const batch = works.slice(i, i + batchSize);
-
-    await Promise.all(
-      batch.map(async (work) => {
-        if (!work.product_id) return;
-
-        try {
-          const res = await fetch(
-            `/api/dmm?cid=${work.product_id}`
-          );
-
-          const data = await res.json();
-
-          const item =
-  data?.result?.items?.[0];
-
-if (!item) {
-  console.log(
-    "DMMで取得できない:",
-    work.product_id
-  );
-  return;
-}
-
-          await updateDmmItem(item);
-        } catch (e) {
-          console.log(
-            "更新失敗",
-            work.product_id,
-            e
-          );
-        }
-      })
-    );
-
-    console.log(
-  `更新進捗: ${Math.min(i + batchSize, works.length)} / ${works.length}`
-);
-}
-
-console.log("★★★★ updateStatisticsを呼びます ★★★★");
-// 全作品の更新が終わったら統計を更新
-await updateStatistics();
-
-alert("更新完了");
-loadWorks();
 };
 
 
@@ -496,6 +459,13 @@ if (!authenticated) {
   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 mt-2 ml-2 rounded font-bold"
 >
   📥 DMMデータ再取得
+</button>
+
+<button
+  onClick={testPlaywright}
+  className="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 mt-2 ml-2 rounded font-bold"
+>
+  🧪 Playwrightテスト
 </button>
 
 <button

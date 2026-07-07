@@ -1,0 +1,165 @@
+{
+  "cookies": [
+    {
+      "name": "i3_ab",
+      "value": "76047755-bb7f-4c9b-a021-38afb8371399",
+      "domain": ".dmm.co.jp",
+      "path": "/",
+      "expires": 1798975970,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "rieSh3Ee_ga",
+      "value": "GA1.1.562558725.1783423970",
+      "domain": ".dmm.co.jp",
+      "path": "/",
+      "expires": 1817983970.452766,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "_gcl_au",
+      "value": "1.1.808184928.1783423971",
+      "domain": ".dmm.co.jp",
+      "path": "/",
+      "expires": 1791199970,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "FPID",
+      "value": "FPID2.3.i83Wy1uPPSyfBjbVloLPAEbIPaTu7KoD4hWYci94CTY%3D.1783423970",
+      "domain": ".dmm.co.jp",
+      "path": "/",
+      "expires": 1817983971.45841,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "FPLC",
+      "value": "tiMe50LKjB7hdSAkPNyHBAtjFEzPSs6nOklpZVj0dplLVAUR%2FjABujqmxKHmeuXyf0m9qgtCTntq8EM%2BG3lqAg%2Bl%2BrYCTfJVz7i9uGhiJqiTh4m8gi2kr%2Bnl4BKBjA%3D%3D",
+      "domain": ".dmm.co.jp",
+      "path": "/",
+      "expires": 1783495970.790682,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "FPAU",
+      "value": "1.3.1121159246.1783423971",
+      "domain": ".dmm.co.jp",
+      "path": "/",
+      "expires": 1791199970.791031,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "FPGSID",
+      "value": "1.1783423970.1783423970.G-KQYE0DE5JW.oQ8QIY2A4b4s-UhMVZEpdA",
+      "domain": ".dmm.co.jp",
+      "path": "/",
+      "expires": 1783425770.791204,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Strict"
+    },
+    {
+      "name": "__rtbh.lid",
+      "value": "%7B%22eventType%22%3A%22lid%22%2C%22id%22%3A%22QRKizxyNEe0nzF1SLjBx%22%2C%22expiryDate%22%3A%222027-07-07T11%3A32%3A51.109Z%22%7D",
+      "domain": "www.dmm.co.jp",
+      "path": "/",
+      "expires": 1814959971,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "_yjsu_yjad",
+      "value": "1783423971.d1d3512f-cd34-4f78-a549-66d0f3d54600",
+      "domain": ".dmm.co.jp",
+      "path": "/",
+      "expires": 1814959971,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "rieSh3Ee_ga_KQYE0DE5JW",
+      "value": "GS2.1.s1783423970$o1$g0$t1783423971$j59$l0$h1451074271",
+      "domain": ".dmm.co.jp",
+      "path": "/",
+      "expires": 1817983971.37005,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "g",
+      "value": "iZ0PVj4fNEretJXycooE_1783423972176",
+      "domain": ".creativecdn.com",
+      "path": "/",
+      "expires": 1814959972.094505,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "c",
+      "value": "iZ0PVj4fNEretJXycooE_7ettpCyzLAByGmoe94ZK_1783423972176",
+      "domain": ".creativecdn.com",
+      "path": "/",
+      "expires": 1814959972.094744,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None",
+      "partitionKey": "https://dmm.co.jp",
+      "_crHasCrossSiteAncestor": true
+    },
+    {
+      "name": "ts",
+      "value": "1783423972",
+      "domain": ".creativecdn.com",
+      "path": "/",
+      "expires": 1814959972.095121,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None",
+      "partitionKey": "https://dmm.co.jp",
+      "_crHasCrossSiteAncestor": true
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://www.dmm.co.jp",
+      "localStorage": [
+        {
+          "name": "isFirstVisit",
+          "value": "false"
+        },
+        {
+          "name": "__rtbh.lid",
+          "value": "{\"eventType\":\"lid\",\"id\":\"QRKizxyNEe0nzF1SLjBx\",\"expiryDate\":\"2027-07-07T11:32:51.109Z\"}"
+        },
+        {
+          "name": "_gcl_ls",
+          "value": "{\"schema\":\"gcl\",\"version\":1,\"gsid_dc\":{\"value\":{\"joinId\":\"yHhrzHiPxI9vJamiRqkNWTRxgTqh_z8wTw\",\"lastJoinedTimeMs\":1783423970559},\"expires\":1783424270559},\"gcl_ctr\":{\"value\":{\"value\":0,\"timeouts\":0,\"errors\":0,\"eopCount\":0,\"creationTimeMs\":1783423970564},\"expires\":1791199970564}}"
+        },
+        {
+          "name": "dmm_ls_rieSh3Ee_ga",
+          "value": "GA1.1.562558725.1783423970"
+        },
+        {
+          "name": "_yjsu_yjad",
+          "value": "1783423971.d1d3512f-cd34-4f78-a549-66d0f3d54600"
+        }
+      ]
+    }
+  ]
+}
