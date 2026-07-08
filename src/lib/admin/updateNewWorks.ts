@@ -71,21 +71,14 @@ export async function updateNewWorks() {
 current += batch.length;
 
 // 10件ごと、または最後だけ保存
-if (
-  current %
-    UPDATE_CONFIG.jobUpdateInterval ===
-    0 ||
-  current === works.length
-) {
-  const lastWork =
-    batch[batch.length - 1];
+const lastWork =
+  batch[batch.length - 1];
 
-  await updateJob(
-    JOBS.NEW,
-    current,
-    lastWork.product_id
-  );
-}
+await updateJob(
+  JOBS.NEW,
+  current,
+  lastWork.product_id
+);
 
 console.log(
   `${current}/${works.length}`

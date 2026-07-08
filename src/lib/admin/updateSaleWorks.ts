@@ -59,18 +59,11 @@ export async function updateSaleWorks() {
       const processed =
         processedCount + i + batch.length;
 
-      if (
-        processed %
-          UPDATE_CONFIG.jobUpdateInterval ===
-          0 ||
-        processed >= works.length
-      ) {
-        await updateJob(
-          JOBS.SALE,
-          processed,
-          batch[batch.length - 1].product_id
-        );
-      }
+      await updateJob(
+  JOBS.SALE,
+  processed,
+  batch[batch.length - 1].product_id
+);
 
       console.log(
         `${processed}/${works.length}`
