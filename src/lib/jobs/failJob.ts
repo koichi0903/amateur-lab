@@ -1,7 +1,8 @@
 import { supabase } from "@/lib/supabase";
+import { JobName } from "./constants";
 
 export async function failJob(
-  jobName: string,
+  jobName: JobName,
   message: string
 ) {
   const { error } = await supabase

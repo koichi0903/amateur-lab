@@ -16,4 +16,8 @@ export const UPDATE_CONFIG = {
 
   // 火・金
   semiNewUpdateDays: [2, 5],
+
+  // jobs更新間隔
+jobUpdateInterval: 10,
+
 };

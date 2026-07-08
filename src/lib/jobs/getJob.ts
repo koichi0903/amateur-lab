@@ -1,6 +1,9 @@
 import { supabase } from "@/lib/supabase";
+import { JobName } from "./constants";
 
-export async function getJob(jobName: string) {
+export async function getJob(
+  jobName: JobName
+) {
   const { data, error } = await supabase
     .from("jobs")
     .select("*")

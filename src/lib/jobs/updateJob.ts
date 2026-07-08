@@ -1,7 +1,8 @@
 import { supabase } from "@/lib/supabase";
+import { JobName } from "./constants";
 
 export async function updateJob(
-  jobName: string,
+  jobName: JobName,
   processedCount: number,
   productId: string
 ) {
@@ -10,6 +11,7 @@ export async function updateJob(
     .update({
       processed_count: processedCount,
       last_product_id: productId,
+      updated_at: new Date().toISOString(),
     })
     .eq("job_name", jobName);
 
