@@ -8,7 +8,6 @@ import type { ParsedData } from "./parser";
 console.log("URL =", process.env.NEXT_PUBLIC_SUPABASE_URL);
 console.log("KEY =", !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -33,24 +32,74 @@ export async function saveWork(
     })
     .eq("product_id", productId);
 
-  // work_prices は一旦全削除
-  await supabase
+  // 現在の価格を取得
+  const { data: currentPrices } = await supabase
     .from("work_prices")
-    .delete()
+    .select("*")
     .eq("product_id", productId);
 
-  // 3価格を保存
-  if (data.prices.length > 0) {
-    await supabase
-      .from("work_prices")
-      .insert(
-        data.prices.map((price) => ({
+  const currentMap = new Map(
+    (currentPrices ?? []).map((price) => [
+      price.display_name,
+      price,
+    ])
+  );
+
+  // 新しい価格を保存
+  for (const price of data.prices) {
+    const current = currentMap.get(price.name);
+
+    if (!current) {
+      // 新規追加
+      await supabase
+        .from("work_prices")
+        .insert({
           product_id: productId,
           display_name: price.name,
           type: price.type,
           normal_price: price.normalPrice,
           sale_price: price.salePrice,
-        }))
-      );
+        });
+
+      continue;
+    }
+
+    // 価格変更あり？
+    const changed =
+      current.normal_price !== price.normalPrice ||
+      current.sale_price !== price.salePrice;
+
+    if (changed) {
+      // 履歴保存
+      await supabase
+  .from("price_history")
+  .insert({
+    product_id: productId,
+    display_name: price.name,
+    type: price.type,
+    normal_price: price.normalPrice,
+    sale_price: price.salePrice,
+  });
+
+      // 現在価格更新
+      await supabase
+        .from("work_prices")
+        .update({
+          type: price.type,
+          normal_price: price.normalPrice,
+          sale_price: price.salePrice,
+        })
+        .eq("id", current.id);
+    }
+
+    currentMap.delete(price.name);
+  }
+
+  // 取得できなくなった価格を削除
+  for (const price of currentMap.values()) {
+    await supabase
+      .from("work_prices")
+      .delete()
+      .eq("id", price.id);
   }
 }

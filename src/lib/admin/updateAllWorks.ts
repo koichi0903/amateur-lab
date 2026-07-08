@@ -1,94 +1,32 @@
-import { supabase } from "@/lib/supabase";
-import { getDmmItem } from "@/lib/dmm/getDmmItem";
-import { updateDmmItem } from "@/lib/admin/update";
+import { UPDATE_CONFIG } from "@/config/update";
 import { updateStatistics } from "@/lib/statistics/updateStatistics";
-import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
+
+import { updateNewWorks } from "./updateNewWorks";
+import { updateSemiNewWorks } from "./updateSemiNewWorks";
+import { updateSaleWorks } from "./updateSaleWorks";
 
 export async function updateAllWorks() {
-  const works: {
-    id: number;
-    product_id: string;
-  }[] = [];
+  console.log("========== 更新開始 ==========");
 
-  let from = 0;
-  const limit = 1000;
+  // 新作は毎日
+  await updateNewWorks();
 
-  while (true) {
-    const { data, error } = await supabase
-      .from("works")
-      .select("id, product_id")
-      .range(from, from + limit - 1);
+  // 準新作は設定曜日のみ
+  const today = new Date().getDay();
 
-    if (error) {
-      throw error;
-    }
-
-    if (!data || data.length === 0) {
-      break;
-    }
-
-    works.push(...data);
-
-    if (data.length < limit) {
-      break;
-    }
-
-    from += limit;
+  if (
+    UPDATE_CONFIG.semiNewUpdateDays.includes(today)
+  ) {
+    await updateSemiNewWorks();
+  } else {
+    console.log("準新作更新はスキップ");
   }
 
-  console.log(`取得件数: ${works.length}`);
-
-  if (works.length === 0) {
-    return;
-  }
-
-  const batchSize = 10;
-
-  for (let i = 0; i < works.length; i += batchSize) {
-    const batch = works.slice(i, i + batchSize);
-
-    await Promise.all(
-      batch.map(async (work) => {
-        try {
-          if (!work.product_id) {
-            return;
-          }
-
-          const item = await getDmmItem(work.product_id);
-
-          if (!item) {
-            console.log(
-              "DMMで取得できない:",
-              work.product_id
-            );
-            return;
-          }
-
-          // DMM情報更新
-          await updateDmmItem(item);
-
-          // Playwright情報更新
-          await updatePlaywrightItem(
-            work.product_id
-          );
-
-          console.log(
-            "更新完了:",
-            work.product_id
-          );
-        } catch (error) {
-          console.error(
-            "更新失敗:",
-            work.product_id,
-            error
-          );
-        }
-      })
-    );
-  }
+  // セール更新
+  await updateSaleWorks();
 
   // ランキング・統計更新
   await updateStatistics();
 
-  console.log("全作品更新完了");
+  console.log("========== 更新完了 ==========");
 }
