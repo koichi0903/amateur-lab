@@ -10,14 +10,25 @@ import UpdateButtons from "./components/UpdateButtons";
 
 type Job = {
   job_name: string;
-  status: "completed" | "running" | "failed";
+  status: "completed" | "running" | "failed" | "idle";
   processed_count: number;
   total_count: number;
+  last_product_id: string | null;
+  last_product_title?: string;
 };
 
 export default function UpdatePage() {
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [loading, setLoading] = useState(true);
+const [loading, setLoading] = useState(true);
+
+const [startedAt] = useState(Date.now());
+  
+  
+  const isUpdating = jobs.some(
+  (job) =>
+    job.status === "running" &&
+    job.job_name === "all"
+);
 
   async function handleUpdateAll() {
   try {
@@ -36,34 +47,156 @@ export default function UpdatePage() {
   }
 }
 
+async function handleSyncWorks() {
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/sync", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    alert(data.message);
+
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert("作品同期に失敗しました");
+  } finally {
+    setLoading(false);
+  }
+}
+
 async function handleUpdateNew() {
-  alert("新作更新ボタンが押されました");
+  setLoading(true);
+  try {
+    const res = await fetch("/api/update-new", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    alert(data.message);
+
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert("新作更新に失敗しました");
+  } finally {
+    setLoading(false);
+  }
 }
 
 async function handleUpdateSemiNew() {
-  alert("準新作更新ボタンが押されました");
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/update-semi-new", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    alert(data.message);
+
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert("準新作更新に失敗しました");
+  } finally {
+    setLoading(false);
+  }
 }
 
 async function handleUpdateSale() {
-  alert("セール更新ボタンが押されました");
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/update-sale", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    alert(data.message);
+
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert("セール更新に失敗しました");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function handleUpdateStage() {
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/sync/update-stage", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    alert(data.message);
+
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert("Stage同期に失敗しました");
+  } finally {
+    setLoading(false);
+  }
 }
 
   async function loadJobs() {
     const { data, error } = await supabase
-      .from("jobs")
-      .select(
-        "job_name, status, processed_count, total_count"
-      )
-      .order("job_name");
+  .from("jobs")
+  .select(`
+  job_name,
+  status,
+  processed_count,
+  total_count,
+  last_product_id
+`)
+  .order("job_name");
 
     if (error) {
       console.error(error);
       return;
     }
-    console.log(data);
+    if (!data) {
+  setJobs([]);
+  setLoading(false);
+  return;
+}
 
-    setJobs(data ?? []);
-    setLoading(false);
+const jobsWithTitle = await Promise.all(
+  data.map(async (job) => {
+    if (!job.last_product_id) {
+      return {
+        ...job,
+        last_product_title: undefined,
+      };
+    }
+
+    const { data: work } = await supabase
+      .from("works")
+      .select("title")
+      .eq("product_id", job.last_product_id)
+      .maybeSingle();
+
+    return {
+      ...job,
+      last_product_title: work?.title,
+    };
+  })
+);
+
+setJobs(jobsWithTitle);
+setLoading(false);
   }
 
   useEffect(() => {
@@ -80,6 +213,9 @@ async function handleUpdateSale() {
     switch (jobName) {
       case "new":
         return "🆕 新作更新";
+
+      case "stage":
+  return "🔄 Stage同期";
 
       case "semi_new":
         return "⭐ 準新作更新";
@@ -110,11 +246,11 @@ async function handleUpdateSale() {
   {jobs
     .sort((a, b) => {
       const order = {
-        new: 1,
-        semi_new: 2,
-        sale: 3,
-        sale_scan: 4,
-      };
+  new: 1,
+  stage: 2,
+  sale: 3,
+  sale_scan: 4,
+};
 
       return (
         (order[a.job_name as keyof typeof order] ?? 999) -
@@ -123,24 +259,28 @@ async function handleUpdateSale() {
     })
     .map((job) => (
       <JobCard
-        key={job.job_name}
-        title={getTitle(job.job_name)}
-        status={job.status}
-        processed={job.processed_count}
-        total={job.total_count}
-      />
+  key={job.job_name}
+  title={getTitle(job.job_name)}
+  status={job.status}
+  processed={job.processed_count}
+  total={job.total_count}
+  lastProductId={job.last_product_id}
+  lastProductTitle={job.last_product_title}
+  startedAt={startedAt}
+/>
     ))}
 </div>
         )}
 
         <div className="mt-10">
-          <UpdateButtons
+  <UpdateButtons
+  onSyncWorks={handleSyncWorks}
+  onUpdateStage={handleUpdateStage}
   onUpdateAll={handleUpdateAll}
-  onUpdateNew={handleUpdateNew}
-  onUpdateSemiNew={handleUpdateSemiNew}
   onUpdateSale={handleUpdateSale}
+  isUpdating={isUpdating}
 />
-        </div>
+</div>
 
       </div>
     </main>

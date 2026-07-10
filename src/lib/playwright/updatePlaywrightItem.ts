@@ -35,8 +35,11 @@ export async function updatePlaywrightItem(
 
   try {
     await page.goto(work.url, {
-      waitUntil: "networkidle",
-    });
+  waitUntil: "domcontentloaded",
+  timeout: 60000,
+});
+
+
 
     // 年齢認証画面の表示待ち
     await page.waitForTimeout(5000);
@@ -45,7 +48,7 @@ export async function updatePlaywrightItem(
     try {
       await page.locator("text=はい").first().click();
 
-      await page.waitForLoadState("networkidle");
+      await page.waitForLoadState("domcontentloaded");
 
       console.log("年齢認証を突破しました");
     } catch {

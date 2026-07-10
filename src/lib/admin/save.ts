@@ -163,7 +163,7 @@ const {
   .maybeSingle();
 
 if (existing) {
-  return;
+  return false;
 }
 
   const { error } = await supabase
@@ -269,9 +269,5 @@ review_average:
       },
     ]);
     
-  if (error) {
-    alert("登録失敗");
-    console.log(error);
-    return;
-  }
+  return true;
 }

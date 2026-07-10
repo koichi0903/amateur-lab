@@ -1,25 +1,25 @@
 import { NextResponse } from "next/server";
 
 import { syncWorks } from "@/lib/update/syncWorks";
-import { updateStatistics } from "@/lib/statistics/updateStatistics";
 
 export async function POST() {
   try {
     await syncWorks();
 
-    await updateStatistics();
-
     return NextResponse.json({
       success: true,
-      message: "全更新が完了しました。",
+      message: "作品同期が完了しました。",
     });
   } catch (error) {
-    console.error("update-all error:", error);
+    console.error(error);
 
     return NextResponse.json(
       {
         success: false,
-        message: "全更新に失敗しました。",
+        message:
+          error instanceof Error
+            ? error.message
+            : "同期に失敗しました。",
       },
       {
         status: 500,

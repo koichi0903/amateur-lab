@@ -1,6 +1,8 @@
 export const UPDATE_CONFIG = {
   parallel: 3,
 
+  saveInterval: 6,
+
   batchSize: 100,
 
   newReleaseDays: 30,
@@ -14,10 +16,7 @@ export const UPDATE_CONFIG = {
     "10:15",
   ],
 
-  // 火・金
   semiNewUpdateDays: [2, 5],
 
-  // jobs更新間隔
-jobUpdateInterval: 10,
-
+  jobUpdateInterval: 6,
 };

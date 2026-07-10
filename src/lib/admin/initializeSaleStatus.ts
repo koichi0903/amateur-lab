@@ -1,9 +1,16 @@
 import { supabase } from "@/lib/supabase";
-import { getSaleItems } from "@/lib/playwright/getSaleItems";
 
-export async function initializeSaleStatus() {
-  const { productIds, totalPages } = await getSaleItems();
+export async function initializeSaleStatus(
+  productIds: string[]
+) {
+  if (productIds.length === 0) {
+    return {
+      saleItems: 0,
+      matchedWorks: [],
+    };
+  }
 
+  // セール作品を検索
   const { data: works, error } = await supabase
     .from("works")
     .select("id, product_id")
@@ -13,14 +20,40 @@ export async function initializeSaleStatus() {
     throw error;
   }
 
+  // 一旦すべて false
+  const { error: resetError } = await supabase
+    .from("works")
+    .update({
+      is_on_sale: false,
+    })
+    .eq("is_on_sale", true);
+
+  if (resetError) {
+    throw resetError;
+  }
+
+  // 一致作品だけ true
+  if (works.length > 0) {
+    const workIds = works.map((work) => work.id);
+
+    const { error: updateError } = await supabase
+      .from("works")
+      .update({
+        is_on_sale: true,
+      })
+      .in("id", workIds);
+
+    if (updateError) {
+      throw updateError;
+    }
+  }
+
   console.log("================================");
   console.log("セール一覧件数 :", productIds.length);
-  console.log("総ページ数     :", totalPages);
   console.log("DB一致件数     :", works.length);
   console.log("================================");
 
   return {
-    totalPages,
     saleItems: productIds.length,
     matchedWorks: works,
   };

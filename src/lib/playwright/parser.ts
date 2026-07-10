@@ -40,11 +40,22 @@ async function getMeta(
   page: Page,
   property: string
 ): Promise<string | undefined> {
-  return (
-    (await page
-      .locator(`meta[property="${property}"]`)
-      .getAttribute("content")) ?? undefined
-  );
+  try {
+    const locator = page.locator(
+      `meta[property="${property}"]`
+    );
+
+    if ((await locator.count()) === 0) {
+      return undefined;
+    }
+
+    return (
+      (await locator.getAttribute("content")) ??
+      undefined
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 async function getTableValue(
