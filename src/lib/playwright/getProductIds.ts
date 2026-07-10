@@ -16,7 +16,7 @@ export async function getProductIds(
   baseUrl: string
 ) {
   const browser = await chromium.launch({
-  headless: false,
+  headless: true
 });
 
   const page = await browser.newPage();
@@ -26,8 +26,6 @@ export async function getProductIds(
       waitUntil: "domcontentloaded",
       timeout: 60000,
     });
-
-    await page.pause();
 
     // 年齢認証
     try {
@@ -57,8 +55,7 @@ export async function getProductIds(
   ProductSummary
 >();
 
-    // 本番は全ページ取得
-const maxPages = 1;
+    const maxPages = totalPages;
 
     for (
       let currentPage = 1;
@@ -120,13 +117,7 @@ const price =
   salePrice: undefined,
   isSale: false,
 });
-
-console.log(productId, price);
 }
-
-      console.log(
-  `Page ${currentPage}: ${products.size}件`
-);
     }
 
     return {

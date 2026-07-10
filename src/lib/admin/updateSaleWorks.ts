@@ -12,9 +12,16 @@ import {
 
 export async function updateSaleWorks() {
   const { data: works, error } = await supabase
-    .from("works")
-    .select("product_id")
-    .eq("is_on_sale", true);
+  .from("works")
+  .select(`
+  product_id,
+  url,
+  price,
+  sale_price,
+  is_on_sale,
+  sale_end_at
+`)
+  .eq("is_on_sale", true);
 
   if (error) {
     throw error;
@@ -51,10 +58,18 @@ export async function updateSaleWorks() {
       );
 
       await Promise.all(
-        batch.map((work) =>
-          updateWork(work.product_id)
-        )
-      );
+  batch.map(async (work) => {
+    const needsPlaywright =
+  !work.sale_price ||
+  !work.sale_end_at;
+
+    if (!needsPlaywright) {
+      return;
+    }
+
+    await updateWork(work.product_id);
+  })
+);
 
       const processed =
         processedCount + i + batch.length;

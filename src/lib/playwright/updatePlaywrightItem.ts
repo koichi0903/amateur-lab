@@ -48,9 +48,12 @@ export async function updatePlaywrightItem(
     try {
       await page.locator("text=はい").first().click();
 
-      await page.waitForLoadState("domcontentloaded");
+      await page.waitForLoadState("networkidle");
 
-      console.log("年齢認証を突破しました");
+await page.waitForTimeout(3000);
+
+console.log("年齢認証を突破しました");
+
     } catch {
       console.log("年齢認証は表示されませんでした");
     }

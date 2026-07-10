@@ -5,6 +5,8 @@ export interface PriceInfo {
 
   name: string;
 
+  period?: string;
+
   normalPrice?: number;
 
   salePrice?: number;
@@ -34,6 +36,8 @@ export interface ParsedData {
   duration?: string;
 
   sampleImages: string[];
+
+  saleEndAt: Date | null;
 }
 
 async function getMeta(
@@ -85,50 +89,69 @@ async function getMaker(
   return await getTableValue(page, "メーカー");
 }
 
-async function getPrices(page: Page): Promise<PriceInfo[]> {
+async function getPrices(
+  page: Page
+): Promise<PriceInfo[]> {
   const result: PriceInfo[] = [];
 
   const labels = page.locator("label");
 
-  const count = await labels.count();
+const count = await labels.count();
 
-  const toNumber = (text?: string | null) => {
-    if (!text) return undefined;
+for (let i = 0; i < count; i++) {
+  const label = labels.nth(i);
 
-    const value = text.replace(/[^\d]/g, "");
+  const text =
+    (await label.innerText()).trim();
 
-    return value ? Number(value) : undefined;
-  };
-
-  for (let i = 0; i < count; i++) {
-    const label = labels.nth(i);
-
-    const texts = (await label.locator("p").allTextContents())
-      .map((t) => t.trim())
+    const lines = text
+      .split("\n")
+      .map((v) => v.trim())
       .filter(Boolean);
 
-    if (texts.length < 2) continue;
+    const prices = lines.filter((v) =>
+      v.includes("円")
+    );
 
-    const name = texts[0];
+    if (prices.length === 0) {
+      continue;
+    }
 
-    const prices = texts.filter((t) => t.includes("円"));
+    const toNumber = (value: string) =>
+      Number(value.replace(/[^\d]/g, ""));
 
-    if (prices.length === 0) continue;
+    let normalPrice: number | undefined;
+    let salePrice: number | undefined;
 
-    const normalPrice =
-      prices.length >= 2 ? toNumber(prices[0]) : undefined;
+    if (prices.length >= 2) {
+      normalPrice = toNumber(prices[0]);
+      salePrice = toNumber(prices[1]);
+    } else {
+      salePrice = toNumber(prices[0]);
+    }
 
-    const salePrice =
-      prices.length >= 2
-        ? toNumber(prices[1])
-        : toNumber(prices[0]);
+    const period = lines.find(
+  (v) =>
+    v === "無期限" ||
+    v.includes("日間")
+);
+
+    const name = lines
+  .filter(
+    (v) =>
+      !v.includes("円") &&
+      v !== "無期限" &&
+      !v.includes("日間")
+  )
+  .join(" ");
 
     result.push({
-      type: "",
-      name,
-      normalPrice,
-      salePrice,
-    });
+  type: "",
+  name,
+  period,
+  normalPrice,
+  salePrice,
+});
   }
 
   return result;
@@ -138,9 +161,42 @@ export async function parsePage(
   page: Page
 ): Promise<ParsedData> {
 
+  
 const prices = await getPrices(page);
 
-console.log(prices);
+
+
+const saleLocator = page.locator(
+  "div.relative.mb-1"
+);
+
+let saleText = "";
+
+if (await saleLocator.count()) {
+  saleText =
+    (await saleLocator
+      .first()
+      .textContent()) ?? "";
+}
+
+const saleMatch = saleText.match(
+  /(\d+)月(\d+)日.*?(\d+):(\d+)/
+);
+
+let saleEndAt: Date | null = null;
+
+if (saleMatch) {
+  const now = new Date();
+
+  saleEndAt = new Date(
+    now.getFullYear(),
+    Number(saleMatch[1]) - 1,
+    Number(saleMatch[2]),
+    Number(saleMatch[3]),
+    Number(saleMatch[4]),
+    0
+  );
+}
 
   return {
   title: await getMeta(page, "og:title"),
@@ -167,5 +223,7 @@ productReleaseDate: await getTableValue(page, "商品発売日"),
 duration: await getTableValue(page, "収録時間"),
 
 sampleImages: [],
+
+saleEndAt,
 };
 }

@@ -20,31 +20,38 @@ const JOB_SAVE_INTERVAL = 6;
 export async function syncNewWorks() {
   const startedAt = Date.now();
 
-  const { productIds } = await getNewItems();
+  const { products } = await getNewItems();
 
   const job = await beginJob(
-    JOBS.NEW,
-    productIds.length
-  );
+  JOBS.NEW,
+  products.length
+);
 
   const processedCount =
     job.processed_count ?? 0;
 
   const targets =
-    productIds.slice(processedCount);
+  products.slice(processedCount);
 
   try {
     const { data: works, error } = await supabase
-      .from("works")
-      .select("product_id");
+  .from("works")
+  .select(`
+    product_id,
+    price,
+    sale_price
+  `);
 
     if (error) {
       throw error;
     }
 
-    const existingIds = new Set(
-      (works ?? []).map((w) => w.product_id)
-    );
+    const existingWorks = new Map(
+  (works ?? []).map((w) => [
+    w.product_id,
+    w,
+  ])
+);
 
     let processed = processedCount;
     let inserted = 0;
@@ -53,7 +60,7 @@ export async function syncNewWorks() {
     console.log("================================");
     console.log("🚀 新作同期開始");
     console.log("================================");
-    console.log(`取得件数 : ${productIds.length}`);
+    console.log(`取得件数 : ${products.length}`);
     console.log(`途中再開 : ${processedCount}件`);
     console.log("================================");
 
@@ -68,63 +75,99 @@ export async function syncNewWorks() {
       );
 
       const items = await Promise.all(
-        batch.map(async (productId) => {
-          if (existingIds.has(productId)) {
-            return {
-              productId,
-              item: null,
-              exists: true,
-            };
-          }
+        batch.map(async (product) => {
+          const existing =
+  existingWorks.get(product.productId);
+
+if (existing) {
+  const priceChanged =
+    existing.price !== product.normalPrice ||
+    existing.sale_price !== product.salePrice;
+
+  return {
+    product,
+    item: null,
+    exists: true,
+    existing,
+    priceChanged,
+  };
+}
 
           const item =
-            await getDmmItem(productId);
+  await getDmmItem(product.productId);
 
           return {
-            productId,
-            item,
-            exists: false,
-          };
+  product,
+  item,
+  exists: false,
+};
         })
       );
 
       for (const row of items) {
-        if (row.exists) {
-          skipped++;
-          processed++;
-          continue;
-        }
+        if (row.exists && row.priceChanged) {
+  await updatePlaywrightItem(
+    row.product.productId
+  );
 
-        if (!row.item) {
-          processed++;
-          continue;
-        }
+  processed++;
 
-        const saved =
-          await saveDmmItem(row.item);
+  if (processed % JOB_SAVE_INTERVAL === 0) {
+    await updateJob(
+      JOBS.NEW,
+      processed,
+      row.product.productId
+    );
+  }
 
-        if (saved) {
-          inserted++;
+  continue;
+}
 
-          await updatePlaywrightItem(
-            row.productId
-          );
-        }
+if (row.exists && !row.priceChanged) {
+  skipped++;
+  processed++;
 
-        processed++;
+  if (processed % JOB_SAVE_INTERVAL === 0) {
+    await updateJob(
+      JOBS.NEW,
+      processed,
+      row.product.productId
+    );
+  }
+
+  continue;
+}
+
+if (!row.item) {
+  processed++;
+  continue;
+}
+
+const saved =
+  await saveDmmItem(row.item);
+
+if (saved) {
+  inserted++;
+
+  await updatePlaywrightItem(
+    row.product.productId
+  );
+}
+
+processed++;
 
         if (
           processed % JOB_SAVE_INTERVAL ===
           0
         ) {
           await updateJob(
-            JOBS.NEW,
-            processed,
-            row.productId
-          );
+  JOBS.NEW,
+  processed,
+  row.product.productId
+);
 
           console.log(
-            `${processed}/${productIds.length}`
+            `${processed}/${products.length}`
           );
         }
       }
@@ -133,7 +176,7 @@ export async function syncNewWorks() {
     await updateJob(
       JOBS.NEW,
       processed,
-      targets.at(-1) ?? ""
+      targets.at(-1)?.productId ?? ""
     );
 
     await finishJob(JOBS.NEW);
