@@ -2,6 +2,7 @@ export const JOBS = {
   ALL: "all",
   NEW: "new",
   SEMI_NEW: "semi_new",
+  OLD: "old",
   SALE: "sale",
   STAGE: "stage",
 } as const;

@@ -14,15 +14,9 @@ import {
 export async function updateSaleWorks() {
   const { products } = await getSaleItems();
 
-  console.log(
-  products.slice(0, 5)
-);
-
 const saleIds = new Set(
   products.map((p) => p.productId)
 );
-
-console.log("saleIds =", saleIds.size);
 
 const allWorks: {
   product_id: string;
@@ -66,31 +60,10 @@ while (true) {
   from += pageSize;
 }
 
-console.log("allWorks =", allWorks.length);
-
-console.log(
-  "セール先頭10件",
-  products.slice(0, 10).map((p) => p.productId)
-);
-
-console.log(
-  "DB先頭10件",
-  (allWorks ?? [])
-    .slice(0, 10)
-    .map((w) => w.product_id)
-);
-
 const works =
   (allWorks ?? []).filter((work) =>
     saleIds.has(work.product_id)
   );
-
-  console.log(
-  "一致サンプル",
-  works
-    .slice(0, 10)
-    .map((w) => w.product_id)
-);
 
 console.log(
   "セール一覧一致件数 =",

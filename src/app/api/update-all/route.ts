@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { syncWorks } from "@/lib/update/syncWorks";
-import { updateStatistics } from "@/lib/statistics/updateStatistics";
+import { updateAllWorks } from "@/lib/admin/updateAllWorks";
 
 export async function POST() {
   try {
     await syncWorks();
 
-    await updateStatistics();
+    await updateAllWorks();
 
     return NextResponse.json({
       success: true,

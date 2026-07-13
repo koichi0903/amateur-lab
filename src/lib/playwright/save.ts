@@ -39,6 +39,19 @@ const mainPrice =
   ) ??
   data.prices[0];
 
+// ------------------------
+// 底値判定（7日間レンタル）
+// ------------------------
+
+const rentalPrice = data.prices.find(
+  (p) =>
+    p.period?.includes("7日") &&
+    p.normalPrice != null
+);
+
+const isBottomPrice =
+  (rentalPrice?.normalPrice ?? Infinity) <= 300;
+
 const price =
   mainPrice?.normalPrice ??
   mainPrice?.salePrice ??
@@ -50,9 +63,14 @@ let discountRate = 0;
 
 let isOnSale = false;
 
+let saleEndAt: Date | null = null;
+
+// セール中
 if (
+  data.saleEndAt &&
   mainPrice?.salePrice &&
-  mainPrice.normalPrice
+  mainPrice.normalPrice &&
+  mainPrice.salePrice < mainPrice.normalPrice
 ) {
   salePrice = mainPrice.salePrice;
 
@@ -64,6 +82,8 @@ if (
   );
 
   isOnSale = true;
+
+  saleEndAt = data.saleEndAt;
 }
 
   // works 更新
@@ -89,7 +109,11 @@ discount_rate: discountRate,
 
 is_on_sale: isOnSale,
 
-sale_end_at: data.saleEndAt,
+sale_end_at: saleEndAt,
+
+    updated_at: new Date().toISOString(),
+
+    is_bottom_price: isBottomPrice,
 })
     .eq("product_id", productId);
 

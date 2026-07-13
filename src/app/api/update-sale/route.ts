@@ -1,12 +1,23 @@
 import { NextResponse } from "next/server";
 
 import { updateSaleWorks } from "@/lib/admin/updateSaleWorks";
+import { updateEndedSaleWorks } from "@/lib/admin/updateEndedSaleWorks";
+import { updateStatistics } from "@/lib/statistics/updateStatistics";
+
 
 export async function POST() {
   try {
-    await updateSaleWorks();
+    console.log("===== セール更新開始 =====");
 
-    return NextResponse.json({
+await updateSaleWorks();
+
+await updateEndedSaleWorks();
+
+await updateStatistics();
+
+console.log("===== セール更新完了 =====");
+
+return NextResponse.json({
       success: true,
       message: "セール更新が完了しました",
     });

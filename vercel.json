@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/update-all",
+      "schedule": "30 0 * * *"
+    },
+    {
+      "path": "/api/update-sale",
+      "schedule": "30 10 * * *"
+    }
+  ]
+}
