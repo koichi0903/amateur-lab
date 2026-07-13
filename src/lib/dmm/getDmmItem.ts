@@ -25,5 +25,9 @@ export async function getDmmItem(
 
   const json = await res.json();
 
+  console.log(
+  JSON.stringify(json?.result?.items?.[0]?.prices, null, 2)
+);
+
   return json?.result?.items?.[0] ?? null;
 }

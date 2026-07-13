@@ -83,6 +83,10 @@ export async function getProductIds(
 
 const count = await cards.count();
 
+console.log(
+  `page ${currentPage}: cards=${count}`
+);
+
       for (let i = 0; i < count; i++) {
   const card = cards.nth(i);
 
@@ -119,6 +123,13 @@ const price =
 });
 }
     }
+
+    console.log(
+  "取得作品数 =",
+  products.size,
+  "総ページ数 =",
+  totalPages
+);
 
     return {
   totalPages,

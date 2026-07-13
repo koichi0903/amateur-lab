@@ -124,11 +124,11 @@ for (let i = 0; i < count; i++) {
     let salePrice: number | undefined;
 
     if (prices.length >= 2) {
-      normalPrice = toNumber(prices[0]);
-      salePrice = toNumber(prices[1]);
-    } else {
-      salePrice = toNumber(prices[0]);
-    }
+  normalPrice = toNumber(prices[0]);
+  salePrice = toNumber(prices[1]);
+} else {
+  normalPrice = toNumber(prices[0]);
+}
 
     const period = lines.find(
   (v) =>

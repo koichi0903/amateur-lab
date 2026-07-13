@@ -103,6 +103,12 @@ export async function updateDmmItem(
         )
       : 0;
 
+      console.log({
+  list: item.prices?.list_price,
+  sale: item.prices?.price,
+  discountRate,
+});
+
   /*
 const {
   score,
@@ -138,25 +144,13 @@ const {
 
   maker: item.iteminfo?.maker?.[0]?.name || "",
 
-  series: item.iteminfo?.series?.[0]?.name || "",
-
-  price:
-    Number(
-      item.prices?.list_price?.replace("~", "")
-    ) || 0,
-
-  sale_price:
-    Number(
-      item.prices?.price?.replace("~", "")
-    ) || 0,
+  series: item.iteminfo?.series?.[0]?.name || "", 
 
   review_count:
     item.review?.count || 0,
 
   review_average:
     Number(item.review?.average) || 0,
-
-  discount_rate: discountRate,
 
   last_updated:
     new Date().toISOString(),

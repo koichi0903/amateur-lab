@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-
+import { getAllWorks } from "@/lib/supabase/getAllWorks";
 import { getNewItems } from "@/lib/playwright/getNewItems";
 import { getSemiNewItems } from "@/lib/playwright/getSemiNewItems";
 
@@ -11,39 +11,46 @@ import {
   JOBS,
 } from "@/lib/jobs";
 
-type Stage = "NEW" | "SEMI_NEW" | "OLD";
+type Stage =
+  | "RESERVED"
+  | "NEW"
+  | "SEMI_NEW"
+  | "OLD";
 
 export async function updateStage() {
   try {
     console.log("=== Stage同期開始 ===");
 
     const [
-      { productIds: newIds },
-      { productIds: semiNewIds },
-    ] = await Promise.all([
-      getNewItems(),
-      getSemiNewItems(),
-    ]);
+  { products: newProducts },
+  { products: semiNewProducts },
+] = await Promise.all([
+  getNewItems(),
+  getSemiNewItems(),
+]);
 
-    const newSet = new Set(newIds);
-    const semiNewSet = new Set(semiNewIds);
+    const newSet = new Set(
+  newProducts.map((p) => p.productId)
+);
 
-    const { data: works, error } = await supabase
-      .from("works")
-      .select("id, product_id, stage");
+const semiNewSet = new Set(
+  semiNewProducts.map((p) => p.productId)
+);
+    
 
-    if (error) {
-      throw error;
-    }
+    const works = await getAllWorks<{
+  id: number;
+  product_id: string;
+  stage: Stage;
+  product_release_date: string | null;
+}>(
+  "id, product_id, stage, product_release_date"
+);
 
-    if (!works) {
-      throw new Error("作品取得失敗");
-    }
-
-    await beginJob(
-      JOBS.STAGE,
-      works.length
-    );
+const job = await beginJob(
+  JOBS.STAGE,
+  works.length
+);
 
     let processed = 0;
 
@@ -55,13 +62,19 @@ export async function updateStage() {
     for (const work of works) {
       let nextStage: Stage = "OLD";
 
-      if (newSet.has(work.product_id)) {
-        nextStage = "NEW";
-      } else if (
-        semiNewSet.has(work.product_id)
-      ) {
-        nextStage = "SEMI_NEW";
-      }
+const today = new Date();
+today.setHours(0, 0, 0, 0);
+
+if (
+  work.product_release_date &&
+  new Date(work.product_release_date) > today
+) {
+  nextStage = "RESERVED";
+} else if (newSet.has(work.product_id)) {
+  nextStage = "NEW";
+} else if (semiNewSet.has(work.product_id)) {
+  nextStage = "SEMI_NEW";
+}
 
       if (work.stage !== nextStage) {
         updates.push({
@@ -97,6 +110,12 @@ export async function updateStage() {
         throw error;
       }
     }
+
+    console.log(
+  "最後",
+  "processed =", processed,
+  "works.length =", works.length
+);
 
     await updateJob(
   JOBS.STAGE,

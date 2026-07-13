@@ -51,7 +51,6 @@ let discountRate = 0;
 let isOnSale = false;
 
 if (
-  data.saleEndAt &&
   mainPrice?.salePrice &&
   mainPrice.normalPrice
 ) {

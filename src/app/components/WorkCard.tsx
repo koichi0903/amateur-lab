@@ -134,7 +134,7 @@ if ((work.new_release_score ?? 0) >= 8) {
         </>
       ) : (
         <p className="text-3xl font-bold">
-          ¥{work.price.toLocaleString()}
+          ¥{work.price?.toLocaleString() ?? "-"}
         </p>
       )}
 
