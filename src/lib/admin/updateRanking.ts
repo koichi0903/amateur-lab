@@ -147,5 +147,24 @@ console.log({
   series: seriesRanking.length,
 });
 
+await supabase
+  .from("actress_rankings")
+  .delete()
+  .neq("id", 0);
+
+await supabase
+  .from("actress_rankings")
+  .insert(
+    actressRanking
+      .slice(0, 50)
+      .map((a) => ({
+        name: a.actress,
+        score: a.score,
+        updated_at: new Date(),
+      }))
+  );
+
+console.log("女優ランキング更新完了");
+
 console.log("ランキング集計完了");
 }
