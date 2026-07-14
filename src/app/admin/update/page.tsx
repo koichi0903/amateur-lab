@@ -7,6 +7,7 @@ import { supabase } from "../../../lib/supabase";
 import UpdateHeader from "./components/UpdateHeader";
 import JobCard from "./components/JobCard";
 import UpdateButtons from "./components/UpdateButtons";
+import { JOB_REGISTRY } from "./jobRegistry";
 
 type Job = {
   job_name: string;
@@ -130,6 +131,69 @@ async function handleUpdateSale() {
   }
 }
 
+async function handleUpdateOld() {
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/update-old", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    alert(data.message);
+
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert("旧作更新に失敗しました");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function handleUpdateEndedSale() {
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/update-ended-sale", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    alert(data.message);
+
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert("終了セール更新に失敗しました");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function handleUpdateScore() {
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/score-update", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    alert(data.message);
+
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert("スコア更新に失敗しました");
+  } finally {
+    setLoading(false);
+  }
+}
+
 async function handleUpdateStage() {
   setLoading(true);
 
@@ -209,28 +273,6 @@ setLoading(false);
   return () => clearInterval(interval);
 }, []);
 
-  function getTitle(jobName: string) {
-    switch (jobName) {
-      case "new":
-        return "🆕 新作更新";
-
-      case "stage":
-  return "🔄 Stage同期";
-
-      case "semi_new":
-        return "⭐ 準新作更新";
-
-      case "sale":
-        return "💰 セール更新";
-
-      case "sale_scan":
-  return "🔍 セールスキャン";
-
-      default:
-        return jobName;
-    }
-  }
-
   return (
     <main className="min-h-screen bg-zinc-950">
       <div className="mx-auto max-w-7xl p-10">
@@ -244,23 +286,25 @@ setLoading(false);
         ) : (
           <div className="grid gap-6 md:grid-cols-2">
   {jobs
+  .filter((job) => job.job_name !== "sale_scan")
     .sort((a, b) => {
-      const order = {
-  new: 1,
-  stage: 2,
-  sale: 3,
-  sale_scan: 4,
-};
-
-      return (
-        (order[a.job_name as keyof typeof order] ?? 999) -
-        (order[b.job_name as keyof typeof order] ?? 999)
-      );
-    })
+  return (
+    (JOB_REGISTRY[
+      a.job_name as keyof typeof JOB_REGISTRY
+    ]?.order ?? 999) -
+    (JOB_REGISTRY[
+      b.job_name as keyof typeof JOB_REGISTRY
+    ]?.order ?? 999)
+  );
+})
     .map((job) => (
       <JobCard
   key={job.job_name}
-  title={getTitle(job.job_name)}
+  title={
+  JOB_REGISTRY[
+    job.job_name as keyof typeof JOB_REGISTRY
+  ]?.title ?? job.job_name
+}
   status={job.status}
   processed={job.processed_count}
   total={job.total_count}
@@ -272,12 +316,22 @@ setLoading(false);
 </div>
         )}
 
+  
+
         <div className="mt-10">
   <UpdateButtons
   onSyncWorks={handleSyncWorks}
   onUpdateStage={handleUpdateStage}
-  onUpdateAll={handleUpdateAll}
+
+  onUpdateNew={handleUpdateNew}
+  onUpdateSemiNew={handleUpdateSemiNew}
+  onUpdateOld={handleUpdateOld}
+
   onUpdateSale={handleUpdateSale}
+  onUpdateEndedSale={handleUpdateEndedSale}
+
+  onUpdateAll={handleUpdateAll}
+
   isUpdating={isUpdating}
 />
 </div>

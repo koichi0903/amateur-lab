@@ -80,16 +80,13 @@ export async function syncNewWorks() {
   existingWorks.get(product.productId);
 
 if (existing) {
-  const priceChanged =
-    existing.price !== product.normalPrice ||
-    existing.sale_price !== product.salePrice;
-
   return {
     product,
     item: null,
     exists: true,
     existing,
-    priceChanged,
+    needsPriceUpdate:
+      existing.price == null,
   };
 }
 
@@ -105,7 +102,7 @@ if (existing) {
       );
 
       for (const row of items) {
-        if (row.exists && row.priceChanged) {
+        if (row.exists && row.needsPriceUpdate) {
   await updatePlaywrightItem(
     row.product.productId
   );
@@ -123,7 +120,7 @@ if (existing) {
   continue;
 }
 
-if (row.exists && !row.priceChanged) {
+if (row.exists && !row.needsPriceUpdate) {
   skipped++;
   processed++;
 
@@ -139,7 +136,22 @@ if (row.exists && !row.priceChanged) {
 }
 
 if (!row.item) {
+  console.warn(
+    `DMM取得失敗: ${row.product.productId}`
+  );
+
   processed++;
+
+  if (
+    processed % JOB_SAVE_INTERVAL === 0
+  ) {
+    await updateJob(
+      JOBS.NEW,
+      processed,
+      row.product.productId
+    );
+  }
+
   continue;
 }
 
@@ -149,9 +161,16 @@ const saved =
 if (saved) {
   inserted++;
 
-  await updatePlaywrightItem(
-    row.product.productId
-  );
+  try {
+    await updatePlaywrightItem(
+      row.product.productId
+    );
+  } catch (error) {
+    console.error(
+      `Playwright更新失敗: ${row.product.productId}`,
+      error
+    );
+  }
 }
 
 processed++;

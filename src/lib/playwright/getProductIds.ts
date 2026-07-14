@@ -3,12 +3,6 @@ import { chromium } from "playwright";
 export interface ProductSummary {
   productId: string;
 
-  normalPrice?: number;
-
-  salePrice?: number;
-
-  isSale: boolean;
-
   url: string;
 }
 
@@ -104,22 +98,9 @@ const container = card.locator(
   "xpath=ancestor::div[@data-e2eid='content-card']"
 );
 
-const priceText =
-  (await container
-    .locator("[data-e2eid='content-price']")
-    .textContent()) ?? "";
-
-const price =
-  priceText.match(/([\d,]+)/)?.[1];
-
   products.set(productId, {
   productId,
   url: href,
-  normalPrice: price
-    ? Number(price.replace(/,/g, ""))
-    : undefined,
-  salePrice: undefined,
-  isSale: false,
 });
 }
     }

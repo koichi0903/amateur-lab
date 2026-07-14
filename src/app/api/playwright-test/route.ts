@@ -3,7 +3,9 @@ import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
 
 export async function POST() {
   try {
-    await updatePlaywrightItem("sone00672");
+    await updatePlaywrightItem(
+  "h_019aczd00048"
+);
 
     return NextResponse.json({
       success: true,

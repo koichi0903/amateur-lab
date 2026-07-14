@@ -60,6 +60,11 @@ console.log("年齢認証を突破しました");
 
     const data = await parsePage(page);
 
+    console.log(
+  "prices =",
+  JSON.stringify(data.prices, null, 2)
+);
+
     await saveWork(productId, data);
 
     console.log("Playwright更新:", productId);

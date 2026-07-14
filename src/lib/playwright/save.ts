@@ -22,22 +22,20 @@ export async function saveWork(
 // サイトで表示する代表価格
 // ------------------------
 
+// ------------------------
+// サイトで表示する代表価格
+// （最安の通常価格）
+// ------------------------
+
 const mainPrice =
-  data.prices.find(
-    (p) =>
-      p.period === "無期限" &&
-      p.name.includes("HD版")
-  ) ??
-  data.prices.find(
-    (p) =>
-      p.period === "無期限" &&
-      p.name.includes("ダウンロード")
-  ) ??
-  data.prices.find(
-    (p) =>
-      p.period === "無期限"
-  ) ??
-  data.prices[0];
+  data.prices
+    .filter(
+      (p) => p.normalPrice != null
+    )
+    .sort(
+      (a, b) =>
+        a.normalPrice! - b.normalPrice!
+    )[0];
 
 // ------------------------
 // 底値判定（7日間レンタル）
@@ -87,35 +85,43 @@ if (
 }
 
   // works 更新
-  await supabase
-    .from("works")
-    .update({
-  title: data.title,
-  actress: data.actress,
-  maker: data.maker,
-  series: data.series,
-  label: data.label,
+  const { data: updated, error } = await supabase
+  .from("works")
+  .update({
+    title: data.title,
+    actress: data.actress,
+    maker: data.maker,
+    series: data.series,
+    label: data.label,
 
-  release_date: data.releaseDate,
-  product_release_date: data.productReleaseDate,
+    release_date: data.releaseDate,
+    product_release_date: data.productReleaseDate,
 
-  duration: data.duration,
+    duration: data.duration,
 
-  price,
+    price,
 
-  sale_price: salePrice,
+    sale_price: salePrice,
 
-discount_rate: discountRate,
+    discount_rate: discountRate,
 
-is_on_sale: isOnSale,
+    is_on_sale: isOnSale,
 
-sale_end_at: saleEndAt,
+    sale_end_at: saleEndAt,
 
     updated_at: new Date().toISOString(),
 
     is_bottom_price: isBottomPrice,
-})
-    .eq("product_id", productId);
+  })
+  .eq("product_id", productId)
+  .select();
+
+console.log("price =", price);
+console.log("updated =", updated);
+
+if (error) {
+  console.error("UPDATE ERROR", error);
+}
 
   // 現在の価格を取得
   const { data: currentPrices } = await supabase

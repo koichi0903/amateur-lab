@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { IGNORE_GENRES } from "../../../lib/genre";
 import type { DmmItem } from "@/types/dmm";
+import { updateRanking } from "@/lib/admin/updateRanking";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,7 +15,10 @@ function getRankingPoint(rank: number) {
   );
 }
 
-export async function GET() {
+export async function POST() {
+
+  await updateRanking();
+  
   const apiId = process.env.DMM_API_ID;
   const affiliateId = process.env.DMM_AFFILIATE_ID;
 

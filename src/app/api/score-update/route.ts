@@ -20,7 +20,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function GET() {
+export async function POST() {
 
   const works: ScoreUpdateWork[] = [];
 
