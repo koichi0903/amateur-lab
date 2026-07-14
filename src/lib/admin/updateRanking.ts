@@ -104,5 +104,48 @@ for (const item of rankingItems) {
   });
 }
 
+const actressRanking = Object.entries(
+  actressScore
+)
+  .map(([name, score]) => ({
+    actress: name,
+    score,
+  }))
+  .sort((a, b) => b.score - a.score);
+
+const genreRanking = Object.entries(
+  genreScore
+)
+  .map(([name, score]) => ({
+    genre: name,
+    score,
+  }))
+  .sort((a, b) => b.score - a.score);
+
+const makerRanking = Object.entries(
+  makerScore
+)
+  .map(([name, score]) => ({
+    maker: name,
+    score,
+  }))
+  .sort((a, b) => b.score - a.score);
+
+const seriesRanking = Object.entries(
+  seriesScore
+)
+  .map(([name, score]) => ({
+    series: name,
+    score,
+  }))
+  .sort((a, b) => b.score - a.score);
+
+console.log({
+  actress: actressRanking.length,
+  genre: genreRanking.length,
+  maker: makerRanking.length,
+  series: seriesRanking.length,
+});
+
 console.log("ランキング集計完了");
 }
