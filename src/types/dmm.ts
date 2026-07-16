@@ -8,8 +8,8 @@ export interface DmmItem {
   small?: string;
   list?: string;
 };
-  affiliateURL?: string;
-  URL?: string;
+  URL?: string;           // FANZA作品URL
+affiliateURL?: string;  // アフィリエイトURL
 
   prices: {
     price: string;

@@ -7,11 +7,6 @@ const menus = [
     href: "/admin/update",
   },
   {
-    title: "🎬 作品管理",
-    description: "作品検索・登録・編集",
-    href: "/admin/works",
-  },
-  {
     title: "📊 統計",
     description: "ランキング・集計データ",
     href: "/admin/statistics",

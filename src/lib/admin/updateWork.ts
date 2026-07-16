@@ -1,15 +1,22 @@
 import { getDmmItem } from "@/lib/dmm/getDmmItem";
 import { updateDmmItem } from "./update";
 import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
+import type { DmmItem } from "@/types/dmm";
 
 export async function updateWork(
-  productId: string
+  productId: string,
+  item?: DmmItem | null
 ) {
-  const item = await getDmmItem(productId);
+  const dmmItem =
+    item ?? (await getDmmItem(productId));
 
-  if (item) {
-    await updateDmmItem(item);
+  if (dmmItem) {
+    await updateDmmItem(dmmItem);
   }
 
-  await updatePlaywrightItem(productId);
+  await updatePlaywrightItem(
+    productId,
+    dmmItem?.URL ??
+      dmmItem?.affiliateURL
+  );
 }

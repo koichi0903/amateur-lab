@@ -2,8 +2,9 @@ import { updateNewWorks } from "./updateNewWorks";
 import { updateSemiNewWorks } from "./updateSemiNewWorks";
 import { updateOldWorks } from "./updateOldWorks";
 import { updateSaleWorks } from "./updateSaleWorks";
-import { updateStatistics } from "@/lib/statistics/updateStatistics";
 import { updateEndedSaleWorks } from "./updateEndedSaleWorks";
+import { updateRanking } from "./updateRanking";
+import { updateScore } from "./updateScore";
 
 export async function updateAllWorks() {
   console.log("===== 全更新開始 =====");
@@ -24,10 +25,13 @@ await updateSaleWorks();
 console.log("■ 終了セール更新");
 await updateEndedSaleWorks();
 
-console.log("■ 統計更新");
-await updateStatistics();
+console.log("■ ランキング更新");
+await updateRanking();
 
-    console.log("===== 全更新完了 =====");
+console.log("■ スコア更新");
+await updateScore();
+
+console.log("===== 全更新完了 =====");
   } catch (error) {
     console.error("全更新失敗", error);
     throw error;

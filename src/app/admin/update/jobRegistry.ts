@@ -23,6 +23,14 @@ method: "POST",
   visible: true,
 },
 
+reserve: {
+  title: "📅 予約作品更新",
+  order: 3.5,
+  api: "/api/update-reserve",
+  method: "POST",
+  visible: true,
+},
+
 semi_new: {
   title: "⭐ 準新作更新",
   order: 4,
@@ -69,6 +77,14 @@ method: "POST",
   title: "🧠 スコア更新",
   order: 10,
   api: "/api/score-update",
+  method: "POST",
+  visible: true,
+},
+
+missing_prices: {
+  title: "💵 価格補完",
+  order: 11,
+  api: "/api/update-missing-prices",
   method: "POST",
   visible: true,
 },

@@ -131,6 +131,29 @@ async function handleUpdateSale() {
   }
 }
 
+async function handleUpdateRanking() {
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/dmm-ranking", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    alert("ランキング更新が完了しました");
+
+    console.log(data);
+
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert("ランキング更新に失敗しました");
+  } finally {
+    setLoading(false);
+  }
+}
+
 async function handleUpdateOld() {
   setLoading(true);
 
@@ -183,12 +206,56 @@ async function handleUpdateScore() {
 
     const data = await res.json();
 
-    alert(data.message);
+    alert("スコア更新が完了しました");
+
+    console.log(data);
 
     await loadJobs();
   } catch (e) {
     console.error(e);
     alert("スコア更新に失敗しました");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function handleUpdateMissingPrices() {
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/update-missing-prices", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    alert(data.message);
+
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert("価格補完に失敗しました");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function handleUpdateReserve() {
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/update-reserve", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    alert(data.message);
+
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert("予約作品更新に失敗しました");
   } finally {
     setLoading(false);
   }
@@ -214,6 +281,8 @@ async function handleUpdateStage() {
     setLoading(false);
   }
 }
+
+
 
   async function loadJobs() {
     const { data, error } = await supabase
@@ -322,16 +391,16 @@ setLoading(false);
   <UpdateButtons
   onSyncWorks={handleSyncWorks}
   onUpdateStage={handleUpdateStage}
-
   onUpdateNew={handleUpdateNew}
   onUpdateSemiNew={handleUpdateSemiNew}
   onUpdateOld={handleUpdateOld}
-
-  onUpdateSale={handleUpdateSale}
   onUpdateEndedSale={handleUpdateEndedSale}
-
   onUpdateAll={handleUpdateAll}
-
+  onUpdateSale={handleUpdateSale}
+  onUpdateRanking={handleUpdateRanking}
+  onUpdateScore={handleUpdateScore}
+  onUpdateMissingPrices={handleUpdateMissingPrices}
+  onUpdateReserve={handleUpdateReserve}
   isUpdating={isUpdating}
 />
 </div>

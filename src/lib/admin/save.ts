@@ -6,41 +6,58 @@ import type { DmmItem } from "../../types/dmm";
 import type { RankingItem } from "../../types/ranking";
 
 export async function saveDmmItem(
-  item: DmmItem
+  item: DmmItem,
+  rankingData?: {
+    actressRanking: RankingItem[];
+    genreRanking: RankingItem[];
+    makerRanking: RankingItem[];
+    seriesRanking: RankingItem[];
+  }
 ) {
 
-const { data: actressRanking } =
-  await supabase
-    .from("actress_rankings")
-    .select("*");
+let actressList: RankingItem[];
+let genreList: RankingItem[];
+let makerList: RankingItem[];
+let seriesList: RankingItem[];
 
-const actressList =
-  (actressRanking ?? []) as RankingItem[];
+if (rankingData) {
+  actressList = rankingData.actressRanking;
+  genreList = rankingData.genreRanking;
+  makerList = rankingData.makerRanking;
+  seriesList = rankingData.seriesRanking;
+} else {
+  const { data: actressRanking } =
+    await supabase
+      .from("actress_rankings")
+      .select("*");
 
-const { data: genreRanking } =
-  await supabase
-    .from("genre_rankings")
-    .select("*");
+  const { data: genreRanking } =
+    await supabase
+      .from("genre_rankings")
+      .select("*");
 
-const genreList =
-  (genreRanking ?? []) as RankingItem[];
+  const { data: makerRanking } =
+    await supabase
+      .from("maker_rankings")
+      .select("*");
 
-const {
-  data: makerRanking,
-} = await supabase
-  .from("maker_rankings")
-  .select("*");
+  const { data: seriesRanking } =
+    await supabase
+      .from("series_rankings")
+      .select("*");
 
-const makerList =
-  (makerRanking ?? []) as RankingItem[];
+  actressList =
+    (actressRanking ?? []) as RankingItem[];
 
-const { data: seriesRanking } =
-  await supabase
-    .from("series_rankings")
-    .select("*");
+  genreList =
+    (genreRanking ?? []) as RankingItem[];
 
-const seriesList =
-  (seriesRanking ?? []) as RankingItem[];
+  makerList =
+    (makerRanking ?? []) as RankingItem[];
+
+  seriesList =
+    (seriesRanking ?? []) as RankingItem[];
+}
 
 let actressScore = 0;
 let genreScore = 0;
@@ -266,6 +283,9 @@ review_average:
         ) * 100
       )
     : 0,
+
+playwright_status: "PENDING",
+
       },
     ]);
     

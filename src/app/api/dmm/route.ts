@@ -21,7 +21,8 @@ export async function GET(request: Request) {
     ? `&cid=${cid}`
     : `&keyword=${encodeURIComponent(keyword)}`) +
 
-  '&output=json';
+  '&hits=100' +
+'&output=json';
 
 const res = await fetch(url);
 const data = await res.json();

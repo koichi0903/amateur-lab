@@ -19,4 +19,25 @@ export const UPDATE_CONFIG = {
   semiNewUpdateDays: [2, 5],
 
   jobUpdateInterval: 6,
+
+  CRON: {
+    SALE: [
+      "00:30",
+      "10:30",
+    ],
+
+    RESERVE: "03:00",
+
+    NEW: "03:30",
+
+    OLD: {
+      day: "sunday",
+      time: "12:00",
+    },
+
+    SEMI_NEW: {
+      day: "sunday",
+      time: "14:00",
+    },
+  },
 };

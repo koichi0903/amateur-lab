@@ -163,8 +163,9 @@ if (saved) {
 
   try {
     await updatePlaywrightItem(
-      row.product.productId
-    );
+  row.product.productId,
+  row.item.URL ?? row.item.affiliateURL
+);
   } catch (error) {
     console.error(
       `Playwright更新失敗: ${row.product.productId}`,

@@ -107,11 +107,15 @@ if (
 
     is_on_sale: isOnSale,
 
-    sale_end_at: saleEndAt,
+sale_end_at: saleEndAt,
 
-    updated_at: new Date().toISOString(),
+playwright_status: isOnSale
+  ? "SALE"
+  : "NORMAL",
 
-    is_bottom_price: isBottomPrice,
+updated_at: new Date().toISOString(),
+
+is_bottom_price: isBottomPrice,
   })
   .eq("product_id", productId)
   .select();

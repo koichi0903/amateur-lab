@@ -1,5 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import type { DmmItem } from "@/types/dmm";
+import { IGNORE_GENRES } from "../genre";
+import { updateWork } from "./updateWork";
+import { saveDmmItem } from "./save";
+import { UPDATE_CONFIG } from "@/config/update";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -66,7 +70,7 @@ export async function updateRanking() {
     allItems.length
   );
 
-  console.log("===== ランキング取得完了 =====");
+  console.log("ランキング取得完了");
 
   const rankingItems = allItems.map(
   (item, index) => ({
@@ -84,9 +88,11 @@ for (const item of rankingItems) {
   const point = getRankingPoint(item.rank);
 
   item.iteminfo?.genre?.forEach((g) => {
-    genreScore[g.name] =
-      (genreScore[g.name] || 0) + point;
-  });
+  if (IGNORE_GENRES.includes(g.name)) return;
+
+  genreScore[g.name] =
+    (genreScore[g.name] || 0) + point;
+});
 
   item.iteminfo?.actress?.forEach((a) => {
     actressScore[a.name] =
@@ -167,4 +173,313 @@ await supabase
 console.log("女優ランキング更新完了");
 
 console.log("ランキング集計完了");
+
+await supabase
+  .from("genre_rankings")
+  .delete()
+  .neq("id", 0);
+
+await supabase
+  .from("genre_rankings")
+  .insert(
+    genreRanking
+      .slice(0, 30)
+      .map((g) => ({
+        name: g.genre,
+        score: g.score,
+        updated_at: new Date(),
+      }))
+  );
+
+await supabase
+  .from("maker_rankings")
+  .delete()
+  .neq("id", 0);
+
+await supabase
+  .from("maker_rankings")
+  .insert(
+    makerRanking
+      .slice(0, 30)
+      .map((m) => ({
+        name: m.maker,
+        score: m.score,
+        updated_at: new Date(),
+      }))
+  );
+
+await supabase
+  .from("series_rankings")
+  .delete()
+  .neq("id", 0);
+
+await supabase
+  .from("series_rankings")
+  .insert(
+    seriesRanking
+      .slice(0, 50)
+      .map((s) => ({
+        name: s.series,
+        score: s.score,
+        updated_at: new Date(),
+      }))
+  );
+
+const actressScoreMap = new Map(
+  actressRanking.map((a) => [a.actress, a.score])
+);
+
+const genreScoreMap = new Map(
+  genreRanking.map((g) => [g.genre, g.score])
+);
+
+const makerScoreMap = new Map(
+  makerRanking.map((m) => [m.maker, m.score])
+);
+
+const seriesScoreMap = new Map(
+  seriesRanking.map((s) => [s.series, s.score])
+);
+
+const { data: works } = await supabase
+  .from("works")
+  .select("product_id");
+
+  const workMap = new Set(
+  (works ?? []).map((w) => w.product_id)
+);
+
+const newItems = rankingItems.filter(
+  (item) => !workMap.has(item.content_id)
+);
+
+console.log(
+  `新規登録対象 ${newItems.length}件`
+);
+
+let newCount = 0;
+
+const SAVE_BATCH_SIZE = 10;
+
+for (
+  let i = 0;
+  i < newItems.length;
+  i += SAVE_BATCH_SIZE
+) {
+  const batch = newItems.slice(
+    i,
+    i + SAVE_BATCH_SIZE
+  );
+
+  const results = await Promise.all(
+  batch.map((item) =>
+    saveDmmItem(item, {
+      actressRanking: actressRanking.map((a) => ({
+        name: a.actress,
+        score: a.score,
+      })),
+
+      genreRanking: genreRanking.map((g) => ({
+        name: g.genre,
+        score: g.score,
+      })),
+
+      makerRanking: makerRanking.map((m) => ({
+        name: m.maker,
+        score: m.score,
+      })),
+
+      seriesRanking: seriesRanking.map((s) => ({
+        name: s.series,
+        score: s.score,
+      })),
+    })
+  )
+);
+
+  newCount += results.filter(Boolean).length;
+
+  console.log(
+    `${Math.min(
+      i + SAVE_BATCH_SIZE,
+      newItems.length
+    )}/${newItems.length}`
+  );
+}
+
+console.log(
+  `ランキング新規登録 ${newCount}件`
+);
+
+const { data: refreshedWorks } = await supabase
+  .from("works")
+  .select(
+    `
+    id,
+    product_id,
+    actress,
+    genre,
+    maker,
+    series,
+    playwright_status
+    `
+  );
+
+const statusMap = new Map(
+  (refreshedWorks ?? []).map((work) => [
+    work.product_id,
+    work.playwright_status,
+  ])
+);
+
+await supabase
+  .from("works")
+  .update({
+    ranking: 9999,
+  })
+  .neq("id", 0);
+
+const rankingUpdates = rankingItems.map(
+  (item) => ({
+    product_id: item.content_id,
+    ranking: item.rank,
+  })
+);
+
+const { error: rankingError } =
+  await supabase
+    .from("works")
+    .upsert(rankingUpdates, {
+      onConflict: "product_id",
+    });
+
+if (rankingError) {
+  console.error(rankingError);
+}
+
+const workUpdates: {
+  id: number;
+  actress_score: number;
+  genre_score: number;
+  maker_score: number;
+  series_score: number;
+}[] = [];
+
+for (const work of refreshedWorks ?? [])
+   {
+  let actressScore = 0;
+  let genreScore = 0;
+  let makerScore = 0;
+  let seriesScore = 0;
+
+  const actresses =
+    work.actress
+      ?.split("/")
+      .map((v: string) => v.trim()) ?? [];
+
+  const genres =
+    work.genre
+      ?.split("/")
+      .map((v: string) => v.trim()) ?? [];
+
+  const makers =
+    work.maker
+      ?.split("/")
+      .map((v: string) => v.trim()) ?? [];
+
+  const series =
+    work.series
+      ?.split("/")
+      .map((v: string) => v.trim()) ?? [];
+
+  actresses.forEach((name: string) => {
+    const score = actressScoreMap.get(name);
+
+    if (score) {
+      actressScore += score;
+    }
+  });
+
+  genres.forEach((name: string) => {
+    const score = genreScoreMap.get(name);
+
+    if (score) {
+      genreScore += score;
+    }
+  });
+
+  makers.forEach((name: string) => {
+    const score = makerScoreMap.get(name);
+
+    if (score) {
+      makerScore += score;
+    }
+  });
+
+  series.forEach((name: string) => {
+    const score = seriesScoreMap.get(name);
+
+    if (score) {
+      seriesScore += score;
+    }
+  });
+
+  workUpdates.push({
+    id: work.id,
+    actress_score: actressScore,
+    genre_score: genreScore,
+    maker_score: makerScore,
+    series_score: seriesScore,
+  });
+}
+
+await supabase
+  .from("works")
+  .upsert(workUpdates);
+
+console.log("works更新完了");
+
+console.log("ランキング作品詳細更新開始");
+
+const targets = rankingItems.filter(
+  (item) =>
+    statusMap.get(item.content_id) !== "SALE"
+);
+
+console.log(
+  `Playwright対象 ${targets.length}件`
+);
+
+const PLAYWRIGHT_BATCH_SIZE =
+  UPDATE_CONFIG.parallel;
+
+for (
+  let i = 0;
+  i < targets.length;
+  i += PLAYWRIGHT_BATCH_SIZE
+) {
+  const batch = targets.slice(
+    i,
+    i + PLAYWRIGHT_BATCH_SIZE
+  );
+
+  await Promise.all(
+    batch.map((item) =>
+      updateWork(item.content_id, item)
+    )
+  );
+
+  console.log(
+    `Playwright ${Math.min(
+      i + PLAYWRIGHT_BATCH_SIZE,
+      targets.length
+    )}/${targets.length}`
+  );
+}
+
+console.log("ランキング作品詳細更新完了");
+
+console.log("===== ランキング更新完了 =====");
+
+return genreRanking.slice(0, 30);
 }

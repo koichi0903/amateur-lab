@@ -46,4 +46,11 @@ series_point: number;
   url: string | null;
 
   memo: string | null;
+  stage: string;
+is_on_sale: boolean;
+playwright_status: string;
+label: string | null;
+sale_end_at: string | null;
+product_release_date: string | null;
+duration: number | null;
 }

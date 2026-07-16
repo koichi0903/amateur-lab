@@ -15,6 +15,14 @@ type UpdateButtonsProps = {
 
   onUpdateAll?: () => void;
 
+  onUpdateRanking?: () => void;
+
+  onUpdateScore?: () => void;
+
+  onUpdateMissingPrices?: () => void;
+
+  onUpdateReserve?: () => void;
+
   isUpdating?: boolean;
 };
 
@@ -35,7 +43,15 @@ export default function UpdateButtons({
 
   onUpdateAll,
 
-  isUpdating = false,
+  onUpdateRanking,
+
+  onUpdateScore,
+
+  onUpdateMissingPrices,
+
+  onUpdateReserve,
+
+isUpdating = false,
 }: UpdateButtonsProps)
 {
 
@@ -75,11 +91,32 @@ export default function UpdateButtons({
     onClick: onUpdateAll,
     color: "bg-purple-600 hover:bg-purple-500",
   },
-  {
+    {
     label: "💰 セール更新",
     onClick: onUpdateSale,
     color: "bg-amber-600 hover:bg-amber-500",
   },
+  {
+    label: "🏆 ランキング更新",
+    onClick: onUpdateRanking,
+    color: "bg-sky-600 hover:bg-sky-500",
+  },
+  {
+  label: "🧮 スコア更新",
+  onClick: onUpdateScore,
+  color: "bg-teal-600 hover:bg-teal-500",
+},
+  {
+  label: "💵 価格補完",
+  onClick: onUpdateMissingPrices,
+  color: "bg-lime-600 hover:bg-lime-500",
+},
+  {
+  label: "📅 予約作品更新",
+  onClick: onUpdateReserve,
+  color: "bg-pink-600 hover:bg-pink-500",
+},
+
 ];
 
   return (

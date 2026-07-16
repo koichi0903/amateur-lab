@@ -14,8 +14,13 @@ import { parsePage } from "./parser";
 import { saveWork } from "./save";
 
 export async function updatePlaywrightItem(
-  productId: string
+  productId: string,
+  url?: string | null
 ) {
+  let workUrl: string | undefined =
+  url ?? undefined;
+
+if (!workUrl) {
   const { data: work, error } = await supabase
     .from("works")
     .select("url")
@@ -27,6 +32,9 @@ export async function updatePlaywrightItem(
     return;
   }
 
+  workUrl = work.url ?? undefined;
+}
+
   const browser = await chromium.launch({
     headless: true,
   });
@@ -34,7 +42,12 @@ export async function updatePlaywrightItem(
   const page = await browser.newPage();
 
   try {
-    await page.goto(work.url, {
+
+    if (!workUrl) {
+  console.log("URLが見つかりません:", productId);
+  return;
+}
+    await page.goto(workUrl, {
   waitUntil: "domcontentloaded",
   timeout: 60000,
 });

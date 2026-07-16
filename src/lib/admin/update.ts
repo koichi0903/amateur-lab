@@ -146,6 +146,11 @@ const {
 
   series: item.iteminfo?.series?.[0]?.name || "", 
 
+  url:
+  item.URL ||
+  item.affiliateURL ||
+  null,
+
   review_count:
     item.review?.count || 0,
 
