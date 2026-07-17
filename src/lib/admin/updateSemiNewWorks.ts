@@ -24,7 +24,16 @@ export async function updateSemiNewWorks() {
       UPDATE_CONFIG.semiNewReleaseDays
   );
 
-  const { data: works, error } = await supabase
+  let works: {
+  product_id: string;
+  release_date: string;
+}[] = [];
+
+let from = 0;
+const PAGE_SIZE = 1000;
+
+while (true) {
+  const { data, error } = await supabase
     .from("works")
     .select("product_id, release_date")
     .lt(
@@ -34,11 +43,30 @@ export async function updateSemiNewWorks() {
     .gte(
       "release_date",
       semiBorder.toISOString().slice(0, 10)
-    );
+    )
+    .range(from, from + PAGE_SIZE - 1);
 
   if (error) {
     throw error;
   }
+
+  if (!data || data.length === 0) {
+    break;
+  }
+
+  works.push(...data);
+
+  if (data.length < PAGE_SIZE) {
+    break;
+  }
+
+  from += PAGE_SIZE;
+}
+
+console.log(
+  "準新作取得件数:",
+  works.length
+);
 
   if (!works || works.length === 0) {
     console.log("更新対象の準新作はありません");

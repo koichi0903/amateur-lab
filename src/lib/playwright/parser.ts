@@ -83,6 +83,27 @@ if (!value || value === "----") {
 return value;
 }
 
+async function getDateValue(
+  page: Page,
+  label: string
+): Promise<string | undefined> {
+  const value = await getTableValue(page, label);
+
+  if (!value) {
+    return undefined;
+  }
+
+  // 先頭の日付だけ取得
+  const match = value.match(/\d{4}\/\d{2}\/\d{2}/);
+
+  if (!match) {
+    return undefined;
+  }
+
+  // PostgreSQL DATE用に YYYY-MM-DD に変換
+  return match[0].replace(/\//g, "-");
+}
+
 async function getMaker(
   page: Page
 ): Promise<string | undefined> {
@@ -216,9 +237,15 @@ prices,
 reviewAverage: undefined,
 reviewCount: undefined,
 
-releaseDate: await getTableValue(page, "配信開始日"),
+releaseDate: await getDateValue(
+  page,
+  "配信開始日"
+),
 
-productReleaseDate: await getTableValue(page, "商品発売日"),
+productReleaseDate: await getDateValue(
+  page,
+  "商品発売日"
+),
 
 duration: await getTableValue(page, "収録時間"),
 

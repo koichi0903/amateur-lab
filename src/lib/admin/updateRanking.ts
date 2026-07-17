@@ -249,7 +249,11 @@ const { data: works } = await supabase
   (works ?? []).map((w) => w.product_id)
 );
 
-const newItems = rankingItems.filter(
+// worksへ登録・更新するのは人気100作品のみ
+const rankingTargets =
+  rankingItems.slice(0, 100);
+
+const newItems = rankingTargets.filter(
   (item) => !workMap.has(item.content_id)
 );
 
@@ -339,12 +343,14 @@ await supabase
   })
   .neq("id", 0);
 
-const rankingUpdates = rankingItems.map(
-  (item) => ({
+const rankingUpdates = rankingItems
+  .filter((item) =>
+    workMap.has(item.content_id)
+  )
+  .map((item) => ({
     product_id: item.content_id,
     ranking: item.rank,
-  })
-);
+  }));
 
 const { error: rankingError } =
   await supabase
@@ -441,7 +447,7 @@ console.log("works更新完了");
 
 console.log("ランキング作品詳細更新開始");
 
-const targets = rankingItems.filter(
+const targets = rankingTargets.filter(
   (item) =>
     statusMap.get(item.content_id) !== "SALE"
 );

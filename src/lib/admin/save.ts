@@ -289,5 +289,20 @@ playwright_status: "PENDING",
       },
     ]);
     
-  return true;
+  if (error) {
+  console.error(
+    "INSERT ERROR",
+    item.content_id,
+    error
+  );
+
+  return false;
+}
+
+console.log(
+  "INSERT OK",
+  item.content_id
+);
+
+return true;
 }

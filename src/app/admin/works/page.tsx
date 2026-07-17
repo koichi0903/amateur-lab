@@ -31,6 +31,32 @@ export default function AdminWorksPage() {
     setLoading(false);
   }
 
+  async function deleteWork() {
+  if (!editingWork) return;
+
+  const ok = confirm(
+    `「${editingWork.title}」を削除しますか？`
+  );
+
+  if (!ok) return;
+
+  const { error } = await supabase
+    .from("works")
+    .delete()
+    .eq("id", editingWork.id);
+
+  if (error) {
+    alert("削除に失敗しました");
+    return;
+  }
+
+  alert("削除しました");
+
+  setEditingWork(null);
+
+  await loadWorks();
+}
+
   const filteredWorks = works.filter((work) => {
   const matchKeyword =
     work.title
@@ -207,18 +233,19 @@ export default function AdminWorksPage() {
   <div className="flex gap-2">
 
     <button
-      className="
-        rounded-lg
-        bg-red-600
-        px-4
-        py-2
-        text-sm
-        font-bold
-        hover:bg-red-500
-      "
-    >
-      🗑 削除
-    </button>
+  onClick={deleteWork}
+  className="
+    rounded-lg
+    bg-red-600
+    px-4
+    py-2
+    text-sm
+    font-bold
+    hover:bg-red-500
+  "
+>
+  🗑 削除
+</button>
 
     <button
       onClick={() => setEditingWork(null)}

@@ -71,9 +71,20 @@ export function calculateScore({
   
 }: ScoreParams) {
 
+  reviewAverage = reviewAverage ?? 0;
+reviewCount = reviewCount ?? 0;
+discountRate = discountRate ?? 0;
+
+actressScore = actressScore ?? 0;
+genreScore = genreScore ?? 0;
+makerScore = makerScore ?? 0;
+seriesScore = seriesScore ?? 0;
+
+ranking = ranking ?? 9999;
+
 const reviewPoint = Math.min(
   SCORE.REVIEW_MAX,
-  reviewAverage * SCORE.REVIEW
+  (reviewAverage ?? 0) * SCORE.REVIEW
 );
 
 const reviewCountPoint = Math.min(

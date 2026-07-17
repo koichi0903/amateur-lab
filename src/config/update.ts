@@ -1,5 +1,5 @@
 export const UPDATE_CONFIG = {
-  parallel: 3,
+  parallel: 5,
 
   saveInterval: 6,
 

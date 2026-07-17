@@ -2,19 +2,19 @@ import Link from "next/link";
 
 const menus = [
   {
+    title: "🔍 DMM検索・登録",
+    description: "DMM作品の検索・登録",
+    href: "/admin/search",
+  },
+  {
+    title: "📚 作品管理",
+    description: "作品一覧・検索・削除",
+    href: "/admin/works",
+  },
+  {
     title: "🔄 更新管理",
     description: "作品更新・ジョブ状況を確認",
     href: "/admin/update",
-  },
-  {
-    title: "📊 統計",
-    description: "ランキング・集計データ",
-    href: "/admin/statistics",
-  },
-  {
-    title: "⚙️ 設定",
-    description: "システム設定",
-    href: "/admin/settings",
   },
 ];
 
@@ -32,7 +32,7 @@ export default function AdminDashboard() {
           </p>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 md:grid-cols-3">
           {menus.map((menu) => (
             <Link
               key={menu.href}
@@ -62,6 +62,7 @@ export default function AdminDashboard() {
 
         <div className="mt-16 border-t border-zinc-800 pt-6 text-sm text-zinc-500">
           発掘LAB v1.0
+Admin Control Panel
         </div>
       </div>
     </main>

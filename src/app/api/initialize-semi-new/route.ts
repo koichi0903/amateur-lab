@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
+
+import { initializeSemiNewWorks } from "@/lib/admin/initializeSemiNewWorks";
 
 export async function POST() {
   try {
-    await updatePlaywrightItem(
-  "h_019aczd00048"
-);
+    await initializeSemiNewWorks();
 
     return NextResponse.json({
       success: true,
+      message: "準新作初期登録が完了しました。",
     });
   } catch (error) {
     console.error(error);
@@ -16,6 +16,7 @@ export async function POST() {
     return NextResponse.json(
       {
         success: false,
+        message: "準新作初期登録に失敗しました。",
       },
       {
         status: 500,

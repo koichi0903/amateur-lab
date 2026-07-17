@@ -7,7 +7,8 @@ export interface ProductSummary {
 }
 
 export async function getProductIds(
-  baseUrl: string
+  baseUrl: string,
+  maxPages?: number
 ) {
   const browser = await chromium.launch({
   headless: true
@@ -49,31 +50,74 @@ export async function getProductIds(
   ProductSummary
 >();
 
-    const maxPages = totalPages;
+    const pageLimit =
+  maxPages == null
+    ? totalPages
+    : Math.min(totalPages, maxPages);
 
     for (
-      let currentPage = 1;
-      currentPage <= maxPages;
-      currentPage++
-    ) {
+  let currentPage = 1;
+  currentPage <= pageLimit;
+  currentPage++
+)
+    {
       if (currentPage > 1) {
-        await page.goto(
-          `${baseUrl}&page=${currentPage}`,
-          {
-            waitUntil: "domcontentloaded",
-            timeout: 60000,
-          }
-        );
+  let loaded = false;
 
-        await page
-          .locator('a[href*="/content/?id="]')
-          .first()
-          .waitFor();
+  for (let retry = 1; retry <= 3; retry++) {
+    try {
+      await page.goto(
+        `${baseUrl}&page=${currentPage}`,
+        {
+          waitUntil: "domcontentloaded",
+          timeout: 60000,
+        }
+      );
+
+      await page.waitForLoadState("networkidle");
+      await page.waitForTimeout(2000);
+
+      const retryCards = page.locator(
+        'a[href*="/content/?id="]'
+      );
+
+      if ((await retryCards.count()) > 0) {
+        loaded = true;
+        break;
       }
 
-      const cards = page.locator(
+      console.log(
+        `page ${currentPage} retry ${retry}`
+      );
+    } catch {
+      console.log(
+        `page ${currentPage} retry ${retry} failed`
+      );
+    }
+  }
+
+  if (!loaded) {
+    console.log(
+      `page ${currentPage} をスキップ`
+    );
+    continue;
+  }
+}
+
+const cards = page.locator(
   'a[href*="/content/?id="]'
 );
+
+if ((await cards.count()) === 0) {
+  console.log(`page ${currentPage} 再読み込み`);
+
+  await page.reload({
+    waitUntil: "domcontentloaded",
+  });
+
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(2000);
+}
 
 const count = await cards.count();
 
@@ -108,7 +152,9 @@ const container = card.locator(
     console.log(
   "取得作品数 =",
   products.size,
-  "総ページ数 =",
+  "取得ページ数 =",
+  pageLimit,
+  "/",
   totalPages
 );
 
