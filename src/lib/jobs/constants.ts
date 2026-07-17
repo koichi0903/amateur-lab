@@ -5,7 +5,9 @@ export const JOBS = {
 
   STAGE: "stage",
 
-  NEW: "new",
+  NEW_SYNC: "new_sync",
+
+  NEW_UPDATE: "new_update",
 
   RESERVE: "reserve",
 

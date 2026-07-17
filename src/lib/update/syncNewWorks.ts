@@ -2,9 +2,14 @@ import { supabase } from "@/lib/supabase";
 
 import { getNewItems } from "@/lib/playwright/getNewItems";
 import { getDmmItem } from "@/lib/dmm/getDmmItem";
+import { UPDATE_CONFIG } from "@/config/update";
 
 import { saveDmmItem } from "@/lib/admin/save";
 import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
+import {
+  createBrowser,
+  closeBrowser,
+} from "@/lib/playwright/browserManager";
 
 import {
   beginJob,
@@ -22,8 +27,10 @@ export async function syncNewWorks() {
 
   const { products } = await getNewItems();
 
-  const job = await beginJob(
-  JOBS.NEW,
+console.log("products.length =", products.length);
+
+const job = await beginJob(
+  JOBS.NEW_SYNC,
   products.length
 );
 
@@ -33,7 +40,9 @@ export async function syncNewWorks() {
   const targets =
   products.slice(processedCount);
 
-  try {
+  let browser = await createBrowser();
+
+try {
     const { data: works, error } = await supabase
   .from("works")
   .select(`
@@ -104,18 +113,29 @@ if (existing) {
       for (const row of items) {
         if (row.exists && row.needsPriceUpdate) {
   await updatePlaywrightItem(
-    row.product.productId
-  );
+  row.product.productId,
+  undefined,
+  browser
+);
 
   processed++;
 
-  if (processed % JOB_SAVE_INTERVAL === 0) {
-    await updateJob(
-      JOBS.NEW,
-      processed,
-      row.product.productId
-    );
-  }
+
+
+if (
+  processed % JOB_SAVE_INTERVAL ===
+  0
+) {
+  await updateJob(
+    JOBS.NEW_SYNC,
+    processed,
+    row.product.productId
+  );
+
+  console.log(
+    `${processed}/${products.length}`
+  );
+}
 
   continue;
 }
@@ -126,7 +146,7 @@ if (row.exists && !row.needsPriceUpdate) {
 
   if (processed % JOB_SAVE_INTERVAL === 0) {
     await updateJob(
-      JOBS.NEW,
+  JOBS.NEW_SYNC,
       processed,
       row.product.productId
     );
@@ -146,7 +166,7 @@ if (!row.item) {
     processed % JOB_SAVE_INTERVAL === 0
   ) {
     await updateJob(
-      JOBS.NEW,
+  JOBS.NEW_SYNC,
       processed,
       row.product.productId
     );
@@ -164,7 +184,8 @@ if (saved) {
   try {
     await updatePlaywrightItem(
   row.product.productId,
-  row.item.URL ?? row.item.affiliateURL
+  row.item.URL ?? row.item.affiliateURL,
+  browser
 );
   } catch (error) {
     console.error(
@@ -176,30 +197,44 @@ if (saved) {
 
 processed++;
 
-        if (
-          processed % JOB_SAVE_INTERVAL ===
-          0
-        ) {
-          await updateJob(
-  JOBS.NEW,
-  processed,
-  row.product.productId
-);
+if (
+  processed %
+    UPDATE_CONFIG.browserRestartInterval ===
+  0
+) {
+  console.log(
+    `🔄 Browser再起動 (${processed}件処理)`
+  );
 
-          console.log(
-            `${processed}/${products.length}`
-          );
-        }
+  await closeBrowser(browser);
+
+  browser = await createBrowser();
+}
+
+if (
+  processed % JOB_SAVE_INTERVAL ===
+  0
+) {
+  await updateJob(
+    JOBS.NEW_SYNC,
+    processed,
+    row.product.productId
+  );
+
+  console.log(
+    `${processed}/${products.length}`
+  );
+}
       }
     }
 
     await updateJob(
-      JOBS.NEW,
-      processed,
+  JOBS.NEW_SYNC,
+  processed,
       targets.at(-1)?.productId ?? ""
     );
 
-    await finishJob(JOBS.NEW);
+    await finishJob(JOBS.NEW_SYNC);
 
     console.log("================================");
     console.log("✅ 新作同期完了");
@@ -212,13 +247,15 @@ processed++;
     );
     console.log("================================");
   } catch (error) {
-    await failJob(
-      JOBS.NEW,
-      error instanceof Error
-        ? error.message
-        : String(error)
-    );
+  await failJob(
+  JOBS.NEW_SYNC,
+    error instanceof Error
+      ? error.message
+      : String(error)
+  );
 
-    throw error;
-  }
+  throw error;
+} finally {
+  await closeBrowser(browser);
+}
 }

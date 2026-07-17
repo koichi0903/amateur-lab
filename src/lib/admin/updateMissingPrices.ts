@@ -1,6 +1,10 @@
 import { supabase } from "@/lib/supabase";
 import { UPDATE_CONFIG } from "@/config/update";
 import { updateWork } from "./updateWork";
+import {
+  createBrowser,
+  closeBrowser,
+} from "@/lib/playwright/browserManager";
 
 import {
   beginJob,
@@ -57,6 +61,9 @@ const processedCount =
 const targets =
   allWorks.slice(processedCount);
 
+  let browser =
+  await createBrowser();
+
   try {
 
   const BATCH_SIZE =
@@ -73,13 +80,31 @@ const targets =
 );
 
     await Promise.allSettled(
-      batch.map((work) =>
-        updateWork(work.product_id)
-      )
-    );
+  batch.map((work) =>
+    updateWork(
+      work.product_id,
+      undefined,
+      browser
+    )
+  )
+);
 
     const processed =
   processedCount + i + batch.length;
+
+  if (
+  processed %
+    UPDATE_CONFIG.browserRestartInterval ===
+  0
+) {
+  console.log(
+    `🔄 Browser再起動 (${processed}件処理)`
+  );
+
+  await closeBrowser(browser);
+
+  browser = await createBrowser();
+}
 
 await updateJob(
   JOBS.MISSING_PRICES,
@@ -107,5 +132,7 @@ console.log("価格補完完了");
   );
 
   throw error;
+} finally {
+  await closeBrowser(browser);
 }
 }

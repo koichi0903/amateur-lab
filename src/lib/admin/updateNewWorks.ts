@@ -3,6 +3,11 @@ import { UPDATE_CONFIG } from "@/config/update";
 import { updateWork } from "./updateWork";
 
 import {
+  createBrowser,
+  closeBrowser,
+} from "@/lib/playwright/browserManager";
+
+import {
   beginJob,
   updateJob,
   finishJob,
@@ -35,7 +40,7 @@ export async function updateNewWorks() {
   }
 
   const job = await beginJob(
-    JOBS.NEW,
+    JOBS.NEW_UPDATE,
     works.length
   );
 
@@ -49,6 +54,7 @@ export async function updateNewWorks() {
   );
 
   let current = processedCount;
+  let browser = await createBrowser();
 
   try {
     for (
@@ -63,19 +69,37 @@ export async function updateNewWorks() {
 
       await Promise.all(
   batch.map((work) =>
-    updateWork(work.product_id)
+    updateWork(
+      work.product_id,
+      undefined,
+      browser
+    )
   )
 );
 
 // Promise.all が終わった時点で、この batch は全件成功
 current += batch.length;
 
+if (
+  current %
+    UPDATE_CONFIG.browserRestartInterval ===
+  0
+) {
+  console.log(
+    `🔄 Browser再起動 (${current}件処理)`
+  );
+
+  await closeBrowser(browser);
+
+  browser = await createBrowser();
+}
+
 // 10件ごと、または最後だけ保存
 const lastWork =
   batch[batch.length - 1];
 
 await updateJob(
-  JOBS.NEW,
+  JOBS.NEW_UPDATE,
   current,
   lastWork.product_id
 );
@@ -85,17 +109,19 @@ console.log(
 );
     }
 
-    await finishJob(JOBS.NEW);
+    await finishJob(JOBS.NEW_UPDATE);
 
     console.log("新作更新完了");
   } catch (error) {
-    await failJob(
-      JOBS.NEW,
-      error instanceof Error
-        ? error.message
-        : String(error)
-    );
+  await failJob(
+    JOBS.NEW_UPDATE,
+    error instanceof Error
+      ? error.message
+      : String(error)
+  );
 
-    throw error;
-  }
+  throw error;
+} finally {
+  await closeBrowser(browser);
+}
 }

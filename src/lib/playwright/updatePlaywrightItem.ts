@@ -7,7 +7,7 @@
  * 年齢認証処理は確認済みのため、原則修正禁止。
  */
 
-import { chromium } from "playwright";
+import { chromium, Browser } from "playwright";
 import { supabase } from "@/lib/supabase";
 
 import { parsePage } from "./parser";
@@ -15,8 +15,10 @@ import { saveWork } from "./save";
 
 export async function updatePlaywrightItem(
   productId: string,
-  url?: string | null
-) {
+  url?: string | null,
+  browser?: Browser
+)
+{
   let workUrl: string | undefined =
   url ?? undefined;
 
@@ -35,9 +37,11 @@ if (!workUrl) {
   workUrl = work.url ?? undefined;
 }
 
-  const browser = await chromium.launch({
-    headless: true,
-  });
+  const ownBrowser = !browser;
+
+browser ??= await chromium.launch({
+  headless: true,
+});
 
   const page = await browser.newPage();
 
@@ -82,6 +86,8 @@ console.log("年齢認証を突破しました");
 
     console.log("Playwright更新:", productId);
   } finally {
+  if (ownBrowser) {
     await browser.close();
   }
+}
 }

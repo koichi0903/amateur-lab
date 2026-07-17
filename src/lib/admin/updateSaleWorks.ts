@@ -1,5 +1,10 @@
 import { supabase } from "@/lib/supabase";
 import { UPDATE_CONFIG } from "@/config/update";
+
+import {
+  createBrowser,
+  closeBrowser,
+} from "@/lib/playwright/browserManager";
 import { updateWork } from "./updateWork";
 import { getSaleItems } from "@/lib/playwright/getSaleItems";
 
@@ -89,6 +94,8 @@ if (works.length === 0) {
     `セール更新開始 (${processedCount}/${works.length}から再開)`
   );
 
+  let browser = await createBrowser();
+
   try {
     for (
       let i = 0;
@@ -110,12 +117,30 @@ if (works.length === 0) {
       return;
     }
 
-    await updateWork(work.product_id);
+    await updateWork(
+  work.product_id,
+  undefined,
+  browser
+);
   })
 );
 
       const processed =
         processedCount + i + batch.length;
+
+        if (
+  processed %
+    UPDATE_CONFIG.browserRestartInterval ===
+  0
+) {
+  console.log(
+    `🔄 Browser再起動 (${processed}件処理)`
+  );
+
+  await closeBrowser(browser);
+
+  browser = await createBrowser();
+}
 
       await updateJob(
   JOBS.SALE,
@@ -132,13 +157,15 @@ if (works.length === 0) {
 
     console.log("セール更新完了");
   } catch (error) {
-    await failJob(
-      JOBS.SALE,
-      error instanceof Error
-        ? error.message
-        : String(error)
-    );
+  await failJob(
+    JOBS.SALE,
+    error instanceof Error
+      ? error.message
+      : String(error)
+  );
 
-    throw error;
-  }
+  throw error;
+} finally {
+  await closeBrowser(browser);
+}
 }

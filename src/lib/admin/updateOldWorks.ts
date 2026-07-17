@@ -1,5 +1,9 @@
 import { supabase } from "@/lib/supabase";
 import { UPDATE_CONFIG } from "@/config/update";
+import {
+  createBrowser,
+  closeBrowser,
+} from "@/lib/playwright/browserManager";
 import { updateWork } from "./updateWork";
 
 import {
@@ -70,6 +74,8 @@ const targets =
   `旧作更新開始 (${processedCount}/${targets.length}から再開)`
 );
 
+let browser = await createBrowser();
+
   try {
     for (
       let i = 0;
@@ -82,15 +88,33 @@ const targets =
       );
 
       await Promise.all(
-        batch.map((work) =>
-          updateWork(work.product_id)
-        )
-      );
+  batch.map((work) =>
+    updateWork(
+      work.product_id,
+      undefined,
+      browser
+    )
+  )
+);
 
       const processed =
         processedCount +
         i +
         batch.length;
+
+        if (
+  processed %
+    UPDATE_CONFIG.browserRestartInterval ===
+  0
+) {
+  console.log(
+    `🔄 Browser再起動 (${processed}件処理)`
+  );
+
+  await closeBrowser(browser);
+
+  browser = await createBrowser();
+}
 
       await updateJob(
         JOBS.OLD,
@@ -107,13 +131,15 @@ const targets =
 
     console.log("旧作更新完了");
   } catch (error) {
-    await failJob(
-      JOBS.OLD,
-      error instanceof Error
-        ? error.message
-        : String(error)
-    );
+  await failJob(
+    JOBS.OLD,
+    error instanceof Error
+      ? error.message
+      : String(error)
+  );
 
-    throw error;
-  }
+  throw error;
+} finally {
+  await closeBrowser(browser);
+}
 }

@@ -14,6 +14,11 @@ import {
 
 import { UPDATE_CONFIG } from "@/config/update";
 
+import {
+  createBrowser,
+  closeBrowser,
+} from "@/lib/playwright/browserManager";
+
 export async function updateReserveWorks() {
   const { products } =
     await getReserveItems();
@@ -31,9 +36,12 @@ export async function updateReserveWorks() {
     job.processed_count ?? 0;
 
   const targets =
-    products.slice(processedCount);
+  products.slice(processedCount);
 
-  try {
+let browser =
+  await createBrowser();
+
+try {
     const {
       data: works,
       error,
@@ -100,7 +108,9 @@ export async function updateReserveWorks() {
             await saveDmmItem(item);
 
 await updateWork(
-  product.productId
+  product.productId,
+  undefined,
+  browser
 );
 
 await supabase
@@ -140,8 +150,10 @@ return;
               );
 
             await updateWork(
-              product.productId
-            );
+  product.productId,
+  undefined,
+  browser
+);
 
             updateCount++;
           }
@@ -152,6 +164,20 @@ return;
         processedCount +
         i +
         batch.length;
+
+  if (
+  processed %
+    UPDATE_CONFIG.browserRestartInterval ===
+  0
+) {
+  console.log(
+    `🔄 Browser再起動 (${processed}件処理)`
+  );
+
+  await closeBrowser(browser);
+
+  browser = await createBrowser();
+}
 
       await updateJob(
         JOBS.RESERVE,
@@ -174,13 +200,15 @@ return;
       updateCount,
     });
   } catch (error) {
-    await failJob(
-      JOBS.RESERVE,
-      error instanceof Error
-        ? error.message
-        : String(error)
-    );
+  await failJob(
+    JOBS.RESERVE,
+    error instanceof Error
+      ? error.message
+      : String(error)
+  );
 
-    throw error;
-  }
+  throw error;
+} finally {
+  await closeBrowser(browser);
+}
 }

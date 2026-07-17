@@ -1,5 +1,19 @@
 import { supabase } from "@/lib/supabase";
 import { updateWork } from "./updateWork";
+import { UPDATE_CONFIG } from "@/config/update";
+
+import {
+  createBrowser,
+  closeBrowser,
+} from "@/lib/playwright/browserManager";
+
+import {
+  beginJob,
+  updateJob,
+  finishJob,
+  failJob,
+  JOBS,
+} from "@/lib/jobs";
 
 export async function updateEndedSaleWorks() {
   const now = new Date().toISOString();
@@ -47,9 +61,79 @@ export async function updateEndedSaleWorks() {
     `終了したセール作品 ${allWorks.length}件`
   );
 
-  for (const work of allWorks) {
-    await updateWork(work.product_id);
+  const job = await beginJob(
+  JOBS.ENDED_SALE,
+  allWorks.length
+);
+
+const processedCount =
+  job.processed_count ?? 0;
+
+const targets =
+  allWorks.slice(processedCount);
+
+let processed = processedCount;
+
+let browser =
+  await createBrowser();
+
+  try {
+  for (const work of targets) {
+    await updateWork(
+      work.product_id,
+      undefined,
+      browser
+    );
+
+    processed++;
+
+    if (
+      processed %
+        UPDATE_CONFIG.browserRestartInterval ===
+      0
+    ) {
+      console.log(
+        `🔄 Browser再起動 (${processed}件処理)`
+      );
+
+      await closeBrowser(browser);
+
+      browser = await createBrowser();
+    }
+
+    if (
+      processed % UPDATE_CONFIG.jobUpdateInterval ===
+      0
+    ) {
+      await updateJob(
+        JOBS.ENDED_SALE,
+        processed,
+        work.product_id
+      );
+    }
   }
+
+  await updateJob(
+  JOBS.ENDED_SALE,
+  processed,
+  targets.at(-1)?.product_id ?? ""
+);
+
+await finishJob(
+  JOBS.ENDED_SALE
+);
+} catch (error) {
+  await failJob(
+    JOBS.ENDED_SALE,
+    error instanceof Error
+      ? error.message
+      : String(error)
+  );
+
+  throw error;
+} finally {
+  await closeBrowser(browser);
+}
 
   console.log("終了セール更新完了");
 }
