@@ -7,7 +7,8 @@ import type { Browser } from "playwright";
 export async function updateWork(
   productId: string,
   item?: DmmItem | null,
-  browser?: Browser
+  browser?: Browser,
+  listPrice?: number | null
 )
 {
   const dmmItem =
@@ -21,6 +22,7 @@ export async function updateWork(
   productId,
   dmmItem?.URL ??
     dmmItem?.affiliateURL,
-  browser
+  browser,
+  listPrice
 );
 }

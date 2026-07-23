@@ -30,9 +30,9 @@ export const UPDATE_CONFIG = {
     NEW: "03:30",
 
     OLD: {
-      day: "sunday",
-      time: "12:00",
-    },
+  day: "",
+  time: "16:00",
+},
 
     SEMI_NEW: {
       day: "sunday",

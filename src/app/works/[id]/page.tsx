@@ -4,10 +4,13 @@ import WorkHero from "../../components/WorkHero";
 import WorkInfo from "../../components/WorkInfo";
 import AIAnalysis from "../../components/AIAnalysis";
 import RelatedWorks from "../../components/RelatedWorks";
+import PriceHistory from "@/app/components/PriceHistory";
+import PriceTypes from "@/app/components/PriceTypes";
 import Breadcrumb from "@/app/components/Breadcrumb";
 import BreadcrumbJsonLd from "@/app/components/BreadcrumbJsonLd";
 import Link from "next/link";
 import ProductJsonLd from "@/app/components/ProductJsonLd";
+
 
 
 export async function generateMetadata(
@@ -17,10 +20,25 @@ export async function generateMetadata(
   const { id } = await params;
 
   const { data: work } = await supabase
-    .from("works")
-    .select("title, actress, score, image_url")
-    .eq("id", id)
-    .single();
+  .from("works")
+  .select("*")
+  .eq("id", id)
+  .single();
+
+const {
+  data: priceHistory,
+  error: priceHistoryError,
+} = await supabase
+  .from("price_history")
+  .select("*")
+  .eq("product_id", work?.product_id)
+  .order("changed_at", {
+  ascending: false,
+})
+  .limit(100)
+
+console.log("priceHistory =", priceHistory);
+console.log("priceHistoryError =", priceHistoryError);
 
   if (!work) {
     return {
@@ -67,6 +85,21 @@ export default async function WorkDetailPage(
     .select("*")
     .eq("id", id)
     .single();
+
+  const { data: priceHistory } = await supabase
+  .from("price_history")
+  .select("*")
+  .eq("product_id", work?.product_id)
+  .order("changed_at", {
+  ascending: false,
+})
+  .limit(100)
+
+  const { data: workPrices } = await supabase
+  .from("work_prices")
+  .select("*")
+  .eq("product_id", work?.product_id)
+  .order("display_name");
 
   if (!work) {
     return <div>作品が見つかりません</div>;
@@ -199,7 +232,11 @@ if ((work.new_release_score ?? 0) >= 8) {
 
     <WorkInfo work={work} />
 
-    <RelatedWorks works={relatedWorks} />
+<PriceHistory history={priceHistory ?? []} />
+
+<PriceTypes prices={workPrices ?? []} />
+
+<RelatedWorks works={relatedWorks} />
 
     <div className="mt-10 rounded-xl border bg-white p-6 shadow-sm">
   <h2 className="mb-4 text-2xl font-bold">

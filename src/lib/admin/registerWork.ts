@@ -8,7 +8,10 @@ export async function registerWork(
   item: DmmItem
 ) {
   // DMM作品登録
-  await saveDmmItem(item);
+  await saveDmmItem(
+  item,
+  undefined
+);
 
   // DMM詳細更新
   await updateWork(item.content_id);

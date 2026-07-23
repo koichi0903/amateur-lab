@@ -29,6 +29,8 @@ export async function syncNewWorks() {
 
 console.log("products.length =", products.length);
 
+console.log("FIRST PRODUCT =", products[0]);
+
 const job = await beginJob(
   JOBS.NEW_SYNC,
   products.length
@@ -46,10 +48,11 @@ try {
     const { data: works, error } = await supabase
   .from("works")
   .select(`
-    product_id,
-    price,
-    sale_price
-  `);
+  product_id,
+  price,
+  sale_price,
+  list_price
+`);
 
     if (error) {
       throw error;
@@ -89,13 +92,17 @@ try {
   existingWorks.get(product.productId);
 
 if (existing) {
+  const needsPriceUpdate =
+    existing.price == null ||
+    existing.list_price !==
+      product.listPrice;
+
   return {
     product,
     item: null,
     exists: true,
     existing,
-    needsPriceUpdate:
-      existing.price == null,
+    needsPriceUpdate,
   };
 }
 
@@ -115,7 +122,8 @@ if (existing) {
   await updatePlaywrightItem(
   row.product.productId,
   undefined,
-  browser
+  browser,
+  row.product.listPrice
 );
 
   processed++;
@@ -176,7 +184,10 @@ if (!row.item) {
 }
 
 const saved =
-  await saveDmmItem(row.item);
+  await saveDmmItem(
+    row.item,
+    undefined
+  );
 
 if (saved) {
   inserted++;
@@ -185,7 +196,8 @@ if (saved) {
     await updatePlaywrightItem(
   row.product.productId,
   row.item.URL ?? row.item.affiliateURL,
-  browser
+  browser,
+  row.product.listPrice
 );
   } catch (error) {
     console.error(

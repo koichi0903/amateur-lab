@@ -7,12 +7,13 @@ import type { RankingItem } from "../../types/ranking";
 
 export async function saveDmmItem(
   item: DmmItem,
-  rankingData?: {
+  rankingData: {
     actressRanking: RankingItem[];
     genreRanking: RankingItem[];
     makerRanking: RankingItem[];
     seriesRanking: RankingItem[];
-  }
+  } | undefined,
+  stage: string = "NEW"
 ) {
 
 let actressList: RankingItem[];
@@ -267,6 +268,9 @@ series:
 sale_price:
   parseInt(item.prices?.price || "0"),
 
+list_price:
+  parseInt(item.prices?.list_price || "0"),
+
   review_count:
   item.review?.count || 0,
 
@@ -285,6 +289,8 @@ review_average:
     : 0,
 
 playwright_status: "PENDING",
+
+stage: "NEW",
 
       },
     ]);

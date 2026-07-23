@@ -41,24 +41,49 @@ const { data: works, error } = await supabase
     throw error;
   }
 
+  console.log("works =", works.length);
+
   if (!works || works.length === 0) {
     console.log("更新対象の旧作はありません");
     return;
   }
 
-const filteredWorks = works.filter((work) => {
-  if (!work.release_date) {
-    return false;
-  }
+  console.log(
+  works.slice(0, 10).map((w) => ({
+    product_id: w.product_id,
+    release_date: w.release_date,
+    group:
+      Math.floor(
+        new Date(w.release_date!).getTime() / 86400000
+      ) % 7,
+  }))
+);
 
-  const releaseGroup =
-  Math.floor(
-    new Date(work.release_date!).getTime() /
-      86400000
-  ) % 7;
+const groupCounts = new Array(7).fill(0);
 
-  return releaseGroup === todayGroup;
+works.forEach((work) => {
+  if (!work.release_date) return;
+
+  const group =
+    Math.floor(
+      new Date(work.release_date).getTime() / 86400000
+    ) % 7;
+
+  groupCounts[group]++;
 });
+
+console.log("groupCounts =", groupCounts);
+
+const filteredWorks = works.filter((work) => {
+  const hash = [...work.product_id].reduce(
+    (sum, c) => sum + c.charCodeAt(0),
+    0
+  );
+
+  return hash % 7 === todayGroup;
+});
+console.log("todayGroup =", todayGroup);
+console.log("filteredWorks =", filteredWorks.length);
 
 const job = await beginJob(
   JOBS.OLD,

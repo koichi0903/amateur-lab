@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import { getAllWorks } from "@/lib/supabase/getAllWorks";
 import { getNewItems } from "@/lib/playwright/getNewItems";
 import { getSemiNewItems } from "@/lib/playwright/getSemiNewItems";
+import { getReserveItems } from "@/lib/playwright/getReserveItems";
 
 import {
   beginJob,
@@ -22,9 +23,11 @@ export async function updateStage() {
     console.log("=== Stage同期開始 ===");
 
     const [
+  { products: reserveProducts },
   { products: newProducts },
   { products: semiNewProducts },
 ] = await Promise.all([
+  getReserveItems(),
   getNewItems(),
   getSemiNewItems(),
 ]);
@@ -35,6 +38,10 @@ export async function updateStage() {
 
 const semiNewSet = new Set(
   semiNewProducts.map((p) => p.productId)
+);
+
+const reserveSet = new Set(
+  reserveProducts.map((p) => p.productId)
 );
     
 
@@ -62,19 +69,15 @@ const job = await beginJob(
     for (const work of works) {
       let nextStage: Stage = "OLD";
 
-const today = new Date();
-today.setHours(0, 0, 0, 0);
-
-if (
-  work.product_release_date &&
-  new Date(work.product_release_date) > today
-) {
+if (reserveSet.has(work.product_id)) {
   nextStage = "RESERVED";
 } else if (newSet.has(work.product_id)) {
   nextStage = "NEW";
 } else if (semiNewSet.has(work.product_id)) {
   nextStage = "SEMI_NEW";
 }
+
+
 
       if (work.stage !== nextStage) {
         updates.push({

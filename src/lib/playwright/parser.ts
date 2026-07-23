@@ -66,21 +66,33 @@ async function getTableValue(
   page: Page,
   label: string
 ): Promise<string | undefined> {
-  const row = page.locator("tr").filter({
-    hasText: label,
-  });
+  try {
+    const row = page.locator("tr").filter({
+      hasText: label,
+    });
 
-  const td = row.locator("td").first();
+    if ((await row.count()) === 0) {
+      return undefined;
+    }
 
-  const text = await td.textContent();
+    const td = row.locator("td").first();
 
-  const value = text?.trim();
+    if ((await td.count()) === 0) {
+      return undefined;
+    }
 
-if (!value || value === "----") {
-  return undefined;
-}
+    const text = await td.textContent();
 
-return value;
+    const value = text?.trim();
+
+    if (!value || value === "----") {
+      return undefined;
+    }
+
+    return value;
+  } catch {
+    return undefined;
+  }
 }
 
 async function getDateValue(

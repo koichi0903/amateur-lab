@@ -94,7 +94,10 @@ for (
           return;
         }
 
-        const saved = await saveDmmItem(item);
+        const saved = await saveDmmItem(
+  item,
+  undefined
+);
 
 await updateWork(
   product.productId,

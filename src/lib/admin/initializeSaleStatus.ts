@@ -10,15 +10,30 @@ export async function initializeSaleStatus(
     };
   }
 
-  // セール作品を検索
-  const { data: works, error } = await supabase
+  // セール作品を検索（1000件ずつ）
+const works: {
+  id: number;
+  product_id: string;
+}[] = [];
+
+const chunkSize = 1000;
+
+for (let i = 0; i < productIds.length; i += chunkSize) {
+  const chunk = productIds.slice(i, i + chunkSize);
+
+  const { data, error } = await supabase
     .from("works")
     .select("id, product_id")
-    .in("product_id", productIds);
+    .in("product_id", chunk);
 
   if (error) {
     throw error;
   }
+
+  if (data) {
+    works.push(...data);
+  }
+}
 
   // 一旦すべて false
   const { error: resetError } = await supabase

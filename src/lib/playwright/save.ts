@@ -15,7 +15,8 @@ const supabase = createClient(
 
 export async function saveWork(
   productId: string,
-  data: ParsedData
+  data: ParsedData,
+  listPrice?: number | null
 ) {
 
   // ------------------------
@@ -84,49 +85,117 @@ if (
   saleEndAt = data.saleEndAt;
 }
 
-  // works 更新
-  const { data: updated, error } = await supabase
-  .from("works")
-  .update({
-    title: data.title,
-    actress: data.actress,
-    maker: data.maker,
-    series: data.series,
-    label: data.label,
+console.log(
+  "saveWork listPrice =",
+  productId,
+  listPrice
+);
 
-    release_date: data.releaseDate,
-    product_release_date: data.productReleaseDate,
+  const workUpdate = {
+  title: data.title,
+  actress: data.actress,
+  maker: data.maker,
+  series: data.series,
+  label: data.label,
 
-    duration: data.duration,
+  release_date: data.releaseDate,
+  product_release_date: data.productReleaseDate,
 
-    price,
+  duration: data.duration,
 
-    sale_price: salePrice,
+  price,
 
-    discount_rate: discountRate,
+  ...(listPrice !== undefined
+    ? { list_price: listPrice }
+    : {}),
 
-    is_on_sale: isOnSale,
+  sale_price: salePrice,
 
-sale_end_at: saleEndAt,
+  discount_rate: discountRate,
 
-playwright_status: isOnSale
-  ? "SALE"
-  : "NORMAL",
+  is_on_sale: isOnSale,
 
-updated_at: new Date().toISOString(),
+  sale_end_at: saleEndAt,
 
-is_bottom_price: isBottomPrice,
-  })
-  .eq("product_id", productId)
-  .select();
+  playwright_status: isOnSale
+    ? "SALE"
+    : "NORMAL",
 
-console.log("price =", price);
-console.log("updated =", updated);
+  is_bottom_price: isBottomPrice,
+};
 
-if (error) {
-  console.error("UPDATE ERROR", error);
+const { data: currentWork, error: currentError } =
+  await supabase
+    .from("works")
+    .select(`
+  price,
+  list_price,
+  sale_price,
+  discount_rate,
+  is_on_sale,
+  sale_end_at,
+  playwright_status,
+  is_bottom_price
+`)
+    .eq("product_id", productId)
+    .single();
+
+if (currentError) {
+  console.error(currentError);
 }
 
+  let updated = null;
+let error = null;
+
+const changed =
+  !currentWork ||
+
+  currentWork.price !== price ||
+
+  (listPrice !== undefined &&
+  currentWork.list_price !== listPrice) ||
+
+  currentWork.sale_price !== salePrice ||
+
+  currentWork.discount_rate !== discountRate ||
+
+  currentWork.is_on_sale !== isOnSale ||
+
+  (currentWork.sale_end_at ?? null) !==
+    (saleEndAt
+      ? saleEndAt.toISOString()
+      : null) ||
+
+  currentWork.playwright_status !==
+    (isOnSale ? "SALE" : "NORMAL") ||
+
+  currentWork.is_bottom_price !==
+    isBottomPrice;
+
+if (changed) {
+  const result = await supabase
+    .from("works")
+    .update({
+      ...workUpdate,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("product_id", productId)
+    .select();
+
+  updated = result.data;
+  error = result.error;
+
+  console.log("price =", price);
+  console.log("updated =", updated);
+
+  if (error) {
+    console.error("UPDATE ERROR", error);
+  }
+} else {
+  console.log(
+    `[SKIP] works更新不要 ${productId}`
+  );
+}
   // 現在の価格を取得
   const { data: currentPrices } = await supabase
     .from("work_prices")
@@ -145,19 +214,30 @@ if (error) {
     const current = currentMap.get(price.name);
 
     if (!current) {
-      // 新規追加
-      await supabase
-        .from("work_prices")
-        .insert({
-          product_id: productId,
-          display_name: price.name,
-          type: price.type,
-          normal_price: price.normalPrice,
-          sale_price: price.salePrice,
-        });
+  // 新規追加
+  await supabase
+    .from("work_prices")
+    .insert({
+      product_id: productId,
+      display_name: price.name,
+      type: price.type,
+      normal_price: price.normalPrice,
+      sale_price: price.salePrice,
+    });
 
-      continue;
-    }
+  // 初回価格を履歴にも保存
+  await supabase
+    .from("price_history")
+    .insert({
+      product_id: productId,
+      display_name: price.name,
+      type: price.type,
+      normal_price: price.normalPrice,
+      sale_price: price.salePrice,
+    });
+
+  continue;
+}
 
     // 価格変更あり？
     const changed =

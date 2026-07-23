@@ -5,11 +5,7 @@ export const UPDATE_CONFIG = {
 
   batchSize: 100,
 
-  browserRestartInterval: 500,
-
-  newReleaseDays: 30,
-
-  semiNewReleaseDays: 180,
+  browserRestartInterval: 100,
 
   normalUpdatePerWeek: 2,
 

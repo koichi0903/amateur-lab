@@ -5,7 +5,7 @@ import {
   createBrowser,
   closeBrowser,
 } from "@/lib/playwright/browserManager";
-import { updateWork } from "./updateWork";
+import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
 import { getSaleItems } from "@/lib/playwright/getSaleItems";
 
 import {
@@ -17,7 +17,19 @@ import {
 } from "@/lib/jobs";
 
 export async function updateSaleWorks() {
+
+  console.log("");
+console.log("======================================");
+console.log("💰 updateSaleWorks 開始");
+console.log("======================================");
+
+console.log("① getSaleItems 開始");
+
   const { products } = await getSaleItems();
+
+console.log("② getSaleItems 完了");
+console.log("取得件数 =", products.length);
+  
 
 const saleIds = new Set(
   products.map((p) => p.productId)
@@ -31,6 +43,8 @@ const allWorks: {
   is_on_sale: boolean | null;
   sale_end_at: string | null;
 }[] = [];
+
+console.log("③ worksテーブル取得開始");
 
 let from = 0;
 const pageSize = 1000;
@@ -65,25 +79,35 @@ while (true) {
   from += pageSize;
 }
 
+console.log("④ works取得完了");
+console.log("works総数 =", allWorks.length);
+
 const works =
   (allWorks ?? []).filter((work) =>
     saleIds.has(work.product_id)
   );
 
-console.log(
-  "セール一覧一致件数 =",
-  works.length
-);
+console.log("⑤ セール抽出完了");
+console.log("Playwright取得 =", products.length);
+console.log("works総数 =", allWorks.length);
+console.log("一致件数 =", works.length);
 
 if (works.length === 0) {
   console.log("更新対象のセール作品はありません");
   return;
 }
 
+console.log("⑥ beginJob開始");
+
   const job = await beginJob(
     JOBS.SALE,
     works.length
   );
+
+  console.log("⑦ beginJob完了");
+console.log("status =", job.status);
+console.log("processed =", job.processed_count);
+console.log("total =", job.total_count);
 
   const processedCount =
     job.processed_count ?? 0;
@@ -97,6 +121,9 @@ if (works.length === 0) {
   let browser = await createBrowser();
 
   try {
+
+    console.log("⑧ 更新ループ開始");
+console.log("targets =", targets.length);
     for (
       let i = 0;
       i < targets.length;
@@ -110,18 +137,23 @@ if (works.length === 0) {
       await Promise.all(
   batch.map(async (work) => {
     const needsPlaywright =
-  !work.sale_price ||
-  !work.sale_end_at;
+      !work.sale_price ||
+      !work.sale_end_at;
 
     if (!needsPlaywright) {
       return;
     }
 
-    await updateWork(
-  work.product_id,
-  undefined,
-  browser
-);
+    console.log(
+      `▶ Playwright価格更新 ${work.product_id}`
+    );
+
+    await updatePlaywrightItem(
+      work.product_id,
+      work.url,
+      browser,
+      work.price
+    );
   })
 );
 
@@ -155,7 +187,8 @@ if (works.length === 0) {
 
     await finishJob(JOBS.SALE);
 
-    console.log("セール更新完了");
+    console.log("⑨ セール更新完了");
+console.log("======================================");
   } catch (error) {
   await failJob(
     JOBS.SALE,

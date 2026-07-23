@@ -4,6 +4,13 @@ import { IGNORE_GENRES } from "../genre";
 import { updateWork } from "./updateWork";
 import { saveDmmItem } from "./save";
 import { UPDATE_CONFIG } from "@/config/update";
+import {
+  beginJob,
+  updateJob,
+  finishJob,
+  failJob,
+  JOBS,
+} from "@/lib/jobs";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,6 +48,7 @@ async function fetchRanking(
 }
 
 export async function updateRanking() {
+  try {
   console.log("===== ランキング更新開始 =====");
 
   const apiId = process.env.DMM_API_ID!;
@@ -252,6 +260,14 @@ const { data: works } = await supabase
 // worksへ登録・更新するのは人気100作品のみ
 const rankingTargets =
   rankingItems.slice(0, 100);
+
+const job = await beginJob(
+  JOBS.RANKING,
+  rankingTargets.length
+);
+
+let processed =
+  job.processed_count ?? 0;
 
 const newItems = rankingTargets.filter(
   (item) => !workMap.has(item.content_id)
@@ -475,6 +491,14 @@ for (
     )
   );
 
+  processed += batch.length;
+
+await updateJob(
+  JOBS.RANKING,
+  processed,
+  batch[batch.length - 1].content_id
+);
+
   console.log(
     `Playwright ${Math.min(
       i + PLAYWRIGHT_BATCH_SIZE,
@@ -485,7 +509,20 @@ for (
 
 console.log("ランキング作品詳細更新完了");
 
+await finishJob(JOBS.RANKING);
+
 console.log("===== ランキング更新完了 =====");
 
 return genreRanking.slice(0, 30);
+
+} catch (error) {
+  await failJob(
+    JOBS.RANKING,
+    error instanceof Error
+      ? error.message
+      : "Unknown error"
+  );
+
+  throw error;
+}
 }

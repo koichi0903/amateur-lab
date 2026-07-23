@@ -16,7 +16,8 @@ import { saveWork } from "./save";
 export async function updatePlaywrightItem(
   productId: string,
   url?: string | null,
-  browser?: Browser
+  browser?: Browser,
+  listPrice?: number | null
 )
 {
   let workUrl: string | undefined =
@@ -72,20 +73,69 @@ await page.waitForTimeout(3000);
 console.log("年齢認証を突破しました");
 
     } catch {
-      console.log("年齢認証は表示されませんでした");
+      console.log(
+  `[INFO] ${productId} 年齢認証スキップ`
+);
     }
 
     const data = await parsePage(page);
 
-    console.log(
-  "prices =",
-  JSON.stringify(data.prices, null, 2)
+// console.log(
+//   "prices =",
+//   JSON.stringify(data.prices, null, 2)
+// );
+
+// 価格取得失敗なら保存しない
+if (data.prices.length === 0) {
+  console.log(
+    `[SKIP] ${productId} prices=[] url=${workUrl}`
+  );
+  return;
+}
+
+let saved = false;
+
+for (let attempt = 1; attempt <= 3; attempt++) {
+  try {
+    await saveWork(
+      productId,
+      data,
+      listPrice
+    );
+
+    saved = true;
+    break;
+  } catch (error) {
+    console.error(
+      `[ERROR] saveWork失敗 (${attempt}/3) ${productId}`,
+      error
+    );
+
+    if (attempt < 3) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, 2000)
+      );
+    }
+  }
+}
+
+if (!saved) {
+  console.error(
+    `[SKIP] saveWorkを3回試行しましたが失敗しました: ${productId}`
+  );
+  return;
+}
+
+console.log(
+  `[OK] ${productId} 更新完了`
 );
-
-    await saveWork(productId, data);
-
-    console.log("Playwright更新:", productId);
   } finally {
+  try {
+    await page.close();
+  } catch (e) {
+    console.error("page.close失敗", e);
+  }
+
   if (ownBrowser) {
     await browser.close();
   }

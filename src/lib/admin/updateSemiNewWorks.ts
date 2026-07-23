@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { UPDATE_CONFIG } from "@/config/update";
+import { getSemiNewItems } from "@/lib/playwright/getSemiNewItems";
 
 import {
   createBrowser,
@@ -16,22 +17,12 @@ import {
 } from "@/lib/jobs";
 
 export async function updateSemiNewWorks() {
-  const today = new Date();
-
-  const newBorder = new Date(today);
-  newBorder.setDate(
-    newBorder.getDate() - UPDATE_CONFIG.newReleaseDays
-  );
-
-  const semiBorder = new Date(today);
-  semiBorder.setDate(
-    semiBorder.getDate() -
-      UPDATE_CONFIG.semiNewReleaseDays
-  );
-
+  
   let works: {
   product_id: string;
   release_date: string;
+  list_price: number | null;
+  sale_price: number | null;
 }[] = [];
 
 let from = 0;
@@ -39,17 +30,13 @@ const PAGE_SIZE = 1000;
 
 while (true) {
   const { data, error } = await supabase
-    .from("works")
-    .select("product_id, release_date")
-    .lt(
-      "release_date",
-      newBorder.toISOString().slice(0, 10)
-    )
-    .gte(
-      "release_date",
-      semiBorder.toISOString().slice(0, 10)
-    )
-    .range(from, from + PAGE_SIZE - 1);
+  .from("works")
+  .select(
+  "product_id, release_date, list_price, sale_price, stage"
+)
+.eq("stage", "SEMI_NEW")
+  .eq("stage", "SEMI_NEW")
+  .range(from, from + PAGE_SIZE - 1);
 
   if (error) {
     throw error;
@@ -77,6 +64,14 @@ console.log(
     console.log("更新対象の準新作はありません");
     return;
   }
+
+  // Playwright一覧取得
+const { products } = await getSemiNewItems();
+
+// productId → 一覧情報
+const productMap = new Map(
+  products.map((p) => [p.productId, p])
+);
 
   const job = await beginJob(
     JOBS.SEMI_NEW,
@@ -106,13 +101,68 @@ console.log(
       );
 
       await Promise.all(
-  batch.map((work) =>
-    updateWork(
-      work.product_id,
-      undefined,
-      browser
-    )
-  )
+  batch.map(async (work) => {
+    const latest = productMap.get(work.product_id);
+
+    // 一覧に存在しない作品は OLD へ移行
+if (!latest) {
+  const { error } = await supabase
+    .from("works")
+    .update({
+      stage: "OLD",
+    })
+    .eq("product_id", work.product_id);
+
+  if (error) {
+    console.error(
+      `[ERROR] Stage更新失敗 ${work.product_id}`,
+      error
+    );
+    return;
+  }
+
+  console.log(
+    `[STAGE] ${work.product_id} SEMI_NEW → OLD`
+  );
+
+  return;
+}
+    const dbPrice =
+      work.sale_price ?? work.list_price;
+
+    const latestPrice =
+      latest.salePrice ?? latest.listPrice;
+
+    // 価格変更なし
+    if (
+      dbPrice != null &&
+      latestPrice != null &&
+      dbPrice === latestPrice
+    ) {
+      console.log(
+        `[SKIP] ${work.product_id} price=${dbPrice}`
+      );
+      return;
+    }
+
+    console.log(
+      `[UPDATE] ${work.product_id} ${dbPrice} → ${latestPrice}`
+    );
+
+    try {
+      await updateWork(
+  work.product_id,
+  null,
+  browser,
+  latest.listPrice
+);
+    } catch (error) {
+      console.error(
+        `[ERROR] update失敗 ${work.product_id}`,
+        error
+      );
+    }
+  })
 );
 
       const processed =

@@ -1,6 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 import { calculateScore } from "@/lib/score";
 import { updateStatistics } from "@/lib/statistics/updateStatistics";
+import {
+  beginJob,
+  updateJob,
+  finishJob,
+  failJob,
+  JOBS,
+} from "@/lib/jobs";
 
 type ScoreUpdateWork = {
   id: number;
@@ -21,7 +28,9 @@ const supabase = createClient(
 );
 
 export async function updateScore() {
-  const works: ScoreUpdateWork[] = [];
+  try {
+
+    const works: ScoreUpdateWork[] = [];
 
   let from = 0;
   const limit = 1000;
@@ -57,6 +66,14 @@ export async function updateScore() {
   }
 
   console.log("score更新対象:", works.length);
+
+  const job = await beginJob(
+  JOBS.SCORE,
+  works.length
+);
+
+let processed =
+  job.processed_count ?? 0;
 
   const workUpdates = [];
 
@@ -114,6 +131,18 @@ export async function updateScore() {
         result.seriesPoint
       ),
     });
+        processed++;
+
+    if (
+      processed % 50 === 0 ||
+      processed === works.length
+    ) {
+      await updateJob(
+        JOBS.SCORE,
+        processed,
+        String(work.id)
+      );
+    }
   }
 
   await supabase
@@ -126,8 +155,21 @@ export async function updateScore() {
 
   console.log("統計更新完了");
 
-  return {
-    count: works.length,
-    updates: workUpdates.length,
-  };
+await finishJob(JOBS.SCORE);
+
+return {
+  count: works.length,
+  updates: workUpdates.length,
+};
+
+} catch (error) {
+  await failJob(
+    JOBS.SCORE,
+    error instanceof Error
+      ? error.message
+      : "Unknown error"
+  );
+
+  throw error;
+}
 }

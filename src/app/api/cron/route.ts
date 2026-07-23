@@ -3,7 +3,7 @@ import { UPDATE_CONFIG } from "@/config/update";
 import { run0030 } from "@/lib/cron/run0030";
 import { run0300 } from "@/lib/cron/run0300";
 import { run0330 } from "@/lib/cron/run0330";
-import { runSunday1200 } from "@/lib/cron/runSunday1200";
+import { run1600 } from "@/lib/cron/run1600";
 import { runSunday1400 } from "@/lib/cron/runSunday1400";
 
 export async function GET() {
@@ -48,12 +48,11 @@ export async function GET() {
 }
 
   if (
-  day === UPDATE_CONFIG.CRON.OLD.day &&
   time === UPDATE_CONFIG.CRON.OLD.time
 ) {
-  jobs.push("Sunday12:00");
+  jobs.push("OLD16:00");
 
-  await runSunday1200();
+  await run1600();
 }
 
   if (

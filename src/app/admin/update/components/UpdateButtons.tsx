@@ -120,29 +120,137 @@ isUpdating = false,
 ];
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-  {buttons.map((button) => (
-  <button
-    key={button.label}
-    onClick={button.onClick}
-    disabled={isUpdating}
-    className={`
-      rounded-xl
-      h-16
-      font-bold
-      text-white
-      transition
-      disabled:cursor-not-allowed
-      disabled:opacity-50
-      ${button.color}
-    `}
-  >
-    {isUpdating &&
-    button.label === "📥 作品同期"
-      ? "⏳ 同期中..."
-      : button.label}
-  </button>
-))}
-    </div>
-  );
+  <div className="space-y-8">
+
+    {/* データ同期 */}
+    <section>
+      <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-400">
+        データ同期
+      </h3>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {buttons
+          .filter((b) =>
+            ["📥 作品同期", "🏷 Stage同期"].includes(b.label)
+          )
+          .map((button) => (
+            <button
+              key={button.label}
+              onClick={button.onClick}
+              disabled={isUpdating}
+              className={`
+                h-16 rounded-xl font-bold text-white transition
+                disabled:cursor-not-allowed
+                disabled:opacity-50
+                ${button.color}
+              `}
+            >
+              {button.label}
+            </button>
+          ))}
+      </div>
+    </section>
+
+    {/* 更新 */}
+    <section>
+      <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-400">
+        作品更新
+      </h3>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {buttons
+          .filter((b) =>
+            [
+              "🆕 新作更新",
+              "📅 予約作品更新",
+              "⭐ 準新作更新",
+              "📦 旧作更新",
+            ].includes(b.label)
+          )
+          .map((button) => (
+            <button
+              key={button.label}
+              onClick={button.onClick}
+              disabled={isUpdating}
+              className={`
+                h-16 rounded-xl font-bold text-white transition
+                disabled:cursor-not-allowed
+                disabled:opacity-50
+                ${button.color}
+              `}
+            >
+              {button.label}
+            </button>
+          ))}
+      </div>
+    </section>
+
+    {/* セール */}
+    <section>
+      <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-400">
+        セール
+      </h3>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {buttons
+          .filter((b) =>
+            [
+              "💰 セール更新",
+              "🔚 終了セール更新",
+              "💵 価格補完",
+            ].includes(b.label)
+          )
+          .map((button) => (
+            <button
+              key={button.label}
+              onClick={button.onClick}
+              disabled={isUpdating}
+              className={`
+                h-16 rounded-xl font-bold text-white transition
+                disabled:cursor-not-allowed
+                disabled:opacity-50
+                ${button.color}
+              `}
+            >
+              {button.label}
+            </button>
+          ))}
+      </div>
+    </section>
+
+    {/* 集計 */}
+    <section>
+      <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-400">
+        集計
+      </h3>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {buttons
+          .filter((b) =>
+            [
+              "🧮 スコア更新",
+              "🏆 ランキング更新",
+              "🚀 全更新",
+            ].includes(b.label)
+          )
+          .map((button) => (
+            <button
+              key={button.label}
+              onClick={button.onClick}
+              disabled={isUpdating}
+              className={`
+                h-16 rounded-xl font-bold text-white transition
+                disabled:cursor-not-allowed
+                disabled:opacity-50
+                ${button.color}
+              `}
+            >
+              {button.label}
+            </button>
+          ))}
+      </div>
+    </section>
+
+  </div>
+);
 }

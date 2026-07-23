@@ -1,8 +1,12 @@
 import { supabase } from "@/lib/supabase";
+import { UPDATE_CONFIG } from "@/config/update";
 import { getReserveItems } from "@/lib/playwright/getReserveItems";
-import { getDmmItem } from "@/lib/dmm/getDmmItem";
-import { saveDmmItem } from "./save";
 import { updateWork } from "./updateWork";
+
+import {
+  createBrowser,
+  closeBrowser,
+} from "@/lib/playwright/browserManager";
 
 import {
   beginJob,
@@ -12,203 +16,209 @@ import {
   JOBS,
 } from "@/lib/jobs";
 
-import { UPDATE_CONFIG } from "@/config/update";
-
-import {
-  createBrowser,
-  closeBrowser,
-} from "@/lib/playwright/browserManager";
-
 export async function updateReserveWorks() {
-  const { products } =
-    await getReserveItems();
+  const works: {
+    product_id: string;
+    release_date: string;
+    list_price: number | null;
+    sale_price: number | null;
+  }[] = [];
 
-  console.log(
-    `予約作品 ${products.length}件`
+  let from = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("works")
+      .select(
+        "product_id, release_date, list_price, sale_price, stage"
+      )
+      .eq("stage", "RESERVED")
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data || data.length === 0) {
+      break;
+    }
+
+    works.push(...data);
+
+    if (data.length < pageSize) {
+      break;
+    }
+
+    from += pageSize;
+  }
+
+  if (works.length === 0) {
+    console.log("更新対象の予約作品はありません");
+    return;
+  }
+
+  const { products } = await getReserveItems();
+
+  const productMap = new Map(
+    products.map((p) => [p.productId, p])
   );
 
   const job = await beginJob(
     JOBS.RESERVE,
-    products.length
+    works.length
   );
 
   const processedCount =
     job.processed_count ?? 0;
 
   const targets =
-  products.slice(processedCount);
+    works.slice(processedCount);
 
-let browser =
-  await createBrowser();
+  console.log(
+    `予約作品更新開始 (${processedCount}/${works.length}から再開)`
+  );
 
-try {
-    const {
-      data: works,
-      error,
-    } = await supabase
-      .from("works")
-      .select(`
-        product_id,
-        release_date
-      `);
+  let current = processedCount;
+  let browser = await createBrowser();
 
-    if (error) {
-      throw error;
-    }
-
-    const workMap = new Map(
-      (works ?? []).map(
-        (work: {
-          product_id: string;
-          release_date: string | null;
-        }) => [
-          work.product_id,
-          work,
-        ]
-      )
-    );
-
-    let newCount = 0;
-    let updateCount = 0;
-
-    const BATCH_SIZE =
-      UPDATE_CONFIG.parallel;
-
-        for (
+  try {
+    for (
       let i = 0;
       i < targets.length;
-      i += BATCH_SIZE
+      i += UPDATE_CONFIG.parallel
     ) {
       const batch = targets.slice(
         i,
-        i + BATCH_SIZE
+        i + UPDATE_CONFIG.parallel
       );
 
       await Promise.all(
-        batch.map(async (product) => {
-          const item = await getDmmItem(
-            product.productId
+        batch.map(async (work) => {
+          const latest = productMap.get(
+            work.product_id
           );
 
-          if (!item) {
+          // RESERVED一覧から消えたら NEWへ
+          if (!latest) {
+            const { error } =
+              await supabase
+                .from("works")
+                .update({
+                  stage: "NEW",
+                })
+                .eq(
+                  "product_id",
+                  work.product_id
+                );
+
+            if (error) {
+              console.error(
+                `[ERROR] Stage更新失敗 ${work.product_id}`,
+                error
+              );
+              return;
+            }
+
+            console.log(
+              `[STAGE] ${work.product_id} RESERVED → NEW`
+            );
+
             return;
           }
 
-          const work = workMap.get(
-            product.productId
-          );
+          const dbPrice =
+            work.sale_price ??
+            work.list_price;
 
-          // 新規登録
-          if (!work) {
-            console.log(
-              "新規予約:",
-              product.productId
-            );
+          const latestPrice =
+            latest.salePrice ??
+            latest.listPrice;
 
-            await saveDmmItem(item);
-
-await updateWork(
-  product.productId,
-  undefined,
-  browser
-);
-
-await supabase
-  .from("works")
-  .update({
-    stage: "RESERVE",
-  })
-  .eq(
-    "product_id",
-    product.productId
-  );
-
-newCount++;
-
-return;
-          }
-
-          // 発売日変更
           if (
-            work.release_date !==
-            item.date
+            dbPrice != null &&
+            latestPrice != null &&
+            dbPrice === latestPrice
           ) {
             console.log(
-              "発売日変更:",
-              product.productId
+              `[SKIP] ${work.product_id} price=${dbPrice}`
             );
 
-            await supabase
-              .from("works")
-              .update({
-                release_date:
-                  item.date,
-              })
-              .eq(
-                "product_id",
-                product.productId
-              );
-
-            await updateWork(
-  product.productId,
-  undefined,
-  browser
-);
-
-            updateCount++;
+            return;
           }
+
+          console.log(
+            `[UPDATE] ${work.product_id} ${dbPrice} → ${latestPrice}`
+          );
+
+          try {
+            await updateWork(
+              work.product_id,
+              null,
+              browser,
+              latest.listPrice
+            );
+          } catch (error) {
+            console.error(
+              `[ERROR] update失敗 ${work.product_id}`,
+              error
+            );
+          }
+
+          return;
         })
       );
 
-      const processed =
-        processedCount +
-        i +
-        batch.length;
+            // Promise.all が終わった時点で、この batch は全件成功
+      current += batch.length;
 
-  if (
-  processed %
-    UPDATE_CONFIG.browserRestartInterval ===
-  0
-) {
-  console.log(
-    `🔄 Browser再起動 (${processed}件処理)`
-  );
+      if (
+        current %
+          UPDATE_CONFIG.browserRestartInterval ===
+        0
+      ) {
+        console.log(
+          `🔄 Browser再起動 (${current}件処理)`
+        );
 
-  await closeBrowser(browser);
+        await closeBrowser(browser);
 
-  browser = await createBrowser();
-}
+        browser = await createBrowser();
+      }
+
+      // 10件ごと、または最後だけ保存
+      const lastWork =
+        batch[batch.length - 1];
 
       await updateJob(
         JOBS.RESERVE,
-        processed,
-        batch[batch.length - 1]
-          .productId
+        current,
+        lastWork.product_id
       );
 
       console.log(
-        `${processed}/${products.length}`
+        `${current}/${works.length}`
       );
     }
 
-    await finishJob(
-      JOBS.RESERVE
+    await finishJob(JOBS.RESERVE);
+
+    console.log("予約作品更新完了");
+  } catch (error) {
+    console.error(
+      "updateReserveWorks エラー:",
+      error
     );
 
-    console.log({
-      newCount,
-      updateCount,
-    });
-  } catch (error) {
-  await failJob(
-    JOBS.RESERVE,
-    error instanceof Error
-      ? error.message
-      : String(error)
-  );
+    await failJob(
+      JOBS.RESERVE,
+      error instanceof Error
+        ? error.message
+        : String(error)
+    );
 
-  throw error;
-} finally {
-  await closeBrowser(browser);
-}
+    throw error;
+  } finally {
+    await closeBrowser(browser);
+  }
 }

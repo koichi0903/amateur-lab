@@ -2,8 +2,13 @@ import { chromium } from "playwright";
 
 export interface ProductSummary {
   productId: string;
-
   url: string;
+
+  // 通常価格
+  listPrice: number | null;
+
+  // セール価格（通常時は null）
+  salePrice: number | null;
 }
 
 export async function getProductIds(
@@ -11,7 +16,7 @@ export async function getProductIds(
   maxPages?: number
 ) {
   const browser = await chromium.launch({
-  headless: true
+  headless: false
 });
 
   const page = await browser.newPage();
@@ -74,8 +79,13 @@ export async function getProductIds(
         }
       );
 
-      await page.waitForLoadState("networkidle");
-      await page.waitForTimeout(2000);
+      await page.locator(
+  '[data-e2eid="content-card"]'
+).first().waitFor({
+  timeout: 10000,
+});
+
+await page.waitForTimeout(500);
 
       const retryCards = page.locator(
         'a[href*="/content/?id="]'
@@ -89,11 +99,13 @@ export async function getProductIds(
       console.log(
         `page ${currentPage} retry ${retry}`
       );
-    } catch {
-      console.log(
-        `page ${currentPage} retry ${retry} failed`
-      );
-    }
+    } catch (error) {
+  console.log(
+    `page ${currentPage} retry ${retry} failed`
+  );
+
+  console.error(error);
+}
   }
 
   if (!loaded) {
@@ -105,7 +117,7 @@ export async function getProductIds(
 }
 
 const cards = page.locator(
-  'a[href*="/content/?id="]'
+  '[data-e2eid="content-card"]'
 );
 
 if ((await cards.count()) === 0) {
@@ -128,23 +140,61 @@ console.log(
       for (let i = 0; i < count; i++) {
   const card = cards.nth(i);
 
-  const href =
-    await card.getAttribute("href");
+
+  const link = card.locator(
+  'a[href*="/content/?id="]'
+).first();
+
+const href =
+  await link.getAttribute("href");
 
   if (!href) continue;
 
   const productId =
-    href.match(/id=([^&]+)/)?.[1];
+  href.match(/id=([^&]+)/)?.[1];
 
-  if (!productId) continue;
+if (!productId) continue;
 
-const container = card.locator(
-  "xpath=ancestor::div[@data-e2eid='content-card']"
+const priceLocator = card.locator(
+  '[data-e2eid="content-price"]'
 );
 
-  products.set(productId, {
+const priceText =
+  (await priceLocator.count()) > 0
+    ? (await priceLocator.first().textContent()) ?? ""
+    : "";
+
+const numbers =
+  priceText.match(/\d[\d,]*/g)?.map((v) =>
+    Number(v.replace(/,/g, ""))
+  ) ?? [];
+
+let listPrice: number | null = null;
+let salePrice: number | null = null;
+
+if (numbers.length === 1) {
+  // 通常販売
+  listPrice = numbers[0];
+} else if (numbers.length >= 2) {
+  // セール中
+  listPrice = numbers[0];
+  salePrice = numbers[1];
+}
+
+console.log(
+  "GET_PRODUCT_IDS",
+  productId,
+  {
+    listPrice,
+    salePrice,
+  }
+);
+
+products.set(productId, {
   productId,
   url: href,
+  listPrice,
+  salePrice,
 });
 }
     }
