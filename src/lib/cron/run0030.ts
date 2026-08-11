@@ -17,14 +17,14 @@ export async function run0030() {
   console.log("Cron: STAGE");
   await updateStage();
 
-    console.log("Cron: SCORE");
-  await updateScore();
-
-  console.log("Cron: RESERVE");
+      console.log("Cron: RESERVE");
   await updateReserveWorks();
 
   console.log("Cron: NEW");
   await updateNewWorks();
+
+  console.log("Cron: SCORE");
+  await updateScore();
 
   console.log("===== セール更新ルーティン終了 =====");
 }

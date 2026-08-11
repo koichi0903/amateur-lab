@@ -37,7 +37,9 @@ export interface ParsedData {
 
   sampleImages: string[];
 
-  saleEndAt: Date | null;
+sampleMovieUrl?: string;
+
+saleEndAt: Date | null;
 }
 
 async function getMeta(

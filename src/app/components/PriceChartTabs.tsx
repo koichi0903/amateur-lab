@@ -44,22 +44,26 @@ export default function PriceChartTabs({
   return ia - ib;
 });
 
-  const [selectedType, setSelectedType] =
-  useState(priceTypes[0] ?? "");
+  const defaultType =
+  history
+    .filter((item) => item.sale_price)
+    .sort(
+      (a, b) =>
+        (a.sale_price ?? a.normal_price ?? 999999) -
+        (b.sale_price ?? b.normal_price ?? 999999)
+    )[0];
+
+const [selectedType, setSelectedType] =
+  useState(
+    normalizeDisplayName(
+      defaultType?.display_name ?? priceTypes[0] ?? ""
+    )
+  );
 
   const chartData = createChartData(
     history,
     selectedType
   );
-
-  console.log("selectedType:", selectedType);
-console.log(
-  "chartData:",
-  chartData.map((p) => ({
-    date: p.date,
-    price: p.price,
-  }))
-);
 
   return (
     <>

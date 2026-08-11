@@ -3,23 +3,35 @@ import { IGNORE_GENRES } from "../genre";
 import { calculateScore } from "../score";
 
 import type { DmmItem } from "../../types/dmm";
-import type { RankingItem } from "../../types/ranking";
+import type {
+  RankingItem,
+  ActressRankingItem,
+} from "../../types/ranking";
 
 export async function saveDmmItem(
   item: DmmItem,
-  rankingData: {
-    actressRanking: RankingItem[];
+  rankingData?: {
+    actressRanking: ActressRankingItem[];
     genreRanking: RankingItem[];
     makerRanking: RankingItem[];
-    seriesRanking: RankingItem[];
-  } | undefined,
+    seriesRanking: ActressRankingItem[];
+  },
   stage: string = "NEW"
 ) {
 
-let actressList: RankingItem[];
-let genreList: RankingItem[];
-let makerList: RankingItem[];
-let seriesList: RankingItem[];
+  console.log(
+    "sampleImageURL =",
+    JSON.stringify(item.sampleImageURL, null, 2)
+  );
+
+  const sampleImages =
+    item.sampleImageURL?.sample_l?.image ?? [];
+
+  let actressList: ActressRankingItem[];
+  let genreList: RankingItem[];
+  let makerList: RankingItem[];
+  let seriesList: ActressRankingItem[];
+
 
 if (rankingData) {
   actressList = rankingData.actressRanking;
@@ -48,7 +60,7 @@ if (rankingData) {
       .select("*");
 
   actressList =
-    (actressRanking ?? []) as RankingItem[];
+  (actressRanking ?? []) as ActressRankingItem[];
 
   genreList =
     (genreRanking ?? []) as RankingItem[];
@@ -57,7 +69,7 @@ if (rankingData) {
     (makerRanking ?? []) as RankingItem[];
 
   seriesList =
-    (seriesRanking ?? []) as RankingItem[];
+  (seriesRanking ?? []) as ActressRankingItem[];
 }
 
 let actressScore = 0;
@@ -88,16 +100,16 @@ const series =
 actresses.forEach((name: string) => {
   const found =
   actressList.find(
-    (a: RankingItem) =>
+    (a: ActressRankingItem) =>
       name.includes(a.name)
   );
 
-  if (found) {
-    actressScore = Math.max(
-      actressScore,
-      found.score
-    );
-  }
+if (found?.original_rank != null) {
+  actressScore = Math.max(
+    actressScore,
+    found.original_rank
+  );
+}
 });
 
 genres.forEach((name: string) => {
@@ -119,19 +131,38 @@ makers.forEach((name: string) => {
   );
 
   if (found) {
-    makerScore += found.score;
+    if (found.rank != null) {
+  makerScore = Math.max(
+    makerScore,
+    found.rank
+  );
+}
   }
 });
 
-series.forEach((name:string)=>{
+series.forEach((name: string) => {
   const found =
-  seriesList.find(
-    (s: RankingItem) => s.name === name
+    seriesList.find(
+      (s: ActressRankingItem) => s.name === name
+    );
+
+  if (!found) return;
+
+  const ranks = [
+    found.original_rank,
+    found.fanza_rank,
+  ].filter(
+    (rank): rank is number => rank != null
   );
 
-  if(found){
-    seriesScore += found.score;
-  }
+  if (ranks.length === 0) return;
+
+  const bestRank = Math.min(...ranks);
+
+  seriesScore = Math.max(
+    seriesScore,
+    bestRank
+  );
 });
 
 const reviewAverage =
@@ -159,18 +190,20 @@ const {
   reviewPoint,
   reviewCountPoint,
   discountPoint,
-  rankingPoint,
+  popularityPoint,
   seriesPoint,
   newReleaseBonus,
 } = calculateScore({
   reviewAverage,
   reviewCount,
-  discountRate,
-  actressScore,
-  genreScore,
-  makerScore,
-  seriesScore,
-  ranking: item.rank,
+  maxDiscountRate: discountRate,
+
+  actressPoint: actressScore,
+  genrePoint: genreScore,
+  makerPoint: makerScore,
+  seriesPoint: seriesScore,
+
+  realtimeRank: item.rank,
   releaseDate: item.date,
 });
 
@@ -217,7 +250,7 @@ review_count_score: Math.round(reviewCountPoint),
 
 discount_score: Math.round(discountPoint),
 
-ranking_score: Math.round(rankingPoint),
+ranking_score: Math.round(popularityPoint),
 
 new_release_score: newReleaseBonus,
         
@@ -303,6 +336,24 @@ stage: "NEW",
   );
 
   return false;
+}
+
+// サンプル画像保存
+if (sampleImages.length > 0) {
+  await supabase
+    .from("work_sample_images")
+    .delete()
+    .eq("product_id", item.content_id);
+
+  await supabase
+    .from("work_sample_images")
+    .insert(
+      sampleImages.map((url, index) => ({
+        product_id: item.content_id,
+        image_url: url,
+        sort_order: index + 1,
+      }))
+    );
 }
 
 console.log(

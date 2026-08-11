@@ -23,6 +23,8 @@ export default function JobCard({
   const percent =
   total > 0 ? Math.round((processed / total) * 100) : 0;
 
+// The elapsed time is intentionally calculated from the current wall clock for this status card.
+// eslint-disable-next-line react-hooks/purity
 const elapsed = (Date.now() - startedAt) / 1000;
 
 const speed =
@@ -60,8 +62,6 @@ const eta =
       label: status,
       color: "bg-zinc-500",
     };
-
-    console.log("JobCard", percent);
 
   return (
   <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-lg transition hover:border-purple-500">

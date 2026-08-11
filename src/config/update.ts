@@ -19,23 +19,13 @@ export const UPDATE_CONFIG = {
   jobUpdateInterval: 6,
 
   CRON: {
-    SALE: [
-      "00:30",
-      "10:30",
-    ],
+  NIGHT: "00:30",
 
-    RESERVE: "03:00",
+  DAY: "10:30",
 
-    NEW: "03:30",
-
-    OLD: {
-      day: "sunday",
-      time: "12:00",
-    },
-
-    SEMI_NEW: {
-      day: "sunday",
-      time: "14:00",
-    },
+  SEMI_NEW: {
+    days: ["monday", "friday"],
+    time: "18:00",
   },
+},
 };

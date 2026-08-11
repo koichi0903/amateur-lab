@@ -26,7 +26,10 @@ export default function PriceChart({
     <div className="mt-6 h-72 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" />
+          <CartesianGrid
+  stroke="#d4d4d8"
+  strokeDasharray="4 4"
+/>
 
           <XAxis
   dataKey="date"
@@ -51,9 +54,30 @@ export default function PriceChart({
   type="stepAfter"
   dataKey="price"
   stroke="#ec4899"
-  strokeWidth={3}
-  dot={{ r: 6 }}
-  activeDot={{ r: 8 }}
+  strokeWidth={4}
+  strokeLinecap="round"
+  strokeLinejoin="round"
+  dot={(props) => {
+    const isLast =
+      props.index === data.length - 1;
+
+    return (
+      <circle
+        cx={props.cx}
+        cy={props.cy}
+        r={isLast ? 8 : 5}
+        fill="#ec4899"
+        stroke="white"
+        strokeWidth={2}
+      />
+    );
+  }}
+  activeDot={{
+    r: 10,
+    stroke: "#ec4899",
+    strokeWidth: 2,
+    fill: "#fff",
+  }}
 />
         </LineChart>
       </ResponsiveContainer>

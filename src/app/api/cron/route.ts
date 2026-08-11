@@ -1,10 +1,8 @@
+import { run0030 } from "@/lib/cron/run0030";
+import { run1030 } from "@/lib/cron/run1030";
+import { runSemiNew } from "@/lib/cron/runSemiNew";
 import { NextResponse } from "next/server";
 import { UPDATE_CONFIG } from "@/config/update";
-import { run0030 } from "@/lib/cron/run0030";
-import { run0300 } from "@/lib/cron/run0300";
-import { run0330 } from "@/lib/cron/run0330";
-import { run1600 } from "@/lib/cron/run1600";
-import { runSunday1400 } from "@/lib/cron/runSunday1400";
 
 export async function GET() {
   const now = new Date();
@@ -23,45 +21,25 @@ export async function GET() {
 
   const jobs: string[] = [];
 
-  if (
-  UPDATE_CONFIG.CRON.SALE.includes(time)
-) {
-  jobs.push("00:30");
+  if (time === UPDATE_CONFIG.CRON.NIGHT) {
+  jobs.push("NIGHT");
 
   await run0030();
 }
 
-  if (
-  time === UPDATE_CONFIG.CRON.RESERVE
-) {
-  jobs.push("03:00");
+if (time === UPDATE_CONFIG.CRON.DAY) {
+  jobs.push("DAY");
 
-  await run0300();
+  await run1030();
 }
 
   if (
-  time === UPDATE_CONFIG.CRON.NEW
-) {
-  jobs.push("03:30");
-
-  await run0330();
-}
-
-  if (
-  time === UPDATE_CONFIG.CRON.OLD.time
-) {
-  jobs.push("OLD16:00");
-
-  await run1600();
-}
-
-  if (
-  day === UPDATE_CONFIG.CRON.SEMI_NEW.day &&
+  UPDATE_CONFIG.CRON.SEMI_NEW.days.includes(day) &&
   time === UPDATE_CONFIG.CRON.SEMI_NEW.time
 ) {
-  jobs.push("Sunday14:00");
+  jobs.push("SEMI_NEW");
 
-  await runSunday1400();
+  await runSemiNew();
 }
 
 

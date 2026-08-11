@@ -1,210 +1,405 @@
-import Link from "next/link";
+"use client";
+
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import type { Work } from "@/types/work";
+import ImageViewer from "./ImageViewer";
 
 type Props = {
   work: Work;
-  reasons: string[];
+  sampleImages: {
+    image_url: string;
+    sort_order: number;
+  }[];
+  sampleMovieUrl?: string | null;
 };
 
 export default function WorkHero({
   work,
-  reasons,
+  sampleImages,
+  sampleMovieUrl,
 }: Props) {
+
+const [selected, setSelected] = useState<
+  "movie" | number
+>("movie");
+
+const [viewerOpen, setViewerOpen] =
+  useState(false);
+
+useEffect(() => {
+  function handleKey(e: KeyboardEvent) {
+    if (viewerOpen) return;
+
+    if (e.key === "ArrowRight") {
+      if (selected === "movie") {
+        if (sampleImages.length > 0) {
+          setSelected(0);
+        }
+      } else if (
+        selected < sampleImages.length - 1
+      ) {
+        setSelected(selected + 1);
+      } else {
+        setSelected("movie");
+      }
+    }
+
+    if (e.key === "ArrowLeft") {
+      if (selected === "movie") {
+        if (sampleImages.length > 0) {
+          setSelected(
+            sampleImages.length - 1
+          );
+        }
+      } else if (selected > 0) {
+        setSelected(selected - 1);
+      } else {
+        setSelected("movie");
+      }
+    }
+  }
+
+  window.addEventListener(
+    "keydown",
+    handleKey
+  );
+
+  return () =>
+    window.removeEventListener(
+      "keydown",
+      handleKey
+    );
+}, [
+  selected,
+  sampleImages.length,
+  viewerOpen,
+]);
+
   return (
-    <div className="grid lg:grid-cols-[320px_1fr] gap-10 items-start">
+    <div className="grid min-w-0 gap-10 lg:grid-cols-[260px_minmax(0,1fr)] items-start">
 
       {/* 左カラム */}
-      <div className="sticky top-6">
+<div className="min-w-0 lg:sticky lg:top-6">
 
-        {work.image_url && (
+  <div className="relative">
+
+    {work.discount_rate > 0 && (
+      <div className="absolute left-3 top-3 z-10 rounded-lg bg-pink-600 px-3 py-1 text-xs font-black text-white shadow">
+        {work.discount_rate}%OFF
+      </div>
+    )}
+
+    {selected === "movie" && sampleMovieUrl ? (
+  <video
+  key={selected}
+  controls
+  playsInline
+  preload="metadata"
+  className="w-full rounded-2xl border bg-black shadow-lg"
+>
+    <source
+      src={sampleMovieUrl}
+      type="video/mp4"
+    />
+  </video>
+) : (
+
+  <div
+  onClick={() => setViewerOpen(true)}
+  className="relative cursor-zoom-in"
+>
   <Image
-    src={work.image_url}
-    alt={work.title}
-    width={320}
-    height={450}
-    className="w-full max-w-[320px] h-auto rounded-xl shadow-lg"
-  />
+  key={
+    selected === "movie"
+      ? "movie"
+      : sampleImages[selected].image_url
+  }
+  src={
+    selected === "movie"
+      ? (work.image_url ?? "")
+      : sampleImages[selected].image_url
+  }
+  alt={work.title}
+  width={280}
+  height={395}
+  className="
+    w-full
+    rounded-2xl
+    border
+    bg-white
+    object-cover
+    shadow-lg
+    transition-opacity
+    duration-300
+  "
+/>
+  <div className="absolute bottom-3 right-3 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
+  {selected === "movie"
+    ? "動画"
+    : `${selected + 1} / ${sampleImages.length}`}
+</div>
+
+  </div>
 )}
 
-      </div>
+  </div>
+
+  <div className="mt-4 flex gap-2 overflow-x-auto">
+
+  <button
+  onClick={() => setSelected("movie")}
+  className={`
+    relative
+    h-16
+    w-16
+    shrink-0
+    overflow-hidden
+    rounded-xl
+    border-2
+    transition
+    ${
+      selected === "movie"
+        ? "border-pink-500 ring-2 ring-pink-300"
+        : "border-zinc-300"
+    }
+  `}
+>
+
+  <Image
+    src={work.image_url ?? ""}
+    alt={work.title}
+    fill
+    sizes="64px"
+    className="object-cover"
+  />
+
+  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+
+    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-sm font-black text-black">
+
+      ▶
+
+    </div>
+
+  </div>
+
+</button>
+
+  {sampleImages.map((image, index) => (
+    <Image
+      key={image.sort_order}
+      src={image.image_url}
+      alt=""
+      width={64}
+      height={64}
+      onClick={() => setSelected(index)}
+      className={`
+  h-16
+  w-16
+  shrink-0
+  cursor-pointer
+  rounded-xl
+  border-2
+  object-cover
+  transition
+  ${
+    selected === index
+      ? "border-pink-500 ring-2 ring-pink-300"
+      : "border-zinc-300"
+  }
+`}
+    />
+  ))}
+
+</div>
+
+  <button
+    className="mt-4 flex h-11 w-full items-center justify-center rounded-full border bg-white text-sm font-semibold shadow-sm transition hover:bg-pink-50"
+  >
+    ♡ お気に入り
+  </button>
+
+</div>
 
       {/* 右カラム */}
-      <div>
+      <div className="min-w-0">
 
-        <h1 className="text-3xl lg:text-5xl font-extrabold leading-tight tracking-tight">
+        <h1 className="break-words text-2xl font-black leading-tight tracking-tight text-zinc-900 sm:text-3xl lg:text-[38px] lg:leading-[1.15]">
           {work.title}
         </h1>
 
-        <div className="mt-5 bg-white rounded-xl border p-6 shadow-sm">
+        <div className="mt-4 flex flex-wrap gap-2">
 
-          <div className="grid grid-cols-2 gap-6">
+ {work.actress && (
+  <span className="rounded-full bg-pink-100 px-4 py-1.5 text-sm font-semibold text-pink-700">
+    👩 {work.actress}
+  </span>
+)}
 
-            <div>
-  <p className="text-xs text-gray-500">👩 女優</p>
+{work.maker && (
+  <span className="rounded-full bg-green-100 px-4 py-1.5 text-sm font-semibold text-green-700">
+    🏢 {work.maker}
+  </span>
+)}
 
-  <div className="flex flex-wrap gap-2 mt-1">
-    {work.actress?.split(" / ").map((actress: string) => (
-      <Link
-        key={actress}
-        href={`/actress/${encodeURIComponent(actress)}`}
-        className="font-bold text-blue-600 hover:underline"
-      >
-        {actress}
-      </Link>
-    ))}
+{work.series && (
+  <span className="rounded-full bg-yellow-100 px-4 py-1.5 text-sm font-semibold text-yellow-700">
+    📚 {work.series}
+  </span>
+)}
+
+{work.genre && (
+  <span className="rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">
+    🏷 {work.genre}
+  </span>
+)}
+
+</div>
+
+        <div className="mt-8 grid gap-4 lg:grid-cols-[180px_180px_minmax(0,1fr)]">
+  {/* 発掘スコア */}
+  <div className="flex h-[210px] flex-col justify-center rounded-3xl border bg-white p-6 text-center">
+
+    <div className="text-sm text-zinc-500">
+      発掘スコア
+    </div>
+
+    <div className="mt-3 text-6xl font-black text-pink-600">
+      {work.score}
+    </div>
+
+    <div className="mt-2 text-sm text-zinc-400">
+      /100
+    </div>
+
+    <div className="mt-4 text-yellow-500 text-xl">
+      ★★★★★
+    </div>
+
   </div>
-</div>
 
-            <div>
-              <p className="text-xs text-gray-500">🏷 ジャンル</p>
-             <div className="flex flex-wrap gap-2 mt-1">
-  {work.genre?.split(" / ").map((genre: string) => (
-    <Link
-      key={genre}
-      href={`/genre/${encodeURIComponent(genre)}`}
-      className="font-bold text-blue-600 hover:underline"
-    >
-      {genre}
-    </Link>
-  ))}
-</div>
-</div>
+  {/* 総合おすすめ */}
+  <div className="flex h-[210px] flex-col justify-center rounded-3xl border bg-white p-6 text-center">
 
-            <div>
-  <p className="text-xs text-gray-500">🏢 メーカー</p>
- {work.maker ? (
-  <Link
-    href={`/maker/${encodeURIComponent(work.maker)}`}
-    className="font-bold text-blue-600 hover:underline"
-  >
-    {work.maker}
-  </Link>
-) : (
-  <p className="font-bold">-</p>
-)}
-</div>
+    <div className="text-sm text-zinc-500">
+      総合おすすめ度
+    </div>
 
-<div>
-  <p className="text-xs text-gray-500">📚 シリーズ</p>
-  {work.series ? (
-  <Link
-    href={`/series/${encodeURIComponent(work.series)}`}
-    className="font-bold text-blue-600 hover:underline"
-  >
-    {work.series}
-  </Link>
-) : (
-  <p className="font-bold">-</p>
-)}
-</div>
+    <div className="mt-5 flex justify-center">
 
-            {work.review_average > 0 && (
-              <div>
-                <p className="text-xs text-gray-500">⭐ レビュー</p>
-                <p className="font-bold">
-                  {work.review_average}
-                  {work.review_count > 0 &&
-                    `（${work.review_count}件）`}
-                </p>
-              </div>
-            )}
+      <div className="flex h-32 w-32 items-center justify-center rounded-full border-[10px] border-pink-500">
 
-            {work.discount_rate > 0 && (
-              <div>
-                <p className="text-xs text-gray-500">🔥 セール</p>
-                <p className="font-bold text-red-600">
-                  {work.discount_rate}%OFF
-                </p>
-              </div>
-            )}
-
+        <div>
+          <div className="text-4xl font-black text-pink-600">
+            {work.score}%
           </div>
 
-          <hr className="my-6 border-gray-200" />
-
-          {work.sale_price > 0 && (
-            <div className="mt-5 flex items-end gap-3">
-
-  <span className="text-2xl text-gray-400 line-through">
-    ¥{work.price?.toLocaleString()}
-  </span>
-
-  <span className="text-3xl font-bold text-gray-500 mx-3">
-  →
-</span>
-
-  <span className="text-5xl font-black text-red-600">
-    ¥{work.sale_price.toLocaleString()}
-  </span>
-
-</div>
-          )}
-
+          <div className="text-sm text-zinc-500">
+            今買う価値
+          </div>
         </div>
-
-                {work.affiliate_url && (
-          <a
-            href={work.affiliate_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-5 inline-flex justify-center items-center w-full bg-pink-600 hover:bg-pink-700 text-white font-bold text-lg py-4 rounded-xl shadow-lg"
-          >
-            🩷 FANZAで作品を見る
-          </a>
-        )}
-
-        {work.score >= 60 && (
-          <div className="bg-indigo-600 text-white rounded-xl p-4 mt-6 text-center shadow">
-
-            <p className="text-7xl font-black leading-none">
-              {work.score}
-            </p>
-
-            <p className="mt-3 font-bold">
-              {work.score >= 95
-                ? "👑 SSランク"
-                : work.score >= 90
-                ? "🏆 Sランク"
-                : work.score >= 80
-                ? "⭐ Aランク"
-                : work.score >= 70
-                ? "👍 Bランク"
-                : "📈 注目作品"}
-            </p>
-
-            <p className="mt-2 text-indigo-100">
-              人気・評価・価格・セールをAI分析
-            </p>
-
-            {reasons.length > 0 && (
-              <div className="mt-5 border-t border-indigo-400 pt-4">
-
-                <p className="text-sm font-semibold mb-3 text-indigo-100">
-                  この作品をおすすめする理由
-                </p>
-
-                <div className="flex flex-wrap justify-center gap-2">
-
-                  {reasons.map((reason) => (
-                    <span
-                      key={reason}
-                      className="bg-white text-indigo-700 px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap"
-                    >
-                      {reason}
-                    </span>
-                  ))}
-
-                </div>
-
-              </div>
-            )}
-
-          </div>
-        )}
 
       </div>
 
+    </div>
+
+  </div>
+
+  {/* 情報カード */}
+  <div className="h-[210px] rounded-3xl border bg-white p-6">
+
+    <div className="grid grid-cols-2 gap-y-5">
+
+      <div>
+        <div className="text-xs text-zinc-400">
+          発売日
+        </div>
+
+        <div className="font-bold">
+          {work.release_date}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs text-zinc-400">
+          ランキング
+        </div>
+
+        <div className="font-bold">
+          {work.ranking}位
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs text-zinc-400">
+          レビュー
+        </div>
+
+        <div className="font-bold">
+          ⭐ {work.review_average}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs text-zinc-400">
+          件数
+        </div>
+
+        <div className="font-bold">
+          {work.review_count}件
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs text-zinc-400">
+          価格
+        </div>
+
+        <div className="font-black text-pink-600">
+          ¥{(work.sale_price || work.price).toLocaleString()}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs text-zinc-400">
+          メーカー
+        </div>
+
+        <div className="font-bold">
+          {work.maker}
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+      </div>
+{viewerOpen &&
+ selected !== "movie" && (
+  <ImageViewer
+    images={sampleImages}
+    current={selected}
+    onClose={() =>
+      setViewerOpen(false)
+    }
+    onPrev={() =>
+      setSelected(
+        selected === 0
+          ? sampleImages.length - 1
+          : selected - 1
+      )
+    }
+    onNext={() =>
+      setSelected(
+        (selected + 1) %
+          sampleImages.length
+      )
+    }
+  />
+)}
     </div>
   );
 }

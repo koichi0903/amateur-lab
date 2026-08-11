@@ -64,14 +64,20 @@ export const JOB_REGISTRY = {
   },
 
   review: {
-    title: "📝 レビュー更新",
-    order: 8,
-  },
+  title: "📝 レビュー更新",
+  order: 8,
+  api: "/api/review-update",
+  method: "POST",
+  visible: true,
+},
 
   ranking: {
-    title: "🏆 人気ランキング",
-    order: 9,
-  },
+  title: "🏆 人気ランキング",
+  order: 9,
+  api: "/api/dmm-ranking",
+  method: "POST",
+  visible: true,
+},
 
   score: {
     title: "🧠 スコア更新",

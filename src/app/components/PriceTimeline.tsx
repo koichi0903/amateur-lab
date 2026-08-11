@@ -59,7 +59,7 @@ const visibleGroups = expanded
   {group.map((item) => (
     <div
       key={item.id}
-      className="flex items-center justify-between rounded-md border-b py-2 last:border-0"
+      className="flex items-center justify-between rounded-md border-b py-1.5 last:border-0"
     >
       <div className="flex items-center gap-2">
         <span className="text-lg">
@@ -70,7 +70,7 @@ const visibleGroups = expanded
             : "🟣"}
         </span>
 
-        <span className="font-medium">
+        <span className="text-sm font-medium text-zinc-700">
           {item.display_name
             .replace("ダウンロード＋ストリーミング", "DL")
             .replace(
@@ -84,19 +84,19 @@ const visibleGroups = expanded
         </span>
       </div>
 
-      <div className="text-right">
+      <div className="min-w-[72px] text-right">
         {item.sale_price ? (
           <>
             <div className="text-xs text-gray-400 line-through">
               ¥{item.normal_price?.toLocaleString()}
             </div>
 
-            <div className="font-bold text-red-600">
+            <div className="text-sm font-bold text-red-600">
               ¥{item.sale_price.toLocaleString()}
             </div>
           </>
         ) : (
-          <div className="font-bold">
+          <div className="text-sm font-bold text-zinc-900">
             ¥{item.normal_price?.toLocaleString()}
           </div>
         )}

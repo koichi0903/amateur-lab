@@ -18,7 +18,7 @@ import {
 
 export async function updateSemiNewWorks() {
   
-  let works: {
+  const works: {
   product_id: string;
   release_date: string;
   list_price: number | null;

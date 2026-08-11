@@ -1,149 +1,99 @@
 import Link from "next/link";
-import type { Work } from "@/types/work";
 import Image from "next/image";
+import type { Work } from "@/types/work";
 
 type Props = {
   work: Work;
 };
 
-export default function FeaturedWorkCard({ work }: Props) {
+export default function FeaturedWorkCard({
+  work,
+}: Props) {
+  const actress =
+    work.actress?.split(" / ")[0] ?? "";
+
+  const currentPrice =
+    work.sale_price && work.sale_price > 0
+      ? work.sale_price
+      : work.price;
+
   return (
-    <div
-      className="border rounded-xl p-5 shadow hover:shadow-lg transition flex gap-5"
-    >
-      <div className="w-[170px] flex flex-col items-center self-start">
+    <article className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-xl">
 
-  {work.image_url && (
-   <Image
-  src={work.image_url}
-  alt={work.title}
-  width={170}
-  height={241}
-  className="object-contain rounded-lg bg-white"
-/>
-  )}
+      <div className="flex gap-4">
 
-  {work.score > 0 && (
-  <span className="mt-4 bg-indigo-600 text-white px-5 py-2.5 rounded-full font-bold text-base">
-    発掘スコア {work.score}
-  </span>
+        <div className="shrink-0">
+
+          {work.image_url && (
+  <Image
+    src={work.image_url}
+    alt={work.title}
+    width={110}
+    height={150}
+    className="rounded-lg"
+  />
 )}
 
-</div>
+          <div className="mt-3 rounded-full bg-gradient-to-r from-indigo-600 to-fuchsia-600 py-2 text-center text-sm font-bold text-white">
+            発掘 {work.score}
+          </div>
 
-<div className="flex-1 flex flex-col">
+        </div>
 
-  <Link
-    href={`/works/${work.id}`}
-    className="block mb-4"
-  >
-    <h2
-      className="font-bold text-xl text-blue-600 hover:underline leading-7"
-      style={{
-        display: "-webkit-box",
-        WebkitLineClamp: 2,
-        WebkitBoxOrient: "vertical",
-        overflow: "hidden",
-      }}
-    >
-      {work.title}
-    </h2>
-  </Link>
+        <div className="flex flex-1 flex-col">
 
-  <div className="grid grid-cols-[1.2fr_1fr_auto] gap-x-6">
+          <Link
+            href={`/works/${work.id}`}
+            className="font-bold leading-6 text-blue-700 hover:underline"
+            style={{
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
+            {work.title}
+          </Link>
 
-    {/* 左列 */}
-    <div className="space-y-3">
+          <div className="mt-3 text-sm text-zinc-600">
+            👩 {actress}
+          </div>
 
-      <p>
-        👩 {work.actress?.split(" / ")[0]}
-      </p>
+          {work.review_average > 0 && (
+            <div className="mt-1 text-sm text-yellow-600 font-semibold">
+              ⭐ {work.review_average}
+              <span className="ml-1 text-zinc-500">
+                ({work.review_count}件)
+              </span>
+            </div>
+          )}
 
-      <p className="text-sm text-gray-500">
-        🏷️ {
-          work.genre
-            ?.split(" / ")
-            .slice(0,3)
-            .join(" ・ ")
-        }
-      </p>
+          <div className="mt-auto">
 
-      {work.sale_price > 0 &&
-      work.sale_price < work.price ? (
-        <>
-          <p className="text-gray-400 line-through">
-            ¥{work.price.toLocaleString()}
-          </p>
+            {work.sale_price > 0 &&
+              work.sale_price < work.price && (
+                <div className="mt-4 text-sm text-zinc-400 line-through">
+                  ¥{work.price.toLocaleString()}
+                </div>
+              )}
 
-          <p className="text-3xl font-bold text-red-600">
-            ¥{work.sale_price.toLocaleString()}
-          </p>
-        </>
-      ) : (
-        <p className="text-3xl font-bold">
-          ¥{work.price.toLocaleString()}
-        </p>
-      )}
+            <div className="text-3xl font-black text-red-600">
+              ¥{currentPrice.toLocaleString()}
+            </div>
 
-    </div>
+            <Link
+              href={`/works/${work.id}`}
+              className="mt-4 inline-flex rounded-xl bg-pink-600 px-5 py-2 font-bold text-white transition hover:bg-pink-700"
+            >
+              詳細を見る →
+            </Link>
 
-    {/* 中央列 */}
-    <div className="space-y-3">
+          </div>
 
-      {work.review_average > 0 && (
-        <p className="font-bold text-yellow-600">
-          ⭐ {work.review_average}
-          <span className="text-gray-500 ml-1">
-            ({work.review_count}件)
-          </span>
-        </p>
-      )}
-
-      <p className="text-sm text-gray-500">
-        品番：{work.product_id}
-      </p>
-
-      <div className="flex flex-col gap-2 items-start">
-
-        {work.score >= 95 && (
-          <span className="bg-red-500 text-white px-2 py-1 rounded-full text-xs">
-            🔥急上昇
-          </span>
-        )}
-
-        {work.score >= 90 &&
-          work.score < 95 && (
-          <span className="bg-yellow-500 text-white px-2 py-1 rounded-full text-xs">
-            ⭐人気
-          </span>
-        )}
-
-        {work.discount_rate > 0 && (
-          <span className="bg-pink-600 text-white px-2 py-1 rounded-full text-xs">
-            🔥{work.discount_rate}%OFF
-          </span>
-        )}
+        </div>
 
       </div>
 
-    </div>
-
-    {/* 右列 */}
-    <div className="flex flex-col justify-between items-end">
-
-      <Link
-        href={`/works/${work.id}`}
-        className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg font-bold whitespace-nowrap"
-      >
-        詳細 →
-      </Link>
-
-    </div>
-
-  </div>
-
-</div>
-
-        </div>
+    </article>
   );
 }

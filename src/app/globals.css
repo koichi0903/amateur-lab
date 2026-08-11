@@ -12,6 +12,49 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* =========================================================
+   発掘LAB Ver.2 Design Tokens
+========================================================= */
+
+:root {
+  /* Background */
+  --bg: #0f1115;
+  --surface: #181b20;
+  --surface-hover: #20242b;
+
+  /* Border */
+  --border: #2c3138;
+
+  /* Text */
+  --text: #ffffff;
+  --text-secondary: #b7bcc5;
+  --text-muted: #7f8793;
+
+  /* Brand */
+  --primary: #4f8cff;
+  --primary-hover: #3b7bfd;
+
+  /* Status */
+  --sale: #ef4444;
+  --up: #22c55e;
+  --warning: #f59e0b;
+  --ai: #8b5cf6;
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+
+  /* Shadow */
+  --shadow-sm: 0 2px 8px rgba(0,0,0,.18);
+  --shadow-md: 0 6px 20px rgba(0,0,0,.24);
+  --shadow-lg: 0 10px 40px rgba(0,0,0,.32);
+
+  /* Width */
+  --container: 1280px;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
@@ -22,5 +65,13 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), "Noto Sans JP", Arial, Helvetica, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+* {
+  box-sizing: border-box;
 }

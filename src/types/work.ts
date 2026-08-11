@@ -27,11 +27,13 @@ series_point: number;
   ranking_score: number;
 
   new_release_score: number;
+long_hit_point: number;
 
   ranking: number;
 
   price: number;
   sale_price: number;
+  list_price: number | null;
   discount_rate: number;
 
   review_count: number;
@@ -53,4 +55,10 @@ label: string | null;
 sale_end_at: string | null;
 product_release_date: string | null;
 duration: number | null;
+
+is_bottom_price: boolean;
+lowest_price: number | null;
+
+previous_realtime_rank: number | null;
+realtime_rank: number | null;
 }

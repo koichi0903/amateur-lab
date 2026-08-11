@@ -17,7 +17,8 @@ export async function updatePlaywrightItem(
   productId: string,
   url?: string | null,
   browser?: Browser,
-  listPrice?: number | null
+  listPrice?: number | null,
+  sampleMovieOnly = false
 )
 {
   let workUrl: string | undefined =
@@ -45,6 +46,23 @@ browser ??= await chromium.launch({
 });
 
   const page = await browser.newPage();
+
+  let sampleMovieUrl: string | null = null;
+
+page.on("response", (response) => {
+  const responseUrl = response.url();
+
+  if (
+    responseUrl.endsWith(".mp4") &&
+    sampleMovieUrl === null
+  ) {
+    sampleMovieUrl = responseUrl;
+
+    console.log(
+      `[MP4] ${productId} ${sampleMovieUrl}`
+    );
+  }
+});
 
   try {
 
@@ -80,10 +98,12 @@ console.log("年齢認証を突破しました");
 
     const data = await parsePage(page);
 
-// console.log(
-//   "prices =",
-//   JSON.stringify(data.prices, null, 2)
-// );
+    data.sampleMovieUrl = sampleMovieUrl ?? undefined;
+
+console.log(
+  "[SampleMovie]",
+  sampleMovieUrl
+);
 
 // 価格取得失敗なら保存しない
 if (data.prices.length === 0) {
@@ -97,14 +117,27 @@ let saved = false;
 
 for (let attempt = 1; attempt <= 3; attempt++) {
   try {
-    await saveWork(
-      productId,
-      data,
-      listPrice
-    );
+    if (sampleMovieOnly) {
+  await supabase
+    .from("works")
+    .update({
+      sample_movie_url:
+        data.sampleMovieUrl,
+    })
+    .eq("product_id", productId);
 
-    saved = true;
-    break;
+  saved = true;
+  break;
+}
+
+await saveWork(
+  productId,
+  data,
+  listPrice
+);
+
+saved = true;
+break;
   } catch (error) {
     console.error(
       `[ERROR] saveWork失敗 (${attempt}/3) ${productId}`,

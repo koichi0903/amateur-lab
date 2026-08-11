@@ -8,6 +8,16 @@ export interface DmmItem {
   small?: string;
   list?: string;
 };
+
+sampleImageURL?: {
+  sample_s?: {
+    image: string[];
+  };
+
+  sample_l?: {
+    image: string[];
+  };
+};
   URL?: string;           // FANZA作品URL
 affiliateURL?: string;  // アフィリエイトURL
 

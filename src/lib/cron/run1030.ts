@@ -16,11 +16,11 @@ export async function run1030() {
   console.log("Cron: STAGE");
   await updateStage();
 
+    console.log("Cron: OLD");
+  await updateOldWorks();
+
   console.log("Cron: SCORE");
   await updateScore();
-
-  console.log("Cron: OLD");
-  await updateOldWorks();
 
   console.log("===== 昼更新ルーティン終了 =====");
 }

@@ -7,20 +7,25 @@ export default function ScoreBar({
   value,
   max,
 }: Props) {
+  const percent =
+    max > 0
+      ? Math.min((value / max) * 100, 100)
+      : 0;
+
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex-1 h-2 rounded-full bg-gray-200 overflow-hidden">
+    <div className="w-full">
+
+      <div className="h-3 overflow-hidden rounded-full bg-zinc-200">
+
         <div
-          className="h-full rounded-full bg-indigo-600"
+          className="h-full rounded-full bg-gradient-to-r from-pink-500 to-fuchsia-500 transition-all duration-500"
           style={{
-            width: `${Math.min((value / max) * 100, 100)}%`,
+            width: `${percent}%`,
           }}
         />
+
       </div>
 
-      <span className="w-16 text-right font-bold text-sm">
-        {value} / {max}
-      </span>
     </div>
   );
 }

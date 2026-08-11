@@ -1,11 +1,6 @@
-import Link from "next/link";
-import { getSiteStatistics } from "@/lib/getSiteStatistics";
 import Breadcrumb from "@/app/components/Breadcrumb";
-import SiteStatistics from "@/app/components/SiteStatistics";
 
 export default async function AboutPage() {
-
-const statistics = await getSiteStatistics();
 
   return (
     <main className="min-h-screen bg-gray-100">
@@ -93,15 +88,6 @@ const statistics = await getSiteStatistics();
     ランキングだけでは見つからない作品との出会いをサポートします。
   </p>
 </div>
-
-<SiteStatistics
-  totalWorks={statistics.total_works}
-  totalActresses={statistics.total_actresses}
-  totalMakers={statistics.total_makers}
-  totalSeries={statistics.total_series}
-  totalGenres={statistics.total_genres}
-  lastUpdatedAt={statistics.last_updated_at}
-/>
 
 <div className="mb-8 rounded-2xl border bg-white p-8 shadow-sm">
   <h2 className="mb-6 text-3xl font-bold">

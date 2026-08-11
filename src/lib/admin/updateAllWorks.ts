@@ -5,33 +5,45 @@ import { updateSaleWorks } from "./updateSaleWorks";
 import { updateEndedSaleWorks } from "./updateEndedSaleWorks";
 import { updateRanking } from "./updateRanking";
 import { updateScore } from "./updateScore";
+import { updateReviewWorks } from "./updateReviewWorks";
+import { updateReserveWorks } from "./updateReserveWorks";
+import { updateStage } from "@/lib/update/updateStage";
 
 export async function updateAllWorks() {
   console.log("===== 全更新開始 =====");
 
   try {
+    console.log("■ 予約作品更新");
+    await updateReserveWorks();
+
     console.log("■ 新作更新");
     await updateNewWorks();
 
     console.log("■ 準新作更新");
-await updateSemiNewWorks();
+    await updateSemiNewWorks();
 
-console.log("■ 旧作更新");
-await updateOldWorks();
+    console.log("■ 旧作更新");
+    await updateOldWorks();
 
-console.log("■ セール更新");
-await updateSaleWorks();
+    console.log("■ セール更新");
+    await updateSaleWorks();
 
-console.log("■ 終了セール更新");
-await updateEndedSaleWorks();
+    console.log("■ 終了セール更新");
+    await updateEndedSaleWorks();
 
-console.log("■ ランキング更新");
-await updateRanking();
+    console.log("■ Stage同期");
+    await updateStage();
 
-console.log("■ スコア更新");
-await updateScore();
+    console.log("■ レビュー更新");
+    await updateReviewWorks();
 
-console.log("===== 全更新完了 =====");
+    console.log("■ ランキング更新");
+    await updateRanking();
+
+    console.log("■ スコア更新");
+    await updateScore();
+
+    console.log("===== 全更新完了 =====");
   } catch (error) {
     console.error("全更新失敗", error);
     throw error;

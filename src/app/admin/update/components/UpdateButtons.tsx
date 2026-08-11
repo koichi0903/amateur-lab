@@ -19,9 +19,13 @@ type UpdateButtonsProps = {
 
   onUpdateScore?: () => void;
 
-  onUpdateMissingPrices?: () => void;
+onUpdateReview?: () => void;
 
-  onUpdateReserve?: () => void;
+onUpdateMissingPrices?: () => void;
+
+onFillSampleMovie?: () => void;
+
+onUpdateReserve?: () => void;
 
   isUpdating?: boolean;
 };
@@ -45,22 +49,21 @@ export default function UpdateButtons({
 
   onUpdateRanking,
 
-  onUpdateScore,
+onUpdateScore,
 
-  onUpdateMissingPrices,
+onUpdateReview,
 
-  onUpdateReserve,
+onUpdateMissingPrices,
+
+onFillSampleMovie,
+
+onUpdateReserve,
 
 isUpdating = false,
 }: UpdateButtonsProps)
 {
 
   const buttons = [
-  {
-    label: "📥 作品同期",
-    onClick: onSyncWorks,
-    color: "bg-blue-600 hover:bg-blue-500",
-  },
   {
     label: "🏷 Stage同期",
     onClick: onUpdateStage,
@@ -107,9 +110,22 @@ isUpdating = false,
   color: "bg-teal-600 hover:bg-teal-500",
 },
   {
+  label: "⭐ レビュー更新",
+  onClick: onUpdateReview,
+  color: "bg-cyan-700 hover:bg-cyan-600",
+},
+  {
   label: "💵 価格補完",
   onClick: onUpdateMissingPrices,
   color: "bg-lime-600 hover:bg-lime-500",
+},
+{
+  label: "🎬 サンプル動画補完",
+  onClick: () => {
+    alert("ボタンが押されました");
+    onFillSampleMovie?.();
+  },
+  color: "bg-fuchsia-600 hover:bg-fuchsia-500",
 },
   {
   label: "📅 予約作品更新",
@@ -131,8 +147,8 @@ isUpdating = false,
       <div className="grid gap-4 md:grid-cols-2">
         {buttons
           .filter((b) =>
-            ["📥 作品同期", "🏷 Stage同期"].includes(b.label)
-          )
+  ["🏷 Stage同期"].includes(b.label)
+)
           .map((button) => (
             <button
               key={button.label}
@@ -161,11 +177,12 @@ isUpdating = false,
         {buttons
           .filter((b) =>
             [
-              "🆕 新作更新",
-              "📅 予約作品更新",
-              "⭐ 準新作更新",
-              "📦 旧作更新",
-            ].includes(b.label)
+  "📅 予約作品更新",
+  "🆕 新作更新",
+  "📦 旧作更新",
+  "⭐ 準新作更新",
+]
+            .includes(b.label)
           )
           .map((button) => (
             <button
@@ -195,10 +212,10 @@ isUpdating = false,
         {buttons
           .filter((b) =>
             [
-              "💰 セール更新",
-              "🔚 終了セール更新",
-              "💵 価格補完",
-            ].includes(b.label)
+  "💰 セール更新",
+  "🔚 終了セール更新",
+]
+            .includes(b.label)
           )
           .map((button) => (
             <button
@@ -228,10 +245,14 @@ isUpdating = false,
         {buttons
           .filter((b) =>
             [
-              "🧮 スコア更新",
-              "🏆 ランキング更新",
-              "🚀 全更新",
-            ].includes(b.label)
+  "🧮 スコア更新",
+  "⭐ レビュー更新",
+  "💵 価格補完",
+  "🎬 サンプル動画補完",
+  "🏆 ランキング更新",
+  "🚀 全更新",
+]
+            .includes(b.label)
           )
           .map((button) => (
             <button

@@ -5,8 +5,6 @@ export const JOBS = {
 
   STAGE: "stage",
 
-  NEW_SYNC: "new_sync",
-
   NEW_UPDATE: "new_update",
 
   RESERVE: "reserve",
@@ -19,9 +17,11 @@ export const JOBS = {
 
   ENDED_SALE: "ended_sale",
 
-  RANKING: "ranking",
+REVIEW: "review",
 
-  SCORE: "score",
+RANKING: "ranking",
+
+SCORE: "score",
 
   MISSING_PRICES: "missing_prices",
 } as const;

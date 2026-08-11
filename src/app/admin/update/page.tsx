@@ -19,8 +19,10 @@ type Job = {
 };
 
 export default function UpdatePage() {
-  const [jobs, setJobs] = useState<Job[]>([]);
+const [jobs, setJobs] = useState<Job[]>([]);
 const [loading, setLoading] = useState(true);
+
+const [showIdleJobs, setShowIdleJobs] = useState(false);
 
 const [startedAt] = useState(Date.now());
   
@@ -45,27 +47,6 @@ const [startedAt] = useState(Date.now());
   } catch (error) {
     console.error(error);
     alert("全更新に失敗しました");
-  }
-}
-
-async function handleSyncWorks() {
-  setLoading(true);
-
-  try {
-    const res = await fetch("/api/sync", {
-      method: "POST",
-    });
-
-    const data = await res.json();
-
-    alert(data.message);
-
-    await loadJobs();
-  } catch (e) {
-    console.error(e);
-    alert("作品同期に失敗しました");
-  } finally {
-    setLoading(false);
   }
 }
 
@@ -143,8 +124,6 @@ async function handleUpdateRanking() {
 
     alert("ランキング更新が完了しました");
 
-    console.log(data);
-
     await loadJobs();
   } catch (e) {
     console.error(e);
@@ -208,12 +187,31 @@ async function handleUpdateScore() {
 
     alert("スコア更新が完了しました");
 
-    console.log(data);
-
     await loadJobs();
   } catch (e) {
     console.error(e);
     alert("スコア更新に失敗しました");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function handleUpdateReview() {
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/review-update", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    alert(data.message);
+
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert("レビュー更新に失敗しました");
   } finally {
     setLoading(false);
   }
@@ -235,6 +233,29 @@ async function handleUpdateMissingPrices() {
   } catch (e) {
     console.error(e);
     alert("価格補完に失敗しました");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function handleFillSampleMovie() {
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/admin/fill-sample-movie", {
+      method: "POST",
+    });
+
+    const data = await res.json();
+
+    alert(
+      `動画URL補完完了\n成功:${data.success}件\n失敗:${data.failed}件`
+    );
+
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert("動画URL補完に失敗しました");
   } finally {
     setLoading(false);
   }
@@ -342,11 +363,28 @@ setLoading(false);
   return () => clearInterval(interval);
 }, []);
 
+const idleJobCount = jobs.filter(
+  (job) => job.status === "idle" && job.total_count === 0
+).length;
+
   return (
     <main className="min-h-screen bg-zinc-950">
       <div className="mx-auto max-w-7xl p-10">
 
         <UpdateHeader />
+
+        {idleJobCount > 0 && (
+  <div className="mb-6">
+    <button
+      onClick={() => setShowIdleJobs((prev) => !prev)}
+      className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 transition hover:bg-zinc-800"
+    >
+      {showIdleJobs
+        ? "▲ 待機中ジョブを隠す"
+        : `▼ 待機中ジョブを表示（${idleJobCount}件）`}
+    </button>
+  </div>
+)}
 
         {loading ? (
           <div className="py-20 text-center text-zinc-400">
@@ -356,6 +394,12 @@ setLoading(false);
           <div className="grid gap-6 md:grid-cols-2">
   {jobs
   .filter((job) => job.job_name !== "sale_scan")
+.filter(
+  (job) =>
+    showIdleJobs ||
+    job.status !== "idle" ||
+    job.total_count > 0
+)
     .sort((a, b) => {
   return (
     (JOB_REGISTRY[
@@ -389,7 +433,6 @@ setLoading(false);
 
         <div className="mt-10">
   <UpdateButtons
-  onSyncWorks={handleSyncWorks}
   onUpdateStage={handleUpdateStage}
   onUpdateNew={handleUpdateNew}
   onUpdateSemiNew={handleUpdateSemiNew}
@@ -399,8 +442,10 @@ setLoading(false);
   onUpdateSale={handleUpdateSale}
   onUpdateRanking={handleUpdateRanking}
   onUpdateScore={handleUpdateScore}
-  onUpdateMissingPrices={handleUpdateMissingPrices}
-  onUpdateReserve={handleUpdateReserve}
+onUpdateReview={handleUpdateReview}
+onUpdateMissingPrices={handleUpdateMissingPrices}
+onFillSampleMovie={handleFillSampleMovie}
+onUpdateReserve={handleUpdateReserve}
   isUpdating={isUpdating}
 />
 </div>

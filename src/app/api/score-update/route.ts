@@ -1,8 +1,15 @@
 import { updateScore } from "@/lib/admin/updateScore";
+import { updateRanking } from "@/lib/playwright/updateRanking";
+import { updateLongHitRanking } from "@/lib/playwright/updateLongHitRanking";
 
 export async function POST() {
   try {
-    const result = await updateScore();
+
+await updateRanking();
+
+await updateLongHitRanking();
+
+const result = await updateScore();
 
     return Response.json({
       ...result,

@@ -4,15 +4,10 @@ type Props = {
   url: string;
 };
 
-export default function CollectionPageJsonLd({
-  title,
-  description,
-  url,
-}: Props) {
+export default function CollectionPageJsonLd({ title, description, url }: Props) {
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "CollectionPage",
-
     name: title,
     description,
     url,
@@ -21,9 +16,7 @@ export default function CollectionPageJsonLd({
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{
-        __html: JSON.stringify(jsonLd),
-      }}
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
     />
   );
 }

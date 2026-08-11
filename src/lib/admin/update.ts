@@ -1,168 +1,112 @@
 import { supabase } from "../supabase";
-import { calculateScore } from "../score";
-
 import type { DmmItem } from "../../types/dmm";
-import type { RankingItem } from "../../types/ranking";
+import { saveReviewGrowthEvent } from "@/lib/insights/event";
 
 export async function updateDmmItem(
-  item: DmmItem
+  item: DmmItem,
+  currentWork?: {
+  id: number;
+  review_count: number;
+  review_average: number;
+  maker: string;
+  series: string;
+  url: string;
+  release_date: string | null;
+}
 ) {
-  const { data: actressRanking } =
-    await supabase
-      .from("actress_rankings")
-      .select("*");
 
-  const { data: genreRanking } =
-    await supabase
-      .from("genre_rankings")
-      .select("*");
+const previousReviewCount =
+  currentWork?.review_count ?? 0;
 
-  const { data: makerRanking } =
-    await supabase
-      .from("maker_rankings")
-      .select("*");
+const currentReviewCount =
+  Number(item.review?.count) || 0;
 
-  const { data: seriesRanking } =
-    await supabase
-      .from("series_rankings")
-      .select("*");
+const isReviewGrowth =
+  currentReviewCount > previousReviewCount;
 
-  let actressScore = 0;
-  let genreScore = 0;
-  let makerScore = 0;
-  let seriesScore = 0;
+const nextMaker =
+  item.iteminfo?.maker?.[0]?.name || "";
 
-  const actresses =
-    item.iteminfo?.actress?.map((a) => a.name) || [];
+const nextSeries =
+  item.iteminfo?.series?.[0]?.name || "";
 
-  const genres =
-    item.iteminfo?.genre?.map((g) => g.name) || [];
+const nextUrl =
+  item.URL ||
+  item.affiliateURL ||
+  "";
 
-  const makers =
-    item.iteminfo?.maker?.map((m) => m.name) || [];
+const nextReleaseDate =
+  item.date || null;
 
-  const series =
-    item.iteminfo?.series?.map((s) => s.name) || [];
-      actresses.forEach((name: string) => {
-    const found = actressRanking?.find(
-      (a: RankingItem) => name.includes(a.name)
+const nextReviewAverage =
+  Number(item.review?.average) || 0;
+
+const sampleImages =
+  item.sampleImageURL?.sample_l?.image ?? [];
+
+const { data: exists } = await supabase
+  .from("work_sample_images")
+  .select("id")
+  .eq("product_id", item.content_id)
+  .limit(1)
+  .maybeSingle();
+
+const hasChanges =
+  currentWork?.review_count !== currentReviewCount ||
+  currentWork?.review_average !== nextReviewAverage ||
+  currentWork?.maker !== nextMaker ||
+  currentWork?.series !== nextSeries ||
+  currentWork?.url !== nextUrl ||
+  currentWork?.release_date !== nextReleaseDate;
+
+if (!exists && sampleImages.length > 0) {
+  const { error: imageError } = await supabase
+  .from("work_sample_images")
+  .insert(
+      sampleImages.map((url, index) => ({
+        product_id: item.content_id,
+        image_url: url,
+        sort_order: index + 1,
+      }))
     );
+}
 
-    if (found) {
-      actressScore = Math.max(
-        actressScore,
-        found.score
-      );
-    }
-  });
-
-  genres.forEach((name: string) => {
-    const found = genreRanking?.find(
-      (g: RankingItem) => g.name === name
-    );
-
-    if (found) {
-      genreScore += found.score;
-    }
-  });
-
-  makers.forEach((name: string) => {
-    const found = makerRanking?.find(
-      (m: RankingItem) => m.name === name
-    );
-
-    if (found) {
-      makerScore += found.score;
-    }
-  });
-
-  series.forEach((name: string) => {
-    const found = seriesRanking?.find(
-      (s: RankingItem) => s.name === name
-    );
-
-    if (found) {
-      seriesScore += found.score;
-    }
-  });
-
-  const reviewAverage =
-    Number(item.review?.average || 0);
-
-  const reviewCount =
-    Number(item.review?.count || 0);
-
-  const discountRate =
-    parseInt(item.prices?.list_price || "0")
-      ? Math.round(
-          (
-            1 -
-            parseInt(item.prices?.price || "0") /
-              parseInt(item.prices?.list_price || "1")
-          ) * 100
-        )
-      : 0;
-
-      console.log({
-  list: item.prices?.list_price,
-  sale: item.prices?.price,
-  discountRate,
-});
-
-  /*
-const {
-  score,
-  makerPoint,
-  seriesPoint,
-  reviewPoint,
-  reviewCountPoint,
-  discountPoint,
-  rankingPoint,
-  newReleaseBonus,
-} = calculateScore({
-  reviewAverage,
-  reviewCount,
-  discountRate,
-  actressScore,
-  genreScore,
-  makerScore,
-  seriesScore,
-  ranking: item.rank,
-  releaseDate: item.date,
-});
-*/
+if (currentWork && !hasChanges) {
+  return;
+}
 
   const { error } = await supabase
     .from("works")
     .update({
-  actress_score: actressScore,
-  genre_score: genreScore,
-  maker_score: makerScore,
-  series_score: seriesScore,
+  release_date: nextReleaseDate,
 
-  release_date: item.date || null,
+  maker: nextMaker,
 
-  maker: item.iteminfo?.maker?.[0]?.name || "",
+  series: nextSeries,
 
-  series: item.iteminfo?.series?.[0]?.name || "", 
+  url: nextUrl || null,
 
-  url:
-  item.URL ||
-  item.affiliateURL ||
-  null,
+  review_count: currentReviewCount,
 
-  review_count:
-    item.review?.count || 0,
+  review_average: nextReviewAverage,
 
-  review_average:
-    Number(item.review?.average) || 0,
-
-  last_updated:
-    new Date().toISOString(),
+  last_updated: new Date().toISOString(),
 })
     .eq("product_id", item.content_id);
 
   if (error) {
     console.error(error);
   }
+
+  if (
+  !error &&
+  currentWork &&
+  isReviewGrowth
+) {
+  await saveReviewGrowthEvent({
+    workId: currentWork.id,
+    previousReviewCount,
+    currentReviewCount,
+  });
+}
 }

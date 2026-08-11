@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
-
-import { syncWorks } from "@/lib/update/syncWorks";
 import { updateAllWorks } from "@/lib/admin/updateAllWorks";
 
 export async function POST() {
   try {
-    await syncWorks();
 
     await updateAllWorks();
 

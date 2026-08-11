@@ -4,9 +4,8 @@ dotenv.config({ path: ".env.local" });
 
 import { createClient } from "@supabase/supabase-js";
 import type { ParsedData } from "./parser";
-
-console.log("URL =", process.env.NEXT_PUBLIC_SUPABASE_URL);
-console.log("KEY =", !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+import { generateAndSaveInsight } from "@/lib/insights/generateAndSave";
+import { saveLowestPriceEvent } from "@/lib/insights/event";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -58,13 +57,37 @@ const price =
 
 let salePrice: number | null = null;
 
+// 表示用（代表価格の割引率）
 let discountRate = 0;
+
+// スコア用（全プラン中の最大割引率）
+let maxDiscountRate = 0;
 
 let isOnSale = false;
 
 let saleEndAt: Date | null = null;
 
 // セール中
+// 全プラン中の最大割引率を計算（スコア用）
+for (const p of data.prices) {
+  if (
+    p.normalPrice != null &&
+    p.salePrice != null &&
+    p.salePrice < p.normalPrice
+  ) {
+    const rate = Math.round(
+      ((p.normalPrice - p.salePrice) /
+        p.normalPrice) *
+        100
+    );
+
+    if (rate > maxDiscountRate) {
+      maxDiscountRate = rate;
+    }
+  }
+}
+
+// 代表価格のセール情報（表示用）
 if (
   data.saleEndAt &&
   mainPrice?.salePrice &&
@@ -85,45 +108,6 @@ if (
   saleEndAt = data.saleEndAt;
 }
 
-console.log(
-  "saveWork listPrice =",
-  productId,
-  listPrice
-);
-
-  const workUpdate = {
-  title: data.title,
-  actress: data.actress,
-  maker: data.maker,
-  series: data.series,
-  label: data.label,
-
-  release_date: data.releaseDate,
-  product_release_date: data.productReleaseDate,
-
-  duration: data.duration,
-
-  price,
-
-  ...(listPrice !== undefined
-    ? { list_price: listPrice }
-    : {}),
-
-  sale_price: salePrice,
-
-  discount_rate: discountRate,
-
-  is_on_sale: isOnSale,
-
-  sale_end_at: saleEndAt,
-
-  playwright_status: isOnSale
-    ? "SALE"
-    : "NORMAL",
-
-  is_bottom_price: isBottomPrice,
-};
-
 const { data: currentWork, error: currentError } =
   await supabase
     .from("works")
@@ -131,7 +115,9 @@ const { data: currentWork, error: currentError } =
   price,
   list_price,
   sale_price,
+  lowest_price,
   discount_rate,
+  max_discount_rate,
   is_on_sale,
   sale_end_at,
   playwright_status,
@@ -143,6 +129,59 @@ const { data: currentWork, error: currentError } =
 if (currentError) {
   console.error(currentError);
 }
+
+const currentDisplayPrice = salePrice ?? price;
+
+const lowestPrice =
+  currentDisplayPrice == null
+    ? currentWork?.lowest_price ?? null
+    : currentWork?.lowest_price == null
+      ? currentDisplayPrice
+      : Math.min(currentWork.lowest_price, currentDisplayPrice);
+
+const isNewLowestPrice =
+  currentDisplayPrice != null &&
+  (
+    currentWork?.lowest_price == null ||
+    currentDisplayPrice < currentWork.lowest_price
+  );
+
+const workUpdate = {
+  title: data.title,
+  actress: data.actress,
+  maker: data.maker,
+  series: data.series,
+  label: data.label,
+
+  sample_movie_url: data.sampleMovieUrl,
+
+  release_date: data.releaseDate,
+  product_release_date: data.productReleaseDate,
+
+  duration: data.duration,
+
+  price,
+
+...(listPrice !== undefined
+  ? { list_price: listPrice }
+  : {}),
+
+sale_price: salePrice,
+lowest_price: lowestPrice,
+
+  discount_rate: discountRate,
+max_discount_rate: maxDiscountRate,
+
+  is_on_sale: isOnSale,
+
+  sale_end_at: saleEndAt,
+
+  playwright_status: isOnSale
+    ? "SALE"
+    : "NORMAL",
+
+  is_bottom_price: isBottomPrice,
+};
 
   let updated = null;
 let error = null;
@@ -159,6 +198,8 @@ const changed =
 
   currentWork.discount_rate !== discountRate ||
 
+currentWork.max_discount_rate !== maxDiscountRate ||
+
   currentWork.is_on_sale !== isOnSale ||
 
   (currentWork.sale_end_at ?? null) !==
@@ -167,10 +208,13 @@ const changed =
       : null) ||
 
   currentWork.playwright_status !==
-    (isOnSale ? "SALE" : "NORMAL") ||
+  (isOnSale ? "SALE" : "NORMAL") ||
 
-  currentWork.is_bottom_price !==
-    isBottomPrice;
+currentWork.is_bottom_price !==
+  isBottomPrice ||
+
+currentWork.lowest_price !==
+  lowestPrice;
 
 if (changed) {
   const result = await supabase
@@ -184,9 +228,6 @@ if (changed) {
 
   updated = result.data;
   error = result.error;
-
-  console.log("price =", price);
-  console.log("updated =", updated);
 
   if (error) {
     console.error("UPDATE ERROR", error);
@@ -272,9 +313,22 @@ if (changed) {
 
   // 取得できなくなった価格を削除
   for (const price of currentMap.values()) {
-    await supabase
-      .from("work_prices")
-      .delete()
-      .eq("id", price.id);
+  await supabase
+    .from("work_prices")
+    .delete()
+    .eq("id", price.id);
+}
+
+if (updated && updated.length > 0) {
+  await generateAndSaveInsight(updated[0]);
+
+  if (isNewLowestPrice) {
+    await saveLowestPriceEvent({
+  workId: updated[0].id,
+  currentPrice: currentDisplayPrice!,
+  previousLowestPrice: currentWork?.lowest_price ?? null,
+  lowestPrice: lowestPrice!,
+});
   }
+}
 }

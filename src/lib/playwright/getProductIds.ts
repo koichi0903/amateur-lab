@@ -181,15 +181,6 @@ if (numbers.length === 1) {
   salePrice = numbers[1];
 }
 
-console.log(
-  "GET_PRODUCT_IDS",
-  productId,
-  {
-    listPrice,
-    salePrice,
-  }
-);
-
 products.set(productId, {
   productId,
   url: href,

@@ -1,0 +1,140 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { ArrowRight, Boxes, Clapperboard, Sparkles, Star, Tags, Trophy } from "lucide-react";
+import Header from "@/components/layout/Header";
+import WorkImage from "@/components/home/WorkImage";
+import { supabase } from "@/lib/supabase";
+import type { Work } from "@/types/work";
+
+export type CatalogKind = "maker" | "series" | "genre";
+
+const catalogConfig = {
+  maker: { label: "メーカー", eyebrow: "MAKER", column: "maker", icon: Boxes },
+  series: { label: "シリーズ", eyebrow: "SERIES", column: "series", icon: Clapperboard },
+  genre: { label: "ジャンル", eyebrow: "GENRE", column: "genre", icon: Tags },
+} as const;
+
+export function decodeCatalogName(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+export function catalogMetadata(kind: CatalogKind, name: string): Metadata {
+  const { label } = catalogConfig[kind];
+  return {
+    title: `${name}の作品一覧 | 発掘LAB`,
+    description: `${name}${label === "シリーズ" ? "シリーズ" : ""}の作品を発掘スコア順に紹介します。`,
+    alternates: { canonical: `/${kind}/${encodeURIComponent(name)}` },
+  };
+}
+
+function splitValues(value: string | null) {
+  return value?.split(" / ").map((item) => item.trim()).filter(Boolean) ?? [];
+}
+
+async function getWorks(kind: CatalogKind, name: string) {
+  const { column } = catalogConfig[kind];
+  const pageSize = 1000;
+  const works: Work[] = [];
+  let error: unknown = null;
+
+  for (let from = 0; ; from += pageSize) {
+    const query = supabase.from("works").select("*");
+    const result = kind === "genre"
+      ? await query.ilike(column, `%${name}%`).order("score", { ascending: false, nullsFirst: false }).range(from, from + pageSize - 1)
+      : await query.eq(column, name).order("score", { ascending: false, nullsFirst: false }).range(from, from + pageSize - 1);
+
+    if (result.error) {
+      error = result.error;
+      break;
+    }
+
+    const page = (result.data ?? []) as Work[];
+    works.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return {
+    error,
+    works: kind === "genre" ? works.filter((work) => splitValues(work.genre).includes(name)) : works,
+  };
+}
+
+function Price({ work }: { work: Work }) {
+  const price = work.sale_price > 0 ? work.sale_price : work.price;
+  return <span className={work.sale_price > 0 ? "text-rose-600" : "text-slate-900"}>{price > 0 ? `¥${price.toLocaleString("ja-JP")}` : "価格未取得"}</span>;
+}
+
+function WorkCard({ work, rank }: { work: Work; rank: number }) {
+  return (
+    <Link href={`/works/${work.id}`} className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-pink-200 hover:shadow-md sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-5 sm:p-4">
+      <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100">
+        <WorkImage src={work.image_url} alt={work.title} sizes="150px" unoptimized className="object-cover transition duration-300 group-hover:scale-105" />
+        <span className="absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-slate-950 text-xs font-black text-white shadow">{rank}</span>
+      </div>
+      <div className="flex min-w-0 flex-col">
+        <div className="flex items-baseline gap-1.5 text-pink-600"><span className="text-[10px] font-black tracking-wider">SCORE</span><strong className="text-2xl leading-none">{work.score > 0 ? work.score : "—"}</strong></div>
+        <h2 className="mt-2 line-clamp-2 break-words text-sm font-black leading-5 sm:text-base sm:leading-6">{work.title}</h2>
+        <div className="mt-auto flex items-end justify-between gap-2 pt-3 text-xs font-black sm:text-sm"><Price work={work} /><span className="flex shrink-0 items-center gap-1 text-pink-600">詳細 <ArrowRight size={14} /></span></div>
+      </div>
+    </Link>
+  );
+}
+
+function JsonLd({ kind, name, works }: { kind: CatalogKind; name: string; works: Work[] }) {
+  const baseUrl = "https://amateur-lab.vercel.app";
+  const pageUrl = `${baseUrl}/${kind}/${encodeURIComponent(name)}`;
+  const data = [
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "TOP", item: baseUrl },
+        { "@type": "ListItem", position: 2, name: catalogConfig[kind].label, item: `${baseUrl}/${kind}` },
+        { "@type": "ListItem", position: 3, name, item: pageUrl },
+      ],
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+      name: `${name}の作品一覧`,
+      url: pageUrl,
+      numberOfItems: works.length,
+      itemListElement: works.map((work, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        url: `${baseUrl}/works/${work.id}`,
+        name: work.title,
+      })),
+    },
+  ];
+  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }} />;
+}
+
+export default async function CatalogDetailPage({ kind, name }: { kind: CatalogKind; name: string }) {
+  const config = catalogConfig[kind];
+  const { works, error } = await getWorks(kind, name);
+  const scoredWorks = works.filter((work) => work.score > 0);
+  const reviewedWorks = works.filter((work) => work.review_average > 0);
+  const averageScore = scoredWorks.length ? Math.round(scoredWorks.reduce((sum, work) => sum + work.score, 0) / scoredWorks.length) : 0;
+  const averageReview = reviewedWorks.length ? (reviewedWorks.reduce((sum, work) => sum + work.review_average, 0) / reviewedWorks.length).toFixed(2) : "—";
+  const topWork = works[0];
+  const displayedWorks = works.slice(0, 60);
+  const Icon = config.icon;
+
+  return <><Header /><JsonLd kind={kind} name={name} works={displayedWorks} /><main className="min-h-screen bg-[#f8fafc] text-slate-950">
+    <section className="border-b border-slate-200 bg-white"><div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
+      <nav aria-label="パンくず" className="min-w-0 truncate text-xs font-bold text-slate-500"><Link href="/" className="hover:text-pink-600">TOP</Link><span className="mx-1">/</span><Link href={`/${kind}`} className="hover:text-pink-600">{config.label}</Link><span className="mx-1">/</span><span>{name}</span></nav>
+      <div className="mt-6 grid gap-6 md:grid-cols-[280px_minmax(0,1fr)] lg:gap-10">
+        <div className="relative aspect-[4/3] overflow-hidden rounded-3xl bg-slate-100 shadow-sm"><WorkImage src={topWork?.image_url} alt={`${name}の作品`} sizes="(max-width: 768px) 92vw, 280px" priority unoptimized className="object-cover" /></div>
+        <div className="min-w-0"><p className="flex items-center gap-2 text-xs font-black tracking-[0.18em] text-pink-600"><Icon size={16} />{config.eyebrow}</p><h1 className="mt-2 break-words text-3xl font-black tracking-tight sm:text-5xl">{name}</h1><p className="mt-4 text-sm leading-7 text-slate-600">{config.label}に登録された作品を発掘スコア順に掲載。高評価作品から、新しい一本を発掘できます。</p>
+          <div className="mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">{[{ icon: Clapperboard, label: "登録作品", value: `${works.length}作品` }, { icon: Trophy, label: "最高スコア", value: topWork?.score > 0 ? String(topWork.score) : "—" }, { icon: Sparkles, label: "平均スコア", value: averageScore > 0 ? String(averageScore) : "—" }, { icon: Star, label: "平均レビュー", value: averageReview }].map((stat) => <div key={stat.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><stat.icon size={18} className="text-pink-600" /><p className="mt-3 text-xs font-bold text-slate-500">{stat.label}</p><p className="mt-1 text-xl font-black">{stat.value}</p></div>)}</div>
+        </div>
+      </div>
+    </div></section>
+    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{error ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">作品を読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : works.length ? <><div className="mb-6 flex items-end justify-between gap-4"><div className="min-w-0"><p className="text-xs font-black tracking-widest text-pink-600">TOP WORKS</p><h2 className="mt-1 break-words text-2xl font-black">{name}の上位作品</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{works.length}作品中 {displayedWorks.length}作品</span></div><div className="grid gap-3 lg:grid-cols-2">{displayedWorks.map((work, index) => <WorkCard key={work.id} work={work} rank={index + 1} />)}</div></> : <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Icon className="mx-auto text-slate-300" size={40} /><p className="mt-4 font-black">登録作品がまだありません</p><Link href={`/${kind}`} className="mt-3 inline-block text-sm font-black text-pink-600">{config.label}一覧に戻る</Link></div>}</div>
+  </main></>;
+}

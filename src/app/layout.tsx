@@ -1,8 +1,6 @@
-import Navbar from "./components/Navbar";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Footer from "./components/Footer";
 import WebSiteStructuredData from "./components/WebSiteStructuredData";
 import OrganizationStructuredData from "./components/OrganizationStructuredData";
 
@@ -97,15 +95,11 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
 
   <WebSiteStructuredData />
-  <OrganizationStructuredData />
+<OrganizationStructuredData />
 
-  <Navbar />
-
-  <main className="flex-1">
-    {children}
-  </main>
-
-  <Footer />
+<main className="flex-1">
+  {children}
+</main>
 </body>
     </html>
   );
