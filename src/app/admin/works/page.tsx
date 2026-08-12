@@ -6,12 +6,16 @@ import type { Work } from "@/types/work";
 import { insightGenerator } from "@/lib/insights";
 
 export default function AdminWorksPage() {
-  const [works, setWorks] = useState<Work[]>([]);
+  type AdminWork = Pick<
+    Work,
+    "id" | "product_id" | "title" | "score" | "price" | "sale_price" | "lowest_price" | "stage"
+  >;
+  const [works, setWorks] = useState<AdminWork[]>([]);
   const [loading, setLoading] = useState(true);
   const [keyword, setKeyword] = useState("");
   const [stage, setStage] = useState("ALL");
   const [editingWork, setEditingWork] =
-  useState<Work | null>(null);
+  useState<AdminWork | null>(null);
 
   const PAGE_SIZE = 50;
 
@@ -26,7 +30,7 @@ const to = from + PAGE_SIZE - 1;
 
 let query = supabase
   .from("works")
-  .select("*", { count: "exact" });
+  .select("id,product_id,title,score,price,sale_price,lowest_price,stage", { count: "exact" });
 
 if (stage !== "ALL") {
   query = query.eq("stage", stage);
@@ -49,7 +53,7 @@ const { data, error, count } = await query
     console.error(error);
   }
 
-  setWorks((data as Work[]) || []);
+  setWorks((data as AdminWork[]) || []);
 setTotalCount(count ?? 0);
 
 setLoading(false);

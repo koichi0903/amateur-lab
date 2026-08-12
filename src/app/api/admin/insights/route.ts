@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { generateAndSaveInsight } from "@/lib/insights/generateAndSave";
-import type { Work } from "@/types/work";
 
 export async function POST(request: Request) {
   const body: unknown = await request.json().catch(() => null);
@@ -16,7 +15,7 @@ export async function POST(request: Request) {
 
   const { data: work, error } = await supabaseAdmin
     .from("works")
-    .select("*")
+    .select("id,title,list_price,price,sale_price,lowest_price,previous_realtime_rank,realtime_rank")
     .eq("id", Number(workId))
     .maybeSingle();
 
@@ -28,6 +27,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Work not found" }, { status: 404 });
   }
 
-  await generateAndSaveInsight(work as Work);
+  await generateAndSaveInsight(work);
   return NextResponse.json({ success: true });
 }

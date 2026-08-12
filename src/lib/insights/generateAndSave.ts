@@ -5,7 +5,17 @@ import type { Work } from "@/types/work";
 import { InsightType } from "./types";
 
 export async function generateAndSaveInsight(
-  work: Work
+  work: Pick<
+    Work,
+    | "id"
+    | "title"
+    | "list_price"
+    | "price"
+    | "sale_price"
+    | "lowest_price"
+    | "previous_realtime_rank"
+    | "realtime_rank"
+  >
 ) {
   const insights = insightGenerator.generate({
   workId: work.id,

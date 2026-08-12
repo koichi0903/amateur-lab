@@ -256,7 +256,7 @@ if (changed) {
       updated_at: new Date().toISOString(),
     })
     .eq("product_id", productId)
-    .select();
+    .select("id,title,list_price,price,sale_price,lowest_price,previous_realtime_rank,realtime_rank");
 
   updated = result.data;
   error = result.error;
@@ -272,7 +272,7 @@ if (changed) {
   // 現在の価格を取得
   const { data: currentPrices, error: currentPricesError } = await supabase
     .from("work_prices")
-    .select("*")
+    .select("id,display_name,normal_price,sale_price")
     .eq("product_id", productId);
 
   if (currentPricesError) {

@@ -11,7 +11,7 @@ export async function beginJob(
     error: selectError,
   } = await supabase
     .from("jobs")
-    .select("*")
+    .select("job_name,status,processed_count,total_count,last_product_id")
     .eq("job_name", jobName)
     .maybeSingle();
 
@@ -37,7 +37,7 @@ export async function beginJob(
         error_message: null,
         updated_at: new Date().toISOString(),
       })
-      .select()
+      .select("job_name,status,processed_count,total_count,last_product_id")
       .single();
 
     if (insertError) {
@@ -69,7 +69,7 @@ export async function beginJob(
       updated_at: new Date().toISOString(),
     })
     .eq("job_name", jobName)
-    .select()
+    .select("job_name,status,processed_count,total_count,last_product_id")
     .single();
 
   if (updateError) {

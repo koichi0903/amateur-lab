@@ -43,22 +43,22 @@ if (rankingData) {
   const { data: actressRanking } =
     await supabase
       .from("actress_rankings")
-      .select("*");
+      .select("name,original_rank,fanza_rank");
 
   const { data: genreRanking } =
     await supabase
       .from("genre_rankings")
-      .select("*");
+      .select("name,rank,score");
 
   const { data: makerRanking } =
     await supabase
       .from("maker_rankings")
-      .select("*");
+      .select("name,rank,score");
 
   const { data: seriesRanking } =
     await supabase
       .from("series_rankings")
-      .select("*");
+      .select("name,original_rank,fanza_rank");
 
   actressList =
   (actressRanking ?? []) as ActressRankingItem[];

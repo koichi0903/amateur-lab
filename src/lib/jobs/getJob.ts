@@ -6,7 +6,7 @@ export async function getJob(
 ) {
   const { data, error } = await supabase
     .from("jobs")
-    .select("*")
+    .select("job_name,status,processed_count,total_count,last_product_id,error_message,started_at,finished_at,updated_at")
     .eq("job_name", jobName)
     .maybeSingle();
 
