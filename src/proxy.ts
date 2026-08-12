@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const PUBLIC_API_PATHS = new Set(["/api/favorites"]);
+const ADMIN_SESSION_MAX_AGE = 60 * 60 * 12;
 
 function secureCompare(actual: string, expected: string): boolean {
   if (actual.length !== expected.length) return false;
@@ -60,7 +61,50 @@ function hasValidCronSecret(request: NextRequest): boolean {
   return secureCompare(authorization.slice("Bearer ".length), cronSecret);
 }
 
-export function proxy(request: NextRequest) {
+function adminCookieName(request: NextRequest): string {
+  return request.nextUrl.protocol === "https:"
+    ? "__Host-hakkutsu_admin"
+    : "hakkutsu_admin";
+}
+
+async function adminSessionToken(): Promise<string | null> {
+  const username = process.env.ADMIN_USERNAME;
+  const password = process.env.ADMIN_PASSWORD;
+  const cronSecret = process.env.CRON_SECRET;
+  if (!username || !password || !cronSecret) return null;
+
+  const payload = new TextEncoder().encode(
+    `hakkutsu-admin-session\0${username}\0${password}\0${cronSecret}`,
+  );
+  const digest = await crypto.subtle.digest("SHA-256", payload);
+
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+async function hasValidAdminSession(request: NextRequest): Promise<boolean> {
+  const expected = await adminSessionToken();
+  const actual = request.cookies.get(adminCookieName(request))?.value;
+  return Boolean(expected && actual && secureCompare(actual, expected));
+}
+
+async function authenticatedAdminResponse(request: NextRequest) {
+  const token = await adminSessionToken();
+  if (!token) return unavailable();
+
+  const response = NextResponse.next();
+  response.cookies.set(adminCookieName(request), token, {
+    httpOnly: true,
+    secure: request.nextUrl.protocol === "https:",
+    sameSite: "strict",
+    path: "/",
+    maxAge: ADMIN_SESSION_MAX_AGE,
+  });
+  return response;
+}
+
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (PUBLIC_API_PATHS.has(pathname)) {
@@ -81,7 +125,15 @@ export function proxy(request: NextRequest) {
     return unavailable();
   }
 
-  return hasValidBasicAuth(request) ? NextResponse.next() : unauthorized();
+  if (hasValidBasicAuth(request)) {
+    return authenticatedAdminResponse(request);
+  }
+
+  if (await hasValidAdminSession(request)) {
+    return NextResponse.next();
+  }
+
+  return unauthorized();
 }
 
 export const config = {
