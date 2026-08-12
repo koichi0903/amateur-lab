@@ -1,8 +1,14 @@
 import { supabase } from "./supabase";
-import type { Work } from "@/types/work";
 
-export async function getAllWorks(): Promise<Work[]> {
-  const works: Work[] = [];
+export type StatisticsWork = {
+  actress: string | null;
+  maker: string | null;
+  series: string | null;
+  genre: string | null;
+};
+
+export async function getAllWorks(): Promise<StatisticsWork[]> {
+  const works: StatisticsWork[] = [];
 
   let from = 0;
   const limit = 1000;
@@ -10,10 +16,7 @@ export async function getAllWorks(): Promise<Work[]> {
   while (true) {
     const { data, error } = await supabase
   .from("works")
-  .select("*")
-  .order("score", {
-    ascending: false,
-  })
+  .select("actress,maker,series,genre")
   .range(from, from + limit - 1);
 
     if (error) throw error;
