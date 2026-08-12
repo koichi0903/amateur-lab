@@ -12,11 +12,13 @@ export async function GET() {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
+      timeZone: "Asia/Tokyo",
     });
 
   const day =
     now.toLocaleDateString("en-US", {
       weekday: "long",
+      timeZone: "Asia/Tokyo",
     }).toLowerCase();
 
   const jobs: string[] = [];
