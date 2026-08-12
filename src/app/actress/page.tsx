@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ArrowRight, Search, Sparkles, Trophy, Users } from "lucide-react";
 import Header from "@/components/layout/Header";
 import WorkImage from "@/components/home/WorkImage";
-import { getAllWorks } from "@/lib/supabase/getAllWorks";
+import { getEntityIndexSummaries } from "@/lib/catalog/entityIndexSummaries";
 import { pageMetadata } from "@/lib/seo";
 
 export const revalidate = 3600;
@@ -20,53 +20,13 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   });
 }
 
-type ActressSource = {
-  id: number;
-  title: string;
-  actress: string | null;
-  image_url: string | null;
-  score: number | null;
-};
-
-type ActressSummary = {
-  name: string;
-  count: number;
-  scoreTotal: number;
-  maxScore: number;
-  imageUrl: string | null;
-  topTitle: string;
-};
-
 export default async function ActressPage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string }> }) {
   const params = await searchParams;
   const query = (params.q ?? "").trim();
   const requestedPage = Number.parseInt(params.page ?? "1", 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const pageSize = 48;
-  const works = await getAllWorks<ActressSource>("id,title,actress,image_url,score");
-  const summaries = new Map<string, ActressSummary>();
-
-  for (const work of works) {
-    for (const rawName of work.actress?.split(" / ") ?? []) {
-      const name = rawName.trim();
-      if (!name) continue;
-      const score = work.score ?? 0;
-      const current = summaries.get(name);
-      if (!current) {
-        summaries.set(name, { name, count: 1, scoreTotal: score, maxScore: score, imageUrl: work.image_url, topTitle: work.title });
-      } else {
-        current.count += 1;
-        current.scoreTotal += score;
-        if (score > current.maxScore) {
-          current.maxScore = score;
-          current.imageUrl = work.image_url;
-          current.topTitle = work.title;
-        }
-      }
-    }
-  }
-
-  const ranked = [...summaries.values()].sort((a, b) => b.count - a.count || b.maxScore - a.maxScore || a.name.localeCompare(b.name, "ja"));
+  const ranked = await getEntityIndexSummaries("actress");
   const filtered = query ? ranked.filter((item) => item.name.toLocaleLowerCase("ja").includes(query.toLocaleLowerCase("ja"))) : ranked;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);

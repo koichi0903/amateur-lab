@@ -2,19 +2,9 @@ import Link from "next/link";
 import { ArrowRight, Building2, Clapperboard, Search, Sparkles, Tags, Trophy } from "lucide-react";
 import Header from "@/components/layout/Header";
 import WorkImage from "@/components/home/WorkImage";
-import { getAllWorks } from "@/lib/supabase/getAllWorks";
+import { getEntityIndexSummaries } from "@/lib/catalog/entityIndexSummaries";
 
 type EntityKind = "maker" | "series" | "genre";
-type EntitySource = {
-  id: number;
-  title: string;
-  maker: string | null;
-  series: string | null;
-  genre: string | null;
-  image_url: string | null;
-  score: number | null;
-};
-type EntitySummary = { name: string; count: number; maxScore: number; imageUrl: string | null };
 
 const configs = {
   maker: { label: "メーカー", plural: "社", eyebrow: "MAKER RANKING", title: "メーカー登録作品数ランキング", description: "発掘LABに登録されている作品数が多いメーカー順に紹介します。", Icon: Building2 },
@@ -29,28 +19,7 @@ export default async function EntityIndexPage({ kind, searchParams }: { kind: En
   const requestedPage = Number.parseInt(params.page ?? "1", 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const pageSize = 48;
-  const works = await getAllWorks<EntitySource>("id,title,maker,series,genre,image_url,score");
-  const summaries = new Map<string, EntitySummary>();
-
-  for (const work of works) {
-    const values = kind === "genre" ? work.genre?.split(" / ") ?? [] : [work[kind]];
-    for (const rawName of values) {
-      const name = rawName?.trim();
-      if (!name) continue;
-      const score = work.score ?? 0;
-      const current = summaries.get(name);
-      if (!current) summaries.set(name, { name, count: 1, maxScore: score, imageUrl: work.image_url });
-      else {
-        current.count += 1;
-        if (score > current.maxScore) {
-          current.maxScore = score;
-          current.imageUrl = work.image_url;
-        }
-      }
-    }
-  }
-
-  const ranked = [...summaries.values()].sort((a, b) => b.count - a.count || b.maxScore - a.maxScore || a.name.localeCompare(b.name, "ja"));
+  const ranked = await getEntityIndexSummaries(kind);
   const normalizedQuery = query.toLocaleLowerCase("ja");
   const filtered = query ? ranked.filter((item) => item.name.toLocaleLowerCase("ja").includes(normalizedQuery)) : ranked;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
