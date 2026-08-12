@@ -20,10 +20,34 @@ import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
 import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
 import { isInsightVisible } from "@/lib/insights/visibility";
 import { pageMetadata } from "@/lib/seo";
+import { cache } from "react";
+import { unstable_cache } from "next/cache";
 
 import {
   analyzeWork,
 } from "@/lib/analyzers/analysisAnalyzer";
+
+// Work data changes at most a few times per day. Reusing the rendered page keeps
+// crawler traffic from issuing the same group of Supabase queries on every hit.
+export const revalidate = 3600;
+
+// generateMetadata and the page render both need the same row. React cache
+// deduplicates that lookup within a single server render.
+const getWork = cache(
+  unstable_cache(
+    async (id: string) => {
+      const { data } = await supabase
+        .from("works")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      return data;
+    },
+    ["work-detail-row"],
+    { revalidate: 3600 }
+  )
+);
 
 
 
@@ -33,11 +57,7 @@ export async function generateMetadata(
 
   const { id } = await params;
 
-  const { data: work } = await supabase
-  .from("works")
-  .select("*")
-  .eq("id", id)
-  .single();
+  const work = await getWork(id);
 
   if (!work) {
     return pageMetadata({
@@ -61,11 +81,9 @@ export default async function WorkDetailPage(
 ) {
   const { id } = await params;
 
-  const { data: work } = await supabase
-    .from("works")
-    .select("*")
-    .eq("id", id)
-    .single();
+  const work = await getWork(id);
+
+  if (!work) notFound();
 
   const { data: sampleImages } = await supabase
   .from("work_sample_images")
@@ -95,8 +113,6 @@ export default async function WorkDetailPage(
   .order("priority", {
     ascending: false,
   });
-
-  if (!work) notFound();
 
   const visibleInsights = (insights ?? []).filter((insight) =>
     isInsightVisible(insight, work)
