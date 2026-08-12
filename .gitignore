@@ -30,6 +30,14 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# local development and visual QA artifacts
+/.codex-*.log
+/work/
+/actress-ranking.png
+/daily-ranking.png
+/ranking.html
+/h public pages and work detail navigation*
+
 # env files (can opt-in for committing if needed)
 .env*
 
