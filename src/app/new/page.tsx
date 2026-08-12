@@ -38,13 +38,13 @@ export default async function NewPage({ searchParams }: { searchParams: Promise<
   const requestedPage = Number.parseInt(params.page ?? "1", 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   let offset = (page - 1) * PAGE_SIZE;
-  let response = await supabase.from("works").select("*", { count: "exact" }).eq("stage", "NEW").order("release_date", { ascending: false, nullsFirst: false }).order("id", { ascending: false }).range(offset, offset + PAGE_SIZE - 1);
+  let response = await supabase.from("works").select("id,title,image_url,score,price,sale_price,release_date,product_release_date", { count: "exact" }).eq("stage", "NEW").order("release_date", { ascending: false, nullsFirst: false }).order("id", { ascending: false }).range(offset, offset + PAGE_SIZE - 1);
   const total = response.count ?? response.data?.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   if (currentPage !== page) {
     offset = (currentPage - 1) * PAGE_SIZE;
-    response = await supabase.from("works").select("*", { count: "exact" }).eq("stage", "NEW").order("release_date", { ascending: false, nullsFirst: false }).order("id", { ascending: false }).range(offset, offset + PAGE_SIZE - 1);
+    response = await supabase.from("works").select("id,title,image_url,score,price,sale_price,release_date,product_release_date", { count: "exact" }).eq("stage", "NEW").order("release_date", { ascending: false, nullsFirst: false }).order("id", { ascending: false }).range(offset, offset + PAGE_SIZE - 1);
   }
   const works = (response.data ?? []) as Work[];
   const error = response.error;

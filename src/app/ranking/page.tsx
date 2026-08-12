@@ -93,7 +93,7 @@ export default async function RankingPage({ searchParams }: { searchParams: Prom
   let totalItems = 0;
 
   if (type === "overall") {
-    const result = await supabase.from("works").select("*", { count: "exact" }).gt("score", 0).order("score", { ascending: false, nullsFirst: false }).range(offset, offset + pageSize - 1);
+    const result = await supabase.from("works").select("id,title,image_url,score,price,sale_price,discount_rate", { count: "exact" }).gt("score", 0).order("score", { ascending: false, nullsFirst: false }).range(offset, offset + pageSize - 1);
     works = (result.data ?? []) as Work[];
     totalItems = result.count ?? works.length;
     errorMessage = result.error?.message ?? null;

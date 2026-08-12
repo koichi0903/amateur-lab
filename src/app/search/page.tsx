@@ -29,7 +29,7 @@ async function searchWorks(query: string) {
     SEARCH_COLUMNS.map((column) =>
       supabase
         .from("works")
-        .select("*")
+        .select("id,title,image_url,score,price,sale_price,actress,maker,series,genre")
         .ilike(column, pattern)
         .order("score", { ascending: false, nullsFirst: false })
         .limit(MAX_RESULTS),

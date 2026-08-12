@@ -57,7 +57,7 @@ export default async function SalePage({ searchParams }: { searchParams: Promise
   const offset = (page - 1) * PAGE_SIZE;
   const { data, count, error } = await supabase
     .from("works")
-    .select("*", { count: "exact" })
+    .select("id,title,image_url,price,sale_price,list_price,discount_rate", { count: "exact" })
     .gt("sale_price", 0)
     .gt("discount_rate", 0)
     .order("discount_rate", { ascending: false })

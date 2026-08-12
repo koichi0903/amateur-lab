@@ -5,7 +5,7 @@ type Insight = {
   type?: string | null;
   title?: string | null;
   description?: string | null;
-  works?: Record<string, unknown> | null;
+  works?: Record<string, unknown> | Record<string, unknown>[] | null;
 };
 
 const configurations: Record<string, { label: string; accent: string; badge: string }> = {
@@ -17,7 +17,9 @@ const configurations: Record<string, { label: string; accent: string; badge: str
 };
 
 export default function InsightCard({ insight }: { insight: Insight }) {
-  const work = insight.works ?? {};
+  const work = Array.isArray(insight.works)
+    ? insight.works[0] ?? {}
+    : insight.works ?? {};
   const workId = String(work.id ?? "");
   const title = String(work.title ?? insight.title ?? "注目作品");
   const imageUrl = typeof work.image_url === "string" ? work.image_url : null;

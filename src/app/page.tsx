@@ -8,6 +8,7 @@ import {
   StatStrip,
 } from "@/components/home/HomeSections";
 import { supabase } from "@/lib/supabase";
+import type { Work } from "@/types/work";
 
 export const revalidate = 300;
 
@@ -21,45 +22,45 @@ export default async function Home() {
 
   const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, featuredResult, rankingResult, saleResult, insightsResult] =
     await Promise.all([
-      supabase.from("site_statistics").select("*").eq("id", 1).maybeSingle(),
-      supabase.from("works").select("*", { count: "exact", head: true }),
+      supabase.from("site_statistics").select("total_works").eq("id", 1).maybeSingle(),
+      supabase.from("works").select("id", { count: "exact", head: true }),
       supabase
         .from("works")
-        .select("*", { count: "exact", head: true })
+        .select("id", { count: "exact", head: true })
         .gte("updated_at", todayStart.toISOString())
         .lt("updated_at", tomorrowStart.toISOString()),
       supabase
         .from("works")
-        .select("*", { count: "exact", head: true })
+        .select("id", { count: "exact", head: true })
         .eq("is_on_sale", true),
-      supabase.from("insights").select("*", { count: "exact", head: true }),
+      supabase.from("insights").select("id", { count: "exact", head: true }),
       supabase
         .from("works")
-        .select("*")
+        .select("id,title,image_url")
         .order("score", { ascending: false })
         .limit(1)
         .maybeSingle(),
       supabase
         .from("works")
-        .select("*")
+        .select("id,title,image_url,score,price,sale_price,list_price,discount_rate")
         .order("score", { ascending: false })
         .limit(10),
       supabase
         .from("works")
-        .select("*")
+        .select("id,title,image_url,price,sale_price,discount_rate")
         .eq("is_on_sale", true)
         .order("discount_rate", { ascending: false })
         .limit(5),
       supabase
         .from("insights")
-        .select("*, works (*)")
+        .select("id,type,title,description,works(id,title,image_url,score,review_average)")
         .order("priority", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(5),
     ]);
 
   const statistics = statisticsResult.data;
-  const featuredWork = featuredResult.data ?? rankingResult.data?.[0] ?? null;
+  const featuredWork = (featuredResult.data ?? rankingResult.data?.[0] ?? null) as Work | null;
 
   return (
     <>
@@ -73,8 +74,8 @@ export default async function Home() {
           aiInsights={totalInsightsResult.count ?? 0}
         />
         <InsightFeed insights={insightsResult.data ?? []} />
-        <RankingSection works={rankingResult.data ?? []} />
-        <SaleSection works={saleResult.data ?? []} />
+        <RankingSection works={(rankingResult.data ?? []) as Work[]} />
+        <SaleSection works={(saleResult.data ?? []) as Work[]} />
         <CategorySection />
       </main>
     </>

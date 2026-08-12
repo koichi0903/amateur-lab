@@ -5,7 +5,7 @@ type Insight = {
   type?: string | null;
   title?: string | null;
   description?: string | null;
-  works?: Record<string, unknown> | null;
+  works?: Record<string, unknown> | Record<string, unknown>[] | null;
 };
 
 export default function InsightFeed({ insights }: { insights: Insight[] }) {

@@ -45,7 +45,7 @@ async function getWorks(kind: CatalogKind, name: string) {
   let error: unknown = null;
 
   for (let from = 0; ; from += pageSize) {
-    const query = supabase.from("works").select("*");
+    const query = supabase.from("works").select("id,title,image_url,score,review_average,price,sale_price,genre");
     const result = kind === "genre"
       ? await query.ilike(column, `%${name}%`).order("score", { ascending: false, nullsFirst: false }).range(from, from + pageSize - 1)
       : await query.eq(column, name).order("score", { ascending: false, nullsFirst: false }).range(from, from + pageSize - 1);

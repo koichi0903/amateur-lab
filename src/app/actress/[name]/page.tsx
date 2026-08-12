@@ -21,7 +21,7 @@ async function getActressWorks(actressName: string) {
   for (let from = 0; ; from += pageSize) {
     const result = await supabase
       .from("works")
-      .select("*")
+      .select("id,title,image_url,score,review_average,price,sale_price,actress")
       .ilike("actress", `%${actressName}%`)
       .order("score", { ascending: false, nullsFirst: false })
       .range(from, from + pageSize - 1);
