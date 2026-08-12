@@ -7,6 +7,7 @@ import WorkImage from "@/components/home/WorkImage";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { SITE_URL, pageMetadata } from "@/lib/seo";
+import { unstable_cache } from "next/cache";
 
 export type CatalogKind = "maker" | "series" | "genre";
 
@@ -38,7 +39,7 @@ function splitValues(value: string | null) {
   return value?.split(" / ").map((item) => item.trim()).filter(Boolean) ?? [];
 }
 
-async function getWorks(kind: CatalogKind, name: string) {
+async function loadWorks(kind: CatalogKind, name: string) {
   const { column } = catalogConfig[kind];
   const pageSize = 1000;
   const works: Work[] = [];
@@ -65,6 +66,12 @@ async function getWorks(kind: CatalogKind, name: string) {
     works: kind === "genre" ? works.filter((work) => splitValues(work.genre).includes(name)) : works,
   };
 }
+
+const getWorks = unstable_cache(
+  loadWorks,
+  ["catalog-detail-works-v1"],
+  { revalidate: 1800 }
+);
 
 function Price({ work }: { work: Work }) {
   const price = work.sale_price > 0 ? work.sale_price : work.price;

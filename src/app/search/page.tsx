@@ -21,32 +21,25 @@ function escapeLikePattern(value: string) {
   return value.replace(/[\\%_]/g, "\\$&");
 }
 
+function quoteFilterValue(value: string) {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 async function searchWorks(query: string) {
   if (!query) return { works: [] as Work[], error: null };
 
   const pattern = `%${escapeLikePattern(query)}%`;
-  const responses = await Promise.all(
-    SEARCH_COLUMNS.map((column) =>
-      supabase
-        .from("works")
-        .select("id,title,image_url,score,price,sale_price,actress,maker,series,genre")
-        .ilike(column, pattern)
-        .order("score", { ascending: false, nullsFirst: false })
-        .limit(MAX_RESULTS),
-    ),
-  );
-  const error = responses.find((response) => response.error)?.error ?? null;
-  const uniqueWorks = new Map<number, Work>();
+  const filter = SEARCH_COLUMNS
+    .map((column) => `${column}.ilike.${quoteFilterValue(pattern)}`)
+    .join(",");
+  const response = await supabase
+    .from("works")
+    .select("id,title,image_url,score,price,sale_price,actress,maker,series,genre")
+    .or(filter)
+    .order("score", { ascending: false, nullsFirst: false })
+    .limit(MAX_RESULTS);
 
-  for (const response of responses) {
-    for (const work of (response.data ?? []) as Work[]) uniqueWorks.set(work.id, work);
-  }
-
-  const works = [...uniqueWorks.values()]
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    .slice(0, MAX_RESULTS);
-
-  return { works, error };
+  return { works: (response.data ?? []) as Work[], error: response.error };
 }
 
 function currentPrice(work: Work) {

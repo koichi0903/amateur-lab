@@ -7,6 +7,7 @@ import WorkImage from "@/components/home/WorkImage";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { pageMetadata } from "@/lib/seo";
+import { unstable_cache } from "next/cache";
 
 export const revalidate = 1800;
 
@@ -14,7 +15,7 @@ function actressNames(value: string | null) {
   return value?.split(" / ").map((name) => name.trim()).filter(Boolean) ?? [];
 }
 
-async function getActressWorks(actressName: string) {
+async function loadActressWorks(actressName: string) {
   const works: Work[] = [];
   const pageSize = 1000;
 
@@ -34,6 +35,12 @@ async function getActressWorks(actressName: string) {
 
   return { works: works.filter((work) => actressNames(work.actress).includes(actressName)), error: null };
 }
+
+const getActressWorks = unstable_cache(
+  loadActressWorks,
+  ["actress-detail-works-v1"],
+  { revalidate: 1800 }
+);
 
 export async function generateMetadata({ params, searchParams }: { params: Promise<{ name: string }>; searchParams: Promise<{ page?: string }> }): Promise<Metadata> {
   const actressName = decodeURIComponent((await params).name);
