@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { chromium } from "playwright";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
 
 export async function POST() {

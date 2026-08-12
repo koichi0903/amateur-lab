@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getReserveItems } from "@/lib/playwright/getReserveItems";
 import { getDmmItem } from "@/lib/dmm/getDmmItem";
 import { saveDmmItem } from "@/lib/admin/save";
