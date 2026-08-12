@@ -27,6 +27,8 @@ const icons = [
 export default function InsightTimeline({
   insights,
 }: Props) {
+  if (insights.length === 0) return null;
+
   return (
     <section className="rounded-2xl border bg-white p-4 shadow-sm sm:p-6">
 
@@ -42,14 +44,14 @@ export default function InsightTimeline({
 
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:-mx-6 sm:px-6 md:mx-0 md:grid md:grid-cols-2 md:gap-4 md:overflow-visible md:px-0 md:pb-0 lg:grid-cols-4">
 
         {insights.slice(0, 4).map((item, index) => (
 
           <div
   key={item.id}
   className={`
-    rounded-2xl border p-5 transition
+    w-[82%] min-w-[82%] snap-start rounded-2xl border p-4 transition sm:w-[72%] sm:min-w-[72%] md:w-auto md:min-w-0 md:p-5
     hover:-translate-y-1 hover:shadow-md
     ${colors[index % colors.length]}
   `}

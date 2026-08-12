@@ -2,6 +2,20 @@ import { supabase } from "@/lib/supabase";
 import type { Insight } from "./types";
 
 export class InsightRepository {
+  async removeTypes(workId: number, types: string[]): Promise<void> {
+    if (types.length === 0) return;
+
+    const { error } = await supabase
+      .from("insights")
+      .delete()
+      .eq("work_id", workId)
+      .in("type", types);
+
+    if (error) {
+      throw error;
+    }
+  }
+
   async save(insights: Insight[]): Promise<void> {
     if (insights.length === 0) {
       return;

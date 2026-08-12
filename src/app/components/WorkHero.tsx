@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import type { Work } from "@/types/work";
 import ImageViewer from "./ImageViewer";
+import ActressTags from "./ActressTags";
+import FavoriteButton from "@/components/favorites/FavoriteButton";
 
 type Props = {
   work: Work;
@@ -20,12 +23,63 @@ export default function WorkHero({
   sampleMovieUrl,
 }: Props) {
 
+const genres = work.genre
+  ?.split(/\s*\/\s*/)
+  .map((name) => name.trim())
+  .filter(Boolean) ?? [];
+
+const hasValidRanking =
+  typeof work.ranking === "number" &&
+  work.ranking > 0 &&
+  work.ranking < 9999;
+
 const [selected, setSelected] = useState<
   "movie" | number
 >("movie");
 
 const [viewerOpen, setViewerOpen] =
   useState(false);
+
+const titleRef = useRef<HTMLHeadingElement>(null);
+const [titleExpanded, setTitleExpanded] = useState(false);
+const [titleOverflows, setTitleOverflows] = useState(false);
+
+useLayoutEffect(() => {
+  const title = titleRef.current;
+  if (!title) return;
+
+  const checkOverflow = () => {
+    const width = title.getBoundingClientRect().width;
+    if (width === 0) return;
+
+    const clone = title.cloneNode(true) as HTMLHeadingElement;
+    clone.classList.remove("line-clamp-2");
+    clone.style.position = "fixed";
+    clone.style.left = "-10000px";
+    clone.style.top = "0";
+    clone.style.width = `${width}px`;
+    clone.style.height = "auto";
+    clone.style.maxHeight = "none";
+    clone.style.overflow = "visible";
+    clone.style.visibility = "hidden";
+    clone.style.pointerEvents = "none";
+    document.body.appendChild(clone);
+
+    const lineHeight = Number.parseFloat(
+      window.getComputedStyle(clone).lineHeight
+    );
+    const fullHeight = clone.getBoundingClientRect().height;
+    clone.remove();
+
+    setTitleOverflows(fullHeight > lineHeight * 2 + 1);
+  };
+
+  checkOverflow();
+  const observer = new ResizeObserver(checkOverflow);
+  observer.observe(title);
+
+  return () => observer.disconnect();
+}, [work.title]);
 
 useEffect(() => {
   function handleKey(e: KeyboardEvent) {
@@ -214,58 +268,89 @@ useEffect(() => {
 
 </div>
 
-  <button
+  <FavoriteButton
+    workId={work.id}
     className="mt-4 flex h-11 w-full items-center justify-center rounded-full border bg-white text-sm font-semibold shadow-sm transition hover:bg-pink-50"
-  >
-    ♡ お気に入り
-  </button>
+  />
 
 </div>
 
       {/* 右カラム */}
       <div className="min-w-0">
 
-        <h1 className="break-words text-2xl font-black leading-tight tracking-tight text-zinc-900 sm:text-3xl lg:text-[38px] lg:leading-[1.15]">
-          {work.title}
-        </h1>
+        <div className="relative min-w-0">
+          <h1
+            ref={titleRef}
+            className={`${titleExpanded ? "" : "line-clamp-2"} min-w-0 break-words text-2xl font-black leading-tight tracking-tight text-zinc-900 sm:text-3xl lg:text-[38px] lg:leading-[1.15]`}
+          >
+            {work.title}
+          </h1>
+          {!titleExpanded && titleOverflows && (
+            <button
+              type="button"
+              aria-expanded="false"
+              onClick={() => setTitleExpanded(true)}
+              className="absolute bottom-0 right-0 bg-gradient-to-l from-white from-80% via-white via-80% to-transparent pl-8 text-sm font-bold leading-[2rem] text-pink-600 hover:text-pink-700 sm:text-base lg:leading-[2.75rem]"
+            >
+              …さらに表示
+            </button>
+          )}
+          {titleExpanded && titleOverflows && (
+            <button
+              type="button"
+              aria-expanded="true"
+              onClick={() => setTitleExpanded(false)}
+              className="mt-2 text-sm font-bold text-pink-600 hover:text-pink-700 sm:text-base"
+            >
+              折りたたむ
+            </button>
+          )}
+        </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4 flex min-w-0 flex-wrap gap-2">
 
- {work.actress && (
-  <span className="rounded-full bg-pink-100 px-4 py-1.5 text-sm font-semibold text-pink-700">
-    👩 {work.actress}
-  </span>
-)}
+{work.actress && <ActressTags actress={work.actress} />}
 
 {work.maker && (
-  <span className="rounded-full bg-green-100 px-4 py-1.5 text-sm font-semibold text-green-700">
+  <Link
+    href={`/maker/${encodeURIComponent(work.maker)}`}
+    className="max-w-full break-words rounded-full bg-green-100 px-4 py-1.5 text-sm font-semibold leading-5 text-green-700 transition hover:bg-green-200"
+  >
     🏢 {work.maker}
-  </span>
+  </Link>
 )}
 
 {work.series && (
-  <span className="rounded-full bg-yellow-100 px-4 py-1.5 text-sm font-semibold text-yellow-700">
+  <Link
+    href={`/series/${encodeURIComponent(work.series)}`}
+    className="max-w-full break-words rounded-full bg-yellow-100 px-4 py-1.5 text-sm font-semibold leading-5 text-yellow-700 transition hover:bg-yellow-200"
+  >
     📚 {work.series}
-  </span>
+  </Link>
 )}
 
-{work.genre && (
-  <span className="rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold text-indigo-700">
-    🏷 {work.genre}
-  </span>
-)}
+{genres.map((genre, index) => (
+  <Link
+    key={`${genre}-${index}`}
+    href={`/genre/${encodeURIComponent(genre)}`}
+    className="max-w-full break-words rounded-full bg-indigo-100 px-4 py-1.5 text-[0] font-semibold leading-5 text-indigo-700 transition hover:bg-indigo-200"
+  >
+    <span aria-hidden="true" className="text-sm">🏷 </span>
+    <span className="text-sm">{genre}</span>
+  </Link>
+))}
 
 </div>
 
-        <div className="mt-8 grid gap-4 lg:grid-cols-[180px_180px_minmax(0,1fr)]">
+        <div className="mt-8 grid grid-cols-2 gap-2.5 md:gap-4 lg:grid-cols-[180px_180px_minmax(0,1fr)]">
   {/* 発掘スコア */}
-  <div className="flex h-[210px] flex-col justify-center rounded-3xl border bg-white p-6 text-center">
+  <div className="flex min-h-36 min-w-0 flex-col justify-center rounded-2xl border bg-white p-3 text-center md:h-[210px] md:rounded-3xl md:p-6">
 
-    <div className="text-sm text-zinc-500">
+    <div className="text-xs font-bold text-zinc-500 md:text-sm md:font-normal">
       発掘スコア
     </div>
 
-    <div className="mt-3 text-6xl font-black text-pink-600">
+    <div className="mt-2 text-5xl font-black leading-none text-pink-600 md:mt-3 md:text-6xl">
       {work.score}
     </div>
 
@@ -273,29 +358,29 @@ useEffect(() => {
       /100
     </div>
 
-    <div className="mt-4 text-yellow-500 text-xl">
+    <div className="mt-3 text-base text-yellow-500 md:mt-4 md:text-xl">
       ★★★★★
     </div>
 
   </div>
 
   {/* 総合おすすめ */}
-  <div className="flex h-[210px] flex-col justify-center rounded-3xl border bg-white p-6 text-center">
+  <div className="flex min-h-36 min-w-0 flex-col justify-center rounded-2xl border bg-white p-3 text-center md:h-[210px] md:rounded-3xl md:p-6">
 
-    <div className="text-sm text-zinc-500">
+    <div className="text-xs font-bold text-zinc-500 md:text-sm md:font-normal">
       総合おすすめ度
     </div>
 
-    <div className="mt-5 flex justify-center">
+    <div className="mt-3 flex justify-center md:mt-5">
 
-      <div className="flex h-32 w-32 items-center justify-center rounded-full border-[10px] border-pink-500">
+      <div className="flex h-24 w-24 items-center justify-center rounded-full border-8 border-pink-500 md:h-32 md:w-32 md:border-[10px]">
 
         <div>
-          <div className="text-4xl font-black text-pink-600">
+          <div className="text-3xl font-black leading-none text-pink-600 md:text-4xl">
             {work.score}%
           </div>
 
-          <div className="text-sm text-zinc-500">
+          <div className="mt-1 text-[10px] text-zinc-500 md:text-sm">
             今買う価値
           </div>
         </div>
@@ -307,7 +392,7 @@ useEffect(() => {
   </div>
 
   {/* 情報カード */}
-  <div className="h-[210px] rounded-3xl border bg-white p-6">
+  <div className="col-span-2 min-h-[210px] rounded-3xl border bg-white p-4 md:p-6 lg:col-span-1 lg:h-[210px]">
 
     <div className="grid grid-cols-2 gap-y-5">
 
@@ -327,7 +412,7 @@ useEffect(() => {
         </div>
 
         <div className="font-bold">
-          {work.ranking}位
+          {hasValidRanking ? `${work.ranking}位` : "---"}
         </div>
       </div>
 

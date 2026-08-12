@@ -114,6 +114,7 @@ if (data.prices.length === 0) {
 }
 
 let saved = false;
+let lastSaveError: unknown = null;
 
 for (let attempt = 1; attempt <= 3; attempt++) {
   try {
@@ -139,6 +140,8 @@ await saveWork(
 saved = true;
 break;
   } catch (error) {
+    lastSaveError = error;
+
     console.error(
       `[ERROR] saveWork失敗 (${attempt}/3) ${productId}`,
       error
@@ -156,7 +159,12 @@ if (!saved) {
   console.error(
     `[SKIP] saveWorkを3回試行しましたが失敗しました: ${productId}`
   );
-  return;
+
+  throw lastSaveError instanceof Error
+    ? lastSaveError
+    : new Error(
+        `saveWorkを3回試行しましたが失敗しました: ${productId}`
+      );
 }
 
 console.log(

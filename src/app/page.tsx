@@ -12,9 +12,27 @@ import { supabase } from "@/lib/supabase";
 export const revalidate = 300;
 
 export default async function Home() {
-  const [statisticsResult, featuredResult, rankingResult, saleResult, insightsResult] =
+  const now = new Date();
+  const jstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const todayStart = new Date(`${jstDate}T00:00:00+09:00`);
+  const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+
+  const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, featuredResult, rankingResult, saleResult, insightsResult] =
     await Promise.all([
       supabase.from("site_statistics").select("*").eq("id", 1).maybeSingle(),
+      supabase.from("works").select("*", { count: "exact", head: true }),
+      supabase
+        .from("works")
+        .select("*", { count: "exact", head: true })
+        .gte("updated_at", todayStart.toISOString())
+        .lt("updated_at", tomorrowStart.toISOString()),
+      supabase
+        .from("works")
+        .select("*", { count: "exact", head: true })
+        .eq("is_on_sale", true),
+      supabase.from("insights").select("*", { count: "exact", head: true }),
       supabase
         .from("works")
         .select("*")
@@ -29,7 +47,7 @@ export default async function Home() {
       supabase
         .from("works")
         .select("*")
-        .gt("discount_rate", 0)
+        .eq("is_on_sale", true)
         .order("discount_rate", { ascending: false })
         .limit(5),
       supabase
@@ -49,10 +67,10 @@ export default async function Home() {
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
         <Hero work={featuredWork} />
         <StatStrip
-          totalWorks={statistics?.total_works ?? 0}
-          todayUpdates={statistics?.today_updates ?? insightsResult.data?.length ?? 0}
-          saleWorks={statistics?.sale_works ?? saleResult.data?.length ?? 0}
-          aiInsights={statistics?.total_insights ?? insightsResult.data?.length ?? 0}
+          totalWorks={totalWorksResult.count ?? statistics?.total_works ?? 0}
+          todayUpdates={todayUpdatesResult.count ?? 0}
+          saleWorks={saleWorksResult.count ?? 0}
+          aiInsights={totalInsightsResult.count ?? 0}
         />
         <InsightFeed insights={insightsResult.data ?? []} />
         <RankingSection works={rankingResult.data ?? []} />

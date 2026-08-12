@@ -12,6 +12,7 @@ const menus = [
   { href: "/maker", label: "メーカー" },
   { href: "/series", label: "シリーズ" },
   { href: "/genre", label: "ジャンル" },
+  { href: "/favorites", label: "お気に入り" },
 ];
 
 export default function Header() {
@@ -22,10 +23,10 @@ export default function Header() {
       <div className="mx-auto flex h-16 max-w-[1500px] items-center gap-5 px-4 sm:px-6 lg:h-20 lg:px-8">
         <Link href="/" className="flex shrink-0 items-center gap-3" aria-label="発掘LAB TOP">
           <Image
-            src="/images/logo-horizontal.png"
+            src="/images/logo-horizontal-clean.png"
             alt="発掘LAB"
-            width={1920}
-            height={819}
+            width={1916}
+            height={821}
             sizes="(min-width: 1024px) 192px, (min-width: 640px) 160px, 144px"
             className="h-auto w-36 object-contain sm:w-40 lg:w-48"
             priority

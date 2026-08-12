@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Boxes, Clapperboard, Sparkles, Star, Tags, Trophy } from "lucide-react";
 import Header from "@/components/layout/Header";
@@ -114,15 +115,23 @@ function JsonLd({ kind, name, works }: { kind: CatalogKind; name: string; works:
   return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }} />;
 }
 
-export default async function CatalogDetailPage({ kind, name }: { kind: CatalogKind; name: string }) {
+export default async function CatalogDetailPage({ kind, name, page = 1 }: { kind: CatalogKind; name: string; page?: number }) {
   const config = catalogConfig[kind];
   const { works, error } = await getWorks(kind, name);
+  if (!error && works.length === 0) notFound();
   const scoredWorks = works.filter((work) => work.score > 0);
   const reviewedWorks = works.filter((work) => work.review_average > 0);
   const averageScore = scoredWorks.length ? Math.round(scoredWorks.reduce((sum, work) => sum + work.score, 0) / scoredWorks.length) : 0;
   const averageReview = reviewedWorks.length ? (reviewedWorks.reduce((sum, work) => sum + work.review_average, 0) / reviewedWorks.length).toFixed(2) : "—";
   const topWork = works[0];
-  const displayedWorks = works.slice(0, 60);
+  const pageSize = 60;
+  const totalPages = Math.max(1, Math.ceil(works.length / pageSize));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+  const offset = (currentPage - 1) * pageSize;
+  const displayedWorks = works.slice(offset, offset + pageSize);
+  const pageHref = (targetPage: number) => targetPage > 1
+    ? `/${kind}/${encodeURIComponent(name)}?page=${targetPage}`
+    : `/${kind}/${encodeURIComponent(name)}`;
   const Icon = config.icon;
 
   return <><Header /><JsonLd kind={kind} name={name} works={displayedWorks} /><main className="min-h-screen bg-[#f8fafc] text-slate-950">
@@ -135,6 +144,6 @@ export default async function CatalogDetailPage({ kind, name }: { kind: CatalogK
         </div>
       </div>
     </div></section>
-    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{error ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">作品を読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : works.length ? <><div className="mb-6 flex items-end justify-between gap-4"><div className="min-w-0"><p className="text-xs font-black tracking-widest text-pink-600">TOP WORKS</p><h2 className="mt-1 break-words text-2xl font-black">{name}の上位作品</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{works.length}作品中 {displayedWorks.length}作品</span></div><div className="grid gap-3 lg:grid-cols-2">{displayedWorks.map((work, index) => <WorkCard key={work.id} work={work} rank={index + 1} />)}</div></> : <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Icon className="mx-auto text-slate-300" size={40} /><p className="mt-4 font-black">登録作品がまだありません</p><Link href={`/${kind}`} className="mt-3 inline-block text-sm font-black text-pink-600">{config.label}一覧に戻る</Link></div>}</div>
+    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{error ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">作品を読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : works.length ? <><div className="mb-6 flex items-end justify-between gap-4"><div className="min-w-0"><p className="text-xs font-black tracking-widest text-pink-600">TOP WORKS</p><h2 className="mt-1 break-words text-2xl font-black">{name}の作品</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{works.length}作品中 {offset + 1}〜{offset + displayedWorks.length}作品</span></div><div className="grid gap-3 lg:grid-cols-2">{displayedWorks.map((work, index) => <WorkCard key={work.id} work={work} rank={offset + index + 1} />)}</div>{totalPages > 1 && <nav aria-label={`${name}の作品一覧のページ送り`} className="mt-10 flex items-center justify-center gap-3">{currentPage > 1 && <Link href={pageHref(currentPage - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-pink-300 hover:text-pink-600">← 前の60作品</Link>}<span className="text-xs font-bold text-slate-400">{currentPage} / {totalPages}</span>{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-pink-600">次の60作品 →</Link>}</nav>}</> : <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Icon className="mx-auto text-slate-300" size={40} /><p className="mt-4 font-black">登録作品がまだありません</p><Link href={`/${kind}`} className="mt-3 inline-block text-sm font-black text-pink-600">{config.label}一覧に戻る</Link></div>}</div>
   </main></>;
 }

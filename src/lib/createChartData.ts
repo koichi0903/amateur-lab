@@ -1,5 +1,11 @@
 import type { PriceHistoryItem } from "@/types/price";
 
+export function parsePriceHistoryDate(value: string) {
+  const hasTimeZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+
+  return new Date(hasTimeZone ? value : `${value}Z`);
+}
+
 export function normalizeDisplayName(name: string) {
   return name.replace(/\s+/g, "").trim();
 }
@@ -21,7 +27,8 @@ export function createChartData(
     )
     .map((item) => ({
       changed_at: item.changed_at,
-      date: new Date(item.changed_at).toLocaleString("ja-JP", {
+      date: parsePriceHistoryDate(item.changed_at).toLocaleString("ja-JP", {
+        timeZone: "Asia/Tokyo",
         month: "numeric",
         day: "numeric",
         hour: "2-digit",
@@ -31,7 +38,7 @@ export function createChartData(
     }))
     .sort(
       (a, b) =>
-        new Date(a.changed_at).getTime() -
-        new Date(b.changed_at).getTime()
+        parsePriceHistoryDate(a.changed_at).getTime() -
+        parsePriceHistoryDate(b.changed_at).getTime()
     );
 }

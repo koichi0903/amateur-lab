@@ -1,5 +1,6 @@
 import { supabase } from "../../../lib/supabase";
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import WorkHero from "../../components/WorkHero";
 import WorkInfo from "../../components/WorkInfo";
 import AIAnalysis from "../../components/AIAnalysis";
@@ -15,6 +16,9 @@ import PurchaseCard from "@/app/components/PurchaseCard";
 import { createChartData } from "@/lib/createChartData";
 import ReviewTab from "@/app/components/ReviewTab";
 import SampleImageCarousel from "@/app/components/SampleImageCarousel";
+import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
+import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
+import { isInsightVisible } from "@/lib/insights/visibility";
 
 import {
   analyzeWork,
@@ -109,9 +113,41 @@ export default async function WorkDetailPage(
     ascending: false,
   });
 
-  if (!work) {
-    return <div>作品が見つかりません</div>;
-  }
+  if (!work) notFound();
+
+  const visibleInsights = (insights ?? []).filter((insight) =>
+    isInsightVisible(insight, work)
+  );
+
+  const splitEntities = (value: string | null) => value?.split(/\s*\/\s*|\s*／\s*|\s*,\s*|\s*、\s*/).filter(Boolean) ?? [];
+  const actresses = splitEntities(work.actress);
+  const genres = splitEntities(work.genre);
+  const makers = splitEntities(work.maker);
+  const series = splitEntities(work.series);
+  const [actressRanks, genreRanks, makerRanks, seriesRanks] = await Promise.all([
+    actresses.length ? supabase.from("actress_rankings").select("original_rank, fanza_rank").in("name", actresses) : Promise.resolve({ data: [] }),
+    genres.length ? supabase.from("genre_rankings").select("rank").in("name", genres) : Promise.resolve({ data: [] }),
+    makers.length ? supabase.from("maker_rankings").select("rank").in("name", makers) : Promise.resolve({ data: [] }),
+    series.length ? supabase.from("series_rankings").select("original_rank, fanza_rank").in("name", series) : Promise.resolve({ data: [] }),
+  ]);
+  const minimumRank = (values: Array<number | null | undefined>) => {
+    const ranks = values.filter((value): value is number => typeof value === "number" && value > 0);
+    return ranks.length ? Math.min(...ranks) : null;
+  };
+  const currentPrice = [...(workPrices ?? [])].sort((a, b) =>
+    (a.sale_price ?? a.normal_price ?? Number.MAX_SAFE_INTEGER) - (b.sale_price ?? b.normal_price ?? Number.MAX_SAFE_INTEGER)
+  )[0] ?? null;
+  const recommendationReasons = analyzeRecommendation({
+    work,
+    currentPrice,
+    priceHistory: priceHistory ?? [],
+    entityRanks: {
+      actress: minimumRank((actressRanks.data ?? []).flatMap((row) => [row.original_rank, row.fanza_rank])),
+      genre: minimumRank((genreRanks.data ?? []).map((row) => row.rank)),
+      maker: minimumRank((makerRanks.data ?? []).map((row) => row.rank)),
+      series: minimumRank((seriesRanks.data ?? []).flatMap((row) => [row.original_rank, row.fanza_rank])),
+    },
+  });
 
   const mainActress =
   work.actress?.split(" / ")[0] || "";
@@ -128,7 +164,6 @@ const { data: relatedWorks } = await supabase
 
   const {
   summary,
-  comments,
   goodPoints,
   cautionPoints,
   conclusion,
@@ -148,7 +183,7 @@ const chartData = createChartData(
 );
 
   return (
-  <main className="min-h-screen bg-gray-100 py-8">
+  <main className="min-h-screen bg-gray-100 py-8 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-8">
     <div className="mx-auto max-w-7xl px-4 sm:px-6">
 
       <Breadcrumb
@@ -169,71 +204,19 @@ const chartData = createChartData(
 
       {/* Hero */}
       <section className="mt-6 rounded-3xl border border-pink-100 bg-white p-4 shadow-sm sm:p-8">
-        <WorkHero
+<WorkHero
   work={work}
   sampleImages={sampleImages ?? []}
   sampleMovieUrl={work.sample_movie_url}
 />
       </section>
 
-      <div className="mt-8 rounded-3xl border border-pink-100 bg-pink-50 p-4 sm:p-6">
-
-  <h3 className="text-xl font-black text-pink-700">
-    🔥 AIがこの作品をおすすめする理由
-  </h3>
-
-  <div className="mt-5 grid gap-4 md:grid-cols-4">
-
-    <div className="rounded-2xl border border-green-200 bg-white p-4">
-      <div className="text-sm font-black text-green-700">
-        💚 過去最安値
-      </div>
-
-      <div className="mt-2 text-xs leading-6 text-zinc-600">
-        通常価格より安く購入できます
-      </div>
-    </div>
-
-    <div className="rounded-2xl border border-pink-200 bg-white p-4">
-      <div className="text-sm font-black text-pink-700">
-        📈 ランキング上昇
-      </div>
-
-      <div className="mt-2 text-xs leading-6 text-zinc-600">
-        人気ランキング上位作品
-      </div>
-    </div>
-
-    <div className="rounded-2xl border border-amber-200 bg-white p-4">
-      <div className="text-sm font-black text-amber-700">
-        ⭐ 高評価
-      </div>
-
-      <div className="mt-2 text-xs leading-6 text-zinc-600">
-        レビュー評価{work.review_average}
-      </div>
-    </div>
-
-    <div className="rounded-2xl border border-indigo-200 bg-white p-4">
-      <div className="text-sm font-black text-indigo-700">
-        🏆 発掘スコア
-      </div>
-
-      <div className="mt-2 text-xs leading-6 text-zinc-600">
-        発掘スコア {work.score}点
-      </div>
-    </div>
-
-  </div>
-
-</div>
-
       {/* タイムライン */}
-      <section className="mt-8">
-        <InsightTimeline
-          insights={insights ?? []}
-        />
-      </section>
+      {visibleInsights.length > 0 && (
+        <section className="mt-8 hidden md:block">
+          <InsightTimeline insights={visibleInsights} />
+        </section>
+      )}
 
       {/* タブ */}
       <section className="mt-8">
@@ -250,9 +233,8 @@ const chartData = createChartData(
 
   <AIAnalysis
     work={work}
-    summary={summary}
-    comments={comments}
     chartData={chartData}
+    recommendationReasons={recommendationReasons}
   />
 
 </div>
@@ -357,6 +339,7 @@ const chartData = createChartData(
       </section>
 
     </div>
+    <MobilePurchaseBar work={work} />
   </main>
 );
 }

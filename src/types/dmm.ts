@@ -32,7 +32,7 @@ affiliateURL?: string;  // アフィリエイトURL
   };
 
   iteminfo?: {
-    actress?: { name: string }[];
+    actress?: { id?: number; name: string; ruby?: string }[];
     genre?: { name: string }[];
     maker?: { name: string }[];
     series?: { name: string }[];

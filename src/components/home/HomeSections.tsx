@@ -63,7 +63,7 @@ export function SaleSection({ works }: { works: Work[] }) {
           <p className="text-sm font-black text-pink-600">SALE DISCOVERY</p>
           <h2 className="mt-2 text-2xl font-black sm:text-3xl">セール中のおすすめ作品</h2>
         </div>
-        <Link href="/search" className="shrink-0 text-sm font-black text-pink-600 hover:underline">もっと見る →</Link>
+        <Link href="/sale" className="shrink-0 text-sm font-black text-pink-600 hover:underline">もっと見る →</Link>
       </div>
       {works.length ? (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">

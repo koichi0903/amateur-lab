@@ -1,4 +1,11 @@
+import type { Metadata } from "next";
 import Breadcrumb from "@/app/components/Breadcrumb";
+
+export const metadata: Metadata = {
+  title: "発掘LABについて | 発掘LAB",
+  description: "発掘LABの発掘スコア、AI分析、掲載データについて紹介します。",
+  alternates: { canonical: "/about" },
+};
 
 export default async function AboutPage() {
 

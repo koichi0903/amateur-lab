@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { PriceHistoryItem } from "@/types/price";
+import { parsePriceHistoryDate } from "@/lib/createChartData";
 
 
 type Props = {
@@ -11,8 +12,21 @@ type Props = {
 export default function PriceTimeline({
   history,
 }: Props) {
+  const uniqueHistory = history.filter(
+    (item, index, items) =>
+      items.findIndex(
+        (candidate) =>
+          candidate.changed_at.slice(0, 16) ===
+            item.changed_at.slice(0, 16) &&
+          candidate.display_name === item.display_name &&
+          candidate.type === item.type &&
+          candidate.normal_price === item.normal_price &&
+          candidate.sale_price === item.sale_price
+      ) === index
+  );
+
   const grouped = Object.values(
-    history.reduce<Record<string, PriceHistoryItem[]>>(
+    uniqueHistory.reduce<Record<string, PriceHistoryItem[]>>(
       (acc, item) => {
         const key = item.changed_at.slice(0, 16);
 
@@ -28,11 +42,13 @@ acc[key].push(item);
     )
   );
 
-  const [expanded, setExpanded] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(2);
 
-const visibleGroups = expanded
-  ? grouped
-  : grouped.slice(0, 2);
+const visibleGroups = grouped.slice(0, visibleCount);
+const remainingCount = Math.max(
+  grouped.length - visibleCount,
+  0
+);
 
   return (
     <div className="space-y-6">
@@ -43,9 +59,10 @@ const visibleGroups = expanded
         >
           <div className="mb-3 rounded-md bg-gray-100 px-3 py-2 font-semibold text-gray-700">
   📅{" "}
-  {new Date(group[0].changed_at).toLocaleString(
+  {parsePriceHistoryDate(group[0].changed_at).toLocaleString(
     "ja-JP",
     {
+      timeZone: "Asia/Tokyo",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -107,17 +124,26 @@ const visibleGroups = expanded
 </div>
             ))}
 
-      {grouped.length > 2 && (
+      {remainingCount > 0 && (
         <div className="pt-2 text-center">
           <button
             onClick={() =>
-              setExpanded(!expanded)
+              setVisibleCount((count) => count + 5)
             }
             className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-gray-100"
           >
-            {expanded
-              ? "▲ 閉じる"
-              : `▼ 価格履歴をもっと見る（残り${grouped.length - 2}件）`}
+            ▼ 価格履歴をもっと見る（残り{remainingCount}件）
+          </button>
+        </div>
+      )}
+
+      {grouped.length > 2 && remainingCount === 0 && (
+        <div className="pt-2 text-center">
+          <button
+            onClick={() => setVisibleCount(2)}
+            className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-gray-100"
+          >
+            ▲ 価格履歴を閉じる
           </button>
         </div>
       )}

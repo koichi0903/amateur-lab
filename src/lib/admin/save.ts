@@ -3,6 +3,7 @@ import { IGNORE_GENRES } from "../genre";
 import { calculateScore } from "../score";
 
 import type { DmmItem } from "../../types/dmm";
+import { formatDmmActresses } from "../dmm/actresses";
 import type {
   RankingItem,
   ActressRankingItem,
@@ -222,11 +223,7 @@ if (existing) {
     .insert([
       {
         title: item.title,
-        actress:
-  item.iteminfo?.actress
-    ?.slice(0, 10)
-    .map((a) => a.name)
-    .join(" / ") || "",
+        actress: formatDmmActresses(item) ?? "",
         
         genre:
   item.iteminfo?.genre

@@ -1,4 +1,9 @@
+import type { Metadata } from "next";
 import { supabase } from "../../lib/supabase";
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false, nocache: true },
+};
 
 export default async function TestPage() {
   const { data } = await supabase

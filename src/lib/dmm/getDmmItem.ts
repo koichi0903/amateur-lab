@@ -17,7 +17,9 @@ export async function getDmmItem(
     `&cid=${productId}` +
     "&output=json";
 
-  const res = await fetch(url);
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(30_000),
+  });
 
   if (!res.ok) {
     throw new Error("DMM API取得失敗");

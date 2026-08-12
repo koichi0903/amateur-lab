@@ -9,7 +9,8 @@
   "lint": "eslint",
   "update:ranking": "tsx scripts/update-ranking.ts",
   "update:longhit": "tsx scripts/update-longhit.ts",
-  "update:score": "tsx src/lib/admin/updateScore.ts"
+  "update:score": "tsx src/lib/admin/updateScore.ts",
+  "backfill:actresses": "tsx scripts/backfill-work-actresses.ts"
 },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",

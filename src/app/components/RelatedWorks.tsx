@@ -38,12 +38,18 @@ export default function RelatedWorks({
 
       </div>
 
-      <div className="flex gap-6 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-thin">
+      <div className="mb-3 flex items-center justify-end gap-1 text-xs font-bold text-pink-600 sm:hidden">
+        <span aria-hidden="true">←</span>
+        横にスワイプして続きを見る
+        <span aria-hidden="true">→</span>
+      </div>
+
+      <div className="-mx-3 flex gap-3 overflow-x-auto px-3 pb-4 snap-x snap-mandatory scrollbar-thin sm:mx-0 sm:gap-6 sm:px-0">
 
         {works.map((work) => (
   <div
     key={work.id}
-    className="w-[min(360px,calc(100vw-5rem))] flex-shrink-0 snap-start sm:w-[360px]"
+    className="w-[82%] max-w-[18rem] flex-shrink-0 snap-start sm:w-[360px] sm:max-w-none"
   >
     <FeaturedWorkCard work={work} />
   </div>

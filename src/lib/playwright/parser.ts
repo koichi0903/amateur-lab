@@ -19,6 +19,7 @@ export interface ParsedData {
   ogUrl?: string;
 
   actress?: string;
+  actressLinks?: string[];
 
   maker?: string;
   series?: string;
@@ -94,6 +95,25 @@ async function getTableValue(
     return value;
   } catch {
     return undefined;
+  }
+}
+
+async function getTableLinkValues(
+  page: Page,
+  label: string,
+  hrefPart: string
+): Promise<string[]> {
+  try {
+    const row = page.locator("tr").filter({ hasText: label }).first();
+    if ((await row.count()) === 0) return [];
+
+    const values = await row
+      .locator(`a[href*="${hrefPart}"]`)
+      .allTextContents();
+
+    return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  } catch {
+    return [];
   }
 }
 
@@ -189,7 +209,39 @@ for (let i = 0; i < count; i++) {
 });
   }
 
-  return result;
+  const nameCounts = new Map<string, number>();
+
+  for (const price of result) {
+    nameCounts.set(
+      price.name,
+      (nameCounts.get(price.name) ?? 0) + 1
+    );
+  }
+
+  // 同じ販売名でも「無期限」「7日間」などが異なる別プランがある。
+  // work_prices は display_name を一意キーにしているため、重複時だけ期間を付けて区別する。
+  const normalized = result.map((price) =>
+    (nameCounts.get(price.name) ?? 0) > 1
+      ? {
+          ...price,
+          name: `${price.name}（${price.period ?? "期間不明"}）`,
+        }
+      : price
+  );
+
+  const normalizedNames = new Set<string>();
+
+  for (const price of normalized) {
+    if (normalizedNames.has(price.name)) {
+      throw new Error(
+        `価格プランを一意に識別できません: ${price.name}`
+      );
+    }
+
+    normalizedNames.add(price.name);
+  }
+
+  return normalized;
 }
 
 export async function parsePage(
@@ -238,6 +290,7 @@ if (saleMatch) {
   description: await getMeta(page, "og:description"),
   ogImage: await getMeta(page, "og:image"),
   ogUrl: await getMeta(page, "og:url"),
+  actressLinks: await getTableLinkValues(page, "出演者", "actress="),
 
   actress: await getTableValue(page, "出演者"),
   maker: await getTableValue(page, "メーカー"),

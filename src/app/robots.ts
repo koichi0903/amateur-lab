@@ -6,8 +6,9 @@ export default function robots(): MetadataRoute.Robots {
       userAgent: "*",
       allow: "/",
       disallow: [
-        "/admin/",
+        "/admin",
         "/api/",
+        "/test",
       ],
     },
     sitemap: "https://amateur-lab.vercel.app/sitemap.xml",

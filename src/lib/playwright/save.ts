@@ -7,16 +7,37 @@ import type { ParsedData } from "./parser";
 import { generateAndSaveInsight } from "@/lib/insights/generateAndSave";
 import { saveLowestPriceEvent } from "@/lib/insights/event";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !serviceRoleKey) {
+  throw new Error(
+    "saveWork requires NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"
+  );
+}
+
+// saveWork は管理ジョブ専用。anon key では RLS により更新が0件になる場合がある。
+const supabase = createClient(supabaseUrl, serviceRoleKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
 export async function saveWork(
   productId: string,
   data: ParsedData,
   listPrice?: number | null
 ) {
+
+  const duplicatedPriceNames = data.prices
+    .map((price) => price.name)
+    .filter((name, index, names) => names.indexOf(name) !== index);
+
+  if (duplicatedPriceNames.length > 0) {
+    throw new Error(
+      `work_prices保存前重複 (${productId}): ${[
+        ...new Set(duplicatedPriceNames),
+      ].join(", ")}`
+    );
+  }
 
   // ------------------------
 // サイトで表示する代表価格
@@ -121,7 +142,8 @@ const { data: currentWork, error: currentError } =
   is_on_sale,
   sale_end_at,
   playwright_status,
-  is_bottom_price
+  is_bottom_price,
+  actress
 `)
     .eq("product_id", productId)
     .single();
@@ -146,9 +168,16 @@ const isNewLowestPrice =
     currentDisplayPrice < currentWork.lowest_price
   );
 
+const fallbackActress =
+  !currentWork?.actress && data.actressLinks?.length
+    ? data.actressLinks.join(" / ")
+    : null;
+
 const workUpdate = {
   title: data.title,
-  actress: data.actress,
+  ...(fallbackActress
+    ? { actress: fallbackActress }
+    : {}),
   maker: data.maker,
   series: data.series,
   label: data.label,
@@ -214,7 +243,10 @@ currentWork.is_bottom_price !==
   isBottomPrice ||
 
 currentWork.lowest_price !==
-  lowestPrice;
+  lowestPrice ||
+
+(fallbackActress != null &&
+  currentWork.actress !== fallbackActress);
 
 if (changed) {
   const result = await supabase
@@ -238,10 +270,16 @@ if (changed) {
   );
 }
   // 現在の価格を取得
-  const { data: currentPrices } = await supabase
+  const { data: currentPrices, error: currentPricesError } = await supabase
     .from("work_prices")
     .select("*")
     .eq("product_id", productId);
+
+  if (currentPricesError) {
+    throw new Error(
+      `work_prices取得失敗 (${productId}): ${currentPricesError.message}`
+    );
+  }
 
   const currentMap = new Map(
     (currentPrices ?? []).map((price) => [
@@ -256,7 +294,7 @@ if (changed) {
 
     if (!current) {
   // 新規追加
-  await supabase
+  const { error: insertPriceError } = await supabase
     .from("work_prices")
     .insert({
       product_id: productId,
@@ -266,8 +304,14 @@ if (changed) {
       sale_price: price.salePrice,
     });
 
+  if (insertPriceError) {
+    throw new Error(
+      `work_prices追加失敗 (${productId}/${price.name}): ${insertPriceError.message}`
+    );
+  }
+
   // 初回価格を履歴にも保存
-  await supabase
+  const { error: insertHistoryError } = await supabase
     .from("price_history")
     .insert({
       product_id: productId,
@@ -276,6 +320,12 @@ if (changed) {
       normal_price: price.normalPrice,
       sale_price: price.salePrice,
     });
+
+  if (insertHistoryError) {
+    throw new Error(
+      `price_history追加失敗 (${productId}/${price.name}): ${insertHistoryError.message}`
+    );
+  }
 
   continue;
 }
@@ -287,7 +337,7 @@ if (changed) {
 
     if (changed) {
       // 履歴保存
-      await supabase
+      const { error: insertHistoryError } = await supabase
   .from("price_history")
   .insert({
     product_id: productId,
@@ -297,15 +347,34 @@ if (changed) {
     sale_price: price.salePrice,
   });
 
+      if (insertHistoryError) {
+        throw new Error(
+          `price_history追加失敗 (${productId}/${price.name}): ${insertHistoryError.message}`
+        );
+      }
+
       // 現在価格更新
-      await supabase
+      const { data: updatedPrices, error: updatePriceError } = await supabase
         .from("work_prices")
         .update({
           type: price.type,
           normal_price: price.normalPrice,
           sale_price: price.salePrice,
+          updated_at: new Date().toISOString(),
         })
-        .eq("id", current.id);
+        .eq("id", current.id)
+        .select("id");
+
+      if (updatePriceError) {
+        throw new Error(
+          `work_prices更新失敗 (${productId}/${price.name}): ${updatePriceError.message}`
+        );
+      }
+      if (!updatedPrices?.length) {
+        throw new Error(
+          `work_prices更新0件 (${productId}/${price.name}, id=${current.id})`
+        );
+      }
     }
 
     currentMap.delete(price.name);
@@ -313,10 +382,22 @@ if (changed) {
 
   // 取得できなくなった価格を削除
   for (const price of currentMap.values()) {
-  await supabase
+  const { data: deletedPrices, error: deletePriceError } = await supabase
     .from("work_prices")
     .delete()
-    .eq("id", price.id);
+    .eq("id", price.id)
+    .select("id");
+
+  if (deletePriceError) {
+    throw new Error(
+      `work_prices削除失敗 (${productId}/${price.display_name}): ${deletePriceError.message}`
+    );
+  }
+  if (!deletedPrices?.length) {
+    throw new Error(
+      `work_prices削除0件 (${productId}/${price.display_name}, id=${price.id})`
+    );
+  }
 }
 
 if (updated && updated.length > 0) {

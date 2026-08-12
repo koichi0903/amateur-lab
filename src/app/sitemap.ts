@@ -4,24 +4,31 @@ import { supabase } from "@/lib/supabase";
 const BASE_URL = "https://amateur-lab.vercel.app";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  
-  const { data: works, error } = await supabase
-  .from("works")
-  .select(`
-    id,
-    created_at,
-    actress,
-    genre,
-    maker,
-    series
-  `)
-  .order("created_at", { ascending: false });
+  const works: Array<{
+    id: number;
+    created_at: string | null;
+    updated_at: string | null;
+    actress: string | null;
+    genre: string | null;
+    maker: string | null;
+    series: string | null;
+  }> = [];
+  const pageSize = 1000;
 
-if (error) {
-  throw error;
-}
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("works")
+      .select("id, created_at, updated_at, actress, genre, maker, series")
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+    const page = data ?? [];
+    works.push(...page);
+    if (page.length < pageSize) break;
+  }
   
-  function splitValues(value?: string): string[] {
+  function splitValues(value?: string | null): string[] {
   return value
     ? value
         .split(" / ")
@@ -55,11 +62,6 @@ if (error) {
     priority: 0.9,
   },
   {
-    url: `${BASE_URL}/search`,
-    changeFrequency: "weekly",
-    priority: 0.9,
-  },
-  {
     url: `${BASE_URL}/actress`,
     changeFrequency: "daily",
     priority: 0.9,
@@ -70,6 +72,26 @@ if (error) {
     priority: 0.8,
   },
   {
+    url: `${BASE_URL}/maker`,
+    changeFrequency: "weekly",
+    priority: 0.8,
+  },
+  {
+    url: `${BASE_URL}/series`,
+    changeFrequency: "weekly",
+    priority: 0.8,
+  },
+  {
+    url: `${BASE_URL}/sale`,
+    changeFrequency: "daily",
+    priority: 0.8,
+  },
+  {
+    url: `${BASE_URL}/about`,
+    changeFrequency: "monthly",
+    priority: 0.5,
+  },
+  {
     url: `${BASE_URL}/new`,
     changeFrequency: "daily",
     priority: 0.9,
@@ -77,32 +99,32 @@ if (error) {
 ];
 
  const workPages: MetadataRoute.Sitemap =
-  works?.map((work) => ({
+  works.map((work) => ({
     url: `${BASE_URL}/works/${work.id}`,
-    lastModified: work.created_at
-  ? new Date(work.created_at)
+    lastModified: work.updated_at || work.created_at
+  ? new Date(work.updated_at || work.created_at!)
   : undefined,
     changeFrequency: "weekly",
     priority: 0.8,
-  })) ?? [];
+  }));
 
   const actressPages = createPages(
-  works?.flatMap((work) => splitValues(work.actress)) ?? [],
+  works.flatMap((work) => splitValues(work.actress)),
   "actress"
 );
 
   const genrePages = createPages(
-  works?.flatMap((work) => splitValues(work.genre)) ?? [],
+  works.flatMap((work) => splitValues(work.genre)),
   "genre"
 );
 
    const makerPages = createPages(
-  works?.flatMap((work) => splitValues(work.maker)) ?? [],
+  works.flatMap((work) => splitValues(work.maker)),
   "maker"
 );
 
    const seriesPages = createPages(
-  works?.flatMap((work) => splitValues(work.series)) ?? [],
+  works.flatMap((work) => splitValues(work.series)),
   "series"
 );
   

@@ -1,5 +1,6 @@
 import { supabase } from "../supabase";
 import type { DmmItem } from "../../types/dmm";
+import { formatDmmActresses } from "../dmm/actresses";
 import { saveReviewGrowthEvent } from "@/lib/insights/event";
 
 export async function updateDmmItem(
@@ -12,6 +13,7 @@ export async function updateDmmItem(
   series: string;
   url: string;
   release_date: string | null;
+  actress?: string | null;
 }
 ) {
 
@@ -41,6 +43,8 @@ const nextReleaseDate =
 const nextReviewAverage =
   Number(item.review?.average) || 0;
 
+const nextActress = formatDmmActresses(item);
+
 const sampleImages =
   item.sampleImageURL?.sample_l?.image ?? [];
 
@@ -58,6 +62,8 @@ const hasChanges =
   currentWork?.series !== nextSeries ||
   currentWork?.url !== nextUrl ||
   currentWork?.release_date !== nextReleaseDate;
+const hasActressChange =
+  nextActress != null && currentWork?.actress !== nextActress;
 
 if (!exists && sampleImages.length > 0) {
   const { error: imageError } = await supabase
@@ -71,7 +77,7 @@ if (!exists && sampleImages.length > 0) {
     );
 }
 
-if (currentWork && !hasChanges) {
+if (currentWork && !hasChanges && !hasActressChange) {
   return;
 }
 
@@ -89,6 +95,8 @@ if (currentWork && !hasChanges) {
   review_count: currentReviewCount,
 
   review_average: nextReviewAverage,
+
+  ...(nextActress != null ? { actress: nextActress } : {}),
 
   last_updated: new Date().toISOString(),
 })

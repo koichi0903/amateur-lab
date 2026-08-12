@@ -1,6 +1,7 @@
 import { insightGenerator } from "./index";
 import { InsightRepository } from "./repository";
 import type { Work } from "@/types/work";
+import { InsightType } from "./types";
 
 export async function generateAndSaveInsight(
   work: Work
@@ -19,12 +20,25 @@ export async function generateAndSaveInsight(
     work.realtime_rank,
 });
 
+  const repository =
+    new InsightRepository();
+
+  const generatedTypes = new Set(
+    insights.map((insight) => insight.type)
+  );
+  const stateTypes = [
+    InsightType.PRICE_DROP,
+    InsightType.LOWEST_PRICE,
+  ];
+
+  await repository.removeTypes(
+    work.id,
+    stateTypes.filter((type) => !generatedTypes.has(type))
+  );
+
   if (insights.length === 0) {
     return;
   }
-
-  const repository =
-    new InsightRepository();
 
   await repository.save(insights);
 }

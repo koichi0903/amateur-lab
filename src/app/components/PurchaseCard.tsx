@@ -1,5 +1,8 @@
+import FavoriteButton from "@/components/favorites/FavoriteButton";
+
 type Props = {
   work: {
+    id: number;
     affiliate_url: string | null;
     sale_price: number | null;
     price: number | null;
@@ -11,6 +14,11 @@ type Props = {
 export default function PurchaseCard({
   work,
 }: Props) {
+  const hasValidRanking =
+    typeof work.ranking === "number" &&
+    work.ranking > 0 &&
+    work.ranking < 9999;
+
   const currentPrice =
     work.sale_price && work.sale_price > 0
       ? work.sale_price
@@ -52,12 +60,15 @@ export default function PurchaseCard({
           FANZAで見る
         </a>
 
-        <button className="mt-4 w-full rounded-xl border py-3 font-semibold hover:bg-zinc-50">
-          ♡ お気に入り追加
-        </button>
+        <FavoriteButton
+          workId={work.id}
+          addLabel="お気に入りに追加"
+          className="mt-4 w-full rounded-xl border py-3 font-semibold hover:bg-zinc-50"
+        />
 
       </section>
 
+      {hasValidRanking && (
       <section className="rounded-3xl border bg-white p-6 shadow-sm">
 
         <div className="text-sm font-bold text-zinc-500">
@@ -71,12 +82,13 @@ export default function PurchaseCard({
           </span>
 
           <span className="text-4xl font-black text-pink-600">
-            #{work.ranking ?? "-"}
+            #{work.ranking}
           </span>
 
         </div>
 
       </section>
+      )}
 
     </aside>
   );

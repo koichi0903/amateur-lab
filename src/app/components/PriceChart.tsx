@@ -23,9 +23,9 @@ export default function PriceChart({
   data,
 }: Props) {
   return (
-    <div className="mt-6 h-72 w-full">
+    <div className="mt-4 h-80 w-full min-w-0 sm:mt-6 sm:h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data}>
+        <LineChart data={data} margin={{ top: 8, right: 8, bottom: 4, left: -18 }}>
           <CartesianGrid
   stroke="#d4d4d8"
   strokeDasharray="4 4"
@@ -35,11 +35,14 @@ export default function PriceChart({
   dataKey="date"
   interval="preserveStartEnd"
   minTickGap={40}
+  tick={{ fontSize: 11 }}
 />
 
           <YAxis
   domain={["dataMin - 100", "dataMax + 100"]}
   tickFormatter={(v) => `¥${Number(v).toLocaleString()}`}
+  width={68}
+  tick={{ fontSize: 11 }}
 />
 
           <Tooltip

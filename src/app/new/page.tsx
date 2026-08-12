@@ -7,7 +7,15 @@ import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 
 export const revalidate = 300;
-export const metadata: Metadata = { title: "新着作品 | 発掘LAB", description: "発売日の新しいFANZA作品を発掘スコアとともに紹介します。", alternates: { canonical: "/new" } };
+export async function generateMetadata({ searchParams }: { searchParams: Promise<{ page?: string }> }): Promise<Metadata> {
+  const requestedPage = Number.parseInt((await searchParams).page ?? "1", 10);
+  const page = Number.isFinite(requestedPage) && requestedPage > 1 ? requestedPage : 1;
+  return {
+    title: `新着作品${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
+    description: "発売日の新しいFANZA作品を発掘スコアとともに紹介します。",
+    alternates: { canonical: page > 1 ? `/new?page=${page}` : "/new" },
+  };
+}
 const PAGE_SIZE = 48;
 
 function formatDate(value: string | null) {

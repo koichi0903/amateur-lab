@@ -53,6 +53,18 @@ export default function PriceHistory({
         )
       : 0;
 
+  const normalizePriceType = (name: string) =>
+    name.normalize("NFKC").replace(/\s+/g, "");
+
+  const uniquePriceTypes = history.filter(
+    (item, index, items) =>
+      items.findIndex(
+        (candidate) =>
+          normalizePriceType(candidate.display_name) ===
+          normalizePriceType(item.display_name)
+      ) === index
+  );
+
   return (
     <section className="min-w-0 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
 
@@ -113,15 +125,7 @@ export default function PriceHistory({
 
   <div className="flex min-w-0 flex-wrap justify-start gap-2 sm:justify-end">
 
-    {history
-      .filter(
-        (item, index, self) =>
-          self.findIndex(
-            (i) =>
-              i.display_name === item.display_name
-          ) === index
-      )
-      .map((item) => (
+    {uniquePriceTypes.map((item) => (
 
         <div
           key={item.display_name}

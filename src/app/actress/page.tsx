@@ -82,9 +82,9 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
             <div className="mt-5 flex max-w-3xl items-start gap-4">
               <span className="rounded-2xl bg-pink-50 p-3 text-pink-600"><Users size={28} /></span>
               <div>
-                <p className="text-xs font-black tracking-[0.18em] text-pink-600">ACTRESS DISCOVERY</p>
-                <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">女優から作品を発掘</h1>
-                <p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">登録作品数と発掘スコアをもとに、気になる女優と高評価作品を見つけられます。</p>
+                <p className="text-xs font-black tracking-[0.18em] text-pink-600">ACTRESS RANKING</p>
+                <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">女優登録作品数ランキング</h1>
+                <p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">発掘LABに登録されている出演作品数が多い女優順に紹介します。</p>
               </div>
             </div>
             <form className="mt-8 flex max-w-xl items-center rounded-full border border-slate-200 bg-slate-50 px-5 shadow-sm" action="/actress">
@@ -97,7 +97,7 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
 
         <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
           <div className="mb-6 flex items-end justify-between gap-4">
-            <div><p className="text-xs font-black tracking-widest text-pink-600">{query ? "SEARCH RESULT" : "ACTRESS RANKING"}</p><h2 className="mt-1 text-2xl font-black">{query ? `「${query}」の検索結果` : "注目の女優"}</h2></div>
+            <div><p className="text-xs font-black tracking-widest text-pink-600">{query ? "SEARCH RESULT" : "ACTRESS RANKING"}</p><h2 className="mt-1 text-2xl font-black">{query ? `「${query}」の検索結果` : "登録作品数が多い順"}</h2>{!query && <p className="mt-2 text-sm leading-6 text-slate-500">同数の場合は、出演作品の最高発掘スコアが高い順に表示しています。</p>}</div>
             <span className="shrink-0 text-xs font-bold text-slate-400">全{filtered.length}名</span>
           </div>
 
@@ -112,10 +112,10 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
                       {!query && rank <= 3 && <span className="absolute left-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-lg shadow-md"><Trophy size={18} className={rank === 1 ? "text-amber-500" : rank === 2 ? "text-slate-400" : "text-orange-600"} /></span>}
                     </div>
                     <div className="flex flex-1 flex-col px-1 pb-1 pt-3">
-                      <p className="text-[10px] font-black tracking-wider text-pink-600">{rank}位・{item.count}作品</p>
+                      <p className="text-[10px] font-black tracking-wider text-pink-600">登録作品数 {rank}位</p>
                       <h2 className="mt-1 truncate text-base font-black sm:text-lg">{item.name}</h2>
                       <div className="mt-3 flex items-end justify-between gap-2 border-t border-slate-100 pt-3">
-                        <div><p className="text-[10px] font-bold text-slate-400">最高スコア</p><p className="text-xl font-black text-pink-600">{item.maxScore > 0 ? item.maxScore : "—"}</p></div>
+                        <div><p className="text-[10px] font-bold text-slate-400">登録作品数</p><p className="text-xl font-black text-pink-600">{item.count}<span className="ml-0.5 text-xs">作品</span></p></div>
                         <ArrowRight size={17} className="mb-1 text-pink-600" />
                       </div>
                     </div>
