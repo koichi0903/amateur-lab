@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-import { supabase } from "../../../lib/supabase";
-
 import UpdateHeader from "./components/UpdateHeader";
 import JobCard from "./components/JobCard";
 import UpdateButtons from "./components/UpdateButtons";
@@ -306,51 +304,18 @@ async function handleUpdateStage() {
 
 
   async function loadJobs() {
-    const { data, error } = await supabase
-  .from("jobs")
-  .select(`
-  job_name,
-  status,
-  processed_count,
-  total_count,
-  last_product_id
-`)
-  .order("job_name");
+    try {
+      const response = await fetch("/api/admin/jobs", { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to load jobs");
 
-    if (error) {
+      const payload = (await response.json()) as { jobs?: Job[] };
+      setJobs(payload.jobs ?? []);
+    } catch (error) {
       console.error(error);
-      return;
+      setJobs([]);
+    } finally {
+      setLoading(false);
     }
-    if (!data) {
-  setJobs([]);
-  setLoading(false);
-  return;
-}
-
-const jobsWithTitle = await Promise.all(
-  data.map(async (job) => {
-    if (!job.last_product_id) {
-      return {
-        ...job,
-        last_product_title: undefined,
-      };
-    }
-
-    const { data: work } = await supabase
-      .from("works")
-      .select("title")
-      .eq("product_id", job.last_product_id)
-      .maybeSingle();
-
-    return {
-      ...job,
-      last_product_title: work?.title,
-    };
-  })
-);
-
-setJobs(jobsWithTitle);
-setLoading(false);
   }
 
   useEffect(() => {

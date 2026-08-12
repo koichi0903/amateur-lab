@@ -1,4 +1,4 @@
-import { supabase } from "../supabase";
+import { supabaseAdmin as supabase } from "../supabaseAdmin";
 import type { DmmItem } from "../../types/dmm";
 import { formatDmmActresses } from "../dmm/actresses";
 import { saveReviewGrowthEvent } from "@/lib/insights/event";

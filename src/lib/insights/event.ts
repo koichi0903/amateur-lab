@@ -1,7 +1,8 @@
 import { InsightRepository } from "./repository";
 import { InsightType } from "./types";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-const repository = new InsightRepository();
+const repository = new InsightRepository(supabaseAdmin);
 
 export async function saveLowestPriceEvent(params: {
   workId: number;

@@ -1,11 +1,14 @@
 import { supabase } from "@/lib/supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Insight } from "./types";
 
 export class InsightRepository {
+  constructor(private readonly client: SupabaseClient = supabase) {}
+
   async removeTypes(workId: number, types: string[]): Promise<void> {
     if (types.length === 0) return;
 
-    const { error } = await supabase
+    const { error } = await this.client
       .from("insights")
       .delete()
       .eq("work_id", workId)
@@ -31,7 +34,7 @@ export class InsightRepository {
       payload: insight.payload,
     }));
 
-    const { error } = await supabase
+    const { error } = await this.client
       .from("insights")
       .upsert(rows, {
         onConflict: "work_id,type",

@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { insightGenerator } from "@/lib/insights";
-import { InsightRepository } from "@/lib/insights/repository";
 
 export default function AdminWorksPage() {
   const [works, setWorks] = useState<Work[]>([]);
@@ -69,12 +68,11 @@ setLoading(false);
 
   if (!ok) return;
 
-  const { error } = await supabase
-    .from("works")
-    .delete()
-    .eq("id", editingWork.id);
+  const response = await fetch(`/api/admin/works/${editingWork.id}`, {
+    method: "DELETE",
+  });
 
-  if (error) {
+  if (!response.ok) {
     alert("削除に失敗しました");
     return;
   }
@@ -168,8 +166,6 @@ const totalPages = Math.max(
   lowestPrice: work.lowest_price,
 });
 
-  const repository = new InsightRepository();
-
   return (
               <div
                 key={work.id}
@@ -234,7 +230,12 @@ const totalPages = Math.max(
   <button
     onClick={async () => {
       try {
-        await repository.save(insights);
+        const response = await fetch("/api/admin/insights", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workId: work.id }),
+        });
+        if (!response.ok) throw new Error("Failed to save insights");
         alert("Insightを保存しました");
       } catch (error) {
         console.error(error);

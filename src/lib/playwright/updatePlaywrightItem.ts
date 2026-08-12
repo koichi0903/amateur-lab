@@ -8,7 +8,7 @@
  */
 
 import { chromium, Browser } from "playwright";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 import { parsePage } from "./parser";
 import { saveWork } from "./save";

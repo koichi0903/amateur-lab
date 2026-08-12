@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { UPDATE_CONFIG } from "@/config/update";
 import { getNewItems } from "@/lib/playwright/getNewItems";
 import { updateWork } from "./updateWork";

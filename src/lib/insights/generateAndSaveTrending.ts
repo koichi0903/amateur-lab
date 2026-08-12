@@ -1,4 +1,5 @@
 import { InsightRepository } from "./repository";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type TrendingInsightInput = {
   workId: number;
@@ -25,7 +26,7 @@ export async function generateAndSaveTrendingInsight(
     return;
   }
 
-  const repository = new InsightRepository();
+  const repository = new InsightRepository(supabaseAdmin);
 
   await repository.save([
     {

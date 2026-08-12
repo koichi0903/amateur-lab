@@ -1,4 +1,4 @@
-import { supabase } from "../supabase";
+import { supabaseAdmin as supabase } from "../supabaseAdmin";
 import { IGNORE_GENRES } from "../genre";
 import { calculateScore } from "../score";
 

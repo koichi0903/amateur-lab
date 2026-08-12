@@ -1,5 +1,6 @@
 import { insightGenerator } from "./index";
 import { InsightRepository } from "./repository";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { Work } from "@/types/work";
 import { InsightType } from "./types";
 
@@ -21,7 +22,7 @@ export async function generateAndSaveInsight(
 });
 
   const repository =
-    new InsightRepository();
+    new InsightRepository(supabaseAdmin);
 
   const generatedTypes = new Set(
     insights.map((insight) => insight.type)
