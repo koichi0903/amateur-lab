@@ -13,7 +13,7 @@ export default function InsightFeed({ insights }: { insights: Insight[] }) {
     <section id="daily-discovery" className="mx-auto mt-14 max-w-[1500px] scroll-mt-28 px-4 sm:px-6 lg:px-8">
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
-          <p className="text-sm font-black text-pink-600">毎日10:00更新</p>
+          <p className="text-sm font-black text-pink-700">毎日10:00更新</p>
           <h2 className="mt-2 text-2xl font-black sm:text-3xl">🔥 今日のAI発掘</h2>
         </div>
         <span className="hidden text-xs font-bold text-slate-400 sm:block">AIが価格・評価・人気推移を分析</span>

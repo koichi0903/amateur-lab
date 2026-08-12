@@ -33,7 +33,6 @@ export default function Hero({ work }: { work: Work | null }) {
             {hasValidWorkId ? (
               <Link
                 href={`/works/${work.id}`}
-                aria-label={`${work.title}の作品詳細を見る`}
                 className="group block h-full cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-pink-300"
               >
                 {work.image_url ? (

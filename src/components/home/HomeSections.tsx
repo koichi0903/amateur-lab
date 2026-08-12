@@ -60,10 +60,10 @@ export function SaleSection({ works }: { works: Work[] }) {
     <section className="mx-auto mt-16 max-w-[1500px] px-4 sm:px-6 lg:px-8">
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
-          <p className="text-sm font-black text-pink-600">SALE DISCOVERY</p>
+          <p className="text-sm font-black text-pink-700">SALE DISCOVERY</p>
           <h2 className="mt-2 text-2xl font-black sm:text-3xl">セール中のおすすめ作品</h2>
         </div>
-        <Link href="/sale" className="shrink-0 text-sm font-black text-pink-600 hover:underline">もっと見る →</Link>
+        <Link href="/sale" className="shrink-0 text-sm font-black text-pink-700 hover:underline">もっと見る →</Link>
       </div>
       {works.length ? (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
@@ -76,7 +76,7 @@ export function SaleSection({ works }: { works: Work[] }) {
               </div>
               <h3 className="mt-3 line-clamp-2 h-10 text-sm font-bold leading-5">{work.title}</h3>
               <div className="mt-2 min-h-12">
-                {salePrice(work) > 0 && work.price > salePrice(work) && <p className="text-xs font-bold text-slate-400 line-through">通常 ¥{formatNumber(work.price)}</p>}
+                {salePrice(work) > 0 && work.price > salePrice(work) && <p className="text-xs font-bold text-slate-600 line-through">通常 ¥{formatNumber(work.price)}</p>}
                 <p className="text-lg font-black text-pink-600">{displayPrice(work) > 0 ? `¥${formatNumber(displayPrice(work))}` : "価格未取得"}</p>
               </div>
             </Link>
