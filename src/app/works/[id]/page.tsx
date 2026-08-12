@@ -49,6 +49,93 @@ const getWork = cache(
   )
 );
 
+const getWorkDetailData = unstable_cache(
+  async (productId: string, workId: number) => {
+    const [sampleImages, priceHistory, workPrices, insights] = await Promise.all([
+      supabase
+        .from("work_sample_images")
+        .select("image_url, sort_order")
+        .eq("product_id", productId)
+        .order("sort_order"),
+      supabase
+        .from("price_history")
+        .select("*")
+        .eq("product_id", productId)
+        .order("changed_at", { ascending: false })
+        .limit(100),
+      supabase
+        .from("work_prices")
+        .select("*")
+        .eq("product_id", productId)
+        .order("display_name"),
+      supabase
+        .from("insights")
+        .select("*")
+        .eq("work_id", workId)
+        .order("priority", { ascending: false }),
+    ]);
+
+    return {
+      sampleImages: sampleImages.data ?? [],
+      priceHistory: priceHistory.data ?? [],
+      workPrices: workPrices.data ?? [],
+      insights: insights.data ?? [],
+    };
+  },
+  ["work-detail-data"],
+  { revalidate: 3600 }
+);
+
+const getEntityRanks = unstable_cache(
+  async (
+    actresses: string[],
+    genres: string[],
+    makers: string[],
+    series: string[]
+  ) => {
+    const [actressRanks, genreRanks, makerRanks, seriesRanks] = await Promise.all([
+      actresses.length
+        ? supabase.from("actress_rankings").select("original_rank, fanza_rank").in("name", actresses)
+        : Promise.resolve({ data: [] }),
+      genres.length
+        ? supabase.from("genre_rankings").select("rank").in("name", genres)
+        : Promise.resolve({ data: [] }),
+      makers.length
+        ? supabase.from("maker_rankings").select("rank").in("name", makers)
+        : Promise.resolve({ data: [] }),
+      series.length
+        ? supabase.from("series_rankings").select("original_rank, fanza_rank").in("name", series)
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    return {
+      actressRanks: actressRanks.data ?? [],
+      genreRanks: genreRanks.data ?? [],
+      makerRanks: makerRanks.data ?? [],
+      seriesRanks: seriesRanks.data ?? [],
+    };
+  },
+  ["work-detail-entity-ranks"],
+  { revalidate: 3600 }
+);
+
+const getRelatedWorks = unstable_cache(
+  async (mainActress: string, workId: number) => {
+    if (!mainActress) return [];
+
+    const { data } = await supabase
+      .from("works")
+      .select("*")
+      .ilike("actress", `%${mainActress}%`)
+      .neq("id", workId)
+      .limit(6);
+
+    return data ?? [];
+  },
+  ["work-detail-related-works"],
+  { revalidate: 3600 }
+);
+
 
 
 export async function generateMetadata(
@@ -85,34 +172,8 @@ export default async function WorkDetailPage(
 
   if (!work) notFound();
 
-  const { data: sampleImages } = await supabase
-  .from("work_sample_images")
-  .select("image_url, sort_order")
-  .eq("product_id", work?.product_id)
-  .order("sort_order");
-
-  const { data: priceHistory } = await supabase
-  .from("price_history")
-  .select("*")
-  .eq("product_id", work?.product_id)
-  .order("changed_at", {
-  ascending: false,
-})
-  .limit(100)
-
-  const { data: workPrices } = await supabase
-  .from("work_prices")
-  .select("*")
-  .eq("product_id", work?.product_id)
-  .order("display_name");
-
-  const { data: insights } = await supabase
-  .from("insights")
-  .select("*")
-  .eq("work_id", work?.id)
-  .order("priority", {
-    ascending: false,
-  });
+  const { sampleImages, priceHistory, workPrices, insights } =
+    await getWorkDetailData(work.product_id, work.id);
 
   const visibleInsights = (insights ?? []).filter((insight) =>
     isInsightVisible(insight, work)
@@ -123,12 +184,8 @@ export default async function WorkDetailPage(
   const genres = splitEntities(work.genre);
   const makers = splitEntities(work.maker);
   const series = splitEntities(work.series);
-  const [actressRanks, genreRanks, makerRanks, seriesRanks] = await Promise.all([
-    actresses.length ? supabase.from("actress_rankings").select("original_rank, fanza_rank").in("name", actresses) : Promise.resolve({ data: [] }),
-    genres.length ? supabase.from("genre_rankings").select("rank").in("name", genres) : Promise.resolve({ data: [] }),
-    makers.length ? supabase.from("maker_rankings").select("rank").in("name", makers) : Promise.resolve({ data: [] }),
-    series.length ? supabase.from("series_rankings").select("original_rank, fanza_rank").in("name", series) : Promise.resolve({ data: [] }),
-  ]);
+  const { actressRanks, genreRanks, makerRanks, seriesRanks } =
+    await getEntityRanks(actresses, genres, makers, series);
   const minimumRank = (values: Array<number | null | undefined>) => {
     const ranks = values.filter((value): value is number => typeof value === "number" && value > 0);
     return ranks.length ? Math.min(...ranks) : null;
@@ -141,25 +198,17 @@ export default async function WorkDetailPage(
     currentPrice,
     priceHistory: priceHistory ?? [],
     entityRanks: {
-      actress: minimumRank((actressRanks.data ?? []).flatMap((row) => [row.original_rank, row.fanza_rank])),
-      genre: minimumRank((genreRanks.data ?? []).map((row) => row.rank)),
-      maker: minimumRank((makerRanks.data ?? []).map((row) => row.rank)),
-      series: minimumRank((seriesRanks.data ?? []).flatMap((row) => [row.original_rank, row.fanza_rank])),
+      actress: minimumRank(actressRanks.flatMap((row) => [row.original_rank, row.fanza_rank])),
+      genre: minimumRank(genreRanks.map((row) => row.rank)),
+      maker: minimumRank(makerRanks.map((row) => row.rank)),
+      series: minimumRank(seriesRanks.flatMap((row) => [row.original_rank, row.fanza_rank])),
     },
   });
 
   const mainActress =
   work.actress?.split(" / ")[0] || "";
 
-const { data: relatedWorks } = await supabase
-  .from("works")
-  .select("*")
-  .ilike(
-    "actress",
-    `%${mainActress}%`
-  )
-  .neq("id", work.id)
-  .limit(6);
+const relatedWorks = await getRelatedWorks(mainActress, work.id);
 
   const {
   summary,
