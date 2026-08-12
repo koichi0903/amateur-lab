@@ -19,32 +19,67 @@ type Job = {
 export default function UpdatePage() {
 const [jobs, setJobs] = useState<Job[]>([]);
 const [loading, setLoading] = useState(true);
+const [runningAll, setRunningAll] = useState(false);
 
 const [showIdleJobs, setShowIdleJobs] = useState(false);
 
 const [startedAt] = useState(Date.now());
   
   
-  const isUpdating = jobs.some(
+  const isUpdating = runningAll || jobs.some(
   (job) =>
     job.status === "running" &&
     job.job_name === "all"
 );
 
   async function handleUpdateAll() {
+  const steps = [
+    ["reserve", "予約作品更新"],
+    ["new", "新作更新"],
+    ["semiNew", "準新作更新"],
+    ["old", "旧作更新"],
+    ["sale", "セール更新"],
+    ["endedSale", "終了セール更新"],
+    ["stage", "Stage同期"],
+    ["review", "レビュー更新"],
+    ["ranking", "ランキング更新"],
+    ["score", "スコア更新"],
+  ] as const;
+
+  setRunningAll(true);
+
   try {
-    const res = await fetch("/api/update-all", {
-      method: "POST",
-    });
+    for (const [index, [step, label]] of steps.entries()) {
+      const res = await fetch(`/api/update-all?step=${step}`, {
+        method: "POST",
+      });
 
-    const data = await res.json();
+      if (!res.ok) {
+        let message = `${label}に失敗しました。`;
+        try {
+          const data = (await res.json()) as { message?: string };
+          if (data.message) message = data.message;
+        } catch {
+          // タイムアウトなどJSON以外の応答でも工程名を表示する。
+        }
 
-    alert(data.message);
+        throw new Error(`${index + 1}/${steps.length} ${message}`);
+      }
 
+      await loadJobs();
+    }
+
+    alert("全更新が完了しました。");
     await loadJobs();
   } catch (error) {
     console.error(error);
-    alert("全更新に失敗しました");
+    alert(
+      error instanceof Error
+        ? `全更新を中断しました。\n${error.message}`
+        : "全更新に失敗しました。",
+    );
+  } finally {
+    setRunningAll(false);
   }
 }
 
