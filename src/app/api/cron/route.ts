@@ -1,8 +1,7 @@
 import { run0030 } from "@/lib/cron/run0030";
-import { run1030 } from "@/lib/cron/run1030";
-import { runSemiNew } from "@/lib/cron/runSemiNew";
 import { NextResponse } from "next/server";
-import { UPDATE_CONFIG } from "@/config/update";
+
+export const maxDuration = 300;
 
 export async function GET() {
   const now = new Date();
@@ -21,33 +20,13 @@ export async function GET() {
       timeZone: "Asia/Tokyo",
     }).toLowerCase();
 
-  const jobs: string[] = [];
-
-  if (time === UPDATE_CONFIG.CRON.NIGHT) {
-  jobs.push("NIGHT");
-
+  // Hobby cron invocations may occur at any point within the scheduled hour.
+  // The endpoint itself is scheduled once per day, so always run the daily job.
   await run0030();
-}
-
-if (time === UPDATE_CONFIG.CRON.DAY) {
-  jobs.push("DAY");
-
-  await run1030();
-}
-
-  if (
-  UPDATE_CONFIG.CRON.SEMI_NEW.days.includes(day) &&
-  time === UPDATE_CONFIG.CRON.SEMI_NEW.time
-) {
-  jobs.push("SEMI_NEW");
-
-  await runSemiNew();
-}
-
 
   return NextResponse.json({
-  now: time,
-  day,
-  jobs,
-});
+    now: time,
+    day,
+    jobs: ["DAILY"],
+  });
 }
