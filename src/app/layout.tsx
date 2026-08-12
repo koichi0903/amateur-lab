@@ -4,6 +4,7 @@ import "./globals.css";
 import WebSiteStructuredData from "./components/WebSiteStructuredData";
 import OrganizationStructuredData from "./components/OrganizationStructuredData";
 import { SITE_URL } from "@/lib/seo";
+import AgeGate from "@/components/compliance/AgeGate";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -78,6 +79,9 @@ openGraph: {
     "FANZA作品をレビュー・人気女優・ランキング・セール情報から独自分析。",
   images: ["/ogp.png"],
 },
+  other: {
+    rating: "adult",
+  },
 };
 export default function RootLayout({
   children,
@@ -94,6 +98,7 @@ export default function RootLayout({
 
   <WebSiteStructuredData />
 <OrganizationStructuredData />
+<AgeGate />
 
 <main className="flex-1">
   {children}
