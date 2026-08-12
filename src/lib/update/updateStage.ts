@@ -54,7 +54,7 @@ const reserveSet = new Set(
   "id, product_id, stage, product_release_date"
 );
 
-const job = await beginJob(
+await beginJob(
   JOBS.STAGE,
   works.length
 );

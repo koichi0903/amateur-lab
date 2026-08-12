@@ -66,7 +66,7 @@ const hasActressChange =
   nextActress != null && currentWork?.actress !== nextActress;
 
 if (!exists && sampleImages.length > 0) {
-  const { error: imageError } = await supabase
+  await supabase
   .from("work_sample_images")
   .insert(
       sampleImages.map((url, index) => ({

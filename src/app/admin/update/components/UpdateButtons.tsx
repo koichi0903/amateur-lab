@@ -1,6 +1,4 @@
 type UpdateButtonsProps = {
-  onSyncWorks?: () => void;
-
   onUpdateStage?: () => void;
 
   onUpdateNew?: () => void;
@@ -31,8 +29,6 @@ onUpdateReserve?: () => void;
 };
 
 export default function UpdateButtons({
-  onSyncWorks,
-
   onUpdateStage,
 
   onUpdateNew,

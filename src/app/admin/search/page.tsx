@@ -1,4 +1,5 @@
 "use client";
+import Image from "next/image";
 import { useState } from "react";
 import type { DmmItem } from "@/types/dmm";
 import { supabase } from "@/lib/supabase";
@@ -510,10 +511,12 @@ const displayResults = searchResults.filter(
   className="mt-2 h-5 w-5"
 />
     {item.imageURL?.large && (
-      <img
+      <Image
         src={item.imageURL.large}
         alt={item.title}
-        className="w-28 rounded-lg"
+        width={112}
+        height={158}
+        className="h-auto w-28 rounded-lg"
       />
     )}
 

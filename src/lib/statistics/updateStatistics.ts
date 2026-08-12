@@ -25,7 +25,7 @@ export async function updateStatistics() {
       .forEach((genre) => genreSet.add(genre));
   });
 
-  const { data, error } = await supabase
+  await supabase
   .from("site_statistics")
   .update({
     total_works: works.length,

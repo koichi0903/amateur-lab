@@ -14,8 +14,6 @@ import { IGNORE_GENRES } from "@/lib/genre";
 import { updateStatistics } from "@/lib/statistics/updateStatistics";
 import { getActressRanking } from "@/lib/playwright/getActressRanking";
 import { getSeriesRanking } from "@/lib/playwright/getSeriesRanking";
-import { fetchItems } from "@/lib/dmm/fetchItems";
-import { updateDmmItem } from "./update";
 import {
   beginJob,
   updateJob,

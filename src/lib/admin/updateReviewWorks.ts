@@ -5,7 +5,6 @@ import {
   beginJob,
   updateJob,
   finishJob,
-  failJob,
   JOBS,
 } from "@/lib/jobs";
 

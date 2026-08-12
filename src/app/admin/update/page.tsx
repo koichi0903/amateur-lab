@@ -118,7 +118,7 @@ async function handleUpdateRanking() {
       method: "POST",
     });
 
-    const data = await res.json();
+    await res.json();
 
     alert("ランキング更新が完了しました");
 
@@ -181,7 +181,7 @@ async function handleUpdateScore() {
       method: "POST",
     });
 
-    const data = await res.json();
+    await res.json();
 
     alert("スコア更新が完了しました");
 

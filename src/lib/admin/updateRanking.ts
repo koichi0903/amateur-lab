@@ -2,7 +2,6 @@ import { createClient } from "@supabase/supabase-js";
 import type { DmmItem } from "@/types/dmm";
 import { updateTopRankingWorks } from "./updateTopRankingWorks";
 import { saveDmmItem } from "./save";
-import { generateAndSaveTrendingInsight } from "@/lib/insights/generateAndSaveTrending";
 import {
   failJob,
   JOBS,
@@ -12,13 +11,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-function getRankingPoint(rank: number) {
-  return Math.max(
-    1,
-    Math.floor(500 / Math.sqrt(rank))
-  );
-}
 
 async function fetchRanking(
   apiId: string,
@@ -105,20 +97,6 @@ const { data: works } = await supabase
 
 const workMap = new Set(
   (works ?? []).map((w) => w.product_id)
-);
-
-const { data: worksForStatus } = await supabase
-  .from("works")
-  .select(`
-    product_id,
-    playwright_status
-  `);
-
-const statusMap = new Map(
-  (worksForStatus ?? []).map((work) => [
-    work.product_id,
-    work.playwright_status,
-  ])
 );
 
 await supabase

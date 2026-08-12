@@ -11,6 +11,8 @@ export class InsightSynchronizer {
     current: Insight[],
     next: Insight[],
   ): InsightDiff {
+    void current;
+    void next;
     // 実装は次ステップ
     return {
       insert: [],

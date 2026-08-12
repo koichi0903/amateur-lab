@@ -138,12 +138,6 @@ async function getDateValue(
   return match[0].replace(/\//g, "-");
 }
 
-async function getMaker(
-  page: Page
-): Promise<string | undefined> {
-  return await getTableValue(page, "メーカー");
-}
-
 async function getPrices(
   page: Page
 ): Promise<PriceInfo[]> {

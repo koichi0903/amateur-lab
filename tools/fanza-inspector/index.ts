@@ -63,7 +63,7 @@ try {
   await page.waitForLoadState("networkidle");
 
   console.log("年齢認証を突破しました");
-} catch (error) {
+} catch {
   console.log("年齢認証は表示されませんでした");
 }
 

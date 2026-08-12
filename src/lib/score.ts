@@ -123,45 +123,6 @@ function getLongHitPoint(rank?: number | null): number {
   return 0;
 }
 
-function getActressPoint(rank?: number | null): number {
-  if (!rank) return 0;
-
-  if (rank <= 5) return 20;
-  if (rank <= 10) return 19;
-  if (rank <= 15) return 18;
-  if (rank <= 20) return 17;
-  if (rank <= 25) return 16;
-  if (rank <= 30) return 15;
-  if (rank <= 35) return 14;
-  if (rank <= 40) return 13;
-  if (rank <= 45) return 12;
-  if (rank <= 50) return 11;
-  if (rank <= 60) return 10;
-  if (rank <= 70) return 8;
-  if (rank <= 80) return 6;
-  if (rank <= 90) return 4;
-  if (rank <= 100) return 2;
-
-  return 0;
-}
-
-function getMakerPoint(rank?: number | null): number {
-  if (!rank) return 0;
-
-  if (rank <= 5) return 10;
-  if (rank <= 10) return 9;
-  if (rank <= 15) return 8;
-  if (rank <= 20) return 7;
-  if (rank <= 25) return 6;
-  if (rank <= 30) return 5;
-  if (rank <= 35) return 4;
-  if (rank <= 40) return 3;
-  if (rank <= 45) return 2;
-  if (rank <= 50) return 1;
-
-  return 0;
-}
-
 type ScoreParams = {
   reviewAverage: number;
   reviewCount: number;

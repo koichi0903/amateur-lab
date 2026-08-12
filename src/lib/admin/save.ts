@@ -185,14 +185,10 @@ const discountRate =
 
 const {
   score,
-  actressPoint,
-  genrePoint,
-  makerPoint,
   reviewPoint,
   reviewCountPoint,
   discountPoint,
   popularityPoint,
-  seriesPoint,
   newReleaseBonus,
 } = calculateScore({
   reviewAverage,
@@ -320,7 +316,7 @@ review_average:
 
 playwright_status: "PENDING",
 
-stage: "NEW",
+stage,
 
       },
     ]);

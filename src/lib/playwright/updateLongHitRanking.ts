@@ -3,7 +3,6 @@ dotenv.config({ path: ".env.local" });
 
 import { createClient } from "@supabase/supabase-js";
 import { getLongHitRanking } from "./getLongHitRanking";
-import { updateScore } from "../admin/updateScore";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

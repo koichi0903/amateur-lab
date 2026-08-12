@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { insightGenerator } from "@/lib/insights";
@@ -18,11 +18,7 @@ export default function AdminWorksPage() {
 const [page, setPage] = useState(1);
 const [totalCount, setTotalCount] = useState(0);
 
-  useEffect(() => {
-  loadWorks();
-}, [stage, page, keyword]);
-
-  async function loadWorks() {
+  const loadWorks = useCallback(async () => {
   setLoading(true);
 
   const from = (page - 1) * PAGE_SIZE;
@@ -57,7 +53,11 @@ const { data, error, count } = await query
 setTotalCount(count ?? 0);
 
 setLoading(false);
-}
+}, [keyword, page, stage]);
+
+  useEffect(() => {
+  loadWorks();
+}, [loadWorks]);
 
   async function deleteWork() {
   if (!editingWork) return;
@@ -105,7 +105,7 @@ const totalPages = Math.max(
   <input
     value={keyword}
     onChange={(e) => {
-  setStage(e.target.value);
+  setKeyword(e.target.value);
   setPage(1);
 }}
     placeholder="作品名で検索"
