@@ -6,6 +6,7 @@ import WorkImage from "@/components/home/WorkImage";
 import { supabase } from "@/lib/supabase";
 import { getDiscoveryEntityRankings, type DiscoveryEntityKind, type DiscoveryEntityRankingItem } from "@/lib/ranking/discoveryEntityRanking";
 import type { Work } from "@/types/work";
+import { pageMetadata } from "@/lib/seo";
 
 export const revalidate = 300;
 
@@ -27,11 +28,11 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   const query = new URLSearchParams();
   if (type !== "overall") query.set("type", type);
   if (page > 1) query.set("page", String(page));
-  return {
+  return pageMetadata({
     title: `${rankingTypes[type].title}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
     description: rankingTypes[type].description,
-    alternates: { canonical: query.size ? `/ranking?${query}` : "/ranking" },
-  };
+    canonical: query.size ? `/ranking?${query}` : "/ranking",
+  });
 }
 
 function getPrice(work: Work) {

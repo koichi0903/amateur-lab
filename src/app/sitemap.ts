@@ -1,7 +1,8 @@
 import type { MetadataRoute } from "next";
 import { supabase } from "@/lib/supabase";
+import { SITE_URL } from "@/lib/seo";
 
-const BASE_URL = "https://amateur-lab.vercel.app";
+const BASE_URL = SITE_URL;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const works: Array<{
@@ -22,7 +23,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
-    if (error) throw error;
+    if (error) {
+      console.error("Failed to fetch sitemap works", error);
+      break;
+    }
     const page = data ?? [];
     works.push(...page);
     if (page.length < pageSize) break;

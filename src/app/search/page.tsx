@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { ArrowRight, Search, Sparkles } from "lucide-react";
 import Header from "@/components/layout/Header";
@@ -6,12 +7,7 @@ import WorkImage from "@/components/home/WorkImage";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 
-export const metadata: Metadata = {
-  title: "作品検索 | 発掘LAB",
-  description: "作品名、女優、メーカー、シリーズ、ジャンルからFANZA作品を検索できます。",
-  alternates: { canonical: "/search" },
-  robots: { index: false, follow: true },
-};
+export const metadata: Metadata = pageMetadata({ title: "作品検索 | 発掘LAB", description: "作品名、女優、メーカー、シリーズ、ジャンルからFANZA作品を検索できます。", canonical: "/search", robots: { index: false, follow: true } });
 
 const SEARCH_COLUMNS = ["title", "actress", "maker", "series", "genre"] as const;
 const MAX_QUERY_LENGTH = 100;

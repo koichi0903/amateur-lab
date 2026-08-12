@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import WebSiteStructuredData from "./components/WebSiteStructuredData";
 import OrganizationStructuredData from "./components/OrganizationStructuredData";
+import { SITE_URL } from "@/lib/seo";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,11 +20,12 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://amateur-lab.vercel.app"),
+  metadataBase: new URL(SITE_URL),
   title: "発掘LAB | FANZA作品分析メディア",
 
   description:
     "FANZA作品をレビュー・人気女優・ランキング・セール情報から独自分析。毎日更新される発掘スコアでおすすめ作品を紹介します。",
+  alternates: { canonical: "/" },
 
   icons: {
   icon: [
@@ -55,7 +57,7 @@ openGraph: {
     title: "発掘LAB | FANZA作品分析メディア",
     description:
       "FANZA作品をレビュー・人気女優・ランキング・セール情報から独自分析。",
-    url: "https://amateur-lab.vercel.app",
+    url: "/",
     siteName: "発掘LAB",
     locale: "ja_JP",
     type: "website",

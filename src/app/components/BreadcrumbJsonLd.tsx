@@ -7,7 +7,7 @@ type Props = {
   items: BreadcrumbItem[];
 };
 
-const BASE_URL = "https://amateur-lab.vercel.app";
+import { SITE_URL } from "@/lib/seo";
 
 export default function BreadcrumbJsonLd({ items }: Props) {
   const jsonLd = {
@@ -17,7 +17,7 @@ export default function BreadcrumbJsonLd({ items }: Props) {
       "@type": "ListItem",
       position: index + 1,
       name: item.name,
-      item: `${BASE_URL}${item.url}`,
+      item: new URL(item.url, `${SITE_URL}/`).toString(),
     })),
   };
 

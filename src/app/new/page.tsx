@@ -5,16 +5,17 @@ import Header from "@/components/layout/Header";
 import WorkImage from "@/components/home/WorkImage";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
+import { pageMetadata } from "@/lib/seo";
 
 export const revalidate = 300;
 export async function generateMetadata({ searchParams }: { searchParams: Promise<{ page?: string }> }): Promise<Metadata> {
   const requestedPage = Number.parseInt((await searchParams).page ?? "1", 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 1 ? requestedPage : 1;
-  return {
+  return pageMetadata({
     title: `新着作品${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
     description: "発売日の新しいFANZA作品を発掘スコアとともに紹介します。",
-    alternates: { canonical: page > 1 ? `/new?page=${page}` : "/new" },
-  };
+    canonical: page > 1 ? `/new?page=${page}` : "/new",
+  });
 }
 const PAGE_SIZE = 48;
 

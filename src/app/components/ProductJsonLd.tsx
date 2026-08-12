@@ -7,6 +7,7 @@ type Work = {
   review_count: number | null;
   sale_price: number | null;
   price: number | null;
+  affiliate_url?: string | null;
 };
 
 type Props = {
@@ -16,36 +17,32 @@ type Props = {
 export default function ProductJsonLd({
   work,
 }: Props) {
-  const jsonLd = {
+  const price = work.sale_price && work.sale_price > 0 ? work.sale_price : work.price;
+  const jsonLd: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "Product",
 
     name: work.title,
 
-    image: work.image_url,
-
     description: `${work.title}のレビュー・評価・発掘スコアを掲載しています。`,
 
     sku: work.product_id,
 
-    brand: {
-      "@type": "Brand",
-      name: work.maker,
-    },
-
-    aggregateRating: {
-      "@type": "AggregateRating",
-      ratingValue: work.review_average ?? 0,
-      reviewCount: work.review_count ?? 0,
-    },
-
-    offers: {
-      "@type": "Offer",
-      price: work.sale_price ?? work.price ?? 0,
-      priceCurrency: "JPY",
-      availability: "https://schema.org/InStock",
-    },
   };
+
+  if (work.image_url) jsonLd.image = [work.image_url];
+  if (work.maker) jsonLd.brand = { "@type": "Brand", name: work.maker };
+  if (work.review_average && work.review_average > 0 && work.review_count && work.review_count > 0) {
+    jsonLd.aggregateRating = { "@type": "AggregateRating", ratingValue: work.review_average, reviewCount: work.review_count };
+  }
+  if (price && price > 0) {
+    jsonLd.offers = {
+      "@type": "Offer",
+      price,
+      priceCurrency: "JPY",
+      ...(work.affiliate_url ? { url: work.affiliate_url } : {}),
+    };
+  }
 
   return (
     <script

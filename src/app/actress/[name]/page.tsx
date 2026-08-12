@@ -6,6 +6,7 @@ import Header from "@/components/layout/Header";
 import WorkImage from "@/components/home/WorkImage";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
+import { pageMetadata } from "@/lib/seo";
 
 export const revalidate = 1800;
 
@@ -34,9 +35,10 @@ async function getActressWorks(actressName: string) {
   return { works: works.filter((work) => actressNames(work.actress).includes(actressName)), error: null };
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ name: string }> }): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: { params: Promise<{ name: string }>; searchParams: Promise<{ page?: string }> }): Promise<Metadata> {
   const actressName = decodeURIComponent((await params).name);
-  return { title: `${actressName}の出演作品 | 発掘LAB`, description: `${actressName}の出演作品を発掘スコア順に紹介します。`, alternates: { canonical: `/actress/${encodeURIComponent(actressName)}` } };
+  const page = Math.max(1, Number.parseInt((await searchParams).page ?? "1", 10) || 1);
+  return pageMetadata({ title: `${actressName}の出演作品${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`, description: `${actressName}の出演作品を発掘スコア順に紹介します。`, canonical: `/actress/${encodeURIComponent(actressName)}${page > 1 ? `?page=${page}` : ""}` });
 }
 
 function Price({ work }: { work: Work }) {

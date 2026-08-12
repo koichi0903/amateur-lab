@@ -19,6 +19,7 @@ import SampleImageCarousel from "@/app/components/SampleImageCarousel";
 import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
 import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
 import { isInsightVisible } from "@/lib/insights/visibility";
+import { pageMetadata } from "@/lib/seo";
 
 import {
   analyzeWork,
@@ -39,38 +40,20 @@ export async function generateMetadata(
   .single();
 
   if (!work) {
-    return {
+    return pageMetadata({
       title: "作品情報 | 発掘LAB",
-    };
+      description: "指定された作品は見つかりませんでした。",
+      canonical: `/works/${encodeURIComponent(id)}`,
+      robots: { index: false, follow: false },
+    });
   }
 
-  return {
-  title: `${work.title}｜レビュー・発掘スコア${work.score} | 発掘LAB`,
-  description:
-    `${work.title}のレビュー・評価・発掘スコアを掲載。女優「${work.actress}」出演作品を独自アルゴリズムで分析しています。`,
-
-  alternates: {
-    canonical: `/works/${id}`,
-  },
-
-  keywords: [
-  work.title,
-  work.actress,
-  "FANZA",
-  "レビュー",
-  "AV",
-  "発掘LAB",
-  "おすすめ作品",
-],
-
-  openGraph: {
-  title: `${work.title} | 発掘LAB`,
-  description: `${work.title}のレビュー・評価・発掘スコアを掲載しています。`,
-  type: "article",
-  images: [work.image_url],
-},
-  
-    };
+  const scoreText = typeof work.score === "number" && work.score > 0 ? `・発掘スコア${work.score}` : "";
+  const actressText = work.actress ? `${work.actress}出演。` : "";
+  const title = `${work.title}｜レビュー${scoreText} | 発掘LAB`;
+  const description = `${work.title}のレビュー・評価を掲載。${actressText}作品情報を独自データで分析しています。`;
+  const metadata = pageMetadata({ title, description, canonical: `/works/${id}`, image: work.image_url || "/ogp.png" });
+  return { ...metadata, openGraph: { ...metadata.openGraph, type: "article" } };
 }
 
 export default async function WorkDetailPage(
@@ -298,41 +281,45 @@ const chartData = createChartData(
 
         <div className="flex flex-wrap gap-3">
 
-          {mainActress && (
+          {actresses.map((actress) => (
             <Link
-              href={`/actress/${encodeURIComponent(mainActress)}`}
+              key={`actress-${actress}`}
+              href={`/actress/${encodeURIComponent(actress)}`}
               className="rounded-xl bg-pink-100 px-4 py-2 font-semibold hover:bg-pink-200"
             >
-              👩 {mainActress}の作品一覧
+              👩 {actress}の作品一覧
             </Link>
-          )}
+          ))}
 
-          {work.genre && (
+          {genres.map((genre) => (
             <Link
-              href={`/genre/${encodeURIComponent(work.genre)}`}
+              key={`genre-${genre}`}
+              href={`/genre/${encodeURIComponent(genre)}`}
               className="rounded-xl bg-indigo-100 px-4 py-2 font-semibold hover:bg-indigo-200"
             >
-              🏷 {work.genre}
+              🏷 {genre}
             </Link>
-          )}
+          ))}
 
-          {work.maker && (
+          {makers.map((maker) => (
             <Link
-              href={`/maker/${encodeURIComponent(work.maker)}`}
+              key={`maker-${maker}`}
+              href={`/maker/${encodeURIComponent(maker)}`}
               className="rounded-xl bg-green-100 px-4 py-2 font-semibold hover:bg-green-200"
             >
-              🏢 {work.maker}
+              🏢 {maker}
             </Link>
-          )}
+          ))}
 
-          {work.series && (
+          {series.map((seriesName) => (
             <Link
-              href={`/series/${encodeURIComponent(work.series)}`}
+              key={`series-${seriesName}`}
+              href={`/series/${encodeURIComponent(seriesName)}`}
               className="rounded-xl bg-yellow-100 px-4 py-2 font-semibold hover:bg-yellow-200"
             >
-              📚 {work.series}
+              📚 {seriesName}
             </Link>
-          )}
+          ))}
 
         </div>
 

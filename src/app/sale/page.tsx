@@ -5,6 +5,7 @@ import Header from "@/components/layout/Header";
 import WorkImage from "@/components/home/WorkImage";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
+import { pageMetadata } from "@/lib/seo";
 
 const PAGE_SIZE = 20;
 
@@ -15,11 +16,11 @@ function parsePage(value: string | undefined) {
 
 export async function generateMetadata({ searchParams }: { searchParams: Promise<{ page?: string }> }): Promise<Metadata> {
   const page = parsePage((await searchParams).page);
-  return {
+  return pageMetadata({
     title: `セール中の作品${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
     description: "現在セール中のFANZA作品を、割引率が高い順に紹介します。",
-    alternates: { canonical: page > 1 ? `/sale?page=${page}` : "/sale" },
-  };
+    canonical: page > 1 ? `/sale?page=${page}` : "/sale",
+  });
 }
 
 function saleDetails(work: Work) {

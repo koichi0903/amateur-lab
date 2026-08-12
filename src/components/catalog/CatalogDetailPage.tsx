@@ -6,6 +6,7 @@ import Header from "@/components/layout/Header";
 import WorkImage from "@/components/home/WorkImage";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
+import { SITE_URL, pageMetadata } from "@/lib/seo";
 
 export type CatalogKind = "maker" | "series" | "genre";
 
@@ -23,13 +24,14 @@ export function decodeCatalogName(value: string) {
   }
 }
 
-export function catalogMetadata(kind: CatalogKind, name: string): Metadata {
+export function catalogMetadata(kind: CatalogKind, name: string, page = 1): Metadata {
   const { label } = catalogConfig[kind];
-  return {
-    title: `${name}の作品一覧 | 発掘LAB`,
+  const suffix = page > 1 ? ` ${page}ページ目` : "";
+  return pageMetadata({
+    title: `${name}の作品一覧${suffix} | 発掘LAB`,
     description: `${name}${label === "シリーズ" ? "シリーズ" : ""}の作品を発掘スコア順に紹介します。`,
-    alternates: { canonical: `/${kind}/${encodeURIComponent(name)}` },
-  };
+    canonical: `/${kind}/${encodeURIComponent(name)}${page > 1 ? `?page=${page}` : ""}`,
+  });
 }
 
 function splitValues(value: string | null) {
@@ -85,9 +87,9 @@ function WorkCard({ work, rank }: { work: Work; rank: number }) {
   );
 }
 
-function JsonLd({ kind, name, works }: { kind: CatalogKind; name: string; works: Work[] }) {
-  const baseUrl = "https://amateur-lab.vercel.app";
-  const pageUrl = `${baseUrl}/${kind}/${encodeURIComponent(name)}`;
+function JsonLd({ kind, name, works, page, pageSize }: { kind: CatalogKind; name: string; works: Work[]; page: number; pageSize: number }) {
+  const baseUrl = SITE_URL;
+  const pageUrl = `${baseUrl}/${kind}/${encodeURIComponent(name)}${page > 1 ? `?page=${page}` : ""}`;
   const data = [
     {
       "@context": "https://schema.org",
@@ -106,7 +108,7 @@ function JsonLd({ kind, name, works }: { kind: CatalogKind; name: string; works:
       numberOfItems: works.length,
       itemListElement: works.map((work, index) => ({
         "@type": "ListItem",
-        position: index + 1,
+        position: (page - 1) * pageSize + index + 1,
         url: `${baseUrl}/works/${work.id}`,
         name: work.title,
       })),
@@ -134,7 +136,7 @@ export default async function CatalogDetailPage({ kind, name, page = 1 }: { kind
     : `/${kind}/${encodeURIComponent(name)}`;
   const Icon = config.icon;
 
-  return <><Header /><JsonLd kind={kind} name={name} works={displayedWorks} /><main className="min-h-screen bg-[#f8fafc] text-slate-950">
+  return <><Header /><JsonLd kind={kind} name={name} works={displayedWorks} page={currentPage} pageSize={pageSize} /><main className="min-h-screen bg-[#f8fafc] text-slate-950">
     <section className="border-b border-slate-200 bg-white"><div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
       <nav aria-label="パンくず" className="min-w-0 truncate text-xs font-bold text-slate-500"><Link href="/" className="hover:text-pink-600">TOP</Link><span className="mx-1">/</span><Link href={`/${kind}`} className="hover:text-pink-600">{config.label}</Link><span className="mx-1">/</span><span>{name}</span></nav>
       <div className="mt-6 grid gap-6 md:grid-cols-[280px_minmax(0,1fr)] lg:gap-10">

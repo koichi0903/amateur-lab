@@ -3,8 +3,9 @@ import CatalogDetailPage, { catalogMetadata, decodeCatalogName } from "@/compone
 
 export const revalidate = 1800;
 
-export async function generateMetadata({ params }: { params: Promise<{ name: string }> }): Promise<Metadata> {
-  return catalogMetadata("series", decodeCatalogName((await params).name));
+export async function generateMetadata({ params, searchParams }: { params: Promise<{ name: string }>; searchParams: Promise<{ page?: string }> }): Promise<Metadata> {
+  const page = Math.max(1, Number.parseInt((await searchParams).page ?? "1", 10) || 1);
+  return catalogMetadata("series", decodeCatalogName((await params).name), page);
 }
 
 export default async function SeriesDetailPage({ params, searchParams }: { params: Promise<{ name: string }>; searchParams: Promise<{ page?: string }> }) {

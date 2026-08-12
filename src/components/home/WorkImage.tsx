@@ -8,7 +8,6 @@ export default function WorkImage({
   alt,
   sizes,
   priority = false,
-  unoptimized = false,
   className = "object-cover",
 }: {
   src?: string | null;
@@ -34,7 +33,6 @@ export default function WorkImage({
       alt={alt}
       fill
       priority={priority}
-      unoptimized={unoptimized}
       sizes={sizes}
       className={className}
       onError={() => setFailed(true)}
