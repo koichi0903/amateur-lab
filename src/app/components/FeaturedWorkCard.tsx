@@ -2,8 +2,21 @@ import Link from "next/link";
 import Image from "next/image";
 import type { Work } from "@/types/work";
 
+export type FeaturedWork = Pick<
+  Work,
+  | "id"
+  | "title"
+  | "actress"
+  | "image_url"
+  | "score"
+  | "review_average"
+  | "review_count"
+  | "price"
+  | "sale_price"
+>;
+
 type Props = {
-  work: Work;
+  work: FeaturedWork;
 };
 
 export default function FeaturedWorkCard({

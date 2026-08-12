@@ -1,8 +1,8 @@
 import FeaturedWorkCard from "./FeaturedWorkCard";
-import type { Work } from "@/types/work";
+import type { FeaturedWork } from "./FeaturedWorkCard";
 
 type Props = {
-  works: Work[] | null;
+  works: FeaturedWork[] | null;
 };
 
 export default function RelatedWorks({

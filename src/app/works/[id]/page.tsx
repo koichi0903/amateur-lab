@@ -59,18 +59,18 @@ const getWorkDetailData = unstable_cache(
         .order("sort_order"),
       supabase
         .from("price_history")
-        .select("*")
+        .select("id,changed_at,display_name,type,normal_price,sale_price")
         .eq("product_id", productId)
         .order("changed_at", { ascending: false })
         .limit(100),
       supabase
         .from("work_prices")
-        .select("*")
+        .select("display_name,type,normal_price,sale_price")
         .eq("product_id", productId)
         .order("display_name"),
       supabase
         .from("insights")
-        .select("*")
+        .select("id,type,title,description,created_at,updated_at")
         .eq("work_id", workId)
         .order("priority", { ascending: false }),
     ]);
@@ -125,7 +125,7 @@ const getRelatedWorks = unstable_cache(
 
     const { data } = await supabase
       .from("works")
-      .select("*")
+      .select("id,title,actress,image_url,score,review_average,review_count,price,sale_price")
       .ilike("actress", `%${mainActress}%`)
       .neq("id", workId)
       .limit(6);
