@@ -22,10 +22,28 @@ import { isInsightVisible } from "@/lib/insights/visibility";
 import { pageMetadata } from "@/lib/seo";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
+import type { Work } from "@/types/work";
 
 import {
   analyzeWork,
 } from "@/lib/analyzers/analysisAnalyzer";
+
+type WorkDetail = Work & {
+  sample_movie_url: string | null;
+  long_hit_rank: number | null;
+};
+
+const WORK_DETAIL_COLUMNS = [
+  "id", "product_id", "title", "actress", "genre", "maker", "series",
+  "score", "actress_score", "genre_score", "maker_score", "series_score",
+  "actress_point", "genre_point", "maker_point", "series_point",
+  "review_score", "review_count_score", "discount_score", "ranking_score",
+  "new_release_score", "long_hit_point", "ranking", "price", "sale_price",
+  "list_price", "discount_rate", "review_count", "review_average",
+  "release_date", "image_url", "affiliate_url", "stage", "is_on_sale",
+  "duration", "lowest_price", "previous_realtime_rank", "realtime_rank",
+  "sample_movie_url", "long_hit_rank",
+].join(",");
 
 // Work data changes at most a few times per day. Reusing the rendered page keeps
 // crawler traffic from issuing the same group of Supabase queries on every hit.
@@ -38,11 +56,11 @@ const getWork = cache(
     async (id: string) => {
       const { data } = await supabase
         .from("works")
-        .select("*")
+        .select(WORK_DETAIL_COLUMNS)
         .eq("id", id)
         .single();
 
-      return data;
+      return data as WorkDetail | null;
     },
     ["work-detail-row"],
     { revalidate: 3600 }
