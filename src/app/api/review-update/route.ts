@@ -1,24 +1,40 @@
+import { NextResponse } from "next/server";
+
 import { updateReviewWorks } from "@/lib/admin/updateReviewWorks";
+
+export const maxDuration = 300;
+
+const REVIEW_BATCH_SIZE = 250;
+const REVIEW_TIME_BUDGET_MS = 240_000;
 
 export async function POST() {
   try {
-    await updateReviewWorks();
+    const result = await updateReviewWorks({
+      maxItems: REVIEW_BATCH_SIZE,
+      timeBudgetMs: REVIEW_TIME_BUDGET_MS,
+    });
 
-    return Response.json({
+    const { success: successCount, ...reviewResult } = result;
+
+    return NextResponse.json({
       success: true,
-      message: "レビュー更新完了",
+      ...reviewResult,
+      successCount,
+      message: result.completed
+        ? "レビュー更新完了"
+        : `レビュー更新中 ${result.processedCount}/${result.totalCount}`,
     });
   } catch (error) {
-    console.error(error);
+    console.error("review-update error:", error);
 
-    return Response.json(
+    return NextResponse.json(
       {
         success: false,
         message: "レビュー更新失敗",
       },
       {
         status: 500,
-      }
+      },
     );
   }
 }

@@ -16,6 +16,14 @@ type Job = {
   last_product_title?: string;
 };
 
+type UpdateResponse = {
+  success?: boolean;
+  completed?: boolean;
+  message?: string;
+  processedCount?: number;
+  totalCount?: number;
+};
+
 export default function UpdatePage() {
 const [jobs, setJobs] = useState<Job[]>([]);
 const [loading, setLoading] = useState(true);
@@ -32,56 +40,84 @@ const [startedAt] = useState(Date.now());
     job.job_name === "all"
 );
 
-  async function handleUpdateAll() {
-  const steps = [
-    ["reserve", "予約作品更新"],
-    ["new", "新作更新"],
-    ["semiNew", "準新作更新"],
-    ["old", "旧作更新"],
-    ["sale", "セール更新"],
-    ["endedSale", "終了セール更新"],
-    ["stage", "Stage同期"],
-    ["review", "レビュー更新"],
-    ["ranking", "ランキング更新"],
-    ["score", "スコア更新"],
-  ] as const;
+  async function runUpdateUntilCompleted(
+    url: string,
+    label: string,
+  ): Promise<UpdateResponse> {
+    const MAX_REQUESTS = 200;
 
-  setRunningAll(true);
-
-  try {
-    for (const [index, [step, label]] of steps.entries()) {
-      const res = await fetch(`/api/update-all?step=${step}`, {
+    for (let attempt = 0; attempt < MAX_REQUESTS; attempt++) {
+      const res = await fetch(url, {
         method: "POST",
       });
 
-      if (!res.ok) {
-        let message = `${label}に失敗しました。`;
-        try {
-          const data = (await res.json()) as { message?: string };
-          if (data.message) message = data.message;
-        } catch {
-          // タイムアウトなどJSON以外の応答でも工程名を表示する。
-        }
+      let data: UpdateResponse = {};
 
-        throw new Error(`${index + 1}/${steps.length} ${message}`);
+      try {
+        data = (await res.json()) as UpdateResponse;
+      } catch {
+        if (!res.ok) {
+          throw new Error(`${label}に失敗しました。`);
+        }
+      }
+
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message ?? `${label}に失敗しました。`);
       }
 
       await loadJobs();
+
+      if (data.completed !== false) {
+        return data;
+      }
     }
 
-    alert("全更新が完了しました。");
-    await loadJobs();
-  } catch (error) {
-    console.error(error);
-    alert(
-      error instanceof Error
-        ? `全更新を中断しました。\n${error.message}`
-        : "全更新に失敗しました。",
-    );
-  } finally {
-    setRunningAll(false);
+    throw new Error(`${label}の分割更新が上限回数を超えました。`);
   }
-}
+
+  async function handleUpdateAll() {
+    const steps = [
+      ["reserve", "予約作品更新"],
+      ["new", "新作更新"],
+      ["semiNew", "準新作更新"],
+      ["old", "旧作更新"],
+      ["sale", "セール更新"],
+      ["endedSale", "終了セール更新"],
+      ["stage", "Stage同期"],
+      ["review", "レビュー更新"],
+      ["ranking", "ランキング更新"],
+      ["score", "スコア更新"],
+    ] as const;
+
+    setRunningAll(true);
+
+    try {
+      for (const [index, [step, label]] of steps.entries()) {
+        try {
+          await runUpdateUntilCompleted(
+            `/api/update-all?step=${step}`,
+            label,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : `${label}に失敗しました。`;
+          throw new Error(`${index + 1}/${steps.length} ${message}`);
+        }
+      }
+
+      alert("全更新が完了しました。");
+      await loadJobs();
+    } catch (error) {
+      console.error(error);
+      alert(
+        error instanceof Error
+          ? `全更新を中断しました。\n${error.message}`
+          : "全更新に失敗しました。",
+      );
+    } finally {
+      setRunningAll(false);
+    }
+  }
 
 async function handleUpdateNew() {
   setLoading(true);
@@ -233,18 +269,20 @@ async function handleUpdateReview() {
   setLoading(true);
 
   try {
-    const res = await fetch("/api/review-update", {
-      method: "POST",
-    });
+    const data = await runUpdateUntilCompleted(
+      "/api/review-update",
+      "レビュー更新",
+    );
 
-    const data = await res.json();
-
-    alert(data.message);
-
+    alert(data.message ?? "レビュー更新完了");
     await loadJobs();
   } catch (e) {
     console.error(e);
-    alert("レビュー更新に失敗しました");
+    alert(
+      e instanceof Error
+        ? e.message
+        : "レビュー更新に失敗しました",
+    );
   } finally {
     setLoading(false);
   }

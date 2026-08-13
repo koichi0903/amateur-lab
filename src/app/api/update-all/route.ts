@@ -1,29 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { updateEndedSaleWorks } from "@/lib/admin/updateEndedSaleWorks";
-import { updateNewWorks } from "@/lib/admin/updateNewWorks";
-import { updateOldWorks } from "@/lib/admin/updateOldWorks";
-import { updateRanking } from "@/lib/admin/updateRanking";
-import { updateReserveWorks } from "@/lib/admin/updateReserveWorks";
-import { updateReviewWorks } from "@/lib/admin/updateReviewWorks";
-import { updateSaleWorks } from "@/lib/admin/updateSaleWorks";
-import { updateScore } from "@/lib/admin/updateScore";
-import { updateSemiNewWorks } from "@/lib/admin/updateSemiNewWorks";
-import { updateStage } from "@/lib/update/updateStage";
-
 export const maxDuration = 300;
 
+const REVIEW_BATCH_SIZE = 250;
+const REVIEW_TIME_BUDGET_MS = 240_000;
+
 const UPDATE_STEPS = {
-  reserve: { label: "予約作品更新", run: updateReserveWorks },
-  new: { label: "新作更新", run: updateNewWorks },
-  semiNew: { label: "準新作更新", run: updateSemiNewWorks },
-  old: { label: "旧作更新", run: updateOldWorks },
-  sale: { label: "セール更新", run: updateSaleWorks },
-  endedSale: { label: "終了セール更新", run: updateEndedSaleWorks },
-  stage: { label: "Stage同期", run: updateStage },
-  review: { label: "レビュー更新", run: updateReviewWorks },
-  ranking: { label: "ランキング更新", run: updateRanking },
-  score: { label: "スコア更新", run: updateScore },
+  reserve: {
+    label: "予約作品更新",
+    load: async () => (await import("@/lib/admin/updateReserveWorks")).updateReserveWorks,
+  },
+  new: {
+    label: "新作更新",
+    load: async () => (await import("@/lib/admin/updateNewWorks")).updateNewWorks,
+  },
+  semiNew: {
+    label: "準新作更新",
+    load: async () => (await import("@/lib/admin/updateSemiNewWorks")).updateSemiNewWorks,
+  },
+  old: {
+    label: "旧作更新",
+    load: async () => (await import("@/lib/admin/updateOldWorks")).updateOldWorks,
+  },
+  sale: {
+    label: "セール更新",
+    load: async () => (await import("@/lib/admin/updateSaleWorks")).updateSaleWorks,
+  },
+  endedSale: {
+    label: "終了セール更新",
+    load: async () =>
+      (await import("@/lib/admin/updateEndedSaleWorks")).updateEndedSaleWorks,
+  },
+  stage: {
+    label: "Stage同期",
+    load: async () => (await import("@/lib/update/updateStage")).updateStage,
+  },
+  review: {
+    label: "レビュー更新",
+    load: async () => (await import("@/lib/admin/updateReviewWorks")).updateReviewWorks,
+  },
+  ranking: {
+    label: "ランキング更新",
+    load: async () => (await import("@/lib/admin/updateRanking")).updateRanking,
+  },
+  score: {
+    label: "スコア更新",
+    load: async () => (await import("@/lib/admin/updateScore")).updateScore,
+  },
 } as const;
 
 type UpdateStep = keyof typeof UPDATE_STEPS;
@@ -45,11 +68,33 @@ export async function POST(request: NextRequest) {
   const update = UPDATE_STEPS[step];
 
   try {
-    await update.run();
+    if (step === "review") {
+      const run = await UPDATE_STEPS.review.load();
+      const result = await run({
+        maxItems: REVIEW_BATCH_SIZE,
+        timeBudgetMs: REVIEW_TIME_BUDGET_MS,
+      });
+
+      const { success: successCount, ...reviewResult } = result;
+
+      return NextResponse.json({
+        success: true,
+        step,
+        ...reviewResult,
+        successCount,
+        message: result.completed
+          ? `${update.label}が完了しました。`
+          : `${update.label}を継続中です (${result.processedCount}/${result.totalCount})。`,
+      });
+    }
+
+    const run = await update.load();
+    await run();
 
     return NextResponse.json({
       success: true,
       step,
+      completed: true,
       message: `${update.label}が完了しました。`,
     });
   } catch (error) {
