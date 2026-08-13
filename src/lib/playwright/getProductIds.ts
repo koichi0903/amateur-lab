@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { createBrowser } from "@/lib/playwright/browserManager";
 
 export interface ProductSummary {
   productId: string;
@@ -15,9 +15,7 @@ export async function getProductIds(
   baseUrl: string,
   maxPages?: number
 ) {
-  const browser = await chromium.launch({
-  headless: false
-});
+  const browser = await createBrowser({ headless: false });
 
   const page = await browser.newPage();
 

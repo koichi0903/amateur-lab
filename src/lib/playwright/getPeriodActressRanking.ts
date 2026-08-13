@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { createBrowser } from "@/lib/playwright/browserManager";
 
 export interface RankingItem {
   rank: number;
@@ -12,9 +12,7 @@ export async function getPeriodActressRanking(
   linkSelector: string
 ) {
 
-  const browser = await chromium.launch({
-    headless: false,
-  });
+  const browser = await createBrowser({ headless: false });
 
   const page = await browser.newPage();
 

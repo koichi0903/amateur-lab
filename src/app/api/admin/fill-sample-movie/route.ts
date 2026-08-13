@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { chromium } from "playwright";
+import { createBrowser } from "@/lib/playwright/browserManager";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
 
@@ -30,9 +30,7 @@ while (true) {
   if (!works || works.length === 0) {
     break;
   }
-  let browser = await chromium.launch({
-  headless: true,
-});
+  let browser = await createBrowser();
 
   console.log(
     `=== ${from + 1} ～ ${from + works.length} 件目 ===`
@@ -46,9 +44,7 @@ if (i > 0 && i % browserLimit === 0) {
 
   await browser.close();
 
-  browser = await chromium.launch({
-    headless: true,
-  });
+  browser = await createBrowser();
 }
 
   const batch = works.slice(i, i + batchSize);

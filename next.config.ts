@@ -1,14 +1,27 @@
 import type { NextConfig } from "next";
 
+const chromiumFiles = [
+  "node_modules/@sparticuz/chromium/bin/**/*",
+];
+
 const nextConfig: NextConfig = {
-  images: {
-  remotePatterns: [
-    {
-      protocol: "https",
-      hostname: "pics.dmm.co.jp",
-    },
+  serverExternalPackages: [
+    "@sparticuz/chromium",
+    "playwright",
+    "playwright-core",
   ],
-},
+  outputFileTracingIncludes: {
+    "/api/*": chromiumFiles,
+    "/api/**/*": chromiumFiles,
+  },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "pics.dmm.co.jp",
+      },
+    ],
+  },
 };
 
 export default nextConfig;

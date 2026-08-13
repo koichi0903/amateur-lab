@@ -1,9 +1,7 @@
-import { chromium } from "playwright";
+import { createBrowser } from "@/lib/playwright/browserManager";
 
 export async function getSaleProducts() {
-  const browser = await chromium.launch({
-    headless: true,
-  });
+  const browser = await createBrowser();
 
   const page = await browser.newPage();
 

@@ -7,7 +7,8 @@
  * 年齢認証処理は確認済みのため、原則修正禁止。
  */
 
-import { chromium, Browser } from "playwright";
+import type { Browser } from "playwright";
+import { createBrowser } from "@/lib/playwright/browserManager";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 import { parsePage } from "./parser";
@@ -41,9 +42,7 @@ if (!workUrl) {
 
   const ownBrowser = !browser;
 
-browser ??= await chromium.launch({
-  headless: true,
-});
+browser ??= await createBrowser();
 
   const page = await browser.newPage();
 
