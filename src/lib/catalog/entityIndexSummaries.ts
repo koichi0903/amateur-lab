@@ -4,7 +4,6 @@ import { supabase } from "@/lib/supabase";
 export type EntityIndexKind = "actress" | "maker" | "series" | "genre";
 
 type EntitySummaryRow = {
-  kind: EntityIndexKind;
   name: string;
   work_count: number;
   max_score: number;
@@ -28,7 +27,6 @@ async function loadEntityIndexSummaries(): Promise<EntityIndexSummaryMap> {
     throw error;
   }
 
-  const rows = (data ?? []) as EntitySummaryRow[];
   const result: EntityIndexSummaryMap = {
     actress: [],
     maker: [],
@@ -36,14 +34,15 @@ async function loadEntityIndexSummaries(): Promise<EntityIndexSummaryMap> {
     genre: [],
   };
 
-  for (const row of rows) {
-    if (!kinds.includes(row.kind)) continue;
-    result[row.kind].push({
+  const grouped = (data ?? {}) as Partial<Record<EntityIndexKind, EntitySummaryRow[]>>;
+
+  for (const kind of kinds) {
+    result[kind] = (grouped[kind] ?? []).map((row) => ({
       name: row.name,
       count: Number(row.work_count),
       maxScore: Number(row.max_score),
       imageUrl: row.image_url,
-    });
+    }));
   }
 
   return result;

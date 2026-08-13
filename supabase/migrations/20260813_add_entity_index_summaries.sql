@@ -1,13 +1,9 @@
 -- Aggregate catalog index data inside Postgres so Vercel does not download
 -- every work row whenever the one-hour entity index cache is refreshed.
-create or replace function public.get_entity_index_summaries()
-returns table (
-  kind text,
-  name text,
-  work_count bigint,
-  max_score integer,
-  image_url text
-)
+drop function if exists public.get_entity_index_summaries();
+
+create function public.get_entity_index_summaries()
+returns jsonb
 language sql
 stable
 security invoker
@@ -51,10 +47,23 @@ as $$
     from entity_rows
     where name is not null and name <> ''
   )
-  select kind, name, work_count, max_score, image_url
-  from ranked
-  where row_number = 1
-  order by kind, work_count desc, max_score desc, name;
+  select jsonb_object_agg(kind, summaries)
+  from (
+    select
+      kind,
+      jsonb_agg(
+        jsonb_build_object(
+          'name', name,
+          'work_count', work_count,
+          'max_score', max_score,
+          'image_url', image_url
+        )
+        order by work_count desc, max_score desc, name
+      ) as summaries
+    from ranked
+    where row_number = 1
+    group by kind
+  ) grouped;
 $$;
 
 revoke all on function public.get_entity_index_summaries() from public;
