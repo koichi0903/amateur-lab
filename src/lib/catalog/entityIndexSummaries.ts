@@ -1,15 +1,14 @@
 import { unstable_cache } from "next/cache";
-import { getAllWorks } from "@/lib/supabase/getAllWorks";
+import { supabase } from "@/lib/supabase";
 
 export type EntityIndexKind = "actress" | "maker" | "series" | "genre";
 
-type EntitySource = {
-  actress: string | null;
-  maker: string | null;
-  series: string | null;
-  genre: string | null;
+type EntitySummaryRow = {
+  kind: EntityIndexKind;
+  name: string;
+  work_count: number;
+  max_score: number;
   image_url: string | null;
-  score: number | null;
 };
 
 export type EntityIndexSummary = {
@@ -23,50 +22,28 @@ type EntityIndexSummaryMap = Record<EntityIndexKind, EntityIndexSummary[]>;
 
 const kinds: EntityIndexKind[] = ["actress", "maker", "series", "genre"];
 
-function namesFor(work: EntitySource, kind: EntityIndexKind) {
-  const values = kind === "actress" || kind === "genre"
-    ? work[kind]?.split(" / ") ?? []
-    : [work[kind]];
-
-  return values.map((value) => value?.trim()).filter((value): value is string => Boolean(value));
-}
-
 async function loadEntityIndexSummaries(): Promise<EntityIndexSummaryMap> {
-  const works = await getAllWorks<EntitySource>(
-    "actress,maker,series,genre,image_url,score"
-  );
+  const { data, error } = await supabase.rpc("get_entity_index_summaries");
+  if (error) {
+    throw error;
+  }
 
-  const result = {} as EntityIndexSummaryMap;
+  const rows = (data ?? []) as EntitySummaryRow[];
+  const result: EntityIndexSummaryMap = {
+    actress: [],
+    maker: [],
+    series: [],
+    genre: [],
+  };
 
-  for (const kind of kinds) {
-    const summaries = new Map<string, EntityIndexSummary>();
-
-    for (const work of works) {
-      for (const name of namesFor(work, kind)) {
-        const score = work.score ?? 0;
-        const current = summaries.get(name);
-
-        if (!current) {
-          summaries.set(name, {
-            name,
-            count: 1,
-            maxScore: score,
-            imageUrl: work.image_url,
-          });
-          continue;
-        }
-
-        current.count += 1;
-        if (score > current.maxScore) {
-          current.maxScore = score;
-          current.imageUrl = work.image_url;
-        }
-      }
-    }
-
-    result[kind] = [...summaries.values()].sort(
-      (a, b) => b.count - a.count || b.maxScore - a.maxScore || a.name.localeCompare(b.name, "ja")
-    );
+  for (const row of rows) {
+    if (!kinds.includes(row.kind)) continue;
+    result[row.kind].push({
+      name: row.name,
+      count: Number(row.work_count),
+      maxScore: Number(row.max_score),
+      imageUrl: row.image_url,
+    });
   }
 
   return result;
