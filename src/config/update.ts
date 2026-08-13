@@ -1,5 +1,7 @@
 export const UPDATE_CONFIG = {
-  parallel: 5,
+  // A single serverless Chromium process is memory constrained on Vercel.
+  // Opening five FANZA pages at once can terminate the entire browser process.
+  parallel: process.env.VERCEL ? 1 : 5,
 
   saveInterval: 6,
 

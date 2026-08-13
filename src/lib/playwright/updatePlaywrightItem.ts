@@ -46,6 +46,22 @@ browser ??= await createBrowser();
 
   const page = await browser.newPage();
 
+  // Product images and fonts are not needed for parsing. Blocking them keeps
+  // serverless Chromium below its memory limit while preserving media requests
+  // used to discover sample movie URLs.
+  if (process.env.VERCEL) {
+    await page.route("**/*", async (route) => {
+      const resourceType = route.request().resourceType();
+
+      if (resourceType === "image" || resourceType === "font") {
+        await route.abort();
+        return;
+      }
+
+      await route.continue();
+    });
+  }
+
   let sampleMovieUrl: string | null = null;
 
 page.on("response", (response) => {

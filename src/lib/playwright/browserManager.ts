@@ -26,7 +26,7 @@ export async function createBrowser(
     });
 
     try {
-      return await chromium.launch({
+      const browser = await chromium.launch({
         headless: true,
         executablePath,
         args: [
@@ -35,6 +35,12 @@ export async function createBrowser(
           "--disable-gpu",
         ],
       });
+
+      browser.on("disconnected", () => {
+        console.error("[browser] serverless Chromium disconnected");
+      });
+
+      return browser;
     } catch (error) {
       console.error("[browser] serverless Chromium launch failed", {
         message: error instanceof Error ? error.message : String(error),
@@ -57,5 +63,13 @@ export async function createBrowser(
 export async function closeBrowser(
   browser: Browser
 ): Promise<void> {
-  await browser.close();
+  if (!browser.isConnected()) return;
+
+  try {
+    await browser.close();
+  } catch (error) {
+    console.warn("[browser] close failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
