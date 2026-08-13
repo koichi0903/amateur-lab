@@ -148,6 +148,25 @@ console.log(
 
 // 価格取得失敗なら保存しない
 if (data.prices.length === 0) {
+  const diagnostics = await page
+    .evaluate(() => ({
+      url: window.location.href,
+      title: document.title,
+      labelCount: document.querySelectorAll("label").length,
+      contentPriceCount: document.querySelectorAll(
+        '[data-e2eid="content-price"]'
+      ).length,
+      bodyText: document.body?.innerText
+        ?.replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 500),
+    }))
+    .catch((error) => ({
+      diagnosticError:
+        error instanceof Error ? error.message : String(error),
+    }));
+
+  console.log(`[PRICE_DIAGNOSTICS] ${productId}`, diagnostics);
   console.log(
     `[SKIP] ${productId} prices=[] url=${workUrl}`
   );
