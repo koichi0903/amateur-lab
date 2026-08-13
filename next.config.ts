@@ -14,6 +14,9 @@ const nextConfig: NextConfig = {
     "/*": chromiumFiles,
   },
   images: {
+    // DMM images are already served by their CDN. Bypass Vercel's image
+    // optimizer so crawlers cannot exhaust the Hobby Edge Request quota.
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: "https",
