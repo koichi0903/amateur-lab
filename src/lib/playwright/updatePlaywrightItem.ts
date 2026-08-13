@@ -110,24 +110,32 @@ page.on("response", (response) => {
 
 
 
-    // 年齢認証画面の表示待ち
-    await page.waitForTimeout(5000);
+    const ageConfirmation = page.getByRole("link", {
+      name: "はい",
+      exact: true,
+    });
 
-    // 年齢認証が表示された場合のみ突破
-    try {
-      await page.locator("text=はい").first().click();
+    if ((await ageConfirmation.count()) > 0) {
+      await Promise.all([
+        page.waitForURL(
+          (nextUrl) => !nextUrl.pathname.includes("/age_check/"),
+          { waitUntil: "domcontentloaded", timeout: 60_000 }
+        ),
+        ageConfirmation.first().click(),
+      ]);
 
-      await page.waitForLoadState("networkidle");
-
-await page.waitForTimeout(3000);
-
-console.log("年齢認証を突破しました");
-
-    } catch {
-      console.log(
-  `[INFO] ${productId} 年齢認証スキップ`
-);
+      console.log(`[INFO] ${productId} 年齢認証を突破`);
+    } else {
+      console.log(`[INFO] ${productId} 年齢認証なし`);
     }
+
+    // The product page hydrates after DOMContentLoaded. Wait for the pricing
+    // controls when present, but still allow unavailable products to continue.
+    await page
+      .locator("label")
+      .first()
+      .waitFor({ state: "attached", timeout: 15_000 })
+      .catch(() => undefined);
 
     const data = await parsePage(page);
 
