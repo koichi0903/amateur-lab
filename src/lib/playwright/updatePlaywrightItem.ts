@@ -42,14 +42,27 @@ if (!workUrl) {
 
   // Serverless Chromium can exit after its last page closes. Treat a passed,
   // disconnected instance like no browser so the next item can recover.
-  const ownBrowser = !browser || !browser.isConnected();
+  let ownBrowser = !browser || !browser.isConnected();
 
   if (!browser?.isConnected()) {
     console.warn(`[browser] recreating disconnected Chromium for ${productId}`);
     browser = await createBrowser();
   }
 
-  const page = await browser.newPage();
+  let page;
+
+  try {
+    page = await browser.newPage();
+  } catch (error) {
+    // The disconnected event may arrive just after isConnected() was checked.
+    // Retry once with a fresh process instead of failing the whole update job.
+    if (browser.isConnected()) throw error;
+
+    console.warn(`[browser] newPage failed after disconnect; retrying ${productId}`);
+    browser = await createBrowser();
+    ownBrowser = true;
+    page = await browser.newPage();
+  }
 
   // Product images and fonts are not needed for parsing. Blocking them keeps
   // serverless Chromium below its memory limit while preserving media requests
