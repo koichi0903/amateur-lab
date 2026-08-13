@@ -1,18 +1,17 @@
 import type { NextConfig } from "next";
 
 const chromiumFiles = [
-  "node_modules/@sparticuz/chromium/bin/**/*",
+  "node_modules/@sparticuz/chromium/**/*",
+  "node_modules/playwright-core/**/*",
 ];
 
 const nextConfig: NextConfig = {
   serverExternalPackages: [
     "@sparticuz/chromium",
-    "playwright",
     "playwright-core",
   ],
   outputFileTracingIncludes: {
-    "/api/*": chromiumFiles,
-    "/api/**/*": chromiumFiles,
+    "/*": chromiumFiles,
   },
   images: {
     remotePatterns: [

@@ -7,7 +7,7 @@
  * 年齢認証処理は確認済みのため、原則修正禁止。
  */
 
-import type { Browser } from "playwright";
+import type { Browser } from "playwright-core";
 import { createBrowser } from "@/lib/playwright/browserManager";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 

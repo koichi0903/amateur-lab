@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { chromium } from "playwright-core";
 import fs from "fs/promises";
 import path from "path";
 import { parsePage } from "../../src/lib/playwright/parser";

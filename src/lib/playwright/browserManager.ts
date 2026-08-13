@@ -1,4 +1,4 @@
-import { Browser, chromium } from "playwright";
+import { chromium, type Browser } from "playwright-core";
 
 type BrowserOptions = {
   headless?: boolean;
@@ -17,17 +17,31 @@ export async function createBrowser(
   if (isServerlessRuntime()) {
     const { default: serverlessChromium } =
       await import("@sparticuz/chromium");
+    const executablePath =
+      await serverlessChromium.executablePath();
 
-    return chromium.launch({
-      headless: true,
-      executablePath:
-        await serverlessChromium.executablePath(),
-      args: [
-        ...serverlessChromium.args,
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-      ],
+    console.log("[browser] launching serverless Chromium", {
+      runtime: process.env.VERCEL ? "vercel" : "lambda",
+      executableAvailable: Boolean(executablePath),
     });
+
+    try {
+      return await chromium.launch({
+        headless: true,
+        executablePath,
+        args: [
+          ...serverlessChromium.args,
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+        ],
+      });
+    } catch (error) {
+      console.error("[browser] serverless Chromium launch failed", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      throw error;
+    }
   }
 
   return chromium.launch({

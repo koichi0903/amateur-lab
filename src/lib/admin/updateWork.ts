@@ -2,7 +2,7 @@ import { getDmmItem } from "@/lib/dmm/getDmmItem";
 import { updateDmmItem } from "./update";
 import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
 import type { DmmItem } from "@/types/dmm";
-import type { Browser } from "playwright";
+import type { Browser } from "playwright-core";
 
 export async function updateWork(
   productId: string,
