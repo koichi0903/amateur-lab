@@ -43,6 +43,17 @@ const nextReleaseDate =
 const nextReviewAverage =
   Number(item.review?.average) || 0;
 
+const apiCurrentPrice = Number(item.prices?.price) || 0;
+const apiListPrice = Number(item.prices?.list_price) || apiCurrentPrice;
+const apiSalePrice =
+  apiCurrentPrice > 0 && apiListPrice > apiCurrentPrice
+    ? apiCurrentPrice
+    : 0;
+const apiDiscountRate =
+  apiSalePrice > 0 && apiListPrice > 0
+    ? Math.round((1 - apiSalePrice / apiListPrice) * 100)
+    : 0;
+
 const nextActress = formatDmmActresses(item);
 
 const sampleImages =
@@ -95,6 +106,15 @@ if (currentWork && !hasChanges && !hasActressChange) {
   review_count: currentReviewCount,
 
   review_average: nextReviewAverage,
+
+  ...(apiCurrentPrice > 0
+    ? {
+        price: apiListPrice,
+        list_price: apiListPrice,
+        sale_price: apiSalePrice,
+        discount_rate: apiDiscountRate,
+      }
+    : {}),
 
   ...(nextActress != null ? { actress: nextActress } : {}),
 

@@ -405,14 +405,37 @@ async function handleUpdateStage() {
   }
 
   useEffect(() => {
-  void loadJobs();
-
-  const interval = setInterval(() => {
     void loadJobs();
-  }, 5000);
 
-  return () => clearInterval(interval);
-}, []);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+
+    const scheduleNext = () => {
+      if (cancelled) return;
+
+      timeoutId = setTimeout(async () => {
+        // Hidden admin tabs used to poll forever every five seconds. Resume
+        // only when the operator returns to the tab.
+        if (document.visibilityState === "visible") {
+          await loadJobs();
+        }
+        scheduleNext();
+      }, 30_000);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") void loadJobs();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    scheduleNext();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
 const idleJobCount = jobs.filter(
   (job) => job.status === "idle" && job.total_count === 0

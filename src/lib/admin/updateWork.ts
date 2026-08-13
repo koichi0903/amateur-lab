@@ -16,6 +16,16 @@ export async function updateWork(
 
   if (dmmItem) {
     await updateDmmItem(dmmItem);
+
+    const currentPrice = Number(dmmItem.prices?.price) || 0;
+    const normalPrice = Number(dmmItem.prices?.list_price) || currentPrice;
+
+    if (currentPrice > 0) {
+      console.log(
+        `[DMM_API_PRICE] ${productId} current=${currentPrice} list=${normalPrice}`,
+      );
+      return;
+    }
   }
 
   await updatePlaywrightItem(
