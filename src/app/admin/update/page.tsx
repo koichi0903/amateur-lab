@@ -119,8 +119,32 @@ const [startedAt] = useState(Date.now());
     }
   }
 
+  async function handleStop(jobName: string) {
+    try {
+      const response = await fetch("/api/admin/jobs/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobName }),
+      });
+      const data = (await response.json()) as {
+        success?: boolean;
+        message?: string;
+      };
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.message ?? "停止に失敗しました。");
+      }
+
+      if (jobName === "all") setRunningAll(false);
+      alert(data.message ?? "停止を受け付けました。");
+      await loadJobs();
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? error.message : "停止に失敗しました。");
+    }
+  }
+
 async function handleUpdateNew() {
-  setLoading(true);
   try {
     const res = await fetch("/api/update-new", {
       method: "POST",
@@ -140,7 +164,6 @@ async function handleUpdateNew() {
 }
 
 async function handleUpdateSemiNew() {
-  setLoading(true);
 
   try {
     const res = await fetch("/api/update-semi-new", {
@@ -161,7 +184,6 @@ async function handleUpdateSemiNew() {
 }
 
 async function handleUpdateSale() {
-  setLoading(true);
 
   try {
     const res = await fetch("/api/update-sale", {
@@ -182,7 +204,6 @@ async function handleUpdateSale() {
 }
 
 async function handleUpdateRanking() {
-  setLoading(true);
 
   try {
     const res = await fetch("/api/dmm-ranking", {
@@ -203,7 +224,6 @@ async function handleUpdateRanking() {
 }
 
 async function handleUpdateOld() {
-  setLoading(true);
 
   try {
     const res = await fetch("/api/update-old", {
@@ -224,7 +244,6 @@ async function handleUpdateOld() {
 }
 
 async function handleUpdateEndedSale() {
-  setLoading(true);
 
   try {
     const res = await fetch("/api/update-ended-sale", {
@@ -245,7 +264,6 @@ async function handleUpdateEndedSale() {
 }
 
 async function handleUpdateScore() {
-  setLoading(true);
 
   try {
     const res = await fetch("/api/score-update", {
@@ -266,7 +284,6 @@ async function handleUpdateScore() {
 }
 
 async function handleUpdateReview() {
-  setLoading(true);
 
   try {
     const data = await runUpdateUntilCompleted(
@@ -289,7 +306,6 @@ async function handleUpdateReview() {
 }
 
 async function handleUpdateMissingPrices() {
-  setLoading(true);
 
   try {
     const res = await fetch("/api/update-missing-prices", {
@@ -310,7 +326,6 @@ async function handleUpdateMissingPrices() {
 }
 
 async function handleFillSampleMovie() {
-  setLoading(true);
 
   try {
     const res = await fetch("/api/admin/fill-sample-movie", {
@@ -333,7 +348,6 @@ async function handleFillSampleMovie() {
 }
 
 async function handleUpdateReserve() {
-  setLoading(true);
 
   try {
     const res = await fetch("/api/update-reserve", {
@@ -354,7 +368,6 @@ async function handleUpdateReserve() {
 }
 
 async function handleUpdateStage() {
-  setLoading(true);
 
   try {
     const res = await fetch("/api/sync/update-stage", {
@@ -485,6 +498,13 @@ onUpdateMissingPrices={handleUpdateMissingPrices}
 onFillSampleMovie={handleFillSampleMovie}
 onUpdateReserve={handleUpdateReserve}
   isUpdating={isUpdating}
+  runningJobs={[
+    ...jobs
+      .filter((job) => job.status === "running")
+      .map((job) => job.job_name),
+    ...(runningAll ? ["all"] : []),
+  ]}
+  onStop={handleStop}
 />
 </div>
 

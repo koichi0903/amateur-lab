@@ -2,85 +2,95 @@ import { NextResponse } from "next/server";
 import { createBrowser } from "@/lib/playwright/browserManager";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
+import { beginJob, failJob, finishJob, JOBS, updateJob } from "@/lib/jobs";
+
+export const maxDuration = 300;
 
 export async function POST() {
   let success = 0;
-let failed = 0;
-const pageSize = 1000;
-const browserLimit = 500;
+  let failed = 0;
+  const pageSize = 1000;
+  const browserLimit = 500;
+  let from = 0;
 
-let from = 0;
-
-while (true) {
-  const { data: works, error } = await supabase
+  const { count, error: countError } = await supabase
     .from("works")
-    .select("product_id, url")
-    .is("sample_movie_url", null)
-    .range(from, from + pageSize - 1);
+    .select("product_id", { count: "exact", head: true })
+    .is("sample_movie_url", null);
 
-  if (error) {
-    console.error(error);
-
+  if (countError) {
     return NextResponse.json(
-      { message: "取得失敗" },
-      { status: 500 }
+      { message: "対象件数の取得に失敗しました" },
+      { status: 500 },
     );
   }
 
-  if (!works || works.length === 0) {
-    break;
-  }
-  let browser = await createBrowser();
+  await beginJob(JOBS.SAMPLE_MOVIE, count ?? 0);
 
-  console.log(
-    `=== ${from + 1} ～ ${from + works.length} 件目 ===`
-  );
+  try {
+    while (true) {
+      const { data: works, error } = await supabase
+        .from("works")
+        .select("product_id, url")
+        .is("sample_movie_url", null)
+        .range(from, from + pageSize - 1);
 
-  const batchSize = 5;
+      if (error) throw error;
+      if (!works?.length) break;
 
-for (let i = 0; i < works.length; i += batchSize) {
-if (i > 0 && i % browserLimit === 0) {
-  console.log("===== Browser再起動 =====");
+      let browser = await createBrowser();
+      const batchSize = 5;
 
-  await browser.close();
-
-  browser = await createBrowser();
-}
-
-  const batch = works.slice(i, i + batchSize);
-
-  await Promise.all(
-    batch.map(async (work) => {
       try {
-        console.log(
-          `[${success + failed + 1}] ${work.product_id}`
-        );
+        for (let i = 0; i < works.length; i += batchSize) {
+          if (i > 0 && i % browserLimit === 0) {
+            await browser.close();
+            browser = await createBrowser();
+          }
 
-        await updatePlaywrightItem(
-  work.product_id,
-  work.url,
-  browser,
-  undefined,
-  true
-);
+          const batch = works.slice(i, i + batchSize);
+          await Promise.all(
+            batch.map(async (work) => {
+              try {
+                await updatePlaywrightItem(
+                  work.product_id,
+                  work.url,
+                  browser,
+                  undefined,
+                  true,
+                );
+                success++;
+              } catch (error) {
+                console.error(error);
+                failed++;
+              }
+            }),
+          );
 
-        success++;
-      } catch (e) {
-        console.error(e);
-        failed++;
+          await updateJob(
+            JOBS.SAMPLE_MOVIE,
+            success + failed,
+            batch[batch.length - 1].product_id,
+          );
+        }
+      } finally {
+        await browser.close();
       }
-    })
-  );
-}
 
-await browser.close();
+      from += pageSize;
+    }
 
-  from += pageSize;
-}
-
-  return NextResponse.json({
-    success,
-    failed,
-    message: "動画URL補完完了",
-  });
+    await finishJob(JOBS.SAMPLE_MOVIE);
+    return NextResponse.json({
+      success,
+      failed,
+      message: "動画URL補完が完了しました",
+    });
+  } catch (error) {
+    await failJob(
+      JOBS.SAMPLE_MOVIE,
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
 }
