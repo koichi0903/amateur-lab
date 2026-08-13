@@ -40,9 +40,14 @@ if (!workUrl) {
   workUrl = work.url ?? undefined;
 }
 
-  const ownBrowser = !browser;
+  // Serverless Chromium can exit after its last page closes. Treat a passed,
+  // disconnected instance like no browser so the next item can recover.
+  const ownBrowser = !browser || !browser.isConnected();
 
-browser ??= await createBrowser();
+  if (!browser?.isConnected()) {
+    console.warn(`[browser] recreating disconnected Chromium for ${productId}`);
+    browser = await createBrowser();
+  }
 
   const page = await browser.newPage();
 
