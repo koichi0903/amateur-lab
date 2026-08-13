@@ -103,6 +103,20 @@ page.on("response", (response) => {
   console.log("URLが見つかりません:", productId);
   return;
 }
+    // Mark the browser context as age-confirmed before the first request.
+    // Following the English age-gate link redirects serverless visitors to
+    // account login, while the same cookie is used by the normal storefront.
+    await page.context().addCookies([
+      {
+        name: "age_check_done",
+        value: "1",
+        domain: ".dmm.co.jp",
+        path: "/",
+        secure: true,
+        sameSite: "Lax",
+      },
+    ]);
+
     await page.goto(workUrl, {
   waitUntil: "domcontentloaded",
   timeout: 60000,
@@ -110,34 +124,29 @@ page.on("response", (response) => {
 
 
 
-    // DMM serves the age gate in Japanese or English depending on the
-    // request region. Prefer its stable destination URL, then fall back to
-    // the localized link text.
-    const ageConfirmationByHref = page
-      .locator(
-        'a[href*="age_check"][href*="declared=yes"], a[href*="age_check/=/yes"]'
-      )
-      .first();
-    const ageConfirmationByText = page
-      .getByRole("link", { name: /^(はい|yes)$/i })
-      .first();
-    const ageConfirmation =
-      (await ageConfirmationByHref.count()) > 0
-        ? ageConfirmationByHref
-        : ageConfirmationByText;
-
-    if ((await ageConfirmation.count()) > 0) {
-      await Promise.all([
-        page.waitForURL(
-          (nextUrl) => !nextUrl.pathname.includes("/age_check/"),
-          { waitUntil: "domcontentloaded", timeout: 60_000 }
-        ),
-        ageConfirmation.first().click(),
+    if (page.url().includes("/age_check/")) {
+      await page.context().addCookies([
+        {
+          name: "age_check_done",
+          value: "1",
+          domain: ".dmm.co.jp",
+          path: "/",
+          secure: true,
+          sameSite: "Lax",
+        },
       ]);
+      await page.goto(workUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 60_000,
+      });
 
-      console.log(`[INFO] ${productId} 年齢認証を突破`);
+      if (page.url().includes("/age_check/")) {
+        throw new Error(`年齢認証ページを回避できませんでした: ${productId}`);
+      }
+
+      console.log(`[INFO] ${productId} 年齢認証Cookieで商品ページを再読込`);
     } else {
-      console.log(`[INFO] ${productId} 年齢認証なし`);
+      console.log(`[INFO] ${productId} 年齢認証Cookieを確認`);
     }
 
     // The product page hydrates after DOMContentLoaded. Wait for the pricing
