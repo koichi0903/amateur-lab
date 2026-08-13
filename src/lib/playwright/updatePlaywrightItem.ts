@@ -110,10 +110,21 @@ page.on("response", (response) => {
 
 
 
-    const ageConfirmation = page.getByRole("link", {
-      name: "はい",
-      exact: true,
-    });
+    // DMM serves the age gate in Japanese or English depending on the
+    // request region. Prefer its stable destination URL, then fall back to
+    // the localized link text.
+    const ageConfirmationByHref = page
+      .locator(
+        'a[href*="age_check"][href*="declared=yes"], a[href*="age_check/=/yes"]'
+      )
+      .first();
+    const ageConfirmationByText = page
+      .getByRole("link", { name: /^(はい|yes)$/i })
+      .first();
+    const ageConfirmation =
+      (await ageConfirmationByHref.count()) > 0
+        ? ageConfirmationByHref
+        : ageConfirmationByText;
 
     if ((await ageConfirmation.count()) > 0) {
       await Promise.all([
