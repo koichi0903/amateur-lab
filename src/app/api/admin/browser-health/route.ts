@@ -19,7 +19,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      message: "Serverless Chromium is ready.",
+      message: "Browser is ready.",
       title: await page.title(),
       durationMs: Date.now() - startedAt,
     });
@@ -32,7 +32,7 @@ export async function GET() {
     return NextResponse.json(
       {
         success: false,
-        message: "Serverless Chromium failed to start.",
+        message: "Browser failed to start.",
       },
       { status: 500 },
     );

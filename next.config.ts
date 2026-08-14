@@ -6,6 +6,7 @@ const chromiumFiles = [
 ];
 
 const nextConfig: NextConfig = {
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   serverExternalPackages: [
     "@sparticuz/chromium",
     "playwright-core",

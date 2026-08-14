@@ -8,36 +8,129 @@
  */
 
 import type { Browser } from "playwright-core";
+import { getDmmItem } from "@/lib/dmm/getDmmItem";
 import { createBrowser } from "@/lib/playwright/browserManager";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 import { parsePage } from "./parser";
 import { saveWork } from "./save";
 
+export type PlaywrightUpdateResult = "updated" | "unavailable";
+
+const UNAVAILABLE_STATUS_PATTERN =
+  /^UNAVAILABLE_(\d+)_([0-9]{8})_(RESERVED|NEW|SEMI_NEW|OLD)$/;
+
+function japanDateKey(date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}${value("month")}${value("day")}`;
+}
+
+async function recordUnavailable(productId: string): Promise<void> {
+  const dmmItem = await getDmmItem(productId);
+  if (dmmItem) {
+    throw new Error(
+      `FANZA page returned no prices while DMM API still has ${productId}`,
+    );
+  }
+
+  const { data: work, error } = await supabase
+    .from("works")
+    .select("stage,playwright_status")
+    .eq("product_id", productId)
+    .single();
+  if (error) throw error;
+
+  const today = japanDateKey();
+  const currentStatus = work.playwright_status ?? "";
+  const match = currentStatus.match(UNAVAILABLE_STATUS_PATTERN);
+  const originalStage =
+    match?.[3] ??
+    (work.stage === "DISCONTINUED" ? "OLD" : work.stage ?? "OLD");
+
+  if (currentStatus.startsWith("DISCONTINUED_")) {
+    const { error: touchError } = await supabase
+      .from("works")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("product_id", productId);
+    if (touchError) throw touchError;
+    return;
+  }
+
+  const previousCount = Number(match?.[1] ?? 0);
+  const previousDate = match?.[2] ?? "";
+  const nextCount = previousDate === today ? previousCount : previousCount + 1;
+  const discontinued = nextCount >= 3;
+  const nextStatus = discontinued
+    ? `DISCONTINUED_${today}_${originalStage}`
+    : `UNAVAILABLE_${nextCount}_${today}_${originalStage}`;
+
+  const { error: updateError } = await supabase
+    .from("works")
+    .update({
+      playwright_status: nextStatus,
+      ...(discontinued
+        ? {
+            stage: "DISCONTINUED",
+            is_on_sale: false,
+            sale_price: null,
+            discount_rate: 0,
+            sale_end_at: null,
+          }
+        : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("product_id", productId);
+  if (updateError) throw updateError;
+
+  console.log(
+    discontinued
+      ? `[DISCONTINUED] ${productId} confirmed on 3 separate days`
+      : `[UNAVAILABLE] ${productId} confirmation ${nextCount}/3`,
+  );
+}
+
 export async function updatePlaywrightItem(
   productId: string,
   url?: string | null,
   browser?: Browser,
   listPrice?: number | null,
-  sampleMovieOnly = false
-)
+  sampleMovieOnly = false,
+  existingSampleMovieUrl?: string | null,
+): Promise<PlaywrightUpdateResult>
 {
   let workUrl: string | undefined =
   url ?? undefined;
+  let preservedSampleMovieUrl = existingSampleMovieUrl;
 
-if (!workUrl) {
+if (!workUrl || preservedSampleMovieUrl === undefined) {
   const { data: work, error } = await supabase
     .from("works")
-    .select("url")
+    .select("url,sample_movie_url")
     .eq("product_id", productId)
     .single();
 
-  if (error || !work?.url) {
-    console.log("URLが見つかりません:", productId);
-    return;
+  if (error) {
+    console.log("作品情報が見つかりません:", productId);
+    return "unavailable";
   }
 
-  workUrl = work.url ?? undefined;
+  workUrl ??= work?.url ?? undefined;
+
+  if (preservedSampleMovieUrl === undefined) {
+    preservedSampleMovieUrl = work?.sample_movie_url ?? null;
+  }
+
+  if (!workUrl) {
+    console.log("URLが見つかりません:", productId);
+    return "unavailable";
+  }
 }
 
   // Serverless Chromium can exit after its last page closes. Treat a passed,
@@ -81,6 +174,10 @@ if (!workUrl) {
   }
 
   let sampleMovieUrl: string | null = null;
+  let resolveSampleMovie: ((url: string) => void) | null = null;
+  const sampleMovieDetected = new Promise<string>((resolve) => {
+    resolveSampleMovie = resolve;
+  });
 
 page.on("response", (response) => {
   const responseUrl = response.url();
@@ -90,6 +187,7 @@ page.on("response", (response) => {
     sampleMovieUrl === null
   ) {
     sampleMovieUrl = responseUrl;
+    resolveSampleMovie?.(responseUrl);
 
     console.log(
       `[MP4] ${productId} ${sampleMovieUrl}`
@@ -101,7 +199,7 @@ page.on("response", (response) => {
 
     if (!workUrl) {
   console.log("URLが見つかりません:", productId);
-  return;
+  return "unavailable";
 }
     // Mark the browser context as age-confirmed before the first request.
     // Following the English age-gate link redirects serverless visitors to
@@ -159,11 +257,22 @@ page.on("response", (response) => {
 
     const data = await parsePage(page);
 
-    data.sampleMovieUrl = sampleMovieUrl ?? undefined;
+    // The preview request can start shortly after the product data has been
+    // parsed. Give it a small bounded window so a late MP4 response is saved
+    // instead of being logged only after persistence has already begun.
+    if (!sampleMovieUrl && !preservedSampleMovieUrl) {
+      await Promise.race([
+        sampleMovieDetected,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_000)),
+      ]);
+    }
+
+    data.sampleMovieUrl = sampleMovieUrl ?? preservedSampleMovieUrl ?? undefined;
 
 console.log(
   "[SampleMovie]",
-  sampleMovieUrl
+  data.sampleMovieUrl,
+  sampleMovieUrl ? "detected" : preservedSampleMovieUrl ? "preserved" : "missing",
 );
 
 // 価格取得失敗なら保存しない
@@ -190,7 +299,14 @@ if (data.prices.length === 0) {
   console.log(
     `[SKIP] ${productId} prices=[] url=${workUrl}`
   );
-  return;
+
+  // An unavailable/removed FANZA page was still checked successfully. Move its
+  // timestamp forward so the oldest-first local batch does not select the same
+  // 404 product again on every run.
+  await recordUnavailable(productId);
+
+  console.log(`[CHECKED] FANZA利用不可 ${productId}`);
+  return "unavailable";
 }
 
 let saved = false;
@@ -250,6 +366,7 @@ if (!saved) {
 console.log(
   `[OK] ${productId} 更新完了`
 );
+return "updated";
   } finally {
   try {
     await page.close();

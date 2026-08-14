@@ -142,6 +142,7 @@ const { data: currentWork, error: currentError } =
   is_on_sale,
   sale_end_at,
   playwright_status,
+  stage,
   is_bottom_price,
   actress
 `)
@@ -171,6 +172,14 @@ const isNewLowestPrice =
 const fallbackActress =
   !currentWork?.actress && data.actressLinks?.length
     ? data.actressLinks.join(" / ")
+    : null;
+
+const discontinuedStageMatch = currentWork?.playwright_status?.match(
+  /^DISCONTINUED_[0-9]{8}_(RESERVED|NEW|SEMI_NEW|OLD)$/,
+);
+const restoredStage =
+  currentWork?.stage === "DISCONTINUED"
+    ? discontinuedStageMatch?.[1] ?? "OLD"
     : null;
 
 const workUpdate = {
@@ -209,6 +218,8 @@ max_discount_rate: maxDiscountRate,
     ? "SALE"
     : "NORMAL",
 
+  ...(restoredStage ? { stage: restoredStage } : {}),
+
   is_bottom_price: isBottomPrice,
 };
 
@@ -242,6 +253,8 @@ currentWork.max_discount_rate !== maxDiscountRate ||
 currentWork.is_bottom_price !==
   isBottomPrice ||
 
+(restoredStage != null && currentWork.stage !== restoredStage) ||
+
 currentWork.lowest_price !==
   lowestPrice ||
 
@@ -265,8 +278,18 @@ if (changed) {
     console.error("UPDATE ERROR", error);
   }
 } else {
+  const { error: touchError } = await supabase
+    .from("works")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("product_id", productId);
+
+  if (touchError) {
+    console.error("UPDATE CHECKED_AT ERROR", touchError);
+    throw touchError;
+  }
+
   console.log(
-    `[SKIP] works更新不要 ${productId}`
+    `[CHECKED] works変更なし ${productId}`
   );
 }
   // 現在の価格を取得

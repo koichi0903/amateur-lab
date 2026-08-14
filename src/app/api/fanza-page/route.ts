@@ -1,20 +1,38 @@
-import { createBrowser } from "@/lib/playwright/browserManager";
+import {
+  closeBrowser,
+  createBrowser,
+} from "@/lib/playwright/browserManager";
 
 export async function GET() {
-  const browser = await createBrowser();
+  let browser: Awaited<ReturnType<typeof createBrowser>> | null = null;
 
-  const page = await browser.newPage();
+  try {
+    browser = await createBrowser();
+    const page = await browser.newPage();
+    await page.context().addCookies([
+      {
+        name: "age_check_done",
+        value: "1",
+        domain: ".dmm.co.jp",
+        path: "/",
+      },
+    ]);
 
-  await page.goto(
-    "https://video.dmm.co.jp/av/content/?id=h_491mspk01601",
-    {
-      waitUntil: "domcontentloaded",
-    }
-  );
+    const response = await page.goto(
+      "https://video.dmm.co.jp/av/content/?id=h_491mspk01601",
+      {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      }
+    );
 
-  await browser.close();
-
-  return Response.json({
-    ok: true,
-  });
+    return Response.json({
+      ok: response?.ok() ?? false,
+      status: response?.status() ?? null,
+      hostname: new URL(page.url()).hostname,
+      title: await page.title(),
+    });
+  } finally {
+    if (browser) await closeBrowser(browser);
+  }
 }

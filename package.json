@@ -7,6 +7,8 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
+    "update:playwright:local": "node scripts/local-playwright-update.mjs",
+    "update:local": "node scripts/local-admin-update.mjs",
     "update:ranking": "tsx scripts/update-ranking.ts",
     "update:longhit": "tsx scripts/update-longhit.ts",
     "update:score": "tsx src/lib/admin/updateScore.ts",

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { chromium, type Browser } from "playwright-core";
 
 type BrowserOptions = {
@@ -9,6 +10,26 @@ function isServerlessRuntime(): boolean {
     process.env.VERCEL ||
       process.env.AWS_LAMBDA_FUNCTION_NAME
   );
+}
+
+function findLocalBrowserExecutable(): string {
+  const configuredPath = process.env.PLAYWRIGHT_EXECUTABLE_PATH?.trim();
+  const candidates = [
+    configuredPath,
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  ].filter((path): path is string => Boolean(path));
+
+  const executablePath = candidates.find((path) => existsSync(path));
+  if (!executablePath) {
+    throw new Error(
+      "Chrome または Edge が見つかりません。PLAYWRIGHT_EXECUTABLE_PATH にブラウザの実行ファイルを設定してください。"
+    );
+  }
+
+  return executablePath;
 }
 
 export async function createBrowser(
@@ -50,8 +71,12 @@ export async function createBrowser(
     }
   }
 
+  const executablePath = findLocalBrowserExecutable();
+  console.log("[browser] launching local browser", { executablePath });
+
   return chromium.launch({
     headless: options.headless ?? true,
+    executablePath,
     args: [
       "--disable-dev-shm-usage",
       "--disable-gpu",

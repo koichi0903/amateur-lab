@@ -24,7 +24,6 @@ export async function updateWork(
       console.log(
         `[DMM_API_PRICE] ${productId} current=${currentPrice} list=${normalPrice}`,
       );
-      return;
     }
   }
 

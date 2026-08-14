@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 type Props = {
   images: {
@@ -21,6 +21,9 @@ export default function ImageViewer({
   onPrev,
   onNext,
 }: Props) {
+
+const imageRefs = useRef<(HTMLDivElement | null)[]>([]);
+
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -36,6 +39,15 @@ export default function ImageViewer({
         handleKey
       );
   }, [onClose, onPrev, onNext]);
+
+  useEffect(() => {
+  if (window.innerWidth >= 768) return;
+
+  imageRefs.current[current]?.scrollIntoView({
+  behavior: "auto",
+  block: "start",
+});
+}, [current]);
 
   return (
     <>
@@ -107,7 +119,12 @@ export default function ImageViewer({
 
         <div className="space-y-5 p-4 pb-10">
           {images.map((image, index) => (
-            <div key={image.sort_order}>
+  <div
+    key={image.sort_order}
+    ref={(el) => {
+      imageRefs.current[index] = el;
+    }}
+  >
               <div className="mb-2 text-center text-sm text-white">
                 {index + 1} / {images.length}
               </div>

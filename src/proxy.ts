@@ -1,6 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const PUBLIC_API_PATHS = new Set(["/api/favorites"]);
+const LOCAL_UPDATE_API_PATHS = new Set([
+  "/api/admin/browser-health",
+  "/api/admin/fill-sample-movie",
+  "/api/admin/local-playwright-update",
+  "/api/dmm-ranking",
+  "/api/fanza-page",
+  "/api/review-update",
+  "/api/score-update",
+  "/api/sync/update-stage",
+  "/api/update-all",
+  "/api/update-ended-sale",
+  "/api/update-missing-prices",
+  "/api/update-new",
+  "/api/update-old",
+  "/api/update-reserve",
+  "/api/update-sale",
+  "/api/update-semi-new",
+]);
 const ADMIN_SESSION_MAX_AGE = 60 * 60 * 12;
 
 function secureCompare(actual: string, expected: string): boolean {
@@ -106,6 +124,27 @@ async function authenticatedAdminResponse(request: NextRequest) {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const isLocalRequest = ["localhost", "127.0.0.1"].includes(
+    request.nextUrl.hostname,
+  );
+
+  // The local admin UI is the control panel for update jobs that cannot run
+  // reliably on Vercel (notably Playwright). Keep production admin routes
+  // authenticated, while allowing the loopback-only development server.
+  if (isLocalRequest && pathname.startsWith("/admin")) {
+    return NextResponse.next();
+  }
+
+  if (isLocalRequest && pathname.startsWith("/api/admin/")) {
+    return NextResponse.next();
+  }
+
+  if (
+    LOCAL_UPDATE_API_PATHS.has(pathname) &&
+    isLocalRequest
+  ) {
+    return NextResponse.next();
+  }
 
   if (PUBLIC_API_PATHS.has(pathname)) {
     return NextResponse.next();
