@@ -7,7 +7,8 @@ type JobCardProps = {
   total: number;
   lastProductId: string | null;
   lastProductTitle?: string;
-  startedAt: number;
+  startedAt: string | null;
+  finishedAt: string | null;
 };
 
 export default function JobCard({
@@ -18,19 +19,29 @@ export default function JobCard({
   lastProductId,
   lastProductTitle,
   startedAt,
+  finishedAt,
 }: JobCardProps) {
   
   const percent =
   total > 0 ? Math.round((processed / total) * 100) : 0;
 
-// The elapsed time is intentionally calculated from the current wall clock for this status card.
+const startedAtMs = startedAt ? Date.parse(startedAt) : Number.NaN;
+const finishedAtMs = finishedAt ? Date.parse(finishedAt) : Number.NaN;
+// The polling parent re-renders this card, so the running ETA follows wall time.
 // eslint-disable-next-line react-hooks/purity
-const elapsed = (Date.now() - startedAt) / 1000;
+const now = Date.now();
+const elapsed = Number.isFinite(startedAtMs)
+  ? Math.max(
+      ((Number.isFinite(finishedAtMs) ? finishedAtMs : now) - startedAtMs) /
+        1000,
+      0,
+    )
+  : 0;
 
 const speed =
   elapsed > 0 ? processed / elapsed : 0;
 
-const remain = total - processed;
+const remain = Math.max(total - processed, 0);
 
 const eta =
   speed > 0

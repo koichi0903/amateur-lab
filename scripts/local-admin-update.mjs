@@ -31,14 +31,21 @@ const ALL_TASKS = [
   "score",
 ];
 
+const TASK_GROUPS = {
+  "daily-0030": ["reserve", "new", "old", "sale", "ended-sale", "ranking", "score"],
+  "daily-1030": ["sale", "ended-sale", "ranking", "score"],
+  "tue-fri-1800": ["review", "semi-new"],
+  "sunday-1800": ["missing-prices", "sample-movie"],
+};
+
 function usage() {
   console.log("使い方: npm run update:local -- <task>");
-  console.log(`task: all | ${Object.keys(TASKS).join(" | ")}`);
+  console.log(`task: all | ${Object.keys(TASK_GROUPS).join(" | ")} | ${Object.keys(TASKS).join(" | ")}`);
   console.log("価格補完と動画補完は長時間処理のため all には含まれません。");
 }
 
 const requestedTask = process.argv[2]?.trim().toLowerCase();
-if (!requestedTask || (requestedTask !== "all" && !TASKS[requestedTask])) {
+if (!requestedTask || (requestedTask !== "all" && !TASK_GROUPS[requestedTask] && !TASKS[requestedTask])) {
   usage();
   process.exitCode = 1;
 } else {
@@ -149,7 +156,9 @@ async function run(taskName) {
   try {
     console.log(`[local-update] localhost:${port} を使用します。`);
     await waitForServer();
-    const taskNames = taskName === "all" ? ALL_TASKS : [taskName];
+    const taskNames = taskName === "all"
+      ? ALL_TASKS
+      : (TASK_GROUPS[taskName] ?? [taskName]);
     for (const name of taskNames) {
       if (interrupted) break;
       await executeTask(name);

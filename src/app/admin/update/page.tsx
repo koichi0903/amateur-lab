@@ -14,6 +14,8 @@ type Job = {
   total_count: number;
   last_product_id: string | null;
   last_product_title?: string;
+  started_at: string | null;
+  finished_at: string | null;
 };
 
 type UpdateResponse = {
@@ -31,9 +33,6 @@ const [runningAll, setRunningAll] = useState(false);
 
 const [showIdleJobs, setShowIdleJobs] = useState(false);
 
-const [startedAt] = useState(Date.now());
-  
-  
   const isUpdating = runningAll || jobs.some(
   (job) =>
     job.status === "running" &&
@@ -420,7 +419,7 @@ async function handleUpdateStage() {
           await loadJobs();
         }
         scheduleNext();
-      }, 30_000);
+      }, 3_000);
     };
 
     const handleVisibilityChange = () => {
@@ -437,7 +436,21 @@ async function handleUpdateStage() {
     };
   }, []);
 
-const idleJobCount = jobs.filter(
+const jobsByName = new Map(jobs.map((job) => [job.job_name, job]));
+const displayedJobs: Job[] = Object.entries(JOB_REGISTRY).map(
+  ([jobName]) =>
+    jobsByName.get(jobName) ?? {
+      job_name: jobName,
+      status: "idle",
+      processed_count: 0,
+      total_count: 0,
+      last_product_id: null,
+      started_at: null,
+      finished_at: null,
+    },
+);
+
+const idleJobCount = displayedJobs.filter(
   (job) => job.status === "idle" && job.total_count === 0
 ).length;
 
@@ -466,11 +479,11 @@ const idleJobCount = jobs.filter(
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-2">
-  {jobs
-  .filter((job) => job.job_name !== "sale_scan")
+  {displayedJobs
 .filter(
   (job) =>
     showIdleJobs ||
+    job.job_name === "sample_movie" ||
     job.status !== "idle" ||
     job.total_count > 0
 )
@@ -497,7 +510,8 @@ const idleJobCount = jobs.filter(
   total={job.total_count}
   lastProductId={job.last_product_id}
   lastProductTitle={job.last_product_title}
-  startedAt={startedAt}
+  startedAt={job.started_at}
+  finishedAt={job.finished_at}
 />
     ))}
 </div>

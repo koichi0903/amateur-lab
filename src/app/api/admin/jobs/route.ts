@@ -4,7 +4,9 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export async function GET() {
   const { data: jobs, error } = await supabaseAdmin
     .from("jobs")
-    .select("job_name,status,processed_count,total_count,last_product_id")
+    .select(
+      "job_name,status,processed_count,total_count,last_product_id,started_at,finished_at",
+    )
     .order("job_name");
 
   if (error) {
