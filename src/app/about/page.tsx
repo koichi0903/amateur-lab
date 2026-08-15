@@ -136,6 +136,27 @@ export default async function AboutPage() {
   </p>
 </div>
 
+<div className="mb-8 rounded-2xl border border-pink-100 bg-white p-8 shadow-sm">
+  <h2 className="mb-6 text-3xl font-bold">
+    広告・アフィリエイトについて
+  </h2>
+
+  <p className="leading-8 text-gray-700">
+    発掘LABはアフィリエイト広告を利用しています。作品ページからFANZAへ移動し、
+    商品を購入された場合、発掘LABに紹介料が支払われることがあります。
+  </p>
+
+  <p className="mt-4 leading-8 text-gray-700">
+    アフィリエイトリンクを経由しても、お客様の購入価格が上がることはありません。
+    また、発掘スコアやランキングは、レビュー・価格・人気などの掲載データをもとに算出しています。
+  </p>
+
+  <p className="mt-4 leading-8 text-gray-700">
+    表示価格、セール期間、販売状況は変更される場合があります。購入前にFANZA公式ページで
+    最新情報をご確認ください。
+  </p>
+</div>
+
       </div>
     </main>
   );

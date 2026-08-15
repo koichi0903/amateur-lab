@@ -17,6 +17,7 @@ import { createChartData } from "@/lib/createChartData";
 import ReviewTab from "@/app/components/ReviewTab";
 import SampleImageCarousel from "@/app/components/SampleImageCarousel";
 import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
+import PriceTypes from "@/app/components/PriceTypes";
 import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
 import { isInsightVisible } from "@/lib/insights/visibility";
 import { pageMetadata } from "@/lib/seo";
@@ -40,7 +41,7 @@ const WORK_DETAIL_COLUMNS = [
   "review_score", "review_count_score", "discount_score", "ranking_score",
   "new_release_score", "long_hit_point", "ranking", "price", "sale_price",
   "list_price", "discount_rate", "review_count", "review_average",
-  "release_date", "image_url", "affiliate_url", "stage", "is_on_sale",
+  "release_date", "image_url", "affiliate_url", "stage", "is_on_sale", "sale_end_at",
   "duration", "lowest_price", "previous_realtime_rank", "realtime_rank",
   "sample_movie_url", "long_hit_rank",
 ].join(",");
@@ -210,7 +211,22 @@ export default async function WorkDetailPage(
   };
   const currentPrice = [...(workPrices ?? [])].sort((a, b) =>
     (a.sale_price ?? a.normal_price ?? Number.MAX_SAFE_INTEGER) - (b.sale_price ?? b.normal_price ?? Number.MAX_SAFE_INTEGER)
-  )[0] ?? null;
+  )[0] ?? {
+    display_name: "代表価格",
+    type: null,
+    normal_price: work.list_price ?? work.price,
+    sale_price: work.sale_price || null,
+  };
+  const mobileDisplayPrice =
+    currentPrice.sale_price && currentPrice.sale_price > 0
+      ? currentPrice.sale_price
+      : currentPrice.normal_price;
+  const mobileDisplayDiscountRate =
+    currentPrice.normal_price &&
+    mobileDisplayPrice &&
+    currentPrice.normal_price > mobileDisplayPrice
+      ? Math.round((1 - mobileDisplayPrice / currentPrice.normal_price) * 100)
+      : work.discount_rate;
   const recommendationReasons = analyzeRecommendation({
     work,
     currentPrice,
@@ -235,13 +251,7 @@ const relatedWorks = await getRelatedWorks(mainActress, work.id);
   conclusion,
 } = analyzeWork(work);
 
-  const lowestPriceType =
-  [...(workPrices ?? [])]
-    .sort(
-      (a, b) =>
-        (a.sale_price ?? a.normal_price) -
-        (b.sale_price ?? b.normal_price)
-    )[0]?.display_name ?? "";
+  const lowestPriceType = currentPrice.display_name ?? "";
 
 const chartData = createChartData(
   priceHistory ?? [],
@@ -286,69 +296,42 @@ const chartData = createChartData(
 
       {/* タブ */}
       <section className="mt-8">
-
-        <WorkTabs
-
-          analysis={
-
-            <div className="space-y-8">
-
-              <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
-
-                <div className="min-w-0">
-
-  <AIAnalysis
-    work={work}
-    chartData={chartData}
-    recommendationReasons={recommendationReasons}
-  />
-
-</div>
-
-                <PurchaseCard
-                  work={work}
-                />
-
-              </div>
-
-            </div>
-
-          }
-
-          review={
-  <ReviewTab
-  work={work}
-  summary={summary}
-  goodPoints={goodPoints}
-  cautionPoints={cautionPoints}
-  conclusion={conclusion}
-/>
-}
-
-          price={
-            <div className="space-y-8">
-
-              <PriceHistory
-                history={priceHistory ?? []}
+        <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <WorkTabs
+            analysis={
+              <AIAnalysis
+                work={work}
+                chartData={chartData}
+                recommendationReasons={recommendationReasons}
               />
+            }
+            review={
+              <ReviewTab
+                work={work}
+                summary={summary}
+                goodPoints={goodPoints}
+                cautionPoints={cautionPoints}
+                conclusion={conclusion}
+              />
+            }
+            price={
+              <div className="space-y-8">
+                <PriceTypes prices={workPrices ?? []} />
+                <PriceHistory history={priceHistory ?? []} />
+              </div>
+            }
+            info={<WorkInfo work={work} />}
+            related={<RelatedWorks works={relatedWorks ?? []} />}
+          />
 
-            </div>
-          }
-
-          info={
-            <WorkInfo
-              work={work}
-            />
-          }
-
-          related={
-            <RelatedWorks
-              works={relatedWorks ?? []}
-            />
-          }
-
-        />
-
+          <PurchaseCard
+            work={work}
+            offers={workPrices ?? []}
+            checkedAt={priceHistory[0]?.changed_at ?? null}
+            sampleMovieAvailable={!!work.sample_movie_url}
+            recommendationReasons={recommendationReasons}
+          />
+        </div>
       </section>
 
       <SampleImageCarousel
@@ -409,7 +392,11 @@ const chartData = createChartData(
       </section>
 
     </div>
-    <MobilePurchaseBar work={work} />
+    <MobilePurchaseBar
+      work={work}
+      displayPrice={mobileDisplayPrice}
+      displayDiscountRate={mobileDisplayDiscountRate}
+    />
   </main>
 );
 }

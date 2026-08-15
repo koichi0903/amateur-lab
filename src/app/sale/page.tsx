@@ -34,8 +34,20 @@ function saleDetails(work: Work) {
   return { salePrice, regularPrice, rate };
 }
 
+function formatSaleEnd(value: string | null) {
+  if (!value || Date.parse(value) <= Date.now()) return null;
+  return new Intl.DateTimeFormat("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Tokyo",
+  }).format(new Date(value));
+}
+
 function SaleCard({ work }: { work: Work }) {
   const sale = saleDetails(work);
+  const saleEnd = formatSaleEnd(work.sale_end_at);
   return (
     <Link href={`/works/${work.id}`} className="group flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg">
       <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100">
@@ -47,6 +59,17 @@ function SaleCard({ work }: { work: Work }) {
       <div className="mt-auto pt-3">
         <p className="text-[11px] font-bold text-slate-400 line-through">通常 ¥{sale.regularPrice.toLocaleString("ja-JP")}</p>
         <p className="text-lg font-black text-rose-600">¥{sale.salePrice.toLocaleString("ja-JP")}</p>
+        {saleEnd && <p className="mt-1 text-[10px] font-bold text-amber-700">終了予定 {saleEnd}</p>}
+        <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-[11px] font-black">
+          <span className="text-amber-600">
+            {work.review_average > 0
+              ? `★ ${work.review_average.toFixed(2)}（${work.review_count ?? 0}件）`
+              : work.score > 0
+                ? `発掘スコア ${work.score}`
+                : "作品データを見る"}
+          </span>
+          <span className="shrink-0 text-pink-600">価格・サンプル →</span>
+        </div>
       </div>
     </Link>
   );
@@ -57,7 +80,7 @@ export default async function SalePage({ searchParams }: { searchParams: Promise
   const offset = (page - 1) * PAGE_SIZE;
   const { data, count, error } = await supabase
     .from("works")
-    .select("id,title,image_url,price,sale_price,list_price,discount_rate", { count: "exact" })
+    .select("id,title,image_url,price,sale_price,list_price,discount_rate,score,review_average,review_count,sale_end_at", { count: "exact" })
     .gt("sale_price", 0)
     .gt("discount_rate", 0)
     .order("discount_rate", { ascending: false })
@@ -77,12 +100,17 @@ export default async function SalePage({ searchParams }: { searchParams: Promise
             <Link href="/" className="text-xs font-bold text-slate-500 transition hover:text-pink-600">TOP <span className="mx-1">/</span> セール</Link>
             <div className="mt-5 flex items-start gap-4">
               <span className="shrink-0 rounded-2xl bg-rose-50 p-3 text-rose-600"><BadgePercent size={28} /></span>
-              <div><p className="text-xs font-black tracking-[0.18em] text-rose-600">SALE DISCOVERY</p><h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">セール中の作品</h1><p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">現在セール中の作品を、割引率が高い順に掲載しています。</p></div>
+              <div><p className="text-xs font-black tracking-[0.18em] text-rose-600">SALE DISCOVERY</p><h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">セール中の作品</h1><p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">現在セール中の作品を、割引率が高い順に掲載しています。価格・レビュー・無料サンプルを比較して選べます。</p></div>
             </div>
           </div>
         </section>
 
         <section className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
+          <div className="mb-8 grid gap-3 rounded-2xl border border-rose-100 bg-white p-4 text-xs font-bold leading-6 text-slate-600 sm:grid-cols-3 sm:p-5">
+            <p><span className="mr-2 text-emerald-600">✓</span>割引率が高い順に比較</p>
+            <p><span className="mr-2 text-emerald-600">✓</span>レビューと発掘スコアを確認</p>
+            <p><span className="mr-2 text-emerald-600">✓</span>最終価格はFANZA公式で確認</p>
+          </div>
           <div className="mb-6 flex items-end justify-between gap-4"><div><p className="text-xs font-black tracking-widest text-rose-600">ON SALE</p><h2 className="mt-1 text-2xl font-black">セール作品一覧</h2></div><span className="shrink-0 text-xs font-bold text-slate-500">全{total.toLocaleString("ja-JP")}作品</span></div>
           {error ? (
             <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center font-black">セール作品を読み込めませんでした</div>
