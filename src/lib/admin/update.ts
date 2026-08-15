@@ -14,8 +14,11 @@ export async function updateDmmItem(
   url: string;
   release_date: string | null;
   actress?: string | null;
-}
+},
+  options: { updatePrices?: boolean } = {},
 ) {
+
+const updatePrices = options.updatePrices ?? true;
 
 const previousReviewCount =
   currentWork?.review_count ?? 0;
@@ -77,7 +80,7 @@ const hasActressChange =
   nextActress != null && currentWork?.actress !== nextActress;
 
 if (!exists && sampleImages.length > 0) {
-  await supabase
+  const { error: sampleImageError } = await supabase
   .from("work_sample_images")
   .insert(
       sampleImages.map((url, index) => ({
@@ -86,6 +89,10 @@ if (!exists && sampleImages.length > 0) {
         sort_order: index + 1,
       }))
     );
+
+  if (sampleImageError) {
+    throw sampleImageError;
+  }
 }
 
 if (currentWork && !hasChanges && !hasActressChange) {
@@ -107,7 +114,7 @@ if (currentWork && !hasChanges && !hasActressChange) {
 
   review_average: nextReviewAverage,
 
-  ...(apiCurrentPrice > 0
+  ...(updatePrices && apiCurrentPrice > 0
     ? {
         price: apiListPrice,
         list_price: apiListPrice,
@@ -123,7 +130,7 @@ if (currentWork && !hasChanges && !hasActressChange) {
     .eq("product_id", item.content_id);
 
   if (error) {
-    console.error(error);
+    throw error;
   }
 
   if (

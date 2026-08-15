@@ -1,187 +1,129 @@
-import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
-import { updateWork } from "./updateWork";
 import { UPDATE_CONFIG } from "@/config/update";
+import { JOBS, beginJob, failJob, finishJob, updateJob } from "@/lib/jobs";
+import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
+import type { Browser } from "playwright-core";
+import { updateWork } from "./updateWork";
 
-import {
-  createBrowser,
-  closeBrowser,
-} from "@/lib/playwright/browserManager";
+type EndedSaleTarget = {
+  product_id: string;
+  sale_end_at: string | null;
+};
 
-import {
-  beginJob,
-  updateJob,
-  finishJob,
-  failJob,
-  JOBS,
-} from "@/lib/jobs";
+async function updateBatch(batch: EndedSaleTarget[], browser: Browser) {
+  return Promise.all(
+    batch.map(async (work) => {
+      console.log(`■ 終了セール更新開始 ${work.product_id}`);
+
+      try {
+        await updateWork(work.product_id, undefined, browser);
+        console.log(`✓ 更新成功 ${work.product_id}`);
+        return { productId: work.product_id, success: true as const };
+      } catch (error) {
+        console.error(`✗ 更新失敗 ${work.product_id}`, error);
+        return { productId: work.product_id, success: false as const };
+      }
+    }),
+  );
+}
 
 export async function updateEndedSaleWorks() {
   const now = new Date().toISOString();
-
-  const allWorks: {
-    product_id: string;
-    sale_end_at: string | null;
-  }[] = [];
-
+  const allWorks: EndedSaleTarget[] = [];
   let from = 0;
   const pageSize = 1000;
 
   while (true) {
     const { data, error } = await supabase
       .from("works")
-      .select(`
-  product_id,
-  sale_end_at,
-  is_on_sale
-`)
+      .select("product_id, sale_end_at, is_on_sale")
       .not("sale_end_at", "is", null)
-.eq("is_on_sale", true)
-.lte("sale_end_at", now)
-
+      .eq("is_on_sale", true)
+      .lte("sale_end_at", now)
+      .order("product_id")
       .range(from, from + pageSize - 1);
 
-    if (error) {
-      throw error;
-    }
-
-    if (!data || data.length === 0) {
-      break;
-    }
+    if (error) throw error;
+    if (!data || data.length === 0) break;
 
     allWorks.push(...data);
-
-    if (data.length < pageSize) {
-      break;
-    }
-
+    if (data.length < pageSize) break;
     from += pageSize;
   }
 
-  console.log(
-    `終了したセール作品 ${allWorks.length}件`
-  );
+  console.log(`終了日時を過ぎたセール作品 ${allWorks.length}件`);
+  if (allWorks.length === 0) return;
 
-  const job = await beginJob(
-  JOBS.ENDED_SALE,
-  allWorks.length
-);
+  // 対象は毎回DBから再抽出する。古いprocessed_countではスキップしない。
+  await beginJob(JOBS.ENDED_SALE, allWorks.length);
 
-const processedCount =
-  job.processed_count ?? 0;
-
-const targets =
-  allWorks.slice(processedCount);
-
-let processed = processedCount;
-
-let browser =
-  await createBrowser();
+  let browser = await createBrowser();
+  let processed = 0;
+  let succeeded = 0;
+  const failedProductIds = new Set<string>();
 
   try {
-  for (
-  let i = 0;
-  i < targets.length;
-  i += UPDATE_CONFIG.parallel
-) {
-  const batch = targets.slice(
-    i,
-    i + UPDATE_CONFIG.parallel
-  );
+    for (let index = 0; index < allWorks.length; index += UPDATE_CONFIG.parallel) {
+      const batch = allWorks.slice(index, index + UPDATE_CONFIG.parallel);
+      const results = await updateBatch(batch, browser);
 
-  console.log(
-  `========================`
-);
-console.log(
-  `Batch ${i / UPDATE_CONFIG.parallel + 1}`
-);
-console.log(
-  batch.map((w) => w.product_id)
-);
-console.log(
-  `========================`
-);
+      for (const result of results) {
+        if (result.success) succeeded += 1;
+        else failedProductIds.add(result.productId);
+      }
 
-  await Promise.all(
-  batch.map(async (work) => {
-    console.log(
-      `▶ 終了セール更新開始 ${work.product_id}`
-    );
-
-    try {
-      await updateWork(
-        work.product_id,
-        undefined,
-        browser
+      processed += batch.length;
+      await updateJob(
+        JOBS.ENDED_SALE,
+        processed,
+        batch.at(-1)?.product_id ?? "",
       );
+
+      if (processed % UPDATE_CONFIG.browserRestartInterval === 0) {
+        await closeBrowser(browser);
+        browser = await createBrowser();
+      }
 
       console.log(
-        `✅ 更新成功 ${work.product_id}`
+        `${processed}/${allWorks.length} success=${succeeded} failed=${failedProductIds.size}`,
       );
-    } catch (error) {
-      console.error(
-        `❌ 更新失敗 ${work.product_id}`,
-        error
-      );
-
-      throw error;
     }
-  })
-);
 
-  processed += batch.length;
+    if (failedProductIds.size > 0) {
+      console.log(`失敗した${failedProductIds.size}件を再試行します`);
+      await closeBrowser(browser);
+      browser = await createBrowser();
 
-  if (
-    processed %
-      UPDATE_CONFIG.browserRestartInterval ===
-    0
-  ) {
-    console.log(
-      `🔄 Browser再起動 (${processed}件処理)`
-    );
+      const retryTargets = allWorks.filter((work) =>
+        failedProductIds.has(work.product_id),
+      );
 
-    await closeBrowser(browser);
+      for (let index = 0; index < retryTargets.length; index += UPDATE_CONFIG.parallel) {
+        const batch = retryTargets.slice(index, index + UPDATE_CONFIG.parallel);
+        const results = await updateBatch(batch, browser);
 
-    browser = await createBrowser();
-  }
+        for (const result of results) {
+          if (result.success) failedProductIds.delete(result.productId);
+        }
+      }
+    }
 
-  if (
-    processed %
-      UPDATE_CONFIG.jobUpdateInterval ===
-    0
-  ) {
-    await updateJob(
+    if (failedProductIds.size > 0) {
+      const failedIds = [...failedProductIds];
+      throw new Error(
+        `終了セール更新に失敗した作品が${failedIds.length}件残りました: ${failedIds.join(", ")}`,
+      );
+    }
+
+    await finishJob(JOBS.ENDED_SALE);
+    console.log(`終了セール更新完了: ${allWorks.length}件`);
+  } catch (error) {
+    await failJob(
       JOBS.ENDED_SALE,
-      processed,
-      batch[batch.length - 1].product_id
+      error instanceof Error ? error.message : String(error),
     );
+    throw error;
+  } finally {
+    await closeBrowser(browser);
   }
-
-  console.log(
-    `${processed}/${targets.length}`
-  );
-}
-
-  await updateJob(
-  JOBS.ENDED_SALE,
-  processed,
-  targets.at(-1)?.product_id ?? ""
-);
-
-await finishJob(
-  JOBS.ENDED_SALE
-);
-} catch (error) {
-  await failJob(
-    JOBS.ENDED_SALE,
-    error instanceof Error
-      ? error.message
-      : String(error)
-  );
-
-  throw error;
-} finally {
-  await closeBrowser(browser);
-}
-
-  console.log("終了セール更新完了");
 }

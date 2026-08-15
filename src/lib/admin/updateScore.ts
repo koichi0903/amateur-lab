@@ -97,15 +97,15 @@ function getGenrePoint(rank: number | null): number {
   if (!rank) return 0;
 
   if (rank <= 3) return 10;
-  if (rank <= 8) return 9;
-  if (rank <= 13) return 8;
-  if (rank <= 18) return 7;
-  if (rank <= 23) return 6;
-  if (rank <= 28) return 5;
-  if (rank <= 33) return 4;
-  if (rank <= 38) return 3;
-  if (rank <= 44) return 2;
-  if (rank <= 50) return 1;
+  if (rank <= 6) return 9;
+  if (rank <= 9) return 8;
+  if (rank <= 12) return 7;
+  if (rank <= 15) return 6;
+  if (rank <= 18) return 5;
+  if (rank <= 21) return 4;
+  if (rank <= 24) return 3;
+  if (rank <= 27) return 2;
+  if (rank <= 30) return 1;
 
   return 0;
 }
@@ -134,8 +134,8 @@ async function fetchRanking(
 ): Promise<DmmItem[]> {
   const url =
     "https://api.dmm.com/affiliate/v3/ItemList" +
-    `?api_id=${apiId}` +
-    `&affiliate_id=${affiliateId}` +
+    `?api_id=${encodeURIComponent(apiId)}` +
+    `&affiliate_id=${encodeURIComponent(affiliateId)}` +
     "&site=FANZA" +
     "&service=digital" +
     "&floor=videoa" +
@@ -144,10 +144,30 @@ async function fetchRanking(
     "&sort=rank" +
     "&output=json";
 
-  const res = await fetch(url);
-  const data = await res.json();
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(30_000),
+  });
 
-  return data.result.items as DmmItem[];
+  if (!response.ok) {
+    throw new Error(
+      `DMMランキングAPI取得失敗: offset=${offset} status=${response.status}`
+    );
+  }
+
+  const payload: unknown = await response.json();
+  const items =
+    typeof payload === "object" && payload !== null &&
+    "result" in payload &&
+    typeof payload.result === "object" && payload.result !== null &&
+    "items" in payload.result
+      ? payload.result.items
+      : null;
+
+  if (!Array.isArray(items)) {
+    throw new Error(`DMMランキングAPIの応答形式が不正です: offset=${offset}`);
+  }
+
+  return items as DmmItem[];
 }
 
 const supabase = createClient(
@@ -155,14 +175,49 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+async function syncSimpleRanking(
+  table: "genre_rankings" | "maker_rankings",
+  rows: Array<{ name: string; rank: number; score: number; updated_at: Date }>
+) {
+  const { error: upsertError } = await supabase
+    .from(table)
+    .upsert(rows, { onConflict: "name" });
+
+  if (upsertError) throw upsertError;
+
+  const { data: existingRows, error: selectError } = await supabase
+    .from(table)
+    .select("id,name");
+
+  if (selectError) throw selectError;
+
+  const currentNames = new Set(rows.map((row) => row.name));
+  const staleIds = (existingRows ?? [])
+    .filter((row) => !currentNames.has(row.name))
+    .map((row) => row.id);
+
+  if (staleIds.length > 0) {
+    const { error: deleteError } = await supabase
+      .from(table)
+      .delete()
+      .in("id", staleIds);
+
+    if (deleteError) throw deleteError;
+  }
+}
+
 export async function updateScore(
   productIds?: string[]
 ) {
   
   try {
 
-    const apiId = process.env.DMM_API_ID!;
-const affiliateId = process.env.DMM_AFFILIATE_ID!;
+    const apiId = process.env.DMM_API_ID?.trim();
+const affiliateId = process.env.DMM_AFFILIATE_ID?.trim();
+
+if (!apiId || !affiliateId) {
+  throw new Error("DMM_API_ID または DMM_AFFILIATE_ID が未設定です");
+}
 
 const allItems: DmmItem[] = [];
 
@@ -177,7 +232,11 @@ for (
     offset
   );
 
-  if (!items.length) break;
+  if (items.length !== 100) {
+    throw new Error(
+      `DMMランキングAPIの取得件数が不足しています: offset=${offset} count=${items.length}`
+    );
+  }
 
   allItems.push(...items);
 }
@@ -188,6 +247,10 @@ const rankingItems = allItems.map(
     rank: index + 1,
   })
 );
+
+if (new Set(rankingItems.map((item) => item.content_id)).size !== 1000) {
+  throw new Error("DMMランキング上位1000件を一意に取得できませんでした");
+}
 
 const genreScore: Record<string, number> = {};
 const actressScore: Record<string, number> = {};
@@ -271,15 +334,17 @@ const seriesRanking = Object.entries(
     .not("id", "is", null);
   
   if (clearError) {
-    console.error("original_rank初期化失敗", clearError);
+    throw clearError;
   }
   
   for (const actress of actressRanking.slice(0, 100)) {
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from("actress_rankings")
       .select("id")
       .eq("name", actress.name)
       .maybeSingle();
+
+    if (existingError) throw existingError;
   
     if (existing) {
       const { error } = await supabase
@@ -291,7 +356,7 @@ const seriesRanking = Object.entries(
         .eq("id", existing.id);
   
       if (error) {
-        console.error(`更新失敗: ${actress.name}`, error.message);
+        throw error;
       }
     } else {
       const { error } = await supabase
@@ -304,7 +369,7 @@ const seriesRanking = Object.entries(
         });
   
       if (error) {
-        console.error(`追加失敗: ${actress.name}`, error.message);
+        throw error;
       } else {
         console.log(`追加: ${actress.name}`);
       }
@@ -313,41 +378,25 @@ const seriesRanking = Object.entries(
   
   console.log("女優ランキング更新完了");
 
-  await supabase
-  .from("genre_rankings")
-  .delete()
-  .neq("id", 0);
+await syncSimpleRanking(
+  "genre_rankings",
+  genreRanking.slice(0, 30).map((g) => ({
+    name: g.genre,
+    rank: g.rank,
+    score: g.score,
+    updated_at: new Date(),
+  }))
+);
 
-await supabase
-  .from("genre_rankings")
-  .insert(
-    genreRanking
-      .slice(0, 30)
-      .map((g) => ({
-  name: g.genre,
-  rank: g.rank,
-  score: g.score,
-  updated_at: new Date(),
-}))
-  );
-
-await supabase
-  .from("maker_rankings")
-  .delete()
-  .neq("id", 0);
-
-await supabase
-  .from("maker_rankings")
-  .insert(
-    makerRanking
-      .slice(0, 50)
-      .map((m, index) => ({
-        name: m.maker,
-        rank: index + 1,
-        score: m.score,
-        updated_at: new Date(),
-      }))
-  );
+await syncSimpleRanking(
+  "maker_rankings",
+  makerRanking.slice(0, 50).map((m, index) => ({
+    name: m.maker,
+    rank: index + 1,
+    score: m.score,
+    updated_at: new Date(),
+  }))
+);
   
   console.log("ランキング集計完了");
   
@@ -356,11 +405,13 @@ await supabase
   
   // FANZA女優ランキング反映
   for (const actress of fanzaActressRanking) {
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from("actress_rankings")
       .select("id")
       .eq("name", actress.name)
       .maybeSingle();
+
+    if (existingError) throw existingError;
   
     if (existing) {
       const { error } = await supabase
@@ -372,7 +423,7 @@ await supabase
         .eq("id", existing.id);
   
       if (error) {
-        console.error(`女優更新失敗: ${actress.name}`, error.message);
+        throw error;
       }
     } else {
       const { error } = await supabase
@@ -385,18 +436,20 @@ await supabase
         });
   
       if (error) {
-        console.error(`女優追加失敗: ${actress.name}`, error.message);
+        throw error;
       }
     }
   }
   
   // FANZAシリーズランキング反映
   for (const series of fanzaSeriesRanking) {
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from("series_rankings")
       .select("id")
       .eq("name", series.name)
       .maybeSingle();
+
+    if (existingError) throw existingError;
   
     if (existing) {
       const { error } = await supabase
@@ -408,7 +461,7 @@ await supabase
         .eq("id", existing.id);
   
       if (error) {
-        console.error(`シリーズ更新失敗: ${series.name}`, error.message);
+        throw error;
       }
     } else {
       const { error } = await supabase
@@ -422,7 +475,7 @@ await supabase
   });
   
       if (error) {
-        console.error(`シリーズ追加失敗: ${series.name}`, error.message);
+        throw error;
       }
     }
   }
@@ -436,19 +489,18 @@ const { error: clearSeriesError } = await supabase
   .not("id", "is", null);
 
 if (clearSeriesError) {
-  console.error(
-    "series original_rank初期化失敗",
-    clearSeriesError
-  );
+  throw clearSeriesError;
 }
 
 // オリジナルシリーズランキング反映
 for (const series of seriesRanking.slice(0, 100)) {
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("series_rankings")
     .select("id")
     .eq("name", series.series)
     .maybeSingle();
+
+  if (existingError) throw existingError;
 
   if (existing) {
     const { error } = await supabase
@@ -461,10 +513,7 @@ for (const series of seriesRanking.slice(0, 100)) {
       .eq("id", existing.id);
 
     if (error) {
-      console.error(
-        `シリーズ更新失敗: ${series.series}`,
-        error.message
-      );
+      throw error;
     }
   } else {
     const { error } = await supabase
@@ -478,23 +527,13 @@ for (const series of seriesRanking.slice(0, 100)) {
       });
 
     if (error) {
-      console.error(
-        `シリーズ追加失敗: ${series.series}`,
-        error.message
-      );
+      throw error;
     }
   }
 }
 
     const works: ScoreUpdateWork[] = [];
-
-  let from = 0;
-  const limit = 1000;
-
-  while (true) {
-  let query = supabase
-    .from("works")
-    .select(`
+    const selectColumns = `
     id,
     product_id,
     actress,
@@ -515,40 +554,40 @@ max_discount_rate,
         weekly_rank,
         monthly_rank,
         long_hit_rank
-    `);
+    `;
+    const limit = 1000;
 
-  if (productIds && productIds.length > 0) {
-    query = query.in("product_id", productIds);
-  } else {
-    query = query
-  .order("id", { ascending: true })
-  .range(from, from + limit - 1);
-  }
+    if (productIds && productIds.length > 0) {
+      for (let i = 0; i < productIds.length; i += limit) {
+        const { data, error } = await supabase
+          .from("works")
+          .select(selectColumns)
+          .in("product_id", productIds.slice(i, i + limit));
 
-  const { data, error } = await query;
+        if (error) throw error;
+        works.push(...((data ?? []) as ScoreUpdateWork[]));
+      }
+    } else {
+      for (let from = 0; ; from += limit) {
+        const { data, error } = await supabase
+          .from("works")
+          .select(selectColumns)
+          .order("id", { ascending: true })
+          .range(from, from + limit - 1);
 
-  if (error) {
-    throw error;
-  }
-
-    if (!data || data.length === 0) {
-      break;
+        if (error) throw error;
+        works.push(...((data ?? []) as ScoreUpdateWork[]));
+        if (!data || data.length < limit) break;
+      }
     }
-
-    works.push(...data);
-
-    if (data.length < limit) {
-      break;
-    }
-
-    from += limit;
-  }
 
   console.log("score更新対象:", works.length);
 
-const { data: actressRanks } = await supabase
+const { data: actressRanks, error: actressRanksError } = await supabase
   .from("actress_rankings")
   .select("name, original_rank, fanza_rank");
+
+if (actressRanksError) throw actressRanksError;
 
 const actressRankMap = new Map(
   (actressRanks ?? []).map((a) => {
@@ -563,9 +602,11 @@ const actressRankMap = new Map(
   })
 );
 
-const { data: genreRanks } = await supabase
+const { data: genreRanks, error: genreRanksError } = await supabase
   .from("genre_rankings")
   .select("name, rank");
+
+if (genreRanksError) throw genreRanksError;
 
 const genreRankMap = new Map(
   (genreRanks ?? []).map((g) => [
@@ -574,9 +615,11 @@ const genreRankMap = new Map(
   ])
 );
 
-const { data: makerRanks } = await supabase
+const { data: makerRanks, error: makerRanksError } = await supabase
   .from("maker_rankings")
   .select("name, rank");
+
+if (makerRanksError) throw makerRanksError;
 
 const makerRankMap = new Map(
   (makerRanks ?? []).map((m) => [
@@ -585,9 +628,11 @@ const makerRankMap = new Map(
   ])
 );
 
-const { data: seriesRanks } = await supabase
+const { data: seriesRanks, error: seriesRanksError } = await supabase
   .from("series_rankings")
   .select("name, original_rank, fanza_rank");
+
+if (seriesRanksError) throw seriesRanksError;
 
 const seriesRankMap = new Map(
   (seriesRanks ?? []).map((s) => {
@@ -608,11 +653,14 @@ const seriesRankMap = new Map(
 );
 
 let processed =
-  job.processed_count ?? 0;
+  Math.min(job.processed_count ?? 0, works.length);
 
-  const workUpdates = [];
+  const targets = works.slice(processed);
+  let workUpdates: Array<Record<string, number>> = [];
+  let updatedCount = 0;
 
-  for (const work of works) {
+  for (let targetIndex = 0; targetIndex < targets.length; targetIndex += 1) {
+    const work = targets[targetIndex];
 
     let actressScore = 0;
 let genreScore = 0;
@@ -686,7 +734,8 @@ series.forEach((name) => {
     const result = calculateScore({
       reviewAverage: work.review_average || 0,
       reviewCount: work.review_count || 0,
-      maxDiscountRate: work.max_discount_rate || 0,
+      // スコアは過去最大ではなく、現在有効な割引率を反映する。
+      maxDiscountRate: work.discount_rate || 0,
 
       actressPoint: actressScore,
 genrePoint: genreScore,
@@ -747,43 +796,26 @@ actress_point: Math.round(
         result.seriesPoint
       ),
     });
-        processed++;
+    if (workUpdates.length === 500 || targetIndex === targets.length - 1) {
+      const batchSize = workUpdates.length;
+      const { error: updateError } = await supabase
+        .from("works")
+        .upsert(workUpdates);
 
-    if (
-      processed % 50 === 0 ||
-      processed === works.length
-    ) {
+      if (updateError) throw updateError;
+
+      processed += batchSize;
+      updatedCount += batchSize;
       await updateJob(
         JOBS.SCORE,
         processed,
         String(work.id)
       );
+
+      console.log(`[score] ${processed}/${works.length}`);
+      workUpdates = [];
     }
   }
-
-  const duplicateIds = workUpdates.filter(
-  (item, index, array) =>
-    array.findIndex((v) => v.id === item.id) !== index
-);
-
-console.log(
-  "重複ID件数",
-  duplicateIds.length
-);
-
-if (duplicateIds.length > 0) {
-  console.log(
-    duplicateIds.slice(0, 20)
-  );
-}
-
-  const { error: updateError } = await supabase
-  .from("works")
-  .upsert(workUpdates);
-
-if (updateError) {
-  throw updateError;
-}
 
   console.log("スコア更新完了");
 
@@ -795,7 +827,7 @@ await finishJob(JOBS.SCORE);
 
 return {
   count: works.length,
-  updates: workUpdates.length,
+  updates: updatedCount,
 };
 
 } catch (error) {

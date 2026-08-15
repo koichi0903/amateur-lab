@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
   const results: Array<{
     productId: string;
     success: boolean;
-    status: "updated" | "unavailable" | "failed";
+    status: "updated" | "unavailable" | "sample_movie_missing" | "failed";
     message?: string;
   }> = [];
 

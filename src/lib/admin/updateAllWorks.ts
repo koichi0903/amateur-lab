@@ -7,7 +7,6 @@ import { updateRanking } from "./updateRanking";
 import { updateScore } from "./updateScore";
 import { updateReviewWorks } from "./updateReviewWorks";
 import { updateReserveWorks } from "./updateReserveWorks";
-import { updateStage } from "@/lib/update/updateStage";
 
 export async function updateAllWorks() {
   console.log("===== 全更新開始 =====");
@@ -30,9 +29,6 @@ export async function updateAllWorks() {
 
     console.log("■ 終了セール更新");
     await updateEndedSaleWorks();
-
-    console.log("■ Stage同期");
-    await updateStage();
 
     console.log("■ レビュー更新");
     await updateReviewWorks();

@@ -58,6 +58,8 @@ export async function getProductIds(
     ? totalPages
     : Math.min(totalPages, maxPages);
 
+    const failedPages: number[] = [];
+
     for (
   let currentPage = 1;
   currentPage <= pageLimit;
@@ -110,6 +112,7 @@ await page.waitForTimeout(500);
     console.log(
       `page ${currentPage} をスキップ`
     );
+    failedPages.push(currentPage);
     continue;
   }
 }
@@ -199,6 +202,8 @@ products.set(productId, {
 
     return {
   totalPages,
+  requestedPages: pageLimit,
+  failedPages,
   products: [...products.values()],
 };
   } finally {

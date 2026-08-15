@@ -1,144 +1,92 @@
-import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
-import { getAllWorks } from "@/lib/supabase/getAllWorks";
+import { JOBS, beginJob, failJob, finishJob, updateJob } from "@/lib/jobs";
 import { getNewItems } from "@/lib/playwright/getNewItems";
-import { getSemiNewItems } from "@/lib/playwright/getSemiNewItems";
 import { getReserveItems } from "@/lib/playwright/getReserveItems";
+import { getSemiNewItems } from "@/lib/playwright/getSemiNewItems";
+import { getAllWorks } from "@/lib/supabase/getAllWorks";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
-import {
-  beginJob,
-  updateJob,
-  finishJob,
-  failJob,
-  JOBS,
-} from "@/lib/jobs";
+type PublicStage = "RESERVED" | "NEW" | "SEMI_NEW" | "OLD";
+type StoredStage = PublicStage | "DISCONTINUED";
+type ListResult = Awaited<ReturnType<typeof getReserveItems>>;
 
-type Stage =
-  | "RESERVED"
-  | "NEW"
-  | "SEMI_NEW"
-  | "OLD";
+const UPDATE_BATCH_SIZE = 500;
+
+function validateList(name: string, result: ListResult) {
+  if (result.products.length === 0) {
+    throw new Error(`${name}一覧が0件のため、Stage同期を中止しました。`);
+  }
+  if (result.failedPages.length > 0) {
+    throw new Error(
+      `${name}一覧の取得に失敗したページがあります (${result.failedPages.join(", ")})。Stage同期を中止しました。`,
+    );
+  }
+  if (result.requestedPages !== result.totalPages) {
+    throw new Error(`${name}一覧が全ページ取得されていないため、Stage同期を中止しました。`);
+  }
+}
 
 export async function updateStage() {
   try {
-    console.log("=== Stage同期開始 ===");
+    console.log("=== Stage同期開始（手動修復） ===");
 
-    const [
-  { products: reserveProducts },
-  { products: newProducts },
-  { products: semiNewProducts },
-] = await Promise.all([
-  getReserveItems(),
-  getNewItems(),
-  getSemiNewItems(),
-]);
+    const reserveResult = await getReserveItems();
+    validateList("予約作品", reserveResult);
+    const newResult = await getNewItems();
+    validateList("新作", newResult);
+    const semiNewResult = await getSemiNewItems();
+    validateList("準新作", semiNewResult);
 
-    const newSet = new Set(
-  newProducts.map((p) => p.productId)
-);
-
-const semiNewSet = new Set(
-  semiNewProducts.map((p) => p.productId)
-);
-
-const reserveSet = new Set(
-  reserveProducts.map((p) => p.productId)
-);
-    
+    const reserveSet = new Set(reserveResult.products.map((item) => item.productId));
+    const newSet = new Set(newResult.products.map((item) => item.productId));
+    const semiNewSet = new Set(semiNewResult.products.map((item) => item.productId));
 
     const works = await getAllWorks<{
-  id: number;
-  product_id: string;
-  stage: Stage;
-  product_release_date: string | null;
-}>(
-  "id, product_id, stage, product_release_date"
-);
+      id: number;
+      product_id: string;
+      stage: StoredStage;
+    }>("id, product_id, stage");
 
-await beginJob(
-  JOBS.STAGE,
-  works.length
-);
+    const eligibleWorks = works.filter((work) => work.stage !== "DISCONTINUED");
+    await beginJob(JOBS.STAGE, eligibleWorks.length);
 
-    let processed = 0;
+    const updatesByStage: Record<PublicStage, number[]> = {
+      RESERVED: [],
+      NEW: [],
+      SEMI_NEW: [],
+      OLD: [],
+    };
 
-    const updates: {
-  id: number;
-  stage: Stage;
-}[] = [];
+    for (const work of eligibleWorks) {
+      let nextStage: PublicStage = "OLD";
+      if (reserveSet.has(work.product_id)) nextStage = "RESERVED";
+      else if (newSet.has(work.product_id)) nextStage = "NEW";
+      else if (semiNewSet.has(work.product_id)) nextStage = "SEMI_NEW";
 
-    for (const work of works) {
-      let nextStage: Stage = "OLD";
-
-if (reserveSet.has(work.product_id)) {
-  nextStage = "RESERVED";
-} else if (newSet.has(work.product_id)) {
-  nextStage = "NEW";
-} else if (semiNewSet.has(work.product_id)) {
-  nextStage = "SEMI_NEW";
-}
-
-
-
-      if (work.stage !== nextStage) {
-        updates.push({
-  id: work.id,
-  stage: nextStage,
-});
-      }
-
-      processed++;
-
-      if (processed % 100 === 0) {
-        await updateJob(
-          JOBS.STAGE,
-          processed,
-          work.product_id
-        );
-      }
+      if (work.stage !== nextStage) updatesByStage[nextStage].push(work.id);
     }
 
-    console.log(
-      `更新対象 ${updates.length} 件`
+    const updateCount = Object.values(updatesByStage).reduce(
+      (total, ids) => total + ids.length,
+      0,
     );
-        // 差分だけ更新
-    for (const update of updates) {
-      const { error } = await supabase
-        .from("works")
-        .update({
-          stage: update.stage,
-        })
-        .eq("id", update.id);
+    console.log(`Stage更新対象 ${updateCount}件`);
 
-      if (error) {
-        throw error;
+    let applied = 0;
+    for (const [stage, ids] of Object.entries(updatesByStage) as [PublicStage, number[]][]) {
+      for (let index = 0; index < ids.length; index += UPDATE_BATCH_SIZE) {
+        const batch = ids.slice(index, index + UPDATE_BATCH_SIZE);
+        const { error } = await supabase.from("works").update({ stage }).in("id", batch);
+        if (error) throw error;
+
+        applied += batch.length;
+        await updateJob(JOBS.STAGE, applied, `${stage}: ${applied}/${updateCount}`);
       }
     }
-
-    console.log(
-  "最後",
-  "processed =", processed,
-  "works.length =", works.length
-);
-
-    await updateJob(
-  JOBS.STAGE,
-  processed,
-  works.at(-1)?.product_id ?? ""
-);
 
     await finishJob(JOBS.STAGE);
-
-    console.log(
-      `Stage同期完了（${updates.length}件更新）`
-    );
+    console.log(`Stage同期完了: ${updateCount}件更新`);
   } catch (error) {
-    await failJob(
-      JOBS.STAGE,
-      error instanceof Error
-        ? error.message
-        : String(error)
-    );
-
+    await failJob(JOBS.STAGE, error instanceof Error ? error.message : String(error));
     throw error;
   }
 }

@@ -1,11 +1,8 @@
+import type { Browser } from "playwright-core";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { UPDATE_CONFIG } from "@/config/update";
 import { updateWork } from "./updateWork";
-import {
-  createBrowser,
-  closeBrowser,
-} from "@/lib/playwright/browserManager";
-
+import { createBrowser, closeBrowser } from "@/lib/playwright/browserManager";
 import {
   beginJob,
   updateJob,
@@ -14,125 +11,158 @@ import {
   JOBS,
 } from "@/lib/jobs";
 
-export async function updateMissingPrices() {
-  const allWorks: {
-    product_id: string;
-  }[] = [];
+type PriceTarget = {
+  id: number;
+  product_id: string;
+  price: number | null;
+  list_price: number | null;
+};
 
-  let from = 0;
-  const pageSize = 1000;
+const PAGE_SIZE = 1000;
 
-  while (true) {
+async function loadPriceTargets(): Promise<PriceTarget[]> {
+  const works: PriceTarget[] = [];
+  const productsWithPricePlans = new Set<string>();
+
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("work_prices")
+      .select("id,product_id")
+      .order("id", { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    for (const row of data ?? []) productsWithPricePlans.add(row.product_id);
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+
+  for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabase
       .from("works")
-      .select("product_id")
-      .is("price", null)
-      .range(from, from + pageSize - 1);
+      .select("id,product_id,price,list_price")
+      .neq("stage", "DISCONTINUED")
+      .order("id", { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
 
-    if (error) {
-      throw error;
+    if (error) throw error;
+
+    for (const work of data ?? []) {
+      if (
+        work.price == null ||
+        work.price <= 0 ||
+        work.list_price == null ||
+        work.list_price <= 0 ||
+        !productsWithPricePlans.has(work.product_id)
+      ) {
+        works.push(work);
+      }
     }
 
-    if (!data || data.length === 0) {
-      break;
-    }
-
-    allWorks.push(...data);
-
-    if (data.length < pageSize) {
-      break;
-    }
-
-    from += pageSize;
+    if (!data || data.length < PAGE_SIZE) break;
   }
 
-  console.log(
-    `価格補完対象 ${allWorks.length}件`
+  return works;
+}
+
+async function updateBatch(
+  batch: PriceTarget[],
+  browser: Browser
+): Promise<PriceTarget[]> {
+  const results = await Promise.allSettled(
+    batch.map((work) => updateWork(work.product_id, undefined, browser))
   );
 
-  const job = await beginJob(
-  JOBS.MISSING_PRICES,
-  allWorks.length
-);
+  return batch.filter((work, index) => {
+    const result = results[index];
+    if (result.status === "rejected") {
+      console.error("[missing-prices] 更新失敗", {
+        productId: work.product_id,
+        message:
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason),
+      });
+      return true;
+    }
+    return false;
+  });
+}
 
-const processedCount =
-  job.processed_count ?? 0;
-
-const targets =
-  allWorks.slice(processedCount);
-
-  let browser =
-  await createBrowser();
+export async function updateMissingPrices() {
+  let browser: Browser | null = null;
 
   try {
+    // 完了した作品は条件から外れるため、再開時に processed_count で
+    // 再度sliceしない。現在残っている対象をID順に処理する。
+    const targets = await loadPriceTargets();
+    const job = await beginJob(JOBS.MISSING_PRICES, targets.length);
+    let processed = job.processed_count ?? 0;
 
-  const BATCH_SIZE =
-    UPDATE_CONFIG.parallel;
+    console.log(`[missing-prices] 現在の補完対象 ${targets.length}件`);
 
-  for (
-  let i = 0;
-  i < targets.length;
-  i += BATCH_SIZE
-) {
-    const batch = targets.slice(
-  i,
-  i + BATCH_SIZE
-);
+    if (targets.length === 0) {
+      await finishJob(JOBS.MISSING_PRICES);
+      return { count: 0, updated: 0 };
+    }
 
-    await Promise.allSettled(
-  batch.map((work) =>
-    updateWork(
-      work.product_id,
-      undefined,
-      browser
-    )
-  )
-);
+    browser = await createBrowser();
+    const batchSize = UPDATE_CONFIG.parallel;
+    let updated = 0;
+    let nextBrowserRestart =
+      (Math.floor(processed / UPDATE_CONFIG.browserRestartInterval) + 1) *
+      UPDATE_CONFIG.browserRestartInterval;
 
-    const processed =
-  processedCount + i + batch.length;
+    for (let i = 0; i < targets.length; i += batchSize) {
+      const batch = targets.slice(i, i + batchSize);
+      let failed = await updateBatch(batch, browser);
 
-  if (
-  processed %
-    UPDATE_CONFIG.browserRestartInterval ===
-  0
-) {
-  console.log(
-    `🔄 Browser再起動 (${processed}件処理)`
-  );
+      if (failed.length > 0) {
+        console.warn(
+          `[missing-prices] ${failed.length}件をブラウザ再起動後に再試行します`
+        );
+        await closeBrowser(browser);
+        browser = await createBrowser();
+        failed = await updateBatch(failed, browser);
+      }
 
-  await closeBrowser(browser);
+      const succeeded = batch.length - failed.length;
+      processed += succeeded;
+      updated += succeeded;
 
-  browser = await createBrowser();
-}
+      if (succeeded > 0) {
+        await updateJob(
+          JOBS.MISSING_PRICES,
+          processed,
+          batch[batch.length - 1].product_id
+        );
+      }
 
-await updateJob(
-  JOBS.MISSING_PRICES,
-  processed,
-  batch[batch.length - 1].product_id
-);
+      console.log(`[missing-prices] 完了${updated}/${targets.length}`);
 
-    console.log(
-  `${processed}/${allWorks.length}`
-);
+      if (failed.length > 0) {
+        throw new Error(
+          `価格補完に失敗しました: ${failed
+            .map((work) => work.product_id)
+            .join(", ")}`
+        );
+      }
+
+      if (i + batch.length < targets.length && processed >= nextBrowserRestart) {
+        await closeBrowser(browser);
+        browser = await createBrowser();
+        nextBrowserRestart += UPDATE_CONFIG.browserRestartInterval;
+      }
+    }
+
+    await finishJob(JOBS.MISSING_PRICES);
+    return { count: targets.length, updated };
+  } catch (error) {
+    await failJob(
+      JOBS.MISSING_PRICES,
+      error instanceof Error ? error.message : String(error)
+    );
+    throw error;
+  } finally {
+    if (browser) await closeBrowser(browser);
   }
-
-  await finishJob(
-  JOBS.MISSING_PRICES
-);
-
-console.log("価格補完完了");
-
-} catch (error) {
-  await failJob(
-    JOBS.MISSING_PRICES,
-    error instanceof Error
-      ? error.message
-      : String(error)
-  );
-
-  throw error;
-} finally {
-  await closeBrowser(browser);
-}
 }

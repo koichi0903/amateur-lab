@@ -25,7 +25,13 @@ console.log("======================================");
 
 console.log("① getSaleItems 開始");
 
-  const { products } = await getSaleItems();
+  const { products, totalPages } = await getSaleItems();
+
+  if (products.length === 0) {
+    throw new Error(
+      `セール一覧を取得できませんでした（検出ページ数: ${totalPages}）`,
+    );
+  }
 
 console.log("② getSaleItems 完了");
 console.log("取得件数 =", products.length);
@@ -60,6 +66,7 @@ while (true) {
       is_on_sale,
       sale_end_at
     `)
+    .order("product_id")
     .range(from, from + pageSize - 1);
 
   if (error) {
@@ -119,6 +126,8 @@ console.log("total =", job.total_count);
   );
 
   let browser = await createBrowser();
+  let succeeded = 0;
+  let failed = 0;
 
   try {
 
@@ -134,28 +143,37 @@ console.log("targets =", targets.length);
         i + UPDATE_CONFIG.parallel
       );
 
-      await Promise.all(
+      const results = await Promise.all(
   batch.map(async (work) => {
     const needsPlaywright =
       !work.sale_price ||
       !work.sale_end_at;
 
     if (!needsPlaywright) {
-      return;
+      return true;
     }
 
     console.log(
       `▶ Playwright価格更新 ${work.product_id}`
     );
 
-    await updatePlaywrightItem(
-      work.product_id,
-      work.url,
-      browser,
-      work.price
-    );
+    try {
+      await updatePlaywrightItem(
+        work.product_id,
+        work.url,
+        browser,
+        work.price
+      );
+      return true;
+    } catch (error) {
+      console.error(`[SALE_UPDATE_ERROR] ${work.product_id}`, error);
+      return false;
+    }
   })
 );
+
+      succeeded += results.filter(Boolean).length;
+      failed += results.filter((result) => !result).length;
 
       const processed =
         processedCount + i + batch.length;
@@ -181,7 +199,7 @@ console.log("targets =", targets.length);
 );
 
       console.log(
-        `${processed}/${works.length}`
+        `${processed}/${works.length} success=${succeeded} failed=${failed}`
       );
     }
 

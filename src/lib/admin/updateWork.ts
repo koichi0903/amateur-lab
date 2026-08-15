@@ -14,11 +14,17 @@ export async function updateWork(
   const dmmItem =
     item ?? (await getDmmItem(productId));
 
+  let resolvedListPrice = listPrice;
+
   if (dmmItem) {
     await updateDmmItem(dmmItem);
 
     const currentPrice = Number(dmmItem.prices?.price) || 0;
     const normalPrice = Number(dmmItem.prices?.list_price) || currentPrice;
+
+    if (resolvedListPrice === undefined && normalPrice > 0) {
+      resolvedListPrice = normalPrice;
+    }
 
     if (currentPrice > 0) {
       console.log(
@@ -32,6 +38,6 @@ export async function updateWork(
   dmmItem?.URL ??
     dmmItem?.affiliateURL,
   browser,
-  listPrice
+  resolvedListPrice
 );
 }

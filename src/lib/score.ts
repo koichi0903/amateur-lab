@@ -243,7 +243,10 @@ if (releaseDate) {
       (1000 * 60 * 60 * 24)
   );
 
-  if (daysFromRelease <= 15) {
+  if (daysFromRelease < 0) {
+    // 予約作品は発売後の新作ボーナス対象にしない。
+    newReleaseBonus = 0;
+  } else if (daysFromRelease <= 15) {
     newReleaseBonus = 10;
   } else if (daysFromRelease <= 30) {
     newReleaseBonus = 9;

@@ -1,12 +1,7 @@
-import { getAllWorks } from "@/lib/supabase/getAllWorks";
 import { getDmmItem } from "@/lib/dmm/getDmmItem";
+import { JOBS, beginJob, failJob, finishJob, updateJob } from "@/lib/jobs";
+import { getAllWorks } from "@/lib/supabase/getAllWorks";
 import { updateDmmItem } from "./update";
-import {
-  beginJob,
-  updateJob,
-  finishJob,
-  JOBS,
-} from "@/lib/jobs";
 
 type ReviewUpdateOptions = {
   maxItems?: number;
@@ -23,28 +18,31 @@ export type ReviewUpdateResult = {
   failed: number;
 };
 
+type ReviewTarget = {
+  id: number;
+  product_id: string;
+  review_count: number;
+  review_average: number;
+  maker: string;
+  series: string;
+  url: string;
+  release_date: string | null;
+  actress: string | null;
+};
+
+type UpdateResult = "success" | "skip" | "failed";
+
 const DMM_PARALLEL = 5;
 
 export async function updateReviewWorks(
   options: ReviewUpdateOptions = {},
 ): Promise<ReviewUpdateResult> {
-  const works = await getAllWorks<{
-    id: number;
-    product_id: string;
-    review_count: number;
-    review_average: number;
-    maker: string;
-    series: string;
-    url: string;
-    release_date: string | null;
-  }>(
-    "id, product_id, review_count, review_average, maker, series, url, release_date",
+  const works = await getAllWorks<ReviewTarget>(
+    "id, product_id, review_count, review_average, maker, series, url, release_date, actress",
   );
-
   works.sort((a, b) => a.id - b.id);
 
   if (works.length === 0) {
-    console.log("レビュー更新対象なし");
     return {
       completed: true,
       processedCount: 0,
@@ -57,15 +55,13 @@ export async function updateReviewWorks(
   }
 
   const job = await beginJob(JOBS.REVIEW, works.length);
-  const processedCount = Math.min(job.processed_count ?? 0, works.length);
-
+  const initialProcessedCount = Math.min(job.processed_count ?? 0, works.length);
   const maxItems =
     options.maxItems === undefined
       ? Number.POSITIVE_INFINITY
       : Math.max(1, options.maxItems);
-
-  const targetEnd = Math.min(works.length, processedCount + maxItems);
-  const targets = works.slice(processedCount, targetEnd);
+  const targetEnd = Math.min(works.length, initialProcessedCount + maxItems);
+  const targets = works.slice(initialProcessedCount, targetEnd);
   const deadline =
     options.timeBudgetMs && options.timeBudgetMs > 0
       ? Date.now() + options.timeBudgetMs
@@ -82,86 +78,103 @@ export async function updateReviewWorks(
         series: work.series ?? "",
         url: work.url ?? "",
         release_date: work.release_date,
+        actress: work.actress,
       },
     ]),
-  );
-
-  console.log(
-    `レビュー更新開始 (${processedCount}/${works.length}から再開、今回最大${targets.length}件)`,
   );
 
   let success = 0;
   let skip = 0;
   let failed = 0;
-  let current = processedCount;
+  let current = initialProcessedCount;
 
-  for (let i = 0; i < targets.length; i += DMM_PARALLEL) {
-    if (i > 0 && deadline !== null && Date.now() >= deadline) {
-      console.log(
-        `レビュー更新を時間予算で中断 (${current}/${works.length})`,
+  const updateOne = async (work: ReviewTarget): Promise<UpdateResult> => {
+    try {
+      const item = await getDmmItem(work.product_id);
+      if (!item) return "skip";
+
+      await updateDmmItem(item, workMap.get(work.product_id), {
+        // 正確な価格・セール情報はPlaywright更新に任せる。
+        updatePrices: false,
+      });
+      return "success";
+    } catch (error) {
+      console.error(`[ERROR] ${work.product_id}`, error);
+      return "failed";
+    }
+  };
+
+  try {
+    for (let index = 0; index < targets.length; index += DMM_PARALLEL) {
+      if (index > 0 && deadline !== null && Date.now() >= deadline) break;
+
+      const batch = targets.slice(index, index + DMM_PARALLEL);
+      const firstResults = await Promise.all(batch.map(updateOne));
+      const retryTargets = batch.filter(
+        (_, resultIndex) => firstResults[resultIndex] !== "success",
       );
-      break;
+      const retryResults =
+        retryTargets.length > 0
+          ? await Promise.all(retryTargets.map(updateOne))
+          : [];
+      const retryResultMap = new Map(
+        retryTargets.map((work, retryIndex) => [
+          work.product_id,
+          retryResults[retryIndex],
+        ]),
+      );
+
+      const unresolvedFailures: string[] = [];
+      for (let resultIndex = 0; resultIndex < batch.length; resultIndex++) {
+        const work = batch[resultIndex];
+        const firstResult = firstResults[resultIndex];
+        const finalResult =
+          firstResult === "success"
+            ? firstResult
+            : retryResultMap.get(work.product_id) ?? firstResult;
+
+        if (finalResult === "success") success++;
+        else if (finalResult === "skip") {
+          skip++;
+          console.log(`[SKIP] ${work.product_id}`);
+        } else {
+          failed++;
+          unresolvedFailures.push(work.product_id);
+        }
+      }
+
+      if (unresolvedFailures.length > 0) {
+        throw new Error(
+          `レビュー更新に失敗した作品があります: ${unresolvedFailures.join(", ")}`,
+        );
+      }
+
+      current += batch.length;
+      await updateJob(
+        JOBS.REVIEW,
+        Math.min(current, works.length),
+        batch.at(-1)?.product_id ?? "",
+      );
+      console.log(`レビュー更新 ${Math.min(current, works.length)}/${works.length}`);
     }
 
-    const batch = targets.slice(i, i + DMM_PARALLEL);
+    const completed = current >= works.length;
+    if (completed) await finishJob(JOBS.REVIEW);
 
-    await Promise.all(
-      batch.map(async (work) => {
-        try {
-          const item = await getDmmItem(work.product_id);
-
-          if (!item) {
-            skip++;
-            console.log(`[SKIP] ${work.product_id}`);
-            return;
-          }
-
-          const currentWork = workMap.get(work.product_id);
-
-          await updateDmmItem(item, currentWork);
-          success++;
-        } catch (error) {
-          failed++;
-          console.error(`[ERROR] ${work.product_id}`, error);
-        }
-      }),
-    );
-
-    current += batch.length;
-
-    await updateJob(
+    return {
+      completed,
+      processedCount: current,
+      totalCount: works.length,
+      batchProcessed: current - initialProcessedCount,
+      success,
+      skip,
+      failed,
+    };
+  } catch (error) {
+    await failJob(
       JOBS.REVIEW,
-      Math.min(current, works.length),
-      batch[batch.length - 1].product_id,
+      error instanceof Error ? error.message : String(error),
     );
-
-    console.log(
-      `レビュー更新 ${Math.min(current, works.length)}/${works.length}`,
-    );
+    throw error;
   }
-
-  const completed = current >= works.length;
-
-  if (completed) {
-    await finishJob(JOBS.REVIEW);
-    console.log("===== レビュー更新完了 =====");
-  } else {
-    console.log(
-      `===== レビュー更新バッチ完了 (${current}/${works.length}) =====`,
-    );
-  }
-
-  console.log(`成功 : ${success}`);
-  console.log(`スキップ : ${skip}`);
-  console.log(`失敗 : ${failed}`);
-
-  return {
-    completed,
-    processedCount: current,
-    totalCount: works.length,
-    batchProcessed: current - processedCount,
-    success,
-    skip,
-    failed,
-  };
 }

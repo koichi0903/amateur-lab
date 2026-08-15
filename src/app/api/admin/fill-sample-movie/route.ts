@@ -1,96 +1,159 @@
 import { NextResponse } from "next/server";
-import { createBrowser } from "@/lib/playwright/browserManager";
+import { UPDATE_CONFIG } from "@/config/update";
+import {
+  closeBrowser,
+  createBrowser,
+} from "@/lib/playwright/browserManager";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
-import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
+import {
+  updatePlaywrightItem,
+  type PlaywrightUpdateResult,
+} from "@/lib/playwright/updatePlaywrightItem";
 import { beginJob, failJob, finishJob, JOBS, updateJob } from "@/lib/jobs";
 
 export const maxDuration = 300;
 
-export async function POST() {
-  let success = 0;
-  let failed = 0;
+type Target = { product_id: string; url: string | null };
+type SettledUpdate = PromiseSettledResult<PlaywrightUpdateResult>;
+
+async function loadTargets(): Promise<Target[]> {
   const pageSize = 1000;
-  const browserLimit = 500;
-  let from = 0;
+  const targets: Target[] = [];
+  const recheckBefore = new Date(
+    Date.now() - 30 * 24 * 60 * 60 * 1000,
+  ).toISOString();
 
-  const { count, error: countError } = await supabase
-    .from("works")
-    .select("product_id", { count: "exact", head: true })
-    .is("sample_movie_url", null);
+  // Snapshot before updating. Paging a shrinking NULL result set skips rows.
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("works")
+      .select("product_id,url")
+      .is("sample_movie_url", null)
+      .neq("stage", "DISCONTINUED")
+      .or(
+        `sample_movie_checked_at.is.null,sample_movie_checked_at.lt.${recheckBefore}`,
+      )
+      .order("product_id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    if (!data?.length) break;
 
-  if (countError) {
-    return NextResponse.json(
-      { message: "対象件数の取得に失敗しました" },
-      { status: 500 },
-    );
+    targets.push(...data);
+    if (data.length < pageSize) break;
   }
 
-  await beginJob(JOBS.SAMPLE_MOVIE, count ?? 0);
+  return targets;
+}
+
+export async function POST() {
+  let success = 0;
+  let missing = 0;
+  let failed = 0;
 
   try {
-    while (true) {
-      const { data: works, error } = await supabase
-        .from("works")
-        .select("product_id, url")
-        .is("sample_movie_url", null)
-        .range(from, from + pageSize - 1);
+    const targets = await loadTargets();
+    await beginJob(JOBS.SAMPLE_MOVIE, targets.length);
 
-      if (error) throw error;
-      if (!works?.length) break;
+    if (targets.length === 0) {
+      await finishJob(JOBS.SAMPLE_MOVIE);
+      return NextResponse.json({
+        success,
+        missing,
+        failed,
+        message: "サンプル動画の未確認作品はありません",
+      });
+    }
 
-      let browser = await createBrowser();
-      const batchSize = 5;
+    let browser = await createBrowser();
+    try {
+      for (let offset = 0; offset < targets.length; offset += UPDATE_CONFIG.parallel) {
+        if (
+          offset > 0 &&
+          offset % UPDATE_CONFIG.browserRestartInterval === 0
+        ) {
+          await closeBrowser(browser);
+          browser = await createBrowser();
+        }
 
-      try {
-        for (let i = 0; i < works.length; i += batchSize) {
-          if (i > 0 && i % browserLimit === 0) {
-            await browser.close();
-            browser = await createBrowser();
-          }
+        const batch = targets.slice(offset, offset + UPDATE_CONFIG.parallel);
+        const firstResults = await Promise.allSettled(
+          batch.map((work) =>
+            updatePlaywrightItem(
+              work.product_id,
+              work.url,
+              browser,
+              undefined,
+              true,
+            ),
+          ),
+        );
 
-          const batch = works.slice(i, i + batchSize);
-          await Promise.all(
-            batch.map(async (work) => {
-              try {
-                await updatePlaywrightItem(
-                  work.product_id,
-                  work.url,
-                  browser,
-                  undefined,
-                  true,
-                );
-                success++;
-              } catch (error) {
-                console.error(error);
-                failed++;
-              }
-            }),
-          );
-
-          await updateJob(
-            JOBS.SAMPLE_MOVIE,
-            success + failed,
-            batch[batch.length - 1].product_id,
+        const retryTargets = batch.filter(
+          (_, index) => firstResults[index].status === "rejected",
+        );
+        let retryResults: SettledUpdate[] = [];
+        if (retryTargets.length > 0) {
+          await closeBrowser(browser);
+          browser = await createBrowser();
+          retryResults = await Promise.allSettled(
+            retryTargets.map((work) =>
+              updatePlaywrightItem(
+                work.product_id,
+                work.url,
+                browser,
+                undefined,
+                true,
+              ),
+            ),
           );
         }
-      } finally {
-        await browser.close();
-      }
 
-      from += pageSize;
+        let retryIndex = 0;
+        firstResults.forEach((firstResult) => {
+          const result: SettledUpdate =
+            firstResult.status === "fulfilled"
+              ? firstResult
+              : retryResults[retryIndex++];
+
+          if (result?.status === "fulfilled") {
+            if (result.value === "updated") success++;
+            else if (result.value === "sample_movie_missing") missing++;
+            else failed++;
+          } else {
+            console.error("[SAMPLE_MOVIE_FAILED]", result?.reason);
+            failed++;
+          }
+        });
+
+        await updateJob(
+          JOBS.SAMPLE_MOVIE,
+          success + missing + failed,
+          batch[batch.length - 1].product_id,
+        );
+      }
+    } finally {
+      await closeBrowser(browser);
+    }
+
+    if (failed > 0) {
+      const message = `サンプル動画補完に${failed}件の失敗が残りました`;
+      await failJob(JOBS.SAMPLE_MOVIE, message);
+      return NextResponse.json(
+        { success, missing, failed, message },
+        { status: 500 },
+      );
     }
 
     await finishJob(JOBS.SAMPLE_MOVIE);
     return NextResponse.json({
       success,
+      missing,
       failed,
-      message: "動画URL補完が完了しました",
+      message: `動画URL補完が完了しました（保存${success}件・動画なし${missing}件）`,
     });
   } catch (error) {
-    await failJob(
-      JOBS.SAMPLE_MOVIE,
-      error instanceof Error ? error.message : String(error),
-    );
-    throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    await failJob(JOBS.SAMPLE_MOVIE, message).catch(() => undefined);
+    return NextResponse.json({ message }, { status: 500 });
   }
 }

@@ -15,7 +15,10 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { parsePage } from "./parser";
 import { saveWork } from "./save";
 
-export type PlaywrightUpdateResult = "updated" | "unavailable";
+export type PlaywrightUpdateResult =
+  | "updated"
+  | "unavailable"
+  | "sample_movie_missing";
 
 const UNAVAILABLE_STATUS_PATTERN =
   /^UNAVAILABLE_(\d+)_([0-9]{8})_(RESERVED|NEW|SEMI_NEW|OLD)$/;
@@ -257,13 +260,24 @@ page.on("response", (response) => {
 
     const data = await parsePage(page);
 
+    if (sampleMovieOnly && !sampleMovieUrl && !preservedSampleMovieUrl) {
+      // Some previews request their MP4 only after playback starts.
+      await page
+        .locator("video")
+        .first()
+        .evaluate((video) => (video as HTMLVideoElement).play())
+        .catch(() => undefined);
+    }
+
     // The preview request can start shortly after the product data has been
     // parsed. Give it a small bounded window so a late MP4 response is saved
     // instead of being logged only after persistence has already begun.
     if (!sampleMovieUrl && !preservedSampleMovieUrl) {
       await Promise.race([
         sampleMovieDetected,
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_000)),
+        new Promise<null>((resolve) =>
+          setTimeout(() => resolve(null), sampleMovieOnly ? 8_000 : 2_000),
+        ),
       ]);
     }
 
@@ -274,6 +288,33 @@ console.log(
   data.sampleMovieUrl,
   sampleMovieUrl ? "detected" : preservedSampleMovieUrl ? "preserved" : "missing",
 );
+
+// A sample-only check must not depend on prices or change availability/stage.
+if (sampleMovieOnly) {
+  const detectedUrl = sampleMovieUrl ?? preservedSampleMovieUrl ?? null;
+  if (!detectedUrl) {
+    const { error: checkedAtError } = await supabase
+      .from("works")
+      .update({ sample_movie_checked_at: new Date().toISOString() })
+      .eq("product_id", productId);
+    if (checkedAtError) throw checkedAtError;
+
+    console.log(`[SAMPLE_MOVIE_MISSING] ${productId}`);
+    return "sample_movie_missing";
+  }
+
+  const { error: sampleMovieError } = await supabase
+    .from("works")
+    .update({
+      sample_movie_url: detectedUrl,
+      sample_movie_checked_at: new Date().toISOString(),
+    })
+    .eq("product_id", productId);
+  if (sampleMovieError) throw sampleMovieError;
+
+  console.log(`[SAMPLE_MOVIE_SAVED] ${productId} ${detectedUrl}`);
+  return "updated";
+}
 
 // 価格取得失敗なら保存しない
 if (data.prices.length === 0) {
@@ -314,19 +355,6 @@ let lastSaveError: unknown = null;
 
 for (let attempt = 1; attempt <= 3; attempt++) {
   try {
-    if (sampleMovieOnly) {
-  await supabase
-    .from("works")
-    .update({
-      sample_movie_url:
-        data.sampleMovieUrl,
-    })
-    .eq("product_id", productId);
-
-  saved = true;
-  break;
-}
-
 await saveWork(
   productId,
   data,

@@ -31,10 +31,6 @@ const UPDATE_STEPS = {
     load: async () =>
       (await import("@/lib/admin/updateEndedSaleWorks")).updateEndedSaleWorks,
   },
-  stage: {
-    label: "Stage同期",
-    load: async () => (await import("@/lib/update/updateStage")).updateStage,
-  },
   review: {
     label: "レビュー更新",
     load: async () => (await import("@/lib/admin/updateReviewWorks")).updateReviewWorks,
