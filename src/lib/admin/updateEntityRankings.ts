@@ -87,11 +87,27 @@ async function syncRankingByName(
   );
   const rowsToInsert = rows.filter((row) => !idsByName.has(row.name));
 
-  // Production does not guarantee UNIQUE(name) on every ranking table.
-  // Merge existing rows by primary key and insert only previously unseen names.
+  console.log(`[entity-ranking] ${table}`, {
+    target: rows.length,
+    existing: existingRows.length,
+    update: rowsToUpdate.length,
+    insert: rowsToInsert.length,
+  });
+
+  // Production does not guarantee UNIQUE(name) on every ranking table, and id
+  // is GENERATED ALWAYS. Update known ids explicitly instead of using upsert,
+  // which PostgreSQL treats as an INSERT and rejects for identity columns.
   if (rowsToUpdate.length > 0) {
-    const { error: updateError } = await supabase.from(table).upsert(rowsToUpdate);
-    if (updateError) throw updateError;
+    const chunkSize = 20;
+    for (let offset = 0; offset < rowsToUpdate.length; offset += chunkSize) {
+      const results = await Promise.all(
+        rowsToUpdate.slice(offset, offset + chunkSize).map(({ id, ...row }) =>
+          supabase.from(table).update(row).eq("id", id),
+        ),
+      );
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
+    }
   }
   if (rowsToInsert.length > 0) {
     const { error: insertError } = await supabase.from(table).insert(rowsToInsert);
@@ -110,6 +126,10 @@ async function syncRankingByName(
       .in("id", staleIds);
     if (deleteError) throw deleteError;
   }
+
+  console.log(`[entity-ranking] ${table} completed`, {
+    staleDeleted: options.deleteStale ? staleIds.length : 0,
+  });
 }
 
 export async function updateEntityRankings(
