@@ -9,8 +9,18 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function updateLongHitRanking() {
+type LongHitRankingProgress = (
+  processed: number,
+  total: number,
+  productId: string,
+) => Promise<void>;
+
+export async function updateLongHitRanking(onProgress?: LongHitRankingProgress) {
   const longHit = await getLongHitRanking();
+
+if (longHit.length === 0) {
+  throw new Error("ロングヒットランキングの取得結果が0件です");
+}
 
 console.log(
   `LongHit取得件数: ${longHit.length}件`
@@ -42,7 +52,17 @@ for (let i = 0; i < targetProductIds.length; i += 1000) {
   }
 }
 
-for (const work of allWorks) {
+const { error: resetError } = await supabase
+  .from("works")
+  .update({ long_hit_rank: null })
+  .not("long_hit_rank", "is", null);
+
+if (resetError) {
+  throw resetError;
+}
+
+for (let index = 0; index < allWorks.length; index += 1) {
+  const work = allWorks[index];
 
   const { error } = await supabase
   .from("works")
@@ -53,6 +73,11 @@ for (const work of allWorks) {
 
 if (error) {
   throw error;
+}
+
+const processed = index + 1;
+if (processed % 10 === 0 || processed === allWorks.length) {
+  await onProgress?.(processed, allWorks.length, work.product_id);
 }
 }
 

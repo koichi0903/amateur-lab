@@ -14,6 +14,10 @@ type Job = {
   total_count: number;
   last_product_id: string | null;
   last_product_title?: string;
+  progress_phase?: string;
+  phase_processed?: number;
+  phase_total?: number;
+  error_message?: string | null;
   started_at: string | null;
   finished_at: string | null;
 };
@@ -209,14 +213,18 @@ async function handleUpdateRanking() {
       method: "POST",
     });
 
-    await res.json();
+    const data = (await res.json()) as UpdateResponse;
 
-    alert("ランキング更新が完了しました");
+    if (!res.ok || data.success === false) {
+      throw new Error(data.message ?? "ランキング更新に失敗しました");
+    }
+
+    alert(data.message ?? "ランキング更新が完了しました");
 
     await loadJobs();
   } catch (e) {
     console.error(e);
-    alert("ランキング更新に失敗しました");
+    alert(e instanceof Error ? e.message : "ランキング更新に失敗しました");
   } finally {
     setLoading(false);
   }
@@ -269,14 +277,18 @@ async function handleUpdateScore() {
       method: "POST",
     });
 
-    await res.json();
+    const data = (await res.json()) as UpdateResponse;
 
-    alert("スコア更新が完了しました");
+    if (!res.ok || data.success === false) {
+      throw new Error(data.message ?? "スコア更新に失敗しました");
+    }
+
+    alert(data.message ?? "スコア更新が完了しました");
 
     await loadJobs();
   } catch (e) {
     console.error(e);
-    alert("スコア更新に失敗しました");
+    alert(e instanceof Error ? e.message : "スコア更新に失敗しました");
   } finally {
     setLoading(false);
   }
@@ -510,6 +522,10 @@ const idleJobCount = displayedJobs.filter(
   total={job.total_count}
   lastProductId={job.last_product_id}
   lastProductTitle={job.last_product_title}
+  progressPhase={job.progress_phase}
+  phaseProcessed={job.phase_processed}
+  phaseTotal={job.phase_total}
+  errorMessage={job.error_message}
   startedAt={job.started_at}
   finishedAt={job.finished_at}
 />

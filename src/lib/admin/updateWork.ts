@@ -14,30 +14,17 @@ export async function updateWork(
   const dmmItem =
     item ?? (await getDmmItem(productId));
 
-  let resolvedListPrice = listPrice;
-
   if (dmmItem) {
-    await updateDmmItem(dmmItem);
-
-    const currentPrice = Number(dmmItem.prices?.price) || 0;
-    const normalPrice = Number(dmmItem.prices?.list_price) || currentPrice;
-
-    if (resolvedListPrice === undefined && normalPrice > 0) {
-      resolvedListPrice = normalPrice;
-    }
-
-    if (currentPrice > 0) {
-      console.log(
-        `[DMM_API_PRICE] ${productId} current=${currentPrice} list=${normalPrice}`,
-      );
-    }
+    // DMM API prices are not the source of truth. Keep its metadata update,
+    // then let the FANZA listing/detail Playwright pass own every price field.
+    await updateDmmItem(dmmItem, undefined, { updatePrices: false });
   }
 
   await updatePlaywrightItem(
   productId,
   dmmItem?.URL ??
-    dmmItem?.affiliateURL,
+  dmmItem?.affiliateURL,
   browser,
-  resolvedListPrice
+  listPrice
 );
 }

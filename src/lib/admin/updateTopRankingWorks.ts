@@ -1,31 +1,28 @@
 import type { Browser } from "playwright-core";
-import type { DmmItem } from "@/types/dmm";
-import { updateWork } from "./updateWork";
+
 import { UPDATE_CONFIG } from "@/config/update";
 import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
-import {
-  beginJob,
-  updateJob,
-  finishJob,
-  failJob,
-  JOBS,
-} from "@/lib/jobs";
+
+import type { RankingPlaywrightTarget } from "./rankingPlaywrightTargets";
+import { updateWork } from "./updateWork";
 
 const PLAYWRIGHT_LIMIT = 1000;
 
 async function updateBatch(
-  items: DmmItem[],
-  browser: Browser
-): Promise<DmmItem[]> {
+  targets: RankingPlaywrightTarget[],
+  browser: Browser,
+): Promise<RankingPlaywrightTarget[]> {
   const results = await Promise.allSettled(
-    items.map((item) => updateWork(item.content_id, item, browser))
+    targets.map(({ item, listPrice }) =>
+      updateWork(item.content_id, item, browser, listPrice ?? undefined),
+    ),
   );
 
-  return items.filter((_, index) => {
+  return targets.filter((target, index) => {
     const result = results[index];
     if (result.status === "rejected") {
       console.error("[ranking-playwright] 更新失敗", {
-        productId: items[index].content_id,
+        productId: target.item.content_id,
         message:
           result.reason instanceof Error
             ? result.reason.message
@@ -37,73 +34,73 @@ async function updateBatch(
   });
 }
 
-export async function updateTopRankingWorks(rankingItems: DmmItem[]) {
+type RankingPlaywrightProgress = (
+  processed: number,
+  total: number,
+  productId: string,
+) => Promise<void>;
+
+export async function updateTopRankingWorks(
+  rankingTargets: RankingPlaywrightTarget[],
+  onProgress?: RankingPlaywrightProgress,
+) {
   let browser: Browser | null = null;
 
   try {
-    const rankingTargets = rankingItems.slice(0, PLAYWRIGHT_LIMIT);
-    const job = await beginJob(JOBS.RANKING, rankingTargets.length);
-    let processed = Math.min(job.processed_count ?? 0, rankingTargets.length);
-    const targets = rankingTargets.slice(processed);
+    const targets = rankingTargets.slice(0, PLAYWRIGHT_LIMIT);
+    let processed = 0;
 
-    console.log(
-      `[ranking-playwright] 対象${rankingTargets.length}件、再開位置${processed}件`
-    );
+    console.log(`[ranking-playwright] 詳細更新対象${targets.length}件`);
 
-    if (targets.length === 0) {
-      await finishJob(JOBS.RANKING);
-      return;
-    }
+    if (targets.length === 0) return;
 
     browser = await createBrowser();
     const batchSize = UPDATE_CONFIG.parallel;
 
-    for (let i = 0; i < targets.length; i += batchSize) {
-      const batch = targets.slice(i, i + batchSize);
-      let failedItems = await updateBatch(batch, browser);
+    for (let index = 0; index < targets.length; index += batchSize) {
+      const batch = targets.slice(index, index + batchSize);
+      for (const target of batch) {
+        console.log(
+          `[ranking-playwright] ${target.item.content_id} reasons=${target.reasons.join(",")}`,
+        );
+      }
 
-      if (failedItems.length > 0) {
+      let failedTargets = await updateBatch(batch, browser);
+
+      if (failedTargets.length > 0) {
         console.warn(
-          `[ranking-playwright] ${failedItems.length}件をブラウザ再起動後に再試行します`
+          `[ranking-playwright] ${failedTargets.length}件をブラウザ再起動後に再試行します`,
         );
         await closeBrowser(browser);
         browser = await createBrowser();
-        failedItems = await updateBatch(failedItems, browser);
+        failedTargets = await updateBatch(failedTargets, browser);
       }
 
-      if (failedItems.length > 0) {
+      if (failedTargets.length > 0) {
         throw new Error(
-          `Playwright更新に失敗しました: ${failedItems
-            .map((item) => item.content_id)
-            .join(", ")}`
+          `Playwright更新に失敗しました: ${failedTargets
+            .map(({ item }) => item.content_id)
+            .join(", ")}`,
         );
       }
 
       processed += batch.length;
-      await updateJob(
-        JOBS.RANKING,
+      await onProgress?.(
         processed,
-        batch[batch.length - 1].content_id
+        targets.length,
+        batch[batch.length - 1].item.content_id,
       );
 
-      console.log(`[ranking-playwright] ${processed}/${rankingTargets.length}`);
+      console.log(`[ranking-playwright] ${processed}/${targets.length}`);
 
       if (
-        processed < rankingTargets.length &&
+        processed < targets.length &&
         processed % UPDATE_CONFIG.browserRestartInterval === 0
       ) {
         await closeBrowser(browser);
         browser = await createBrowser();
       }
     }
-
-    await finishJob(JOBS.RANKING);
-  } catch (error) {
-    await failJob(
-      JOBS.RANKING,
-      error instanceof Error ? error.message : "Unknown error"
-    );
-    throw error;
   } finally {
     if (browser) await closeBrowser(browser);
   }

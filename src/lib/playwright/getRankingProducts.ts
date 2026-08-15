@@ -3,6 +3,24 @@ import { createBrowser } from "@/lib/playwright/browserManager";
 export interface RankingProduct {
   productId: string;
   ranking: number;
+  listPrice: number | null;
+  salePrice: number | null;
+}
+
+function parseCardPrices(priceText: string) {
+  const numbers =
+    priceText.match(/\d[\d,]*/g)?.map((value) =>
+      Number(value.replace(/,/g, "")),
+    ) ?? [];
+
+  if (numbers.length >= 2) {
+    return { listPrice: numbers[0], salePrice: numbers[1] };
+  }
+
+  return {
+    listPrice: numbers[0] ?? null,
+    salePrice: null,
+  };
 }
 
 export async function getRankingProducts(
@@ -88,9 +106,20 @@ for (
       i +
       1;
 
+    const priceLocator = card.locator(
+      '[data-e2eid="content-price"]'
+    );
+    const priceText =
+      (await priceLocator.count()) > 0
+        ? (await priceLocator.first().textContent()) ?? ""
+        : "";
+    const { listPrice, salePrice } = parseCardPrices(priceText);
+
     products.set(productId, {
       productId,
       ranking,
+      listPrice,
+      salePrice,
     });
   }
 }

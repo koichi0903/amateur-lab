@@ -1,19 +1,13 @@
 import { updateScore } from "@/lib/admin/updateScore";
-import { updateRanking } from "@/lib/playwright/updateRanking";
-import { updateLongHitRanking } from "@/lib/playwright/updateLongHitRanking";
 
 export async function POST() {
   try {
-
-await updateRanking();
-
-await updateLongHitRanking();
-
-const result = await updateScore();
+    const result = await updateScore();
 
     return Response.json({
       ...result,
-      message: "スコア更新完了",
+      success: true,
+      message: "スコア更新が完了しました。",
     });
   } catch (error) {
     console.error(error);
@@ -21,7 +15,10 @@ const result = await updateScore();
     return Response.json(
       {
         success: false,
-        message: "スコア更新失敗",
+        message:
+          error instanceof Error
+            ? `スコア更新に失敗しました: ${error.message}`
+            : "スコア更新に失敗しました。",
       },
       {
         status: 500,

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { decodeJobProgress } from "@/lib/jobs/progress";
 
 export async function GET() {
   const { data: jobs, error } = await supabaseAdmin
     .from("jobs")
     .select(
-      "job_name,status,processed_count,total_count,last_product_id,started_at,finished_at",
+      "job_name,status,processed_count,total_count,last_product_id,error_message,started_at,finished_at",
     )
     .order("job_name");
 
@@ -14,10 +15,14 @@ export async function GET() {
     return NextResponse.json({ error: "Failed to load jobs" }, { status: 500 });
   }
 
+  const jobsWithProgress = (jobs ?? []).map((job) => ({
+    job,
+    progress: decodeJobProgress(job.last_product_id),
+  }));
   const productIds = [
     ...new Set(
-      (jobs ?? [])
-        .map((job) => job.last_product_id)
+      jobsWithProgress
+        .map(({ job, progress }) => progress?.productId ?? job.last_product_id)
         .filter((id): id is string => Boolean(id)),
     ),
   ];
@@ -37,10 +42,14 @@ export async function GET() {
   );
 
   return NextResponse.json({
-    jobs: (jobs ?? []).map((job) => ({
+    jobs: jobsWithProgress.map(({ job, progress }) => ({
       ...job,
-      last_product_title: job.last_product_id
-        ? titleByProductId.get(job.last_product_id)
+      last_product_id: progress?.productId ?? (progress ? null : job.last_product_id),
+      progress_phase: progress?.phase,
+      phase_processed: progress?.current,
+      phase_total: progress?.total,
+      last_product_title: (progress?.productId ?? job.last_product_id)
+        ? titleByProductId.get(progress?.productId ?? job.last_product_id ?? "")
         : undefined,
     })),
   });
