@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { getDiscoveryEntityRankings, type DiscoveryEntityKind, type DiscoveryEntityRankingItem } from "@/lib/ranking/discoveryEntityRanking";
 import type { Work } from "@/types/work";
 import { pageMetadata } from "@/lib/seo";
+import { workDetailHref } from "@/lib/affiliateTracking";
 
 export const revalidate = 300;
 
@@ -55,7 +56,7 @@ function RankBadge({ rank }: { rank: number }) {
 }
 
 function WorkTopCard({ work, rank }: { work: Work; rank: number }) {
-  return <Link href={`/works/${work.id}`} className={`group relative flex min-w-0 flex-col overflow-hidden rounded-3xl border bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:shadow-xl sm:p-4 ${rank === 1 ? "border-amber-300 lg:-mt-4 lg:mb-4" : "border-slate-200"}`}>
+  return <Link href={workDetailHref(work.id, "ranking")} className={`group relative flex min-w-0 flex-col overflow-hidden rounded-3xl border bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:shadow-xl sm:p-4 ${rank === 1 ? "border-amber-300 lg:-mt-4 lg:mb-4" : "border-slate-200"}`}>
     <div className="absolute left-5 top-5 z-10"><RankBadge rank={rank} /></div>{rank === 1 && <Crown className="absolute right-5 top-5 z-10 text-amber-500" size={27} />}
     <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-slate-100"><WorkImage src={work.image_url} alt={work.title} sizes="(max-width: 768px) 92vw, 30vw" priority={rank === 1} unoptimized className="object-cover transition duration-500 group-hover:scale-105" /></div>
     <div className="flex flex-1 flex-col px-1 pb-1 pt-4"><div className="text-pink-600"><span className="block text-[10px] font-black tracking-wider">順位基準：発掘スコア</span><strong className="mt-1 block text-3xl leading-none">{work.score > 0 ? work.score : "—"}</strong></div><h2 className="mt-3 line-clamp-2 min-h-12 text-base font-black leading-6 text-slate-900">{work.title}</h2><div className="mt-auto flex items-center justify-between gap-3 border-t border-slate-100 pt-4 text-sm font-black"><Price work={work} /><span className="flex shrink-0 items-center gap-1 text-pink-600">価格・詳細 <ArrowRight size={15} /></span></div></div>
@@ -63,7 +64,7 @@ function WorkTopCard({ work, rank }: { work: Work; rank: number }) {
 }
 
 function WorkListCard({ work, rank }: { work: Work; rank: number }) {
-  return <Link href={`/works/${work.id}`} className="group grid min-w-0 grid-cols-[38px_112px_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-pink-200 hover:shadow-md sm:grid-cols-[48px_150px_minmax(0,1fr)] sm:gap-5 sm:p-4"><span className="text-center text-xl font-black text-slate-400 sm:text-2xl">{rank}</span><div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100"><WorkImage src={work.image_url} alt={work.title} sizes="150px" unoptimized className="object-cover transition duration-300 group-hover:scale-105" /></div><div className="min-w-0 self-stretch py-0.5"><div className="text-pink-600"><span className="block text-[10px] font-black tracking-wider">順位基準：発掘スコア</span><strong className="mt-0.5 block text-2xl leading-none">{work.score > 0 ? work.score : "—"}</strong></div><h2 className="mt-2 line-clamp-2 text-sm font-black leading-5 text-slate-900 sm:text-base sm:leading-6">{work.title}</h2><div className="mt-2 text-xs font-black sm:text-sm"><Price work={work} /></div></div></Link>;
+  return <Link href={workDetailHref(work.id, "ranking")} className="group grid min-w-0 grid-cols-[38px_112px_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-pink-200 hover:shadow-md sm:grid-cols-[48px_150px_minmax(0,1fr)] sm:gap-5 sm:p-4"><span className="text-center text-xl font-black text-slate-400 sm:text-2xl">{rank}</span><div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100"><WorkImage src={work.image_url} alt={work.title} sizes="150px" unoptimized className="object-cover transition duration-300 group-hover:scale-105" /></div><div className="min-w-0 self-stretch py-0.5"><div className="text-pink-600"><span className="block text-[10px] font-black tracking-wider">順位基準：発掘スコア</span><strong className="mt-0.5 block text-2xl leading-none">{work.score > 0 ? work.score : "—"}</strong></div><h2 className="mt-2 line-clamp-2 text-sm font-black leading-5 text-slate-900 sm:text-base sm:leading-6">{work.title}</h2><div className="mt-2 text-xs font-black sm:text-sm"><Price work={work} /></div></div></Link>;
 }
 
 function EntityMetrics({ item, compact = false }: { item: DiscoveryEntityRankingItem; compact?: boolean }) {

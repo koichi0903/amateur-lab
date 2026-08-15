@@ -6,6 +6,7 @@ import Header from "@/components/layout/Header";
 import WorkImage from "@/components/home/WorkImage";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
+import { workDetailHref } from "@/lib/affiliateTracking";
 
 export const metadata: Metadata = pageMetadata({ title: "作品検索 | 発掘LAB", description: "作品名、女優、メーカー、シリーズ、ジャンルからFANZA作品を検索できます。", canonical: "/search", robots: { index: false, follow: true } });
 
@@ -74,7 +75,7 @@ function WorkCard({ work }: { work: Work }) {
 
   return (
     <article className="grid min-w-0 grid-cols-[104px_minmax(0,1fr)] gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-5 sm:p-4">
-      <Link href={`/works/${work.id}`} className="group relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100">
+      <Link href={workDetailHref(work.id, "search")} className="group relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100">
         <WorkImage src={work.image_url} alt={work.title} sizes="160px" unoptimized className="object-cover transition duration-300 group-hover:scale-105" />
       </Link>
       <div className="flex min-w-0 flex-col">
@@ -82,7 +83,7 @@ function WorkCard({ work }: { work: Work }) {
           <span className="text-[10px] font-black tracking-wider">SCORE</span>
           <strong className="text-2xl leading-none">{work.score > 0 ? work.score : "—"}</strong>
         </div>
-        <Link href={`/works/${work.id}`} className="mt-2 line-clamp-2 break-all text-sm font-black leading-5 text-slate-900 hover:text-pink-600 sm:text-base sm:leading-6">
+        <Link href={workDetailHref(work.id, "search")} className="mt-2 line-clamp-2 break-all text-sm font-black leading-5 text-slate-900 hover:text-pink-600 sm:text-base sm:leading-6">
           {work.title}
         </Link>
         <DetailLinks work={work} />
@@ -90,7 +91,7 @@ function WorkCard({ work }: { work: Work }) {
           <span className={work.sale_price > 0 ? "text-rose-600" : price > 0 ? "text-slate-900" : "text-slate-400"}>
             {price > 0 ? `¥${price.toLocaleString("ja-JP")}` : "価格未取得"}
           </span>
-          <Link href={`/works/${work.id}`} className="flex shrink-0 items-center gap-1 text-pink-600">詳細 <ArrowRight size={14} /></Link>
+          <Link href={workDetailHref(work.id, "search")} className="flex shrink-0 items-center gap-1 text-pink-600">詳細 <ArrowRight size={14} /></Link>
         </div>
       </div>
     </article>

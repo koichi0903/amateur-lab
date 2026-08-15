@@ -1,5 +1,6 @@
 import Link from "next/link";
 import WorkImage from "../WorkImage";
+import { workDetailHref } from "@/lib/affiliateTracking";
 
 type Insight = {
   type?: string | null;
@@ -41,5 +42,5 @@ export default function InsightCard({ insight }: { insight: Insight }) {
   );
 
   const className = "group block w-[82vw] max-w-[320px] shrink-0 snap-start rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-lg sm:w-[320px] lg:w-auto lg:max-w-none";
-  return workId ? <Link href={`/works/${workId}`} className={className}>{content}</Link> : <article className={className}>{content}</article>;
+  return workId ? <Link href={workDetailHref(workId, "home")} className={className}>{content}</Link> : <article className={className}>{content}</article>;
 }

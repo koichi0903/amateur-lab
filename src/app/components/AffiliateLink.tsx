@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import type { AffiliateSource } from "@/lib/affiliateTracking";
 
 export type AffiliatePlacement = "detail-sidebar" | "mobile-sticky";
 
@@ -8,6 +9,7 @@ type Props = {
   href: string;
   workId: number;
   placement: AffiliatePlacement;
+  sourcePage: AffiliateSource;
   className?: string;
   ariaLabel?: string;
   children: ReactNode;
@@ -17,6 +19,7 @@ export default function AffiliateLink({
   href,
   workId,
   placement,
+  sourcePage,
   className,
   ariaLabel,
   children,
@@ -27,7 +30,7 @@ export default function AffiliateLink({
     void fetch("/api/affiliate-click", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workId, placement }),
+      body: JSON.stringify({ workId, placement, sourcePage }),
       keepalive: true,
     }).catch(() => undefined);
   };

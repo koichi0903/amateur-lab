@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { pageMetadata } from "@/lib/seo";
 import { unstable_cache } from "next/cache";
+import { workDetailHref } from "@/lib/affiliateTracking";
 
 export const revalidate = 1800;
 
@@ -54,7 +55,7 @@ function Price({ work }: { work: Work }) {
 }
 
 function WorkCard({ work, rank }: { work: Work; rank: number }) {
-  return <Link href={`/works/${work.id}`} className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-pink-200 hover:shadow-md sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-5 sm:p-4">
+  return <Link href={workDetailHref(work.id, "actress")} className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-pink-200 hover:shadow-md sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-5 sm:p-4">
     <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100"><WorkImage src={work.image_url} alt={work.title} sizes="150px" unoptimized className="object-cover transition duration-300 group-hover:scale-105" /><span className="absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-slate-950 text-xs font-black text-white shadow">{rank}</span></div>
     <div className="flex min-w-0 flex-col"><div className="flex items-baseline gap-1.5 text-pink-600"><span className="text-[10px] font-black tracking-wider">SCORE</span><strong className="text-2xl leading-none">{work.score > 0 ? work.score : "—"}</strong></div><h2 className="mt-2 line-clamp-2 text-sm font-black leading-5 sm:text-base sm:leading-6">{work.title}</h2><div className="mt-auto flex items-end justify-between gap-2 pt-3 text-xs font-black sm:text-sm"><Price work={work} /><span className="flex shrink-0 items-center gap-1 text-pink-600">詳細 <ArrowRight size={14} /></span></div></div>
   </Link>;

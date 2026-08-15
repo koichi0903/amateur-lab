@@ -1,4 +1,5 @@
 import AffiliateLink from "./AffiliateLink";
+import type { AffiliateSource } from "@/lib/affiliateTracking";
 
 type Props = {
   work: {
@@ -10,12 +11,14 @@ type Props = {
   };
   displayPrice?: number | null;
   displayDiscountRate?: number | null;
+  sourcePage: AffiliateSource;
 };
 
 export default function MobilePurchaseBar({
   work,
   displayPrice,
   displayDiscountRate,
+  sourcePage,
 }: Props) {
   const currentPrice =
     displayPrice && displayPrice > 0
@@ -52,6 +55,7 @@ export default function MobilePurchaseBar({
             href={affiliateUrl}
             workId={work.id}
             placement="mobile-sticky"
+            sourcePage={sourcePage}
             ariaLabel="FANZA公式で価格とサンプルを確認する（新しいタブで開きます）"
             className="flex h-12 min-w-40 shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-pink-600 to-fuchsia-600 px-4 text-center text-xs font-black leading-4 text-white shadow-sm transition active:scale-[0.98]"
           >

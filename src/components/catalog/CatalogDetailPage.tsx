@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { SITE_URL, pageMetadata } from "@/lib/seo";
 import { unstable_cache } from "next/cache";
+import { workDetailHref } from "@/lib/affiliateTracking";
 
 export type CatalogKind = "maker" | "series" | "genre";
 
@@ -78,9 +79,9 @@ function Price({ work }: { work: Work }) {
   return <span className={work.sale_price > 0 ? "text-rose-600" : "text-slate-900"}>{price > 0 ? `¥${price.toLocaleString("ja-JP")}` : "価格未取得"}</span>;
 }
 
-function WorkCard({ work, rank }: { work: Work; rank: number }) {
+function WorkCard({ work, rank, kind }: { work: Work; rank: number; kind: CatalogKind }) {
   return (
-    <Link href={`/works/${work.id}`} className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-pink-200 hover:shadow-md sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-5 sm:p-4">
+    <Link href={workDetailHref(work.id, kind)} className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-pink-200 hover:shadow-md sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-5 sm:p-4">
       <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100">
         <WorkImage src={work.image_url} alt={work.title} sizes="150px" unoptimized className="object-cover transition duration-300 group-hover:scale-105" />
         <span className="absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-slate-950 text-xs font-black text-white shadow">{rank}</span>
@@ -153,6 +154,6 @@ export default async function CatalogDetailPage({ kind, name, page = 1 }: { kind
         </div>
       </div>
     </div></section>
-    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{error ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">作品を読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : works.length ? <><div className="mb-6 flex items-end justify-between gap-4"><div className="min-w-0"><p className="text-xs font-black tracking-widest text-pink-600">TOP WORKS</p><h2 className="mt-1 break-words text-2xl font-black">{name}の作品</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{works.length}作品中 {offset + 1}〜{offset + displayedWorks.length}作品</span></div><div className="grid gap-3 lg:grid-cols-2">{displayedWorks.map((work, index) => <WorkCard key={work.id} work={work} rank={offset + index + 1} />)}</div>{totalPages > 1 && <nav aria-label={`${name}の作品一覧のページ送り`} className="mt-10 flex items-center justify-center gap-3">{currentPage > 1 && <Link href={pageHref(currentPage - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-pink-300 hover:text-pink-600">← 前の60作品</Link>}<span className="text-xs font-bold text-slate-400">{currentPage} / {totalPages}</span>{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-pink-600">次の60作品 →</Link>}</nav>}</> : <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Icon className="mx-auto text-slate-300" size={40} /><p className="mt-4 font-black">登録作品がまだありません</p><Link href={`/${kind}`} className="mt-3 inline-block text-sm font-black text-pink-600">{config.label}一覧に戻る</Link></div>}</div>
+    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{error ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">作品を読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : works.length ? <><div className="mb-6 flex items-end justify-between gap-4"><div className="min-w-0"><p className="text-xs font-black tracking-widest text-pink-600">TOP WORKS</p><h2 className="mt-1 break-words text-2xl font-black">{name}の作品</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{works.length}作品中 {offset + 1}〜{offset + displayedWorks.length}作品</span></div><div className="grid gap-3 lg:grid-cols-2">{displayedWorks.map((work, index) => <WorkCard key={work.id} work={work} rank={offset + index + 1} kind={kind} />)}</div>{totalPages > 1 && <nav aria-label={`${name}の作品一覧のページ送り`} className="mt-10 flex items-center justify-center gap-3">{currentPage > 1 && <Link href={pageHref(currentPage - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-pink-300 hover:text-pink-600">← 前の60作品</Link>}<span className="text-xs font-bold text-slate-400">{currentPage} / {totalPages}</span>{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-pink-600">次の60作品 →</Link>}</nav>}</> : <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Icon className="mx-auto text-slate-300" size={40} /><p className="mt-4 font-black">登録作品がまだありません</p><Link href={`/${kind}`} className="mt-3 inline-block text-sm font-black text-pink-600">{config.label}一覧に戻る</Link></div>}</div>
   </main></>;
 }

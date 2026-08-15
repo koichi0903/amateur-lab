@@ -16,6 +16,11 @@ const menus = [
     description: "作品更新・ジョブ状況を確認",
     href: "/admin/update",
   },
+  {
+    title: "📈 FANZA送客分析",
+    description: "クリック流入元・上位作品を確認",
+    href: "/admin/revenue",
+  },
 ];
 
 export default function AdminDashboard() {
@@ -32,7 +37,7 @@ export default function AdminDashboard() {
           </p>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
           {menus.map((menu) => (
             <Link
               key={menu.href}

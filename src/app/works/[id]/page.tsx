@@ -24,6 +24,7 @@ import { pageMetadata } from "@/lib/seo";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
+import { normalizeAffiliateSource } from "@/lib/affiliateTracking";
 
 import {
   analyzeWork,
@@ -183,9 +184,16 @@ export async function generateMetadata(
 }
 
 export default async function WorkDetailPage(
-  { params }: { params: Promise<{ id: string }> }
+  {
+    params,
+    searchParams,
+  }: {
+    params: Promise<{ id: string }>;
+    searchParams: Promise<{ from?: string | string[] }>;
+  }
 ) {
   const { id } = await params;
+  const sourcePage = normalizeAffiliateSource((await searchParams).from);
 
   const work = await getWork(id);
 
@@ -330,6 +338,7 @@ const chartData = createChartData(
             checkedAt={priceHistory[0]?.changed_at ?? null}
             sampleMovieAvailable={!!work.sample_movie_url}
             recommendationReasons={recommendationReasons}
+            sourcePage={sourcePage}
           />
         </div>
       </section>
@@ -396,6 +405,7 @@ const chartData = createChartData(
       work={work}
       displayPrice={mobileDisplayPrice}
       displayDiscountRate={mobileDisplayDiscountRate}
+      sourcePage={sourcePage}
     />
   </main>
 );

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { Work } from "@/types/work";
+import { workDetailHref } from "@/lib/affiliateTracking";
 
 export type FeaturedWork = Pick<
   Work,
@@ -56,7 +57,7 @@ export default function FeaturedWorkCard({
         <div className="flex flex-1 flex-col">
 
           <Link
-            href={`/works/${work.id}`}
+            href={workDetailHref(work.id, "related")}
             className="font-bold leading-6 text-blue-700 hover:underline"
             style={{
               display: "-webkit-box",
@@ -95,7 +96,7 @@ export default function FeaturedWorkCard({
             </div>
 
             <Link
-              href={`/works/${work.id}`}
+              href={workDetailHref(work.id, "related")}
               className="mt-4 inline-flex rounded-xl bg-pink-600 px-5 py-2 font-bold text-white transition hover:bg-pink-700"
             >
               詳細を見る →

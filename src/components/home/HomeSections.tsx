@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { Work } from "@/types/work";
 import WorkImage from "./WorkImage";
+import { workDetailHref } from "@/lib/affiliateTracking";
 
 const formatNumber = (value: number) => new Intl.NumberFormat("ja-JP").format(value);
 const salePrice = (work: Work) => work.sale_price > 0 ? work.sale_price : 0;
@@ -68,7 +69,7 @@ export function SaleSection({ works }: { works: Work[] }) {
       {works.length ? (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
           {works.map((work) => (
-            <Link key={work.id} href={`/works/${work.id}`} className="group min-w-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:shadow-lg">
+            <Link key={work.id} href={workDetailHref(work.id, "home")} className="group min-w-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:shadow-lg">
               <div className="relative aspect-[16/10] overflow-hidden rounded-xl bg-slate-100">
                 <WorkImage src={work.image_url} alt={work.title} className="object-cover transition duration-300 group-hover:scale-105" sizes="(max-width: 768px) 45vw, 300px" />
                 <span className="absolute left-2 top-2 rounded-md bg-pink-600 px-2 py-1 text-[11px] font-black text-white">SALE</span>

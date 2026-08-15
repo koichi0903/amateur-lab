@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Work } from "@/types/work";
 import WorkImage from "../WorkImage";
+import { workDetailHref } from "@/lib/affiliateTracking";
 
 const medals = ["🥇", "🥈", "🥉"];
 
@@ -35,7 +36,7 @@ export default function RankingSection({ works }: { works: Work[] }) {
           {works.map((work, index) => {
             const sale = saleDetails(work);
             return (
-            <Link key={work.id} href={`/works/${work.id}`} className="group flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg sm:p-3">
+            <Link key={work.id} href={workDetailHref(work.id, "home")} className="group flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg sm:p-3">
               <div className="flex h-8 items-center justify-between">
                 <span className="text-xl font-black text-slate-700">{medals[index] ?? `${index + 1}位`}</span>
                 <span className="rounded-full bg-pink-50 px-2 py-1 text-[10px] font-black text-pink-700">SCORE</span>

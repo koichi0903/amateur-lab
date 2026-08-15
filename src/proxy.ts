@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_API_PATHS = new Set(["/api/favorites"]);
+const PUBLIC_API_PATHS = new Set([
+  "/api/affiliate-click",
+  "/api/favorites",
+]);
 const LOCAL_UPDATE_API_PATHS = new Set([
   "/api/admin/browser-health",
   "/api/admin/fill-sample-movie",

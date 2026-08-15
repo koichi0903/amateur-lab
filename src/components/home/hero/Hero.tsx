@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Work } from "@/types/work";
 import WorkImage from "../WorkImage";
+import { workDetailHref } from "@/lib/affiliateTracking";
 
 export default function Hero({ work }: { work: Work | null }) {
   const hasValidWorkId = work != null && Number.isInteger(work.id) && work.id > 0;
@@ -32,7 +33,7 @@ export default function Hero({ work }: { work: Work | null }) {
           <div className="absolute inset-0 overflow-hidden rounded-2xl border border-white/15 bg-gradient-to-br from-white/15 to-white/5 shadow-2xl backdrop-blur-sm">
             {hasValidWorkId ? (
               <Link
-                href={`/works/${work.id}`}
+                href={workDetailHref(work.id, "home")}
                 className="group block h-full cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-pink-300"
               >
                 {work.image_url ? (

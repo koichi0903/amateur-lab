@@ -6,6 +6,7 @@ import WorkImage from "@/components/home/WorkImage";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { pageMetadata } from "@/lib/seo";
+import { workDetailHref } from "@/lib/affiliateTracking";
 
 const PAGE_SIZE = 20;
 
@@ -49,7 +50,7 @@ function SaleCard({ work }: { work: Work }) {
   const sale = saleDetails(work);
   const saleEnd = formatSaleEnd(work.sale_end_at);
   return (
-    <Link href={`/works/${work.id}`} className="group flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg">
+    <Link href={workDetailHref(work.id, "sale")} className="group flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg">
       <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100">
         <WorkImage src={work.image_url} alt={work.title} sizes="(max-width: 640px) 45vw, (max-width: 1024px) 30vw, 280px" unoptimized className="object-cover transition duration-300 group-hover:scale-105" />
         <span className="absolute left-2 top-2 rounded-full bg-rose-600 px-2.5 py-1 text-[10px] font-black text-white shadow-sm">SALE</span>
