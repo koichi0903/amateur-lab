@@ -7,6 +7,16 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 export type RankedDmmItem = DmmItem & { rank: number };
 
 type EntityRankingProgress = (processed: number, total: number) => Promise<void>;
+type EntityRankingTable =
+  | "actress_rankings"
+  | "genre_rankings"
+  | "maker_rankings"
+  | "series_rankings";
+type EntityRankingRow = {
+  name: string;
+  updated_at: string;
+  [key: string]: string | number | null;
+};
 
 const ENTITY_STEPS = 7;
 
@@ -20,47 +30,86 @@ function addScore(target: Record<string, number>, name: string, point: number) {
   target[normalized] = (target[normalized] ?? 0) + point;
 }
 
-async function syncSimpleRanking(
-  table: "genre_rankings" | "maker_rankings",
-  rows: Array<{ name: string; rank: number; score: number; updated_at: string }>,
+async function syncRankingByName(
+  table: EntityRankingTable,
+  rows: EntityRankingRow[],
+  options: {
+    deleteStale?: boolean;
+    stalePatch?: Record<string, number | null>;
+  } = {},
 ) {
   if (rows.length === 0) {
     throw new Error(`${table} の集計結果が0件のため、既存順位を維持しました`);
   }
 
-  const { error: upsertError } = await supabase
-    .from(table)
-    .upsert(rows, { onConflict: "name" });
-  if (upsertError) throw upsertError;
+  if (options.stalePatch) {
+    const { error: clearError } = await supabase
+      .from(table)
+      .update(options.stalePatch)
+      .not("id", "is", null);
+    if (clearError) throw clearError;
+  }
 
-  const { data: existingRows, error: selectError } = await supabase
-    .from(table)
-    .select("id,name");
-  if (selectError) throw selectError;
+  const existingRows: Array<{ id: number | string; name: string }> = [];
+  if (options.deleteStale) {
+    const pageSize = 1000;
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await supabase
+        .from(table)
+        .select("id,name")
+        .range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      existingRows.push(...((data ?? []) as typeof existingRows));
+      if ((data?.length ?? 0) < pageSize) break;
+    }
+  } else {
+    const names = rows.map((row) => row.name);
+    const chunkSize = 50;
+    for (let offset = 0; offset < names.length; offset += chunkSize) {
+      const { data, error } = await supabase
+        .from(table)
+        .select("id,name")
+        .in("name", names.slice(offset, offset + chunkSize));
+      if (error) throw error;
+      existingRows.push(...((data ?? []) as typeof existingRows));
+    }
+  }
+
+  const idsByName = new Map<string, Array<number | string>>();
+  for (const existingRow of existingRows) {
+    const ids = idsByName.get(existingRow.name) ?? [];
+    ids.push(existingRow.id);
+    idsByName.set(existingRow.name, ids);
+  }
+
+  const rowsToUpdate = rows.flatMap((row) =>
+    (idsByName.get(row.name) ?? []).map((id) => ({ id, ...row })),
+  );
+  const rowsToInsert = rows.filter((row) => !idsByName.has(row.name));
+
+  // Production does not guarantee UNIQUE(name) on every ranking table.
+  // Merge existing rows by primary key and insert only previously unseen names.
+  if (rowsToUpdate.length > 0) {
+    const { error: updateError } = await supabase.from(table).upsert(rowsToUpdate);
+    if (updateError) throw updateError;
+  }
+  if (rowsToInsert.length > 0) {
+    const { error: insertError } = await supabase.from(table).insert(rowsToInsert);
+    if (insertError) throw insertError;
+  }
 
   const currentNames = new Set(rows.map((row) => row.name));
-  const staleIds = (existingRows ?? [])
+  const staleIds = existingRows
     .filter((row) => !currentNames.has(row.name))
     .map((row) => row.id);
 
-  if (staleIds.length > 0) {
+  if (staleIds.length > 0 && options.deleteStale) {
     const { error: deleteError } = await supabase
       .from(table)
       .delete()
       .in("id", staleIds);
     if (deleteError) throw deleteError;
   }
-}
-
-async function clearRankingColumn(
-  table: "actress_rankings" | "series_rankings",
-  column: "original_rank" | "fanza_rank",
-) {
-  const { error } = await supabase
-    .from(table)
-    .update({ [column]: null })
-    .not("id", "is", null);
-  if (error) throw error;
 }
 
 export async function updateEntityRankings(
@@ -100,7 +149,7 @@ export async function updateEntityRankings(
   }
   await onProgress?.(1, ENTITY_STEPS);
 
-  // Fetch every external ranking before clearing stored values. A fetch failure
+  // Fetch every external ranking before changing stored values. A fetch failure
   // therefore leaves the last complete ranking set available to score updates.
   const fanzaActressRows = await getActressRanking();
   if (fanzaActressRows.length === 0) {
@@ -114,71 +163,62 @@ export async function updateEntityRankings(
   await onProgress?.(3, ENTITY_STEPS);
 
   const updatedAt = new Date().toISOString();
-
-  await clearRankingColumn("actress_rankings", "original_rank");
-  await clearRankingColumn("actress_rankings", "fanza_rank");
-  if (actressRows.length > 0) {
-    const { error } = await supabase.from("actress_rankings").upsert(
-      actressRows.map((row) => ({
-        name: row.name,
-        original_rank: row.rank,
-        updated_at: updatedAt,
-      })),
-      { onConflict: "name" },
-    );
-    if (error) throw error;
-  }
-  if (fanzaActressRows.length > 0) {
-    const { error } = await supabase.from("actress_rankings").upsert(
-      fanzaActressRows.map((row) => ({
-        name: row.name,
-        fanza_rank: row.rank,
-        updated_at: updatedAt,
-      })),
-      { onConflict: "name" },
-    );
-    if (error) throw error;
-  }
+  const actressOriginalRanks = new Map(
+    actressRows.map((row) => [row.name, row.rank]),
+  );
+  const actressFanzaRanks = new Map(
+    fanzaActressRows.map((row) => [row.name, row.rank]),
+  );
+  const actressNames = new Set([
+    ...actressOriginalRanks.keys(),
+    ...actressFanzaRanks.keys(),
+  ]);
+  await syncRankingByName(
+    "actress_rankings",
+    [...actressNames].map((name) => ({
+      name,
+      original_rank: actressOriginalRanks.get(name) ?? null,
+      fanza_rank: actressFanzaRanks.get(name) ?? null,
+      updated_at: updatedAt,
+    })),
+    { stalePatch: { original_rank: null, fanza_rank: null } },
+  );
   await onProgress?.(4, ENTITY_STEPS);
 
-  await syncSimpleRanking(
+  await syncRankingByName(
     "genre_rankings",
     genreRows.map((row) => ({ ...row, updated_at: updatedAt })),
+    { deleteStale: true },
   );
-  await syncSimpleRanking(
+  await syncRankingByName(
     "maker_rankings",
     makerRows.map((row) => ({ ...row, updated_at: updatedAt })),
+    { deleteStale: true },
   );
   await onProgress?.(5, ENTITY_STEPS);
 
-  await clearRankingColumn("series_rankings", "original_rank");
-  await clearRankingColumn("series_rankings", "fanza_rank");
-  if (fanzaSeriesRows.length > 0) {
-    const { error } = await supabase.from("series_rankings").upsert(
-      fanzaSeriesRows.map((row) => ({
-        name: row.name,
-        fanza_rank: row.rank,
-        score: 0,
-        updated_at: updatedAt,
-      })),
-      { onConflict: "name" },
-    );
-    if (error) throw error;
-  }
+  const seriesOriginalRows = new Map(
+    seriesRows.map((row) => [row.name, row]),
+  );
+  const seriesFanzaRanks = new Map(
+    fanzaSeriesRows.map((row) => [row.name, row.rank]),
+  );
+  const seriesNames = new Set([
+    ...seriesOriginalRows.keys(),
+    ...seriesFanzaRanks.keys(),
+  ]);
+  await syncRankingByName(
+    "series_rankings",
+    [...seriesNames].map((name) => ({
+      name,
+      original_rank: seriesOriginalRows.get(name)?.rank ?? null,
+      fanza_rank: seriesFanzaRanks.get(name) ?? null,
+      score: seriesOriginalRows.get(name)?.score ?? 0,
+      updated_at: updatedAt,
+    })),
+    { stalePatch: { original_rank: null, fanza_rank: null, score: 0 } },
+  );
   await onProgress?.(6, ENTITY_STEPS);
-
-  if (seriesRows.length > 0) {
-    const { error } = await supabase.from("series_rankings").upsert(
-      seriesRows.map((row) => ({
-        name: row.name,
-        original_rank: row.rank,
-        score: row.score,
-        updated_at: updatedAt,
-      })),
-      { onConflict: "name" },
-    );
-    if (error) throw error;
-  }
   await onProgress?.(7, ENTITY_STEPS);
 
   return {
