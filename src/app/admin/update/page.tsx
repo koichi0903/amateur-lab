@@ -400,46 +400,63 @@ async function handleUpdateStage() {
 
 
 
-  async function loadJobs() {
+  async function loadJobs(): Promise<Job[]> {
     try {
       const response = await fetch("/api/admin/jobs", { cache: "no-store" });
       if (!response.ok) throw new Error("Failed to load jobs");
 
       const payload = (await response.json()) as { jobs?: Job[] };
-      setJobs(payload.jobs ?? []);
+      const nextJobs = payload.jobs ?? [];
+      setJobs(nextJobs);
+      return nextJobs;
     } catch (error) {
       console.error(error);
       setJobs([]);
+      return [];
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    void loadJobs();
-
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let cancelled = false;
+    let polling = false;
 
-    const scheduleNext = () => {
+    const scheduleNext = (delay: number) => {
       if (cancelled) return;
 
-      timeoutId = setTimeout(async () => {
-        // Hidden admin tabs used to poll forever every five seconds. Resume
-        // only when the operator returns to the tab.
-        if (document.visibilityState === "visible") {
-          await loadJobs();
-        }
-        scheduleNext();
-      }, 3_000);
+      timeoutId = setTimeout(() => {
+        void pollJobs();
+      }, delay);
+    };
+
+    const pollJobs = async () => {
+      if (cancelled || polling || document.visibilityState !== "visible") return;
+
+      polling = true;
+      const latestJobs = await loadJobs();
+      polling = false;
+
+      if (cancelled || document.visibilityState !== "visible") return;
+
+      const hasRunningJob = latestJobs.some((job) => job.status === "running");
+      scheduleNext(hasRunningJob ? 3_000 : 60_000);
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") void loadJobs();
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
+
+      // A hidden admin tab performs no polling. Refresh immediately when the
+      // operator returns, then resume at the active/idle interval.
+      if (document.visibilityState === "visible") void pollJobs();
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    scheduleNext();
+    void pollJobs();
 
     return () => {
       cancelled = true;

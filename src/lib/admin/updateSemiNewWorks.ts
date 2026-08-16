@@ -16,8 +16,6 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { updateWork } from "./updateWork";
 import { restoreDiscontinuedWorks } from "./restoreDiscontinuedWorks";
 
-const DETAIL_REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
-
 type SemiNewWork = {
   product_id: string;
   price: number | null;
@@ -25,7 +23,6 @@ type SemiNewWork = {
   sale_price: number | null;
   url: string | null;
   playwright_status: string | null;
-  updated_at: string | null;
 };
 
 async function loadSemiNewWorks(): Promise<SemiNewWork[]> {
@@ -36,7 +33,7 @@ async function loadSemiNewWorks(): Promise<SemiNewWork[]> {
     const { data, error } = await supabase
       .from("works")
       .select(
-        "product_id, price, list_price, sale_price, url, playwright_status, updated_at",
+        "product_id, price, list_price, sale_price, url, playwright_status",
       )
       .eq("stage", "SEMI_NEW")
       .order("product_id")
@@ -50,16 +47,6 @@ async function loadSemiNewWorks(): Promise<SemiNewWork[]> {
   }
 
   return works;
-}
-
-function needsScheduledRefresh(updatedAt: string | null): boolean {
-  if (!updatedAt) return true;
-
-  const updatedAtMs = Date.parse(updatedAt);
-  return (
-    !Number.isFinite(updatedAtMs) ||
-    Date.now() - updatedAtMs >= DETAIL_REFRESH_INTERVAL_MS
-  );
 }
 
 function hasRequiredDataMissing(work: SemiNewWork): boolean {
@@ -143,28 +130,30 @@ export async function updateSemiNewWorks() {
           const dbPrice = work.sale_price ?? work.list_price ?? work.price;
           const latestPrice = latest.salePrice ?? latest.listPrice;
           const isPending = work.playwright_status === "PENDING";
+          const isUnavailable =
+            work.playwright_status?.startsWith("UNAVAILABLE_") ?? false;
           const isMissingData = hasRequiredDataMissing(work);
           const isPriceChanged =
             latestPrice != null && dbPrice !== latestPrice;
-          const isWeeklyRefresh = needsScheduledRefresh(work.updated_at);
 
           if (
             !isPending &&
+            !isUnavailable &&
             !isMissingData &&
-            !isPriceChanged &&
-            !isWeeklyRefresh
+            dbPrice != null &&
+            latestPrice != null &&
+            !isPriceChanged
           ) {
-            console.log(
-              `[SKIP] ${work.product_id} price=${dbPrice} detail<7days`,
-            );
+            console.log(`[SKIP] ${work.product_id} price=${dbPrice}`);
             return;
           }
 
           const reasons = [
             isPending ? "PENDING" : null,
+            isUnavailable ? "UNAVAILABLE" : null,
             isMissingData ? "MISSING_DATA" : null,
             isPriceChanged ? "PRICE_CHANGED" : null,
-            isWeeklyRefresh ? "WEEKLY_REFRESH" : null,
+            latestPrice == null ? "LIST_PRICE_MISSING" : null,
           ].filter((reason): reason is string => Boolean(reason));
 
           console.log(
