@@ -14,6 +14,7 @@ export const AFFILIATE_SOURCES = [
   "maker",
   "series",
   "related",
+  "x",
 ] as const;
 
 export type AffiliateSource = (typeof AFFILIATE_SOURCES)[number];
@@ -52,4 +53,5 @@ export const AFFILIATE_SOURCE_LABELS: Record<AffiliateSource, string> = {
   maker: "メーカー詳細",
   series: "シリーズ詳細",
   related: "関連作品",
+  x: "X",
 };
