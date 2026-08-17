@@ -1,116 +1,62 @@
 import { createBrowser } from "@/lib/playwright/browserManager";
-import { openFanzaPage } from "@/lib/playwright/fanzaAgeGate";
+import { openFanzaPageWithSelector } from "@/lib/playwright/fanzaAgeGate";
 
 export interface RankingProduct {
   productId: string;
   ranking: number;
 }
 
+const PRODUCT_LINK_SELECTOR = 'a[href*="/av/content/?id="]';
+
 export async function getPeriodRankingProducts(
   baseUrl: string,
   itemsPerPage: number,
-  maxPages: number
+  maxPages: number,
 ) {
   const browser = await createBrowser({ headless: false });
-
   const page = await browser.newPage();
 
   try {
-    await openFanzaPage(page, baseUrl);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(2000);
-
     const products = new Map<string, RankingProduct>();
 
-    for (
-      let currentPage = 1;
-      currentPage <= maxPages;
-      currentPage++
-    ) {
-      if (currentPage > 1) {
-        await openFanzaPage(page, `${baseUrl}&page=${currentPage}`);
+    for (let currentPage = 1; currentPage <= maxPages; currentPage += 1) {
+      const pageUrl =
+        currentPage === 1 ? baseUrl : `${baseUrl}&page=${currentPage}`;
+      const linkCount = await openFanzaPageWithSelector(
+        page,
+        pageUrl,
+        PRODUCT_LINK_SELECTOR,
+        {
+          minimumCount: itemsPerPage,
+          label: "period-ranking",
+        },
+      );
 
-        await page.waitForTimeout(1000);
+      const hrefs = await page.locator(PRODUCT_LINK_SELECTOR).evaluateAll(
+        (links) => links
+          .map((link) => link.getAttribute("href"))
+          .filter((href): href is string => Boolean(href)),
+      );
+      const pageProductIds = [
+        ...new Set(
+          hrefs
+            .map((href) => href.match(/id=([^&]+)/)?.[1])
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+
+      console.log(
+        `page ${currentPage}: links=${linkCount}, uniqueProducts=${pageProductIds.length}`,
+      );
+
+      if (pageProductIds.length < itemsPerPage) {
+        throw new Error(
+          `FANZA period ranking is incomplete: page=${currentPage}, expected=${itemsPerPage}, actual=${pageProductIds.length}, url=${page.url()}`,
+        );
       }
 
-      const links = page.locator(
-  'a[href*="/av/content/?id="]'
-);
-
-let count = 0;
-
-for (let retry = 1; retry <= 3; retry++) {
-  // 最大10秒待って、必要数のリンクが揃うか確認
-  try {
-    await page.waitForFunction(
-      (expected) => {
-        return document.querySelectorAll(
-          'a[href*="/av/content/?id="]'
-        ).length >= expected;
-      },
-      itemsPerPage,
-      {
-        timeout: 10000,
-      }
-    );
-  } catch {
-    // タイムアウトしたら後でリロードを試す
-  }
-
-  count = await links.count();
-
-  if (count >= itemsPerPage) {
-    break;
-  }
-
-  console.log(
-    `page ${currentPage}: links=${count} (Retry ${retry}/3)`
-  );
-
-  await page.waitForTimeout(3000);
-
-  await page.reload({
-    waitUntil: "domcontentloaded",
-  });
-
-  await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(2000);
-}
-
-console.log(
-  `page ${currentPage}: links=${count}`
-);
-
-console.log(
-  `Expected: ${itemsPerPage}, Got: ${count}`
-);
-
-if (count < itemsPerPage) {
-  console.warn(
-    `⚠ page ${currentPage}: expected ${itemsPerPage}, got ${count}`
-  );
-}
-
-if (count === 0) {
-  throw new Error(
-    `FANZAランキングを取得できませんでした: page=${currentPage}, url=${page.url()}`
-  );
-}
-
-      for (let i = 0; i < count; i++) {
-        const href = await links
-          .nth(i)
-          .getAttribute("href");
-
-        if (!href) continue;
-
-        const productId =
-          href.match(/id=([^&]+)/)?.[1];
-
-        if (!productId) continue;
-
+      for (const productId of pageProductIds.slice(0, itemsPerPage)) {
         if (products.has(productId)) continue;
-
         products.set(productId, {
           productId,
           ranking: products.size + 1,
@@ -118,7 +64,14 @@ if (count === 0) {
       }
     }
 
-    return [...products.values()];
+    const expectedCount = itemsPerPage * maxPages;
+    if (products.size < expectedCount) {
+      throw new Error(
+        `FANZA period ranking total is incomplete: expected=${expectedCount}, actual=${products.size}`,
+      );
+    }
+
+    return [...products.values()].slice(0, expectedCount);
   } finally {
     await browser.close();
   }

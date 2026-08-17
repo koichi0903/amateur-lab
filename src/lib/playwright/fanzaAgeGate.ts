@@ -43,32 +43,52 @@ export async function openFanzaPage(page: Page, url: string) {
 
 const CONTENT_CARD_SELECTOR = '[data-e2eid="content-card"]';
 
-export async function openFanzaContentListPage(
+type SelectorWaitOptions = {
+  attempts?: number;
+  minimumCount?: number;
+  timeoutMs?: number;
+  settleMs?: number;
+  label?: string;
+};
+
+export async function openFanzaPageWithSelector(
   page: Page,
   url: string,
-  attempts = 3,
+  selector: string,
+  options: SelectorWaitOptions = {},
 ): Promise<number> {
+  const {
+    attempts = 3,
+    minimumCount = 1,
+    timeoutMs = 20_000,
+    settleMs = 500,
+    label = "content",
+  } = options;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       await openFanzaPage(page, url);
-      await page.locator(CONTENT_CARD_SELECTOR).first().waitFor({
-        state: "visible",
-        timeout: 20_000,
-      });
-      await page.waitForTimeout(500);
+      await page.waitForFunction(
+        ({ targetSelector, requiredCount }) =>
+          document.querySelectorAll(targetSelector).length >= requiredCount,
+        { targetSelector: selector, requiredCount: minimumCount },
+        { timeout: timeoutMs },
+      );
+      await page.waitForTimeout(settleMs);
 
-      const count = await page.locator(CONTENT_CARD_SELECTOR).count();
-      if (count > 0) return count;
+      const count = await page.locator(selector).count();
+      if (count >= minimumCount) return count;
 
-      lastError = new Error("FANZA content list returned zero cards");
+      lastError = new Error(
+        `expected at least ${minimumCount} elements but found ${count}`,
+      );
     } catch (error) {
       lastError = error;
     }
 
     console.warn(
-      `[fanza-list] retry ${attempt}/${attempts}: ${url}`,
+      `[fanza-${label}] retry ${attempt}/${attempts}: ${url}`,
       lastError,
     );
   }
@@ -76,6 +96,17 @@ export async function openFanzaContentListPage(
   const reason =
     lastError instanceof Error ? lastError.message : "unknown error";
   throw new Error(
-    `FANZA list page could not be loaded after ${attempts} attempts: ${url} (${reason})`,
+    `FANZA ${label} page could not be loaded after ${attempts} attempts: ${url} (${reason})`,
   );
+}
+
+export async function openFanzaContentListPage(
+  page: Page,
+  url: string,
+  attempts = 3,
+): Promise<number> {
+  return openFanzaPageWithSelector(page, url, CONTENT_CARD_SELECTOR, {
+    attempts,
+    label: "list",
+  });
 }

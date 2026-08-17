@@ -1,5 +1,5 @@
 import { createBrowser } from "@/lib/playwright/browserManager";
-import { openFanzaPage } from "@/lib/playwright/fanzaAgeGate";
+import { openFanzaPageWithSelector } from "@/lib/playwright/fanzaAgeGate";
 
 export interface RankingItem {
   rank: number;
@@ -10,80 +10,58 @@ export async function getPeriodActressRanking(
   baseUrl: string,
   itemsPerPage: number,
   maxPages: number,
-  linkSelector: string
+  linkSelector: string,
 ) {
-
   const browser = await createBrowser({ headless: false });
-
   const page = await browser.newPage();
 
   try {
-    await openFanzaPage(page, baseUrl);
-
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(2000);
-
     const rankings = new Map<string, RankingItem>();
 
-    for (
-      let currentPage = 1;
-      currentPage <= maxPages;
-      currentPage++
-    ) {
-      if (currentPage > 1) {
-        await openFanzaPage(page, `${baseUrl}&page=${currentPage}`);
-
-        await page.waitForLoadState("networkidle");
-        await page.waitForTimeout(2000);
-      }
-
-      const rankingLinks = page.locator(linkSelector);
-
-      let count = 0;
-
-      for (let retry = 1; retry <= 3; retry++) {
-        count = await rankingLinks.count();
-
-        if (count >= itemsPerPage) {
-          break;
-        }
-
-        console.log(
-          `page ${currentPage}: actresses=${count} (Retry ${retry}/3)`
-        );
-
-        await page.waitForTimeout(3000);
-
-        await page.reload({
-          waitUntil: "domcontentloaded",
-        });
-
-        await page.waitForLoadState("networkidle");
-        await page.waitForTimeout(2000);
-        
-      }
+    for (let currentPage = 1; currentPage <= maxPages; currentPage += 1) {
+      const pageUrl =
+        currentPage === 1 ? baseUrl : `${baseUrl}&page=${currentPage}`;
+      const linkCount = await openFanzaPageWithSelector(
+        page,
+        pageUrl,
+        linkSelector,
+        {
+          minimumCount: itemsPerPage,
+          label: "entity-ranking",
+        },
+      );
+      const names = await page.locator(linkSelector).allInnerTexts();
+      const uniqueNames = [
+        ...new Set(names.map((name) => name.trim()).filter(Boolean)),
+      ];
 
       console.log(
-  `page ${currentPage}: items=${count}`
-);
+        `page ${currentPage}: links=${linkCount}, uniqueEntities=${uniqueNames.length}`,
+      );
 
-      for (let i = 0; i < count; i++) {
-        const name = (
-  await rankingLinks.nth(i).innerText()
-).trim();
+      if (uniqueNames.length < itemsPerPage) {
+        throw new Error(
+          `FANZA entity ranking is incomplete: page=${currentPage}, expected=${itemsPerPage}, actual=${uniqueNames.length}, url=${page.url()}`,
+        );
+      }
 
-        if (!name) continue;
-
+      for (const name of uniqueNames.slice(0, itemsPerPage)) {
         if (rankings.has(name)) continue;
-
-rankings.set(name, {
-  rank: rankings.size + 1,
-  name,
-});
+        rankings.set(name, {
+          rank: rankings.size + 1,
+          name,
+        });
       }
     }
 
-    return [...rankings.values()];
+    const expectedCount = itemsPerPage * maxPages;
+    if (rankings.size < expectedCount) {
+      throw new Error(
+        `FANZA entity ranking total is incomplete: expected=${expectedCount}, actual=${rankings.size}`,
+      );
+    }
+
+    return [...rankings.values()].slice(0, expectedCount);
   } finally {
     await browser.close();
   }
