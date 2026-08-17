@@ -1,4 +1,5 @@
 import AffiliateLink from "./AffiliateLink";
+import CompareButton from "@/components/comparison/CompareButton";
 import type { AffiliateSource } from "@/lib/affiliateTracking";
 
 type Props = {
@@ -49,6 +50,12 @@ export default function MobilePurchaseBar({
             )}
           </div>
         </div>
+
+        <CompareButton
+          workId={work.id}
+          compact
+          className="flex h-12 shrink-0 items-center justify-center gap-1 rounded-xl border border-slate-200 px-3 text-[10px] font-black text-slate-700"
+        />
 
         {affiliateUrl ? (
           <AffiliateLink

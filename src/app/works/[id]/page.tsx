@@ -18,6 +18,7 @@ import ReviewTab from "@/app/components/ReviewTab";
 import SampleImageCarousel from "@/app/components/SampleImageCarousel";
 import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
 import DealWorkCard, { type DealWork } from "@/components/deals/DealWorkCard";
+import CompareTray from "@/components/comparison/CompareTray";
 import PriceTypes from "@/app/components/PriceTypes";
 import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
 import { isInsightVisible } from "@/lib/insights/visibility";
@@ -482,6 +483,7 @@ const chartData = createChartData(
       displayDiscountRate={mobileDisplayDiscountRate}
       sourcePage={sourcePage}
     />
+    <CompareTray />
   </main>
 );
 }

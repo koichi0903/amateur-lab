@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Clock3, PlayCircle, Star } from "lucide-react";
 import WorkImage from "@/components/home/WorkImage";
+import CompareButton from "@/components/comparison/CompareButton";
 import { workDetailHref, type AffiliateSource } from "@/lib/affiliateTracking";
 import type { Work } from "@/types/work";
 
@@ -100,6 +101,11 @@ export default function DealWorkCard({
         {saleEnd && (
           <p className="mt-1 flex items-center gap-1 text-[10px] font-bold text-amber-700"><Clock3 size={11} /> {saleEnd}終了予定</p>
         )}
+        <CompareButton
+          workId={work.id}
+          compact
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-700 transition hover:border-pink-300 hover:bg-pink-50 hover:text-pink-700"
+        />
         <Link href={workDetailHref(work.id, source)} className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-xs font-black text-pink-600">
           価格・サンプルを確認 <ArrowRight size={14} />
         </Link>

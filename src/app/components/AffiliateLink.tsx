@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import type { AffiliateSource } from "@/lib/affiliateTracking";
 
-export type AffiliatePlacement = "detail-sidebar" | "mobile-sticky";
+export type AffiliatePlacement = "detail-sidebar" | "mobile-sticky" | "compare-card";
 
 type Props = {
   href: string;

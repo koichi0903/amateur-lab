@@ -3,9 +3,10 @@ import Link from "next/link";
 import { ArrowRight, BadgeJapaneseYen, ShieldCheck, Sparkles } from "lucide-react";
 import Header from "@/components/layout/Header";
 import DealWorkCard from "@/components/deals/DealWorkCard";
+import CollectionPageJsonLd from "@/app/components/CollectionPageJsonLd";
 import { dealCategories, type DealCategory } from "@/lib/deals";
 import { getDeals } from "@/lib/getDeals";
-import { pageMetadata } from "@/lib/seo";
+import { pageMetadata, SITE_URL } from "@/lib/seo";
 
 export const revalidate = 900;
 
@@ -22,11 +23,28 @@ export default async function DealsPage() {
     category,
     result: await getDeals(category, 0, 4),
   })));
+  const structuredItems = Array.from(
+    new Map(
+      previews
+        .flatMap(({ result }) => result.works)
+        .map((work) => [work.id, work] as const),
+    ).values(),
+  ).map((work) => ({
+    name: work.title,
+    url: `${SITE_URL}/works/${work.id}`,
+    image: work.image_url,
+  }));
 
   return (
     <>
       <Header />
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
+        <CollectionPageJsonLd
+          title="お得なFANZA作品を探す"
+          description="セール・最安値・評価などの購入条件から作品を探せる一覧です。"
+          url={`${SITE_URL}/deals`}
+          items={structuredItems}
+        />
         <section className="border-b border-slate-200 bg-white">
           <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
             <Link href="/" className="text-xs font-bold text-slate-500 hover:text-pink-600">TOP <span className="mx-1">/</span> お得に探す</Link>

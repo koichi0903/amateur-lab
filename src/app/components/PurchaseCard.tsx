@@ -1,4 +1,5 @@
 import FavoriteButton from "@/components/favorites/FavoriteButton";
+import CompareButton from "@/components/comparison/CompareButton";
 import type { RecommendReason } from "@/lib/analyzers/recommendAnalyzer";
 import AffiliateLink from "./AffiliateLink";
 import type { AffiliateSource } from "@/lib/affiliateTracking";
@@ -202,6 +203,10 @@ export default function PurchaseCard({
           workId={work.id}
           addLabel="お気に入りに追加"
           className="mt-4 w-full rounded-xl border py-3 font-semibold hover:bg-zinc-50"
+        />
+        <CompareButton
+          workId={work.id}
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 py-3 font-semibold text-zinc-700 transition hover:border-pink-300 hover:bg-pink-50 hover:text-pink-700"
         />
       </section>
 

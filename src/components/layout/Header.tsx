@@ -4,8 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { Menu, Search, X } from "lucide-react";
 import { useState } from "react";
+import CompareTray from "@/components/comparison/CompareTray";
 
 const menus = [
+  { href: "/compare", label: "比較" },
   { href: "/ranking", label: "ランキング" },
   { href: "/new", label: "新着" },
   { href: "/sale", label: "セール" },
@@ -22,6 +24,7 @@ export default function Header() {
   const [open, setOpen] = useState(false);
 
   return (
+    <>
     <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/95 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-[1500px] items-center gap-5 px-4 sm:px-6 lg:h-20 lg:px-8">
         <Link href="/" className="flex shrink-0 items-center gap-3" aria-label="発掘LAB TOP">
@@ -67,5 +70,7 @@ export default function Header() {
         </div>
       )}
     </header>
+    <CompareTray />
+    </>
   );
 }
