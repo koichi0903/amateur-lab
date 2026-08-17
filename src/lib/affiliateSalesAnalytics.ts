@@ -88,6 +88,19 @@ export async function getAffiliateSalesAnalytics() {
     );
   }
 
+  const clickedWorkIds = [...clickCountByWork.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 100)
+    .map(([workId]) => workId);
+  const clickedTitles = new Map<number, string>();
+  if (clickedWorkIds.length > 0) {
+    const { data } = await supabaseAdmin
+      .from("works")
+      .select("id,title")
+      .in("id", clickedWorkIds);
+    for (const work of data ?? []) clickedTitles.set(work.id, work.title);
+  }
+
   const performanceByWork = new Map<
     number,
     {
@@ -98,6 +111,15 @@ export async function getAffiliateSalesAnalytics() {
       commissionAmount: number;
     }
   >();
+  for (const [workId, clicks] of clickCountByWork) {
+    performanceByWork.set(workId, {
+      workId,
+      title: clickedTitles.get(workId) ?? `作品ID ${workId}`,
+      clicks,
+      salesCount: 0,
+      commissionAmount: 0,
+    });
+  }
   for (const row of currentRows) {
     if (row.work_id === null) continue;
     const current = performanceByWork.get(row.work_id) ?? {
@@ -154,8 +176,8 @@ export async function getAffiliateSalesAnalytics() {
           ? Math.round(row.commissionAmount / row.clicks)
           : null,
       }))
-      .sort((a, b) => b.commissionAmount - a.commissionAmount)
-      .slice(0, 20),
+      .sort((a, b) => b.commissionAmount - a.commissionAmount || b.clicks - a.clicks)
+      .slice(0, 50),
     performanceClickError: clickResult.error,
     latestImport: latest
       ? { file: latest.source_file, importedAt: latest.imported_at }

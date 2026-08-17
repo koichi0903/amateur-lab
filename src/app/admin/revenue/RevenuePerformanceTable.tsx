@@ -18,6 +18,9 @@ export default function RevenuePerformanceTable({
   rows: PerformanceRow[];
   clickError: string | null;
 }) {
+  const scaleRows = rows.filter((row) => row.salesCount > 0 && row.earningsPerClick !== null).sort((a, b) => (b.earningsPerClick ?? 0) - (a.earningsPerClick ?? 0)).slice(0, 3);
+  const improveRows = rows.filter((row) => row.clicks >= 5 && row.salesCount === 0).sort((a, b) => b.clicks - a.clicks).slice(0, 3);
+
   return (
     <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">
       <div className="flex items-start gap-3">
@@ -34,6 +37,21 @@ export default function RevenuePerformanceTable({
         <p className="mt-4 rounded-xl border border-amber-800 bg-amber-950/30 p-4 text-sm text-amber-200">
           クリックデータを取得できないため、売上との比較を表示できませんでした。
         </p>
+      )}
+
+      {!clickError && rows.length > 0 && (
+        <div className="mt-5 grid gap-3 lg:grid-cols-2">
+          <div className="rounded-xl border border-emerald-900/70 bg-emerald-950/20 p-4">
+            <p className="text-xs font-black tracking-widest text-emerald-300">伸ばす候補</p>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">当月に売上があり、参考報酬/クリックが高い順です。</p>
+            <div className="mt-3 space-y-2">{scaleRows.length ? scaleRows.map((row) => <Link key={row.workId} href={`/works/${row.workId}`} className="flex items-center justify-between gap-3 rounded-lg bg-zinc-950/60 px-3 py-2 text-xs font-bold text-zinc-200 hover:text-emerald-300"><span className="line-clamp-1">{row.title}</span><span className="shrink-0 text-emerald-300">¥{row.earningsPerClick?.toLocaleString("ja-JP")}/click</span></Link>) : <p className="text-xs text-zinc-500">判断できる売上データがまだありません。</p>}</div>
+          </div>
+          <div className="rounded-xl border border-amber-900/70 bg-amber-950/20 p-4">
+            <p className="text-xs font-black tracking-widest text-amber-300">改善候補</p>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">5クリック以上で当月売上がない作品。訴求、価格、リンク先を確認します。</p>
+            <div className="mt-3 space-y-2">{improveRows.length ? improveRows.map((row) => <Link key={row.workId} href={`/works/${row.workId}`} className="flex items-center justify-between gap-3 rounded-lg bg-zinc-950/60 px-3 py-2 text-xs font-bold text-zinc-200 hover:text-amber-300"><span className="line-clamp-1">{row.title}</span><span className="shrink-0 text-amber-300">{row.clicks} clicks / 0件</span></Link>) : <p className="text-xs text-zinc-500">現時点で明確な改善候補はありません。</p>}</div>
+          </div>
+        </div>
       )}
 
       <div className="mt-5 overflow-x-auto">

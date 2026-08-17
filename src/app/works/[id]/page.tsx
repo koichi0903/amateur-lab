@@ -142,17 +142,52 @@ const getEntityRanks = unstable_cache(
 );
 
 const getRelatedWorks = unstable_cache(
-  async (mainActress: string, workId: number) => {
-    if (!mainActress) return [];
+  async (
+    workId: number,
+    mainActress: string,
+    mainSeries: string,
+    mainGenre: string,
+    mainMaker: string,
+  ) => {
+    const sources = [
+      { column: "series", value: mainSeries, weight: 45 },
+      { column: "actress", value: mainActress, weight: 40 },
+      { column: "genre", value: mainGenre, weight: 25 },
+      { column: "maker", value: mainMaker, weight: 15 },
+    ].filter((source) => source.value);
 
-    const { data } = await supabase
-      .from("works")
-      .select("id,title,actress,image_url,score,review_average,review_count,price,sale_price")
-      .ilike("actress", `%${mainActress}%`)
-      .neq("id", workId)
-      .limit(6);
+    if (!sources.length) return [];
 
-    return data ?? [];
+    const results = await Promise.all(
+      sources.map(async (source) => {
+        const { data } = await supabase
+          .from("works")
+          .select("id,title,actress,image_url,score,review_average,review_count,price,sale_price")
+          .ilike(source.column, `%${source.value}%`)
+          .neq("id", workId)
+          .order("score", { ascending: false, nullsFirst: false })
+          .limit(10);
+
+        return (data ?? []).map((work) => ({ work, weight: source.weight }));
+      }),
+    );
+
+    const candidates = new Map<number, { work: (typeof results)[number][number]["work"]; relevance: number }>();
+    for (const result of results.flat()) {
+      const current = candidates.get(result.work.id);
+      const relevance =
+        (current?.relevance ?? 0) +
+        result.weight +
+        Math.max(0, result.work.score ?? 0) * 0.35 +
+        Math.max(0, result.work.review_average ?? 0) * 2 +
+        (result.work.sale_price > 0 ? 6 : 0);
+      candidates.set(result.work.id, { work: result.work, relevance });
+    }
+
+    return [...candidates.values()]
+      .sort((a, b) => b.relevance - a.relevance)
+      .slice(0, 8)
+      .map((candidate) => candidate.work);
   },
   ["work-detail-related-works"],
   { revalidate: 3600 }
@@ -303,11 +338,17 @@ export default async function WorkDetailPage(
     },
   });
 
-  const mainActress =
-  work.actress?.split(" / ")[0] || "";
-
-const relatedWorks = await getRelatedWorks(mainActress, work.id);
+const mainActress = actresses[0] ?? "";
 const mainGenre = genres[0] ?? "";
+const mainMaker = makers[0] ?? "";
+const mainSeries = series[0] ?? "";
+const relatedWorks = await getRelatedWorks(
+  work.id,
+  mainActress,
+  mainSeries,
+  mainGenre,
+  mainMaker,
+);
 const valueAlternatives = await getValueAlternatives(
   mainGenre,
   work.id,

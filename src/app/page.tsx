@@ -9,6 +9,7 @@ import {
 } from "@/components/home/HomeSections";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
+import { getDailyDiscovery } from "@/lib/getDailyDiscovery";
 
 export const revalidate = 300;
 
@@ -20,7 +21,7 @@ export default async function Home() {
   const todayStart = new Date(`${jstDate}T00:00:00+09:00`);
   const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, featuredResult, rankingResult, saleResult, insightsResult] =
+  const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, dailyDiscovery, rankingResult, saleResult, insightsResult] =
     await Promise.all([
       supabase.from("site_statistics").select("total_works").eq("id", 1).maybeSingle(),
       supabase.from("works").select("id", { count: "exact", head: true }),
@@ -34,12 +35,7 @@ export default async function Home() {
         .select("id", { count: "exact", head: true })
         .eq("is_on_sale", true),
       supabase.from("insights").select("id", { count: "exact", head: true }),
-      supabase
-        .from("works")
-        .select("id,title,image_url")
-        .order("score", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+      getDailyDiscovery(jstDate),
       supabase
         .from("works")
         .select("id,title,image_url,score,price,sale_price,list_price,discount_rate")
@@ -60,13 +56,13 @@ export default async function Home() {
     ]);
 
   const statistics = statisticsResult.data;
-  const featuredWork = (featuredResult.data ?? rankingResult.data?.[0] ?? null) as Work | null;
+  const featuredWork = (dailyDiscovery.work ?? rankingResult.data?.[0] ?? null) as Work | null;
 
   return (
     <>
       <Header />
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
-        <Hero work={featuredWork} />
+        <Hero work={featuredWork} eyebrow={dailyDiscovery.eyebrow} reason={dailyDiscovery.reason} />
         <StatStrip
           totalWorks={totalWorksResult.count ?? statistics?.total_works ?? 0}
           todayUpdates={todayUpdatesResult.count ?? 0}

@@ -50,6 +50,13 @@ export default function DealWorkCard({
       ? Math.round((1 - currentPrice / regularPrice) * 100)
       : 0;
   const saleEnd = formatSaleEnd(work.sale_end_at);
+  const purchaseReasons = [
+    work.is_bottom_price ? "取得期間内の最安" : null,
+    discountRate >= 50 ? "半額以上" : null,
+    work.review_average >= 4 && work.review_count >= 20 ? "レビュー根拠あり" : null,
+    work.sample_movie_url ? "購入前にサンプル可" : null,
+    saleEnd ? "終了予定を確認" : null,
+  ].filter((reason): reason is string => Boolean(reason)).slice(0, 2);
 
   return (
     <article className="group flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg">
@@ -90,6 +97,7 @@ export default function DealWorkCard({
         )}
         {work.score > 0 && <span className="rounded-full bg-pink-50 px-2 py-1 text-pink-700">発掘 {work.score}</span>}
       </div>
+      {purchaseReasons.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{purchaseReasons.map((reason) => <span key={reason} className="rounded-md bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">✓ {reason}</span>)}</div>}
 
       <div className="mt-auto pt-3">
         {regularPrice > currentPrice && currentPrice > 0 && (

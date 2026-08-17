@@ -80,6 +80,11 @@ export default async function FeaturePage({ params, searchParams }: {
           </div>
         </section>
         <section className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
+          <div className="mb-10 grid gap-3 rounded-3xl border border-indigo-100 bg-white p-5 shadow-sm sm:p-7 lg:grid-cols-3">
+            <div className="rounded-2xl bg-indigo-50 p-5"><p className="text-xs font-black tracking-widest text-indigo-600">こんな方へ</p><ul className="mt-3 space-y-2 text-sm font-bold leading-6 text-slate-700">{feature.forWhom.map((item) => <li key={item}>✓ {item}</li>)}</ul></div>
+            <div className="rounded-2xl bg-slate-50 p-5"><p className="text-xs font-black tracking-widest text-slate-600">選定基準</p><ul className="mt-3 space-y-2 text-sm font-bold leading-6 text-slate-700">{feature.selectionPoints.map((item) => <li key={item}>✓ {item}</li>)}</ul></div>
+            <div className="rounded-2xl bg-amber-50 p-5"><p className="text-xs font-black tracking-widest text-amber-700">確認ポイント</p><p className="mt-3 text-sm font-bold leading-7 text-slate-700">{feature.caution}</p></div>
+          </div>
           <div className="mb-6 flex items-end justify-between gap-4">
             <div><p className="text-xs font-black tracking-widest text-pink-600">RECOMMENDED</p><h2 className="mt-1 text-2xl font-black">おすすめ作品</h2></div>
             <span className="text-xs font-bold text-slate-500">全{result.count.toLocaleString("ja-JP")}作品</span>

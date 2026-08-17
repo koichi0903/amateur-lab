@@ -3,7 +3,7 @@ import type { Work } from "@/types/work";
 import WorkImage from "../WorkImage";
 import { workDetailHref } from "@/lib/affiliateTracking";
 
-export default function Hero({ work }: { work: Work | null }) {
+export default function Hero({ work, eyebrow = "TODAY'S PICK", reason }: { work: Work | null; eyebrow?: string; reason?: string }) {
   const hasValidWorkId = work != null && Number.isInteger(work.id) && work.id > 0;
 
   return (
@@ -26,6 +26,8 @@ export default function Hero({ work }: { work: Work | null }) {
             >
               今日のAI発掘を見る
             </Link>
+            <Link href="/features" className="rounded-full border border-white/25 px-6 py-3.5 text-sm font-black text-white transition hover:border-white/60 hover:bg-white/10">特集から探す</Link>
+            <Link href="/deals" className="rounded-full border border-white/25 px-6 py-3.5 text-sm font-black text-white transition hover:border-white/60 hover:bg-white/10">お得に探す</Link>
           </div>
         </div>
 
@@ -51,8 +53,9 @@ export default function Hero({ work }: { work: Work | null }) {
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-[#142438] via-[#142438]/20 to-[#142438]/5" />
                 <div className="absolute inset-x-0 bottom-0 p-5 text-white sm:p-7">
-                  <p className="text-xs font-black tracking-[.18em] text-pink-300">TODAY&apos;S PICK</p>
+                  <p className="text-xs font-black tracking-[.18em] text-pink-300">{eyebrow}</p>
                   <p className="mt-2 line-clamp-2 text-lg font-black sm:text-2xl">{work.title}</p>
+                  {reason && <p className="mt-2 line-clamp-2 text-xs font-bold leading-5 text-slate-200 sm:text-sm">選定理由：{reason}</p>}
                 </div>
               </Link>
             ) : (
@@ -73,8 +76,9 @@ export default function Hero({ work }: { work: Work | null }) {
                 <div className="absolute inset-0 bg-gradient-to-t from-[#142438] via-[#142438]/20 to-[#142438]/5" />
                 {work && (
                   <div className="absolute inset-x-0 bottom-0 p-5 text-white sm:p-7">
-                    <p className="text-xs font-black tracking-[.18em] text-pink-300">TODAY&apos;S PICK</p>
+                    <p className="text-xs font-black tracking-[.18em] text-pink-300">{eyebrow}</p>
                     <p className="mt-2 line-clamp-2 text-lg font-black sm:text-2xl">{work.title}</p>
+                    {reason && <p className="mt-2 line-clamp-2 text-xs font-bold leading-5 text-slate-200 sm:text-sm">選定理由：{reason}</p>}
                   </div>
                 )}
               </>

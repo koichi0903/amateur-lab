@@ -12,9 +12,6 @@ export default function RelatedWorks({
     return null;
   }
 
-  const actress =
-    works[0]?.actress?.split(" / ")[0] ?? "";
-
   return (
     <section className="mt-12">
 
@@ -23,11 +20,11 @@ export default function RelatedWorks({
         <div>
 
           <h2 className="text-3xl font-black text-zinc-900">
-            👩 関連作品
+            🔎 あわせて比較したい作品
           </h2>
 
           <p className="mt-1 text-sm text-zinc-500">
-            {actress} のおすすめ作品
+            シリーズ・女優・ジャンル・メーカーの共通点から選定
           </p>
 
         </div>
