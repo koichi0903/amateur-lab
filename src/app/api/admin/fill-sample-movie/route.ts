@@ -4,6 +4,7 @@ import {
   closeBrowser,
   createBrowser,
 } from "@/lib/playwright/browserManager";
+import type { Browser, BrowserContext } from "playwright-core";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import {
   updatePlaywrightItem,
@@ -64,18 +65,32 @@ export async function POST() {
       });
     }
 
-    let browser = await createBrowser();
+    let browser: Browser = await createBrowser();
+    let context: BrowserContext = await createSampleMovieContext(browser);
+    let nextBrowserRestart = UPDATE_CONFIG.browserRestartInterval;
     try {
-      for (let offset = 0; offset < targets.length; offset += UPDATE_CONFIG.parallel) {
+      for (
+        let offset = 0;
+        offset < targets.length;
+        offset += UPDATE_CONFIG.sampleMovieParallel
+      ) {
         if (
           offset > 0 &&
-          offset % UPDATE_CONFIG.browserRestartInterval === 0
+          offset >= nextBrowserRestart
         ) {
+          await context.close().catch(() => undefined);
           await closeBrowser(browser);
           browser = await createBrowser();
+          context = await createSampleMovieContext(browser);
+          while (nextBrowserRestart <= offset) {
+            nextBrowserRestart += UPDATE_CONFIG.browserRestartInterval;
+          }
         }
 
-        const batch = targets.slice(offset, offset + UPDATE_CONFIG.parallel);
+        const batch = targets.slice(
+          offset,
+          offset + UPDATE_CONFIG.sampleMovieParallel,
+        );
         const firstResults = await Promise.allSettled(
           batch.map((work) =>
             updatePlaywrightItem(
@@ -84,6 +99,8 @@ export async function POST() {
               browser,
               undefined,
               true,
+              null,
+              context,
             ),
           ),
         );
@@ -93,8 +110,10 @@ export async function POST() {
         );
         let retryResults: SettledUpdate[] = [];
         if (retryTargets.length > 0) {
+          await context.close().catch(() => undefined);
           await closeBrowser(browser);
           browser = await createBrowser();
+          context = await createSampleMovieContext(browser);
           retryResults = await Promise.allSettled(
             retryTargets.map((work) =>
               updatePlaywrightItem(
@@ -103,6 +122,8 @@ export async function POST() {
                 browser,
                 undefined,
                 true,
+                null,
+                context,
               ),
             ),
           );
@@ -132,6 +153,7 @@ export async function POST() {
         );
       }
     } finally {
+      await context.close().catch(() => undefined);
       await closeBrowser(browser);
     }
 
@@ -156,4 +178,29 @@ export async function POST() {
     await failJob(JOBS.SAMPLE_MOVIE, message).catch(() => undefined);
     return NextResponse.json({ message }, { status: 500 });
   }
+}
+
+async function createSampleMovieContext(
+  browser: Browser,
+): Promise<BrowserContext> {
+  const context = await browser.newContext();
+  await context.addCookies([
+    {
+      name: "age_check_done",
+      value: "1",
+      domain: ".dmm.co.jp",
+      path: "/",
+      secure: true,
+      sameSite: "Lax",
+    },
+    {
+      name: "ckcy",
+      value: "1",
+      domain: ".dmm.co.jp",
+      path: "/",
+      secure: true,
+      sameSite: "Lax",
+    },
+  ]);
+  return context;
 }
