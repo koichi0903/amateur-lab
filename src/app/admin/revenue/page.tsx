@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   ArrowLeft,
   BarChart3,
+  CircleDollarSign,
   Download,
   ExternalLink,
   MousePointerClick,
@@ -9,7 +10,9 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { getAffiliateAnalytics } from "@/lib/affiliateAnalytics";
+import { getAffiliateSalesAnalytics } from "@/lib/affiliateSalesAnalytics";
 import { AFFILIATE_SOURCE_LABELS } from "@/lib/affiliateTracking";
+import RevenueImportForm from "./RevenueImportForm";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -48,7 +51,10 @@ function MetricCard({
 }
 
 export default async function RevenueDashboardPage() {
-  const analytics = await getAffiliateAnalytics();
+  const [analytics, salesAnalytics] = await Promise.all([
+    getAffiliateAnalytics(),
+    getAffiliateSalesAnalytics(),
+  ]);
   const maxDaily = Math.max(...analytics.daily.map((item) => item.count), 1);
   const thirtyDayTotal = analytics.totals.thirtyDays;
   const mobileClicks = analytics.placements.find(
@@ -102,6 +108,93 @@ export default async function RevenueDashboardPage() {
             流入元追加SQLが未適用のため、既存クリックは「直接・不明」で表示しています。新しいマイグレーションをSupabaseで実行すると流入元別の計測が始まります。
           </section>
         )}
+
+        <section className="mt-8 rounded-2xl border border-emerald-900/80 bg-emerald-950/20 p-5 sm:p-6">
+          <div className="flex items-start gap-3">
+            <CircleDollarSign className="mt-0.5 shrink-0 text-emerald-400" size={23} />
+            <div>
+              <h2 className="text-xl font-black">FANZA実売上</h2>
+              <p className="mt-1 text-sm leading-6 text-zinc-400">
+                FANZAアフィリエイトの商品別レポートを対象月ごとに取り込みます。同じ月のCSVを再取込しても二重計上されません。
+              </p>
+            </div>
+          </div>
+
+          {salesAnalytics.error && (
+            <div className="mt-5 rounded-xl border border-amber-800 bg-amber-950/30 p-4 text-sm leading-6 text-amber-200">
+              売上テーブルを読み込めません。Supabaseで
+              <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5">20260817_add_affiliate_sales.sql</code>
+              を実行してからCSVを取り込んでください。
+            </div>
+          )}
+
+          <RevenueImportForm />
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <MetricCard
+              label={`${salesAnalytics.currentMonth.replace("-", "年")}月 販売件数`}
+              value={`${salesAnalytics.totals.salesCount.toLocaleString("ja-JP")}件`}
+              note="商品別レポートのサイト全体実績"
+            />
+            <MetricCard
+              label="販売金額"
+              value={`¥${salesAnalytics.totals.salesAmount.toLocaleString("ja-JP")}`}
+              note="対象月の取込済み合計"
+            />
+            <MetricCard
+              label="発生報酬"
+              value={`¥${salesAnalytics.totals.commissionAmount.toLocaleString("ja-JP")}`}
+              note="確定報酬とは差が出る場合があります"
+            />
+          </div>
+
+          {salesAnalytics.latestImport && (
+            <p className="mt-4 text-xs text-zinc-500">
+              最終取込: {formatDateTime(salesAnalytics.latestImport.importedAt)} / {salesAnalytics.latestImport.file}
+            </p>
+          )}
+
+          <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+            <div>
+              <h3 className="text-sm font-black text-zinc-300">月別報酬推移</h3>
+              <div className="mt-3 space-y-2">
+                {[...salesAnalytics.monthly].reverse().slice(0, 6).map((month) => (
+                  <div key={month.key} className="flex items-center justify-between rounded-xl bg-zinc-950 px-4 py-3 text-sm">
+                    <span className="font-bold text-zinc-400">{month.key.replace("-", "年")}月</span>
+                    <span className="font-black text-emerald-300">¥{month.commissionAmount.toLocaleString("ja-JP")}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-zinc-300">今月の報酬上位商品</h3>
+              <div className="mt-3 divide-y divide-zinc-800 rounded-xl bg-zinc-950 px-4">
+                {salesAnalytics.topProducts.length ? salesAnalytics.topProducts.map((product) => {
+                  const content = (
+                    <>
+                      <span className="text-center text-xs font-black text-zinc-600">{product.rank}</span>
+                      <span className="truncate text-sm font-bold text-zinc-200">{product.title}</span>
+                      <span className="whitespace-nowrap text-sm font-black text-emerald-300">¥{product.commission_amount.toLocaleString("ja-JP")}</span>
+                    </>
+                  );
+                  return product.work_id ? (
+                    <Link
+                      key={product.id}
+                      href={`/works/${product.work_id}`}
+                      className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-3 py-3 transition hover:text-pink-300"
+                    >
+                      {content}
+                    </Link>
+                  ) : (
+                    <div key={product.id} className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-3 py-3">
+                      {content}
+                    </div>
+                  );
+                }) : <p className="py-5 text-sm text-zinc-500">今月の売上データはまだありません。</p>}
+              </div>
+            </div>
+          </div>
+        </section>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard label="今日の送客" value={`${analytics.totals.today.toLocaleString("ja-JP")}回`} note="日本時間0:00から" />
