@@ -17,6 +17,7 @@ import { createChartData } from "@/lib/createChartData";
 import ReviewTab from "@/app/components/ReviewTab";
 import SampleImageCarousel from "@/app/components/SampleImageCarousel";
 import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
+import DealWorkCard, { type DealWork } from "@/components/deals/DealWorkCard";
 import PriceTypes from "@/app/components/PriceTypes";
 import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
 import { isInsightVisible } from "@/lib/insights/visibility";
@@ -156,6 +157,35 @@ const getRelatedWorks = unstable_cache(
   { revalidate: 3600 }
 );
 
+const getValueAlternatives = unstable_cache(
+  async (mainGenre: string, workId: number, currentPrice: number) => {
+    if (!mainGenre || currentPrice <= 0) return [];
+    const minimumPrice = Math.max(1, Math.floor(currentPrice * 0.55));
+    const maximumPrice = Math.ceil(currentPrice * 1.45);
+    const { data } = await supabase
+      .from("works")
+      .select("id,title,image_url,price,sale_price,list_price,discount_rate,score,review_average,review_count,sale_end_at,lowest_price,is_bottom_price,sample_movie_url")
+      .ilike("genre", `%${mainGenre}%`)
+      .neq("id", workId)
+      .gte("price", minimumPrice)
+      .lte("price", maximumPrice)
+      .order("score", { ascending: false, nullsFirst: false })
+      .limit(18);
+
+    return ((data ?? []) as DealWork[])
+      .sort((a, b) => {
+        const aPrice = a.sale_price > 0 ? a.sale_price : a.price;
+        const bPrice = b.sale_price > 0 ? b.sale_price : b.price;
+        const aValue = (a.sale_price > 0 ? 30 : 0) + a.score - Math.abs(aPrice - currentPrice) / 100;
+        const bValue = (b.sale_price > 0 ? 30 : 0) + b.score - Math.abs(bPrice - currentPrice) / 100;
+        return bValue - aValue;
+      })
+      .slice(0, 5);
+  },
+  ["work-detail-value-alternatives"],
+  { revalidate: 3600 }
+);
+
 
 
 export async function generateMetadata(
@@ -251,6 +281,12 @@ export default async function WorkDetailPage(
   work.actress?.split(" / ")[0] || "";
 
 const relatedWorks = await getRelatedWorks(mainActress, work.id);
+const mainGenre = genres[0] ?? "";
+const valueAlternatives = await getValueAlternatives(
+  mainGenre,
+  work.id,
+  mobileDisplayPrice ?? 0
+);
 
   const {
   summary,
@@ -342,6 +378,22 @@ const chartData = createChartData(
           />
         </div>
       </section>
+
+      {valueAlternatives.length > 0 && (
+        <section className="mt-10 rounded-3xl border border-emerald-100 bg-white p-4 shadow-sm sm:p-7" aria-labelledby="value-alternatives">
+          <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-black tracking-widest text-emerald-600">COMPARE BEFORE BUYING</p>
+              <h2 id="value-alternatives" className="mt-1 text-2xl font-black">同価格帯のおすすめと買い比べ</h2>
+              <p className="mt-2 text-sm text-slate-500">「{mainGenre}」から、価格が近く評価・セール条件の良い候補を選びました。</p>
+            </div>
+            <Link href={`/deals/under-1000`} className="text-sm font-black text-pink-600 hover:underline">さらにお得な作品を見る →</Link>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {valueAlternatives.map((alternative) => <DealWorkCard key={alternative.id} work={alternative} />)}
+          </div>
+        </section>
+      )}
 
       <SampleImageCarousel
   images={sampleImages ?? []}

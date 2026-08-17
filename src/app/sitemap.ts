@@ -91,6 +91,39 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   },
   {
+    url: `${BASE_URL}/deals`,
+    changeFrequency: "daily",
+    priority: 0.9,
+  },
+  ...[
+    "ending-soon",
+    "lowest-price",
+    "under-1000",
+    "high-rated",
+    "sample-available",
+    "best-discount",
+  ].map((category) => ({
+    url: `${BASE_URL}/deals/${category}`,
+    changeFrequency: "daily" as const,
+    priority: 0.8,
+  })),
+  {
+    url: `${BASE_URL}/features`,
+    changeFrequency: "weekly",
+    priority: 0.8,
+  },
+  ...[
+    "beginners",
+    "under-500",
+    "trusted-reviews",
+    "actress-discovery",
+    "hidden-gems",
+  ].map((feature) => ({
+    url: `${BASE_URL}/features/${feature}`,
+    changeFrequency: "weekly" as const,
+    priority: 0.8,
+  })),
+  {
     url: `${BASE_URL}/about`,
     changeFrequency: "monthly",
     priority: 0.5,

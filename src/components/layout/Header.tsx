@@ -8,6 +8,9 @@ import { useState } from "react";
 const menus = [
   { href: "/ranking", label: "ランキング" },
   { href: "/new", label: "新着" },
+  { href: "/sale", label: "セール" },
+  { href: "/deals", label: "お得に探す" },
+  { href: "/features", label: "特集" },
   { href: "/actress", label: "女優" },
   { href: "/maker", label: "メーカー" },
   { href: "/series", label: "シリーズ" },
@@ -34,7 +37,7 @@ export default function Header() {
           <span className="hidden border-l border-slate-200 pl-3 text-[11px] font-bold text-slate-500 sm:block">AIが毎日、名作を発掘する。</span>
         </Link>
 
-        <nav className="ml-auto hidden items-center gap-5 xl:flex">
+        <nav className="ml-auto hidden items-center gap-4 xl:flex">
           {menus.map((menu) => <Link key={menu.href} href={menu.href} className="text-sm font-bold text-slate-700 transition hover:text-pink-600">{menu.label}</Link>)}
         </nav>
 

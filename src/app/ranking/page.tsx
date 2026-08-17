@@ -21,7 +21,9 @@ const rankingTypes = {
 
 type RankingType = keyof typeof rankingTypes;
 
-export async function generateMetadata({ searchParams }: { searchParams: Promise<{ type?: string; page?: string }> }): Promise<Metadata> {
+type RankingParams = { type?: string; page?: string; sale?: string; sample?: string; maxPrice?: string };
+
+export async function generateMetadata({ searchParams }: { searchParams: Promise<RankingParams> }): Promise<Metadata> {
   const params = await searchParams;
   const type: RankingType = params.type && params.type in rankingTypes ? params.type as RankingType : "overall";
   const requestedPage = Number.parseInt(params.page ?? "1", 10);
@@ -33,6 +35,7 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
     title: `${rankingTypes[type].title}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
     description: rankingTypes[type].description,
     canonical: query.size ? `/ranking?${query}` : "/ranking",
+    robots: params.sale || params.sample || params.maxPrice ? { index: false, follow: true } : undefined,
   });
 }
 
@@ -79,7 +82,7 @@ function EntityListCard({ item, kind }: { item: DiscoveryEntityRankingItem; kind
   return <Link href={`/${kind}/${encodeURIComponent(item.name)}`} className="group grid min-w-0 grid-cols-[38px_112px_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-pink-200 hover:shadow-md sm:grid-cols-[48px_150px_minmax(0,1fr)] sm:gap-5 sm:p-4"><span className="text-center text-xl font-black text-slate-400 sm:text-2xl">{item.rank}</span><div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100"><WorkImage src={item.imageUrl} alt={`${item.name}の代表作品`} sizes="150px" unoptimized className="object-cover transition duration-300 group-hover:scale-105" /></div><div className="min-w-0"><p className="text-[10px] font-black tracking-wider text-pink-600">発掘{rankingTypes[kind].entityLabel}スコア</p><p className="text-2xl font-black leading-none text-pink-600">{item.discoveryScore}<span className="ml-1 text-[10px]">/ 100</span></p><h2 className="mt-2 line-clamp-2 break-all text-sm font-black leading-5 sm:text-base">{item.name}</h2><EntityMetrics item={item} compact /></div></Link>;
 }
 
-export default async function RankingPage({ searchParams }: { searchParams: Promise<{ type?: string; page?: string }> }) {
+export default async function RankingPage({ searchParams }: { searchParams: Promise<RankingParams> }) {
   const params = await searchParams;
   const type: RankingType = params.type && params.type in rankingTypes ? params.type as RankingType : "overall";
   const requestedPage = Number.parseInt(params.page ?? "1", 10);
@@ -87,6 +90,9 @@ export default async function RankingPage({ searchParams }: { searchParams: Prom
   const pageSize = 30;
   const offset = (page - 1) * pageSize;
   const current = rankingTypes[type];
+  const saleOnly = params.sale === "1";
+  const sampleOnly = params.sample === "1";
+  const maxPrice = Number(params.maxPrice) > 0 ? Number(params.maxPrice) : null;
 
   let works: Work[] = [];
   let entities: DiscoveryEntityRankingItem[] = [];
@@ -94,8 +100,12 @@ export default async function RankingPage({ searchParams }: { searchParams: Prom
   let totalItems = 0;
 
   if (type === "overall") {
-    const result = await supabase.from("works").select("id,title,image_url,score,price,sale_price,discount_rate", { count: "exact" }).gt("score", 0).order("score", { ascending: false, nullsFirst: false }).range(offset, offset + pageSize - 1);
-    works = (result.data ?? []) as Work[];
+    let rankingQuery = supabase.from("works").select("id,title,image_url,score,price,sale_price,discount_rate,sample_movie_url", { count: "exact" }).gt("score", 0);
+    if (saleOnly) rankingQuery = rankingQuery.gt("sale_price", 0);
+    if (sampleOnly) rankingQuery = rankingQuery.not("sample_movie_url", "is", null).neq("sample_movie_url", "");
+    if (maxPrice) rankingQuery = rankingQuery.or(`and(sale_price.gt.0,sale_price.lte.${maxPrice}),and(sale_price.eq.0,price.lte.${maxPrice})`);
+    const result = await rankingQuery.order("score", { ascending: false, nullsFirst: false }).range(offset, offset + pageSize - 1);
+    works = (result.data ?? []) as unknown as Work[];
     totalItems = result.count ?? works.length;
     errorMessage = result.error?.message ?? null;
   } else {
@@ -110,12 +120,12 @@ export default async function RankingPage({ searchParams }: { searchParams: Prom
 
   const itemCount = type === "overall" ? works.length : entities.length;
   const hasNextPage = offset + itemCount < totalItems;
-  const pageHref = (targetPage: number) => { const query = new URLSearchParams(); if (type !== "overall") query.set("type", type); if (targetPage > 1) query.set("page", String(targetPage)); return query.size ? `/ranking?${query}` : "/ranking"; };
+  const pageHref = (targetPage: number) => { const query = new URLSearchParams(); if (type !== "overall") query.set("type", type); if (targetPage > 1) query.set("page", String(targetPage)); if (saleOnly) query.set("sale", "1"); if (sampleOnly) query.set("sample", "1"); if (maxPrice) query.set("maxPrice", String(maxPrice)); return query.size ? `/ranking?${query}` : "/ranking"; };
   const entityKind = type === "overall" ? null : type;
 
   return <><Header /><main className="min-h-screen bg-[#f8fafc] text-slate-950">
     <section className="border-b border-slate-200 bg-white"><div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8"><Link href="/" className="text-xs font-bold text-slate-500 transition hover:text-pink-600">TOP <span className="mx-1">/</span> ランキング</Link><div className="mt-5 flex max-w-3xl items-start gap-4"><span className="shrink-0 rounded-2xl bg-pink-50 p-3 text-pink-600"><Trophy size={28} /></span><div className="min-w-0"><p className="text-xs font-black tracking-[0.18em] text-pink-600">DISCOVERY RANKING</p><h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">{current.title}</h1><p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">{current.description}</p>{entityKind && <p className="mt-2 text-xs leading-5 text-slate-400">発掘スコアは、上位5作品の平均60%・上位20作品の平均25%・登録作品数補正15%で算出しています。</p>}</div></div><nav aria-label="ランキング種別" className="mt-8 flex gap-2 overflow-x-auto pb-1">{(Object.entries(rankingTypes) as [RankingType, (typeof rankingTypes)[RankingType]][]).map(([key, item]) => <Link key={key} href={key === "overall" ? "/ranking" : `/ranking?type=${key}`} aria-current={key === type ? "page" : undefined} className={`shrink-0 rounded-full px-5 py-2.5 text-sm font-black transition ${key === type ? "bg-slate-950 text-white shadow-md" : "border border-slate-200 bg-white text-slate-600 hover:border-pink-300 hover:text-pink-600"}`}>{item.label}</Link>)}</nav></div></section>
-    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{errorMessage ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">ランキングを読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : itemCount === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center"><Sparkles className="mx-auto text-slate-300" size={38} /><p className="mt-4 font-black">ランキングを集計中です</p></div> : <>
+    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{type === "overall" && <form action="/ranking" className="mb-8 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-[1fr_auto_auto_auto]"><label className="text-xs font-black text-slate-600">上限価格<select name="maxPrice" defaultValue={maxPrice ?? ""} className="mt-1 block h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold"><option value="">指定なし</option><option value="1000">1,000円以下</option><option value="2000">2,000円以下</option><option value="3000">3,000円以下</option></select></label><label className="flex h-11 items-center gap-2 self-end rounded-xl border border-slate-200 px-3 text-sm font-black"><input type="checkbox" name="sale" value="1" defaultChecked={saleOnly} className="h-4 w-4 accent-pink-600" />セール中</label><label className="flex h-11 items-center gap-2 self-end rounded-xl border border-slate-200 px-3 text-sm font-black"><input type="checkbox" name="sample" value="1" defaultChecked={sampleOnly} className="h-4 w-4 accent-pink-600" />サンプルあり</label><button type="submit" className="h-11 self-end rounded-xl bg-slate-950 px-6 text-sm font-black text-white hover:bg-pink-600">絞り込む</button></form>}{errorMessage ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">ランキングを読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : itemCount === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center"><Sparkles className="mx-auto text-slate-300" size={38} /><p className="mt-4 font-black">ランキングを集計中です</p></div> : <>
       {page === 1 && <section aria-labelledby="top-ranking"><div className="mb-6"><p className="text-xs font-black tracking-widest text-pink-600">TOP PICKS</p><h2 id="top-ranking" className="mt-1 text-2xl font-black">{entityKind ? `発掘${rankingTypes[entityKind].entityLabel} TOP3` : "発掘スコア TOP3"}</h2></div><div className="grid gap-4 md:grid-cols-3 lg:items-start">{entityKind ? entities.slice(0, 3).map((item) => <EntityTopCard key={item.name} item={item} kind={entityKind} />) : works.slice(0, 3).map((work, index) => <WorkTopCard key={work.id} work={work} rank={index + 1} />)}</div></section>}
       {(page > 1 || itemCount > 3) && <section className={page === 1 ? "mt-12" : ""} aria-labelledby="all-ranking"><div className="mb-5 flex items-end justify-between gap-4"><div><p className="text-xs font-black tracking-widest text-pink-600">DISCOVERY RANKING</p><h2 id="all-ranking" className="mt-1 text-2xl font-black">{page === 1 ? "4位以降" : `${offset + 1}〜${offset + itemCount}位`}</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{totalItems}{entityKind ? "件" : "作品"}</span></div><div className="grid gap-3 lg:grid-cols-2">{entityKind ? (page === 1 ? entities.slice(3) : entities).map((item) => <EntityListCard key={item.name} item={item} kind={entityKind} />) : (page === 1 ? works.slice(3) : works).map((work, index) => <WorkListCard key={work.id} work={work} rank={offset + index + (page === 1 ? 4 : 1)} />)}</div></section>}
       {(page > 1 || hasNextPage) && <nav aria-label="ランキングのページ送り" className="mt-10 flex items-center justify-center gap-3">{page > 1 && <Link href={pageHref(page - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black">← 前の30件</Link>}{hasNextPage && <Link href={pageHref(page + 1)} className="flex items-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black text-white">次の30件 <ArrowRight size={16} /></Link>}</nav>}

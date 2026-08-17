@@ -10,17 +10,40 @@ import { workDetailHref } from "@/lib/affiliateTracking";
 
 const PAGE_SIZE = 20;
 
+type SaleParams = {
+  page?: string;
+  sort?: string;
+  maxPrice?: string;
+  minRating?: string;
+  sample?: string;
+};
+
+const saleSorts = ["discount", "price", "rating", "ending"] as const;
+type SaleSort = (typeof saleSorts)[number];
+
+function normalizeSort(value?: string): SaleSort {
+  return saleSorts.includes(value as SaleSort) ? value as SaleSort : "discount";
+}
+
+function parsePositiveNumber(value?: string) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
 function parsePage(value: string | undefined) {
   const page = Number(value);
   return Number.isInteger(page) && page > 0 ? page : 1;
 }
 
-export async function generateMetadata({ searchParams }: { searchParams: Promise<{ page?: string }> }): Promise<Metadata> {
-  const page = parsePage((await searchParams).page);
+export async function generateMetadata({ searchParams }: { searchParams: Promise<SaleParams> }): Promise<Metadata> {
+  const params = await searchParams;
+  const page = parsePage(params.page);
+  const hasFilters = Boolean(params.sort || params.maxPrice || params.minRating || params.sample);
   return pageMetadata({
     title: `セール中の作品${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
     description: "現在セール中のFANZA作品を、割引率が高い順に紹介します。",
     canonical: page > 1 ? `/sale?page=${page}` : "/sale",
+    robots: hasFilters ? { index: false, follow: true } : undefined,
   });
 }
 
@@ -76,21 +99,43 @@ function SaleCard({ work }: { work: Work }) {
   );
 }
 
-export default async function SalePage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
-  const page = parsePage((await searchParams).page);
+export default async function SalePage({ searchParams }: { searchParams: Promise<SaleParams> }) {
+  const params = await searchParams;
+  const page = parsePage(params.page);
+  const sort = normalizeSort(params.sort);
+  const maxPrice = parsePositiveNumber(params.maxPrice);
+  const minRating = parsePositiveNumber(params.minRating);
+  const sampleOnly = params.sample === "1";
   const offset = (page - 1) * PAGE_SIZE;
-  const { data, count, error } = await supabase
+  let query = supabase
     .from("works")
-    .select("id,title,image_url,price,sale_price,list_price,discount_rate,score,review_average,review_count,sale_end_at", { count: "exact" })
+    .select("id,title,image_url,price,sale_price,list_price,discount_rate,score,review_average,review_count,sale_end_at,sample_movie_url,is_bottom_price,lowest_price", { count: "exact" })
     .gt("sale_price", 0)
-    .gt("discount_rate", 0)
-    .order("discount_rate", { ascending: false })
-    .order("score", { ascending: false })
-    .range(offset, offset + PAGE_SIZE - 1);
+    .gt("discount_rate", 0);
 
-  const works = (data ?? []) as Work[];
+  if (maxPrice) query = query.lte("sale_price", maxPrice);
+  if (minRating) query = query.gte("review_average", minRating);
+  if (sampleOnly) query = query.not("sample_movie_url", "is", null).neq("sample_movie_url", "");
+
+  if (sort === "price") query = query.order("sale_price", { ascending: true });
+  else if (sort === "rating") query = query.order("review_average", { ascending: false }).order("review_count", { ascending: false });
+  else if (sort === "ending") query = query.gt("sale_end_at", new Date().toISOString()).order("sale_end_at", { ascending: true, nullsFirst: false });
+  else query = query.order("discount_rate", { ascending: false }).order("score", { ascending: false });
+
+  const { data, count, error } = await query.range(offset, offset + PAGE_SIZE - 1);
+
+  const works = (data ?? []) as unknown as Work[];
   const total = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageHref = (target: number) => {
+    const queryParams = new URLSearchParams();
+    if (target > 1) queryParams.set("page", String(target));
+    if (sort !== "discount") queryParams.set("sort", sort);
+    if (maxPrice) queryParams.set("maxPrice", String(maxPrice));
+    if (minRating) queryParams.set("minRating", String(minRating));
+    if (sampleOnly) queryParams.set("sample", "1");
+    return queryParams.size ? `/sale?${queryParams}` : "/sale";
+  };
 
   return (
     <>
@@ -112,6 +157,13 @@ export default async function SalePage({ searchParams }: { searchParams: Promise
             <p><span className="mr-2 text-emerald-600">✓</span>レビューと発掘スコアを確認</p>
             <p><span className="mr-2 text-emerald-600">✓</span>最終価格はFANZA公式で確認</p>
           </div>
+          <form action="/sale" className="mb-8 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto_auto]">
+            <label className="text-xs font-black text-slate-600">並び順<select name="sort" defaultValue={sort} className="mt-1 block h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold"><option value="discount">割引率が高い順</option><option value="price">価格が安い順</option><option value="rating">レビュー評価順</option><option value="ending">終了が近い順</option></select></label>
+            <label className="text-xs font-black text-slate-600">上限価格<select name="maxPrice" defaultValue={maxPrice ?? ""} className="mt-1 block h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold"><option value="">指定なし</option><option value="500">500円以下</option><option value="1000">1,000円以下</option><option value="2000">2,000円以下</option></select></label>
+            <label className="text-xs font-black text-slate-600">レビュー<select name="minRating" defaultValue={minRating ?? ""} className="mt-1 block h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold"><option value="">指定なし</option><option value="3.5">3.5以上</option><option value="4">4.0以上</option><option value="4.5">4.5以上</option></select></label>
+            <label className="flex h-11 items-center gap-2 self-end rounded-xl border border-slate-200 px-3 text-sm font-black"><input type="checkbox" name="sample" value="1" defaultChecked={sampleOnly} className="h-4 w-4 accent-pink-600" />サンプルあり</label>
+            <button type="submit" className="h-11 self-end rounded-xl bg-slate-950 px-6 text-sm font-black text-white hover:bg-pink-600">絞り込む</button>
+          </form>
           <div className="mb-6 flex items-end justify-between gap-4"><div><p className="text-xs font-black tracking-widest text-rose-600">ON SALE</p><h2 className="mt-1 text-2xl font-black">セール作品一覧</h2></div><span className="shrink-0 text-xs font-bold text-slate-500">全{total.toLocaleString("ja-JP")}作品</span></div>
           {error ? (
             <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center font-black">セール作品を読み込めませんでした</div>
@@ -123,9 +175,9 @@ export default async function SalePage({ searchParams }: { searchParams: Promise
 
           {totalPages > 1 && (
             <nav aria-label="セール作品のページ送り" className="mt-10 flex items-center justify-center gap-3">
-              {page > 1 ? <Link href={page === 2 ? "/sale" : `/sale?page=${page - 1}`} className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black shadow-sm hover:border-pink-300 hover:text-pink-600"><ArrowLeft size={15} /> 前へ</Link> : <span />}
+              {page > 1 ? <Link href={pageHref(page - 1)} className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black shadow-sm hover:border-pink-300 hover:text-pink-600"><ArrowLeft size={15} /> 前へ</Link> : <span />}
               <span className="text-sm font-bold text-slate-500">{page} / {totalPages}</span>
-              {page < totalPages ? <Link href={`/sale?page=${page + 1}`} className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black shadow-sm hover:border-pink-300 hover:text-pink-600">次へ <ArrowRight size={15} /></Link> : <span />}
+              {page < totalPages ? <Link href={pageHref(page + 1)} className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black shadow-sm hover:border-pink-300 hover:text-pink-600">次へ <ArrowRight size={15} /></Link> : <span />}
             </nav>
           )}
         </section>
