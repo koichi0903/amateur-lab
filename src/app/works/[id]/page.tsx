@@ -37,6 +37,19 @@ type WorkDetail = Work & {
   long_hit_rank: number | null;
 };
 
+// The official share page nests this DMM player in a minimum 476px-wide iframe.
+// Use the same official player directly so its viewport can match narrow phones.
+function getOfficialSampleEmbedUrl(work: WorkDetail): string | null {
+  if (!work.product_id || !work.sample_movie_url) return null;
+
+  const base = `https://www.dmm.co.jp/service/digitalapi/-/html5_player/=/cid=${encodeURIComponent(work.product_id)}/mtype=AhRVShI_/service=litevideo/mode=part/width=260/height=167`;
+  const affiliateId = process.env.DMM_AFFILIATE_ID?.trim();
+
+  return affiliateId
+    ? `${base}/affi_id=${encodeURIComponent(affiliateId)}/`
+    : `${base}/`;
+}
+
 const WORK_DETAIL_COLUMNS = [
   "id", "product_id", "title", "actress", "genre", "maker", "series",
   "score", "actress_score", "genre_score", "maker_score", "series_score",
@@ -248,8 +261,8 @@ export async function generateMetadata(
   const encodedId = encodeURIComponent(id);
   // Keep a version in the URL so social crawlers do not reuse a previously
   // failed or incomplete card image after the renderer changes.
-  const openGraphImage = `${SITE_URL}/works/${encodedId}/opengraph-image?v=2`;
-  const twitterImage = `${SITE_URL}/works/${encodedId}/twitter-image?v=2`;
+  const openGraphImage = `${SITE_URL}/works/${encodedId}/opengraph-image?v=3`;
+  const twitterImage = `${SITE_URL}/works/${encodedId}/twitter-image?v=3`;
   const metadata = pageMetadata({ title, description, canonical: `/works/${encodedId}` });
 
   return {
@@ -395,6 +408,7 @@ const chartData = createChartData(
   work={work}
   sampleImages={sampleImages ?? []}
   sampleMovieUrl={work.sample_movie_url}
+  officialSampleEmbedUrl={getOfficialSampleEmbedUrl(work)}
 />
       </section>
 

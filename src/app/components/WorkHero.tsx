@@ -15,12 +15,14 @@ type Props = {
     sort_order: number;
   }[];
   sampleMovieUrl?: string | null;
+  officialSampleEmbedUrl?: string | null;
 };
 
 export default function WorkHero({
   work,
   sampleImages,
   sampleMovieUrl,
+  officialSampleEmbedUrl,
 }: Props) {
 
 const genres = work.genre
@@ -39,6 +41,32 @@ const [selected, setSelected] = useState<
 
 const [viewerOpen, setViewerOpen] =
   useState(false);
+
+const [preferNativeSamplePlayer, setPreferNativeSamplePlayer] = useState(false);
+
+const officialPlayerRef = useRef<HTMLDivElement>(null);
+const [officialPlayerSize, setOfficialPlayerSize] = useState({
+  width: 260,
+  height: 167,
+});
+const compactOfficialSampleEmbedUrl = officialSampleEmbedUrl
+  ?.replace(/width=\d+/, `width=${officialPlayerSize.width}`)
+  .replace(/height=\d+/, `height=${officialPlayerSize.height}`);
+
+useEffect(() => {
+  const updatePlayerPreference = () => {
+    setPreferNativeSamplePlayer(
+      window.matchMedia("(pointer: coarse)").matches ||
+        window.matchMedia("(max-width: 767px)").matches ||
+        navigator.maxTouchPoints > 0
+    );
+  };
+
+  updatePlayerPreference();
+  window.addEventListener("resize", updatePlayerPreference);
+
+  return () => window.removeEventListener("resize", updatePlayerPreference);
+}, []);
 
 const titleRef = useRef<HTMLHeadingElement>(null);
 const [titleExpanded, setTitleExpanded] = useState(false);
@@ -80,6 +108,29 @@ useLayoutEffect(() => {
 
   return () => observer.disconnect();
 }, [work.title]);
+
+useLayoutEffect(() => {
+  const player = officialPlayerRef.current;
+  if (!player || !officialSampleEmbedUrl) return;
+
+  const updatePlayerSize = () => {
+    const width = Math.max(240, Math.round(player.getBoundingClientRect().width));
+    const height = Math.round((width * 9) / 14);
+
+    setOfficialPlayerSize((current) =>
+      Math.abs(current.width - width) < 2 &&
+      Math.abs(current.height - height) < 2
+        ? current
+        : { width, height }
+    );
+  };
+
+  updatePlayerSize();
+  const observer = new ResizeObserver(updatePlayerSize);
+  observer.observe(player);
+
+  return () => observer.disconnect();
+}, [officialSampleEmbedUrl]);
 
 useEffect(() => {
   function handleKey(e: KeyboardEvent) {
@@ -144,7 +195,48 @@ useEffect(() => {
       </div>
     )}
 
-    {selected === "movie" && sampleMovieUrl ? (
+    {selected === "movie" && preferNativeSamplePlayer && sampleMovieUrl ? (
+      <video
+        key="mobile-sample-movie"
+        controls
+        autoPlay
+        muted
+        playsInline
+        preload="metadata"
+        poster={work.image_url ?? undefined}
+        className="aspect-video w-full rounded-2xl border bg-black object-contain shadow-lg"
+      >
+        <source src={sampleMovieUrl} type="video/mp4" />
+      </video>
+    ) : selected === "movie" && compactOfficialSampleEmbedUrl ? (
+    <div>
+      <div
+        ref={officialPlayerRef}
+        className="relative aspect-[14/9] w-full overflow-hidden rounded-2xl border bg-black shadow-lg"
+      >
+        <iframe
+          key={compactOfficialSampleEmbedUrl}
+          src={compactOfficialSampleEmbedUrl}
+          title={`${work.title} 公式無料サンプル動画`}
+          width="100%"
+          height="100%"
+          className="absolute inset-0 h-full w-full border-0"
+          scrolling="no"
+          allow="autoplay; fullscreen; picture-in-picture"
+          allowFullScreen
+          referrerPolicy="strict-origin-when-cross-origin"
+        />
+      </div>
+      <a
+        href={officialSampleEmbedUrl}
+        target="_blank"
+        rel="noopener noreferrer nofollow"
+        className="mt-2 block text-center text-[11px] font-medium text-zinc-500 underline decoration-zinc-300 underline-offset-2 transition hover:text-pink-600"
+      >
+        再生できない方はこちら
+      </a>
+    </div>
+) : selected === "movie" && sampleMovieUrl ? (
   <video
   key={selected}
   controls
