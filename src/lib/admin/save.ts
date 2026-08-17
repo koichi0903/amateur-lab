@@ -1,6 +1,13 @@
 import { supabaseAdmin as supabase } from "../supabaseAdmin";
 import { IGNORE_GENRES } from "../genre";
 import { calculateScore } from "../score";
+import {
+  getActressPoint,
+  getBestStoredRank,
+  getGenrePoint,
+  getMakerPoint,
+  getSeriesPoint,
+} from "../score/entityRanking";
 
 import type { DmmItem } from "../../types/dmm";
 import { formatDmmActresses } from "../dmm/actresses";
@@ -105,10 +112,11 @@ actresses.forEach((name: string) => {
       name.includes(a.name)
   );
 
-if (found?.original_rank != null) {
+if (found) {
+  const rank = getBestStoredRank(found.original_rank, found.fanza_rank);
   actressScore = Math.max(
     actressScore,
-    found.original_rank
+    getActressPoint(rank)
   );
 }
 });
@@ -121,7 +129,10 @@ genres.forEach((name: string) => {
   );
 
   if (found) {
-    genreScore += found.score;
+    genreScore = Math.max(
+      genreScore,
+      getGenrePoint(found.rank ?? null)
+    );
   }
 });
 
@@ -132,12 +143,10 @@ makers.forEach((name: string) => {
   );
 
   if (found) {
-    if (found.rank != null) {
-  makerScore = Math.max(
-    makerScore,
-    found.rank
-  );
-}
+    makerScore = Math.max(
+      makerScore,
+      getMakerPoint(found.rank ?? null)
+    );
   }
 });
 
@@ -149,20 +158,11 @@ series.forEach((name: string) => {
 
   if (!found) return;
 
-  const ranks = [
-    found.original_rank,
-    found.fanza_rank,
-  ].filter(
-    (rank): rank is number => rank != null
-  );
-
-  if (ranks.length === 0) return;
-
-  const bestRank = Math.min(...ranks);
-
   seriesScore = Math.max(
     seriesScore,
-    bestRank
+    getSeriesPoint(
+      getBestStoredRank(found.original_rank, found.fanza_rank)
+    )
   );
 });
 
@@ -236,6 +236,10 @@ actress_score: actressScore,
 genre_score: genreScore,
 maker_score: makerScore,
 series_score: seriesScore,
+actress_point: actressScore,
+genre_point: genreScore,
+maker_point: makerScore,
+series_point: seriesScore,
 
 review_score: Math.round(reviewPoint),
 

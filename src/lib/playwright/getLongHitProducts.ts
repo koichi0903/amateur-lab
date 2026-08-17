@@ -1,4 +1,5 @@
 import { createBrowser } from "@/lib/playwright/browserManager";
+import { openFanzaContentListPage } from "@/lib/playwright/fanzaAgeGate";
 
 export interface RankingProduct {
   productId: string;
@@ -8,30 +9,14 @@ export interface RankingProduct {
 export async function getLongHitProducts(
   baseUrl: string,
   itemsPerPage: number,
-  maxPages: number
+  maxPages: number,
+  expectedCount?: number,
 ): Promise<RankingProduct[]> {
   const browser = await createBrowser({ headless: false });
 
   const page = await browser.newPage();
 
   try {
-    await page.goto(baseUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
-
-    // 年齢認証（初回のみ）
-    try {
-      await page.waitForTimeout(5000);
-
-      await page.locator("text=はい").first().click();
-
-      await page
-        .locator('[data-e2eid="content-card"]')
-        .first()
-        .waitFor();
-    } catch {}
-
     const products = new Map<string, RankingProduct>();
 
 for (
@@ -39,28 +24,13 @@ for (
   currentPage <= maxPages;
   currentPage++
 ) {
-  if (currentPage > 1) {
-    await page.goto(
-      `${baseUrl}&page=${currentPage}`,
-      {
-        waitUntil: "domcontentloaded",
-        timeout: 60000,
-      }
-    );
-
-    await page
-      .locator('[data-e2eid="content-card"]')
-      .first()
-      .waitFor();
-
-    await page.waitForTimeout(500);
-  }
+  const pageUrl =
+    currentPage === 1 ? baseUrl : `${baseUrl}&page=${currentPage}`;
+  const count = await openFanzaContentListPage(page, pageUrl);
 
   const cards = page.locator(
     '[data-e2eid="content-card"]'
   );
-
-  const count = await cards.count();
 
   console.log(
     `page ${currentPage}: cards=${count}`
@@ -94,7 +64,15 @@ for (
   }
 }
 
-return [...products.values()];
+    const result = [...products.values()];
+    const minimumCount = expectedCount ?? itemsPerPage * (maxPages - 1);
+    if (result.length < minimumCount) {
+      throw new Error(
+        `FANZAロングヒット取得件数が不足しています: ${result.length}/${minimumCount}件`,
+      );
+    }
+
+    return expectedCount ? result.slice(0, expectedCount) : result;
   } finally {
     await browser.close();
   }

@@ -13,6 +13,7 @@ import { getAffiliateAnalytics } from "@/lib/affiliateAnalytics";
 import { getAffiliateSalesAnalytics } from "@/lib/affiliateSalesAnalytics";
 import { AFFILIATE_SOURCE_LABELS } from "@/lib/affiliateTracking";
 import RevenueImportForm from "./RevenueImportForm";
+import RevenuePerformanceTable from "./RevenuePerformanceTable";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -356,6 +357,11 @@ export default async function RevenueDashboardPage() {
             {!analytics.recent.length && <p className="py-5 text-sm text-zinc-500">クリックデータはまだありません。</p>}
           </div>
         </section>
+
+        <RevenuePerformanceTable
+          rows={salesAnalytics.performance}
+          clickError={salesAnalytics.performanceClickError}
+        />
 
         <p className="mt-6 text-xs leading-6 text-zinc-600">
           この計測は作品ID・流入元・CTA位置・クリック時刻だけを保存します。IPアドレス、Cookie、ユーザー識別子、参照元URLは保存しません。

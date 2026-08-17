@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { fetchAffiliateClicks } from "@/lib/affiliateAnalytics";
 
 export type AffiliateSaleRow = {
   id: number;
@@ -55,6 +56,16 @@ export async function getAffiliateSalesAnalytics() {
         totals: { salesCount: 0, salesAmount: 0, commissionAmount: 0 },
         monthly: monthKeys.map((key) => ({ key, salesCount: 0, salesAmount: 0, commissionAmount: 0 })),
         topProducts: [] as Array<AffiliateSaleRow & { rank: number }>,
+        performance: [] as Array<{
+          workId: number;
+          title: string;
+          clicks: number;
+          salesCount: number;
+          commissionAmount: number;
+          conversionRate: number | null;
+          earningsPerClick: number | null;
+        }>,
+        performanceClickError: null as string | null,
         latestImport: null as null | { file: string; importedAt: string },
       };
     }
@@ -65,6 +76,41 @@ export async function getAffiliateSalesAnalytics() {
   }
 
   const currentRows = rows.filter((row) => row.report_month.slice(0, 7) === currentMonth);
+  const clickResult = await fetchAffiliateClicks(35);
+  const currentMonthClicks = clickResult.rows.filter(
+    (row) => monthKey(new Date(row.clicked_at)) === currentMonth,
+  );
+  const clickCountByWork = new Map<number, number>();
+  for (const click of currentMonthClicks) {
+    clickCountByWork.set(
+      click.work_id,
+      (clickCountByWork.get(click.work_id) ?? 0) + 1,
+    );
+  }
+
+  const performanceByWork = new Map<
+    number,
+    {
+      workId: number;
+      title: string;
+      clicks: number;
+      salesCount: number;
+      commissionAmount: number;
+    }
+  >();
+  for (const row of currentRows) {
+    if (row.work_id === null) continue;
+    const current = performanceByWork.get(row.work_id) ?? {
+      workId: row.work_id,
+      title: row.title,
+      clicks: clickCountByWork.get(row.work_id) ?? 0,
+      salesCount: 0,
+      commissionAmount: 0,
+    };
+    current.salesCount += row.sales_count;
+    current.commissionAmount += row.commission_amount;
+    performanceByWork.set(row.work_id, current);
+  }
   const totals = currentRows.reduce(
     (sum, row) => ({
       salesCount: sum.salesCount + row.sales_count,
@@ -98,6 +144,19 @@ export async function getAffiliateSalesAnalytics() {
       .sort((a, b) => b.commission_amount - a.commission_amount)
       .slice(0, 10)
       .map((row, index) => ({ ...row, rank: index + 1 })),
+    performance: [...performanceByWork.values()]
+      .map((row) => ({
+        ...row,
+        conversionRate: row.clicks > 0
+          ? Math.round((row.salesCount / row.clicks) * 10_000) / 100
+          : null,
+        earningsPerClick: row.clicks > 0
+          ? Math.round(row.commissionAmount / row.clicks)
+          : null,
+      }))
+      .sort((a, b) => b.commissionAmount - a.commissionAmount)
+      .slice(0, 20),
+    performanceClickError: clickResult.error,
     latestImport: latest
       ? { file: latest.source_file, importedAt: latest.imported_at }
       : null,

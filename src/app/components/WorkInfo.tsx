@@ -20,14 +20,6 @@ export default function WorkInfo({
   work,
 }: Props) {
 
-  console.log("new_release_score =", work.new_release_score);
-  console.log("long_hit_point =", work.long_hit_point);
-
-  const totalPoint = scores.reduce(
-    (sum, item) => sum + (work[item.valueKey] ?? 0),
-    0
-  );
-
  const baseScore =
   work.actress_point +
   work.genre_point +
@@ -153,7 +145,7 @@ const bonusScore =
     <div className="text-right">
 
       <div className="text-4xl font-black text-pink-600">
-        {totalPoint}
+        {work.score}
         <span className="ml-1 text-xl text-zinc-400">
           /100
         </span>

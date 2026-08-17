@@ -5,11 +5,13 @@ const REALTIME_RANKING_URL =
 
 const REALTIME_ITEMS_PER_PAGE = 120;
 const REALTIME_MAX_PAGES = 9;
+const REALTIME_TARGET_COUNT = 1000;
 
 export async function getRealtimeRanking() {
   return getRankingProducts(
     REALTIME_RANKING_URL,
     REALTIME_ITEMS_PER_PAGE,
-    REALTIME_MAX_PAGES
+    REALTIME_MAX_PAGES,
+    REALTIME_TARGET_COUNT,
   );
 }

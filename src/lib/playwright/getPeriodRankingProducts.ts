@@ -1,4 +1,5 @@
 import { createBrowser } from "@/lib/playwright/browserManager";
+import { openFanzaPage } from "@/lib/playwright/fanzaAgeGate";
 
 export interface RankingProduct {
   productId: string;
@@ -15,22 +16,9 @@ export async function getPeriodRankingProducts(
   const page = await browser.newPage();
 
   try {
-    await page.goto(baseUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
-
+    await openFanzaPage(page, baseUrl);
     await page.waitForLoadState("networkidle");
-await page.waitForTimeout(2000);
-
-    // 年齢認証
-    try {
-      await page.waitForTimeout(5000);
-
-      await page.locator("text=はい").first().click();
-
-      await page.waitForTimeout(3000);
-    } catch {}
+    await page.waitForTimeout(2000);
 
     const products = new Map<string, RankingProduct>();
 
@@ -40,13 +28,7 @@ await page.waitForTimeout(2000);
       currentPage++
     ) {
       if (currentPage > 1) {
-        await page.goto(
-          `${baseUrl}&page=${currentPage}`,
-          {
-            waitUntil: "domcontentloaded",
-            timeout: 60000,
-          }
-        );
+        await openFanzaPage(page, `${baseUrl}&page=${currentPage}`);
 
         await page.waitForTimeout(1000);
       }
@@ -106,6 +88,12 @@ console.log(
 if (count < itemsPerPage) {
   console.warn(
     `⚠ page ${currentPage}: expected ${itemsPerPage}, got ${count}`
+  );
+}
+
+if (count === 0) {
+  throw new Error(
+    `FANZAランキングを取得できませんでした: page=${currentPage}, url=${page.url()}`
   );
 }
 

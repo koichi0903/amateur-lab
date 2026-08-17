@@ -1,4 +1,5 @@
 import { createBrowser } from "@/lib/playwright/browserManager";
+import { openFanzaContentListPage } from "@/lib/playwright/fanzaAgeGate";
 
 export interface ProductSummary {
   productId: string;
@@ -20,22 +21,7 @@ export async function getProductIds(
   const page = await browser.newPage();
 
   try {
-    await page.goto(baseUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
-
-    // 年齢認証
-    try {
-      await page.waitForTimeout(5000);
-
-      await page.locator("text=はい").first().click();
-
-      await page
-        .locator('a[href*="/content/?id="]')
-        .first()
-        .waitFor();
-    } catch {}
+    await openFanzaContentListPage(page, baseUrl);
 
     // 総ページ数取得
     const pageText =
@@ -67,70 +53,15 @@ export async function getProductIds(
 )
     {
       if (currentPage > 1) {
-  let loaded = false;
-
-  for (let retry = 1; retry <= 3; retry++) {
-    try {
-      await page.goto(
-        `${baseUrl}&page=${currentPage}`,
-        {
-          waitUntil: "domcontentloaded",
-          timeout: 60000,
-        }
-      );
-
-      await page.locator(
-  '[data-e2eid="content-card"]'
-).first().waitFor({
-  timeout: 10000,
-});
-
-await page.waitForTimeout(500);
-
-      const retryCards = page.locator(
-        'a[href*="/content/?id="]'
-      );
-
-      if ((await retryCards.count()) > 0) {
-        loaded = true;
-        break;
+        await openFanzaContentListPage(
+          page,
+          `${baseUrl}&page=${currentPage}`,
+        );
       }
-
-      console.log(
-        `page ${currentPage} retry ${retry}`
-      );
-    } catch (error) {
-  console.log(
-    `page ${currentPage} retry ${retry} failed`
-  );
-
-  console.error(error);
-}
-  }
-
-  if (!loaded) {
-    console.log(
-      `page ${currentPage} をスキップ`
-    );
-    failedPages.push(currentPage);
-    continue;
-  }
-}
 
 const cards = page.locator(
   '[data-e2eid="content-card"]'
 );
-
-if ((await cards.count()) === 0) {
-  console.log(`page ${currentPage} 再読み込み`);
-
-  await page.reload({
-    waitUntil: "domcontentloaded",
-  });
-
-  await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(2000);
-}
 
 const count = await cards.count();
 

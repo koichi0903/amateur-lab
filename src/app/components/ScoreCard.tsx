@@ -78,11 +78,6 @@ export default function ScoreCard({
   },
 ];
 
-　const totalPoint = items.reduce(
-  (sum, item) => sum + item.value,
-  0
-);
-
   return (
     <section className="rounded-2xl border bg-white p-6 shadow-sm">
       <h2 className="mb-4 text-xl font-bold">
@@ -179,7 +174,7 @@ export default function ScoreCard({
     </span>
 
     <span className="text-2xl font-black text-pink-600">
-      {totalPoint}/100
+      {work.score}/100
     </span>
 
   </div>

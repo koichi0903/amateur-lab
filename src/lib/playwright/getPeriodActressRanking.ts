@@ -1,4 +1,5 @@
 import { createBrowser } from "@/lib/playwright/browserManager";
+import { openFanzaPage } from "@/lib/playwright/fanzaAgeGate";
 
 export interface RankingItem {
   rank: number;
@@ -17,23 +18,10 @@ export async function getPeriodActressRanking(
   const page = await browser.newPage();
 
   try {
-    await page.goto(baseUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
+    await openFanzaPage(page, baseUrl);
 
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(2000);
-
-    // 年齢認証
-    try {
-  await page.locator("text=はい").first().click({
-    timeout: 3000,
-  });
-
-  await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(1000);
-} catch {}
 
     const rankings = new Map<string, RankingItem>();
 
@@ -43,13 +31,7 @@ export async function getPeriodActressRanking(
       currentPage++
     ) {
       if (currentPage > 1) {
-        await page.goto(
-          `${baseUrl}&page=${currentPage}`,
-          {
-            waitUntil: "domcontentloaded",
-            timeout: 60000,
-          }
-        );
+        await openFanzaPage(page, `${baseUrl}&page=${currentPage}`);
 
         await page.waitForLoadState("networkidle");
         await page.waitForTimeout(2000);
