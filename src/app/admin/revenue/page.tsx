@@ -9,19 +9,18 @@ import {
   Smartphone,
   TrendingUp,
 } from "lucide-react";
-import { getAffiliateAnalytics } from "@/lib/affiliateAnalytics";
+import {
+  AFFILIATE_PLACEMENT_LABELS,
+  getAffiliateAnalytics,
+} from "@/lib/affiliateAnalytics";
 import { getAffiliateSalesAnalytics } from "@/lib/affiliateSalesAnalytics";
 import { AFFILIATE_SOURCE_LABELS } from "@/lib/affiliateTracking";
 import RevenueImportForm from "./RevenueImportForm";
 import RevenuePerformanceTable from "./RevenuePerformanceTable";
+import TrafficImprovementPanel from "./TrafficImprovementPanel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-const placementLabels: Record<string, string> = {
-  "detail-sidebar": "PC・詳細サイド",
-  "mobile-sticky": "スマホ固定バー",
-};
 
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("ja-JP", {
@@ -264,6 +263,11 @@ export default async function RevenueDashboardPage() {
           </div>
         </section>
 
+        <TrafficImprovementPanel
+          sourceInsights={analytics.sourceInsights}
+          placementInsights={analytics.placementInsights}
+        />
+
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">
             <div className="flex items-center gap-3">
@@ -298,7 +302,7 @@ export default async function RevenueDashboardPage() {
             <div className="mt-5 space-y-3">
               {analytics.placements.length ? analytics.placements.map((item) => (
                 <div key={item.key} className="flex items-center justify-between rounded-xl bg-zinc-950 px-4 py-4">
-                  <span className="text-sm font-bold text-zinc-300">{placementLabels[item.key] ?? item.key}</span>
+                  <span className="text-sm font-bold text-zinc-300">{AFFILIATE_PLACEMENT_LABELS[item.key] ?? item.key}</span>
                   <span className="text-xl font-black text-cyan-300">{item.count.toLocaleString("ja-JP")}回</span>
                 </div>
               )) : <p className="text-sm text-zinc-500">クリックデータはまだありません。</p>}
@@ -349,7 +353,7 @@ export default async function RevenueDashboardPage() {
                       <Link href={`/works/${click.work_id}`} className="line-clamp-1 font-bold hover:text-pink-300">{click.title}</Link>
                     </td>
                     <td className="whitespace-nowrap py-3 pr-4 text-zinc-300">{AFFILIATE_SOURCE_LABELS[click.source_page]}</td>
-                    <td className="whitespace-nowrap py-3 text-zinc-300">{placementLabels[click.placement] ?? click.placement}</td>
+                    <td className="whitespace-nowrap py-3 text-zinc-300">{AFFILIATE_PLACEMENT_LABELS[click.placement] ?? click.placement}</td>
                   </tr>
                 ))}
               </tbody>

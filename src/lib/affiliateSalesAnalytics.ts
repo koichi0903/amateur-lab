@@ -14,6 +14,21 @@ export type AffiliateSaleRow = {
   imported_at: string;
 };
 
+export type RevenueAction = "scale" | "improve" | "observe" | "reduce";
+
+export type AffiliatePerformanceRow = {
+  workId: number;
+  title: string;
+  clicks: number;
+  salesCount: number;
+  salesAmount: number;
+  commissionAmount: number;
+  conversionRate: number | null;
+  earningsPerClick: number | null;
+  action: RevenueAction;
+  actionReason: string;
+};
+
 const PAGE_SIZE = 1000;
 const MAX_ROWS = 50_000;
 
@@ -30,6 +45,35 @@ function monthKey(date: Date) {
 
 function addMonths(date: Date, amount: number) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + amount, 1));
+}
+
+function classifyPerformance(row: {
+  clicks: number;
+  salesCount: number;
+  commissionAmount: number;
+}): Pick<AffiliatePerformanceRow, "action" | "actionReason"> {
+  if (row.salesCount > 0) {
+    return {
+      action: "scale",
+      actionReason: `${row.salesCount}件の販売・報酬¥${row.commissionAmount.toLocaleString("ja-JP")}を確認`,
+    };
+  }
+  if (row.clicks >= 20) {
+    return {
+      action: "reduce",
+      actionReason: `${row.clicks}クリックで販売0件。露出先と訴求を再評価`,
+    };
+  }
+  if (row.clicks >= 5) {
+    return {
+      action: "improve",
+      actionReason: `${row.clicks}クリックで販売0件。説明・価格訴求を改善`,
+    };
+  }
+  return {
+    action: "observe",
+    actionReason: `判定に必要なクリックが不足（現在${row.clicks}件）`,
+  };
 }
 
 export async function getAffiliateSalesAnalytics() {
@@ -56,15 +100,7 @@ export async function getAffiliateSalesAnalytics() {
         totals: { salesCount: 0, salesAmount: 0, commissionAmount: 0 },
         monthly: monthKeys.map((key) => ({ key, salesCount: 0, salesAmount: 0, commissionAmount: 0 })),
         topProducts: [] as Array<AffiliateSaleRow & { rank: number }>,
-        performance: [] as Array<{
-          workId: number;
-          title: string;
-          clicks: number;
-          salesCount: number;
-          commissionAmount: number;
-          conversionRate: number | null;
-          earningsPerClick: number | null;
-        }>,
+        performance: [] as AffiliatePerformanceRow[],
         performanceClickError: null as string | null,
         latestImport: null as null | { file: string; importedAt: string },
       };
@@ -108,6 +144,7 @@ export async function getAffiliateSalesAnalytics() {
       title: string;
       clicks: number;
       salesCount: number;
+      salesAmount: number;
       commissionAmount: number;
     }
   >();
@@ -117,6 +154,7 @@ export async function getAffiliateSalesAnalytics() {
       title: clickedTitles.get(workId) ?? `作品ID ${workId}`,
       clicks,
       salesCount: 0,
+      salesAmount: 0,
       commissionAmount: 0,
     });
   }
@@ -127,9 +165,11 @@ export async function getAffiliateSalesAnalytics() {
       title: row.title,
       clicks: clickCountByWork.get(row.work_id) ?? 0,
       salesCount: 0,
+      salesAmount: 0,
       commissionAmount: 0,
     };
     current.salesCount += row.sales_count;
+    current.salesAmount += row.sales_amount;
     current.commissionAmount += row.commission_amount;
     performanceByWork.set(row.work_id, current);
   }
@@ -167,15 +207,17 @@ export async function getAffiliateSalesAnalytics() {
       .slice(0, 10)
       .map((row, index) => ({ ...row, rank: index + 1 })),
     performance: [...performanceByWork.values()]
-      .map((row) => ({
-        ...row,
-        conversionRate: row.clicks > 0
-          ? Math.round((row.salesCount / row.clicks) * 10_000) / 100
-          : null,
-        earningsPerClick: row.clicks > 0
-          ? Math.round(row.commissionAmount / row.clicks)
-          : null,
-      }))
+      .map((row) => {
+        const metrics = {
+          conversionRate: row.clicks > 0
+            ? Math.round((row.salesCount / row.clicks) * 10_000) / 100
+            : null,
+          earningsPerClick: row.clicks > 0
+            ? Math.round(row.commissionAmount / row.clicks)
+            : null,
+        };
+        return { ...row, ...metrics, ...classifyPerformance(row) };
+      })
       .sort((a, b) => b.commissionAmount - a.commissionAmount || b.clicks - a.clicks)
       .slice(0, 50),
     performanceClickError: clickResult.error,

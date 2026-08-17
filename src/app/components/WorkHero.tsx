@@ -228,7 +228,7 @@ useEffect(() => {
         />
       </div>
       <a
-        href={officialSampleEmbedUrl}
+        href={officialSampleEmbedUrl ?? compactOfficialSampleEmbedUrl}
         target="_blank"
         rel="noopener noreferrer nofollow"
         className="mt-2 block text-center text-[11px] font-medium text-zinc-500 underline decoration-zinc-300 underline-offset-2 transition hover:text-pink-600"

@@ -13,6 +13,29 @@ export type AffiliateClickRow = {
   clicked_at: string;
 };
 
+export type TrafficInsightAction =
+  | "expand"
+  | "maintain"
+  | "recover"
+  | "observe";
+
+export type TrafficInsight = {
+  key: string;
+  label: string;
+  total: number;
+  share: number;
+  lastSevenDays: number;
+  previousSevenDays: number;
+  growthRate: number | null;
+  action: TrafficInsightAction;
+  actionReason: string;
+};
+
+export const AFFILIATE_PLACEMENT_LABELS: Record<string, string> = {
+  "detail-sidebar": "PC・詳細サイド",
+  "mobile-sticky": "スマホ固定バー",
+};
+
 type WorkSummary = {
   id: number;
   title: string;
@@ -111,6 +134,99 @@ function countBy<T extends string>(values: T[]) {
     .sort((a, b) => b.count - a.count);
 }
 
+function classifyTrafficInsight({
+  total,
+  lastSevenDays,
+  previousSevenDays,
+  growthRate,
+}: Pick<
+  TrafficInsight,
+  "total" | "lastSevenDays" | "previousSevenDays" | "growthRate"
+>): Pick<TrafficInsight, "action" | "actionReason"> {
+  if (total < 5) {
+    return {
+      action: "observe",
+      actionReason: "30日間のクリックが5件未満のため、判断材料を蓄積します。",
+    };
+  }
+
+  if (previousSevenDays >= 5 && growthRate !== null && growthRate <= -30) {
+    return {
+      action: "recover",
+      actionReason: `前の7日間より${Math.abs(growthRate)}%減少。掲載位置や訴求文を確認します。`,
+    };
+  }
+
+  if (
+    lastSevenDays >= 5 &&
+    (previousSevenDays === 0 || (growthRate !== null && growthRate >= 30))
+  ) {
+    return {
+      action: "expand",
+      actionReason:
+        previousSevenDays === 0
+          ? "直近7日で新たにクリックが集まっています。露出拡大候補です。"
+          : `前の7日間より${growthRate}%増加。露出拡大候補です。`,
+    };
+  }
+
+  return {
+    action: "maintain",
+    actionReason: "一定のクリックを維持しています。現状を継続して推移を確認します。",
+  };
+}
+
+function buildTrafficInsights(
+  rows: AffiliateClickRow[],
+  getKey: (row: AffiliateClickRow) => string,
+  getLabel: (key: string) => string,
+  sevenDayCutoff: number,
+  previousSevenDayCutoff: number,
+): TrafficInsight[] {
+  const counts = new Map<
+    string,
+    { total: number; lastSevenDays: number; previousSevenDays: number }
+  >();
+
+  for (const row of rows) {
+    const key = getKey(row);
+    const current = counts.get(key) ?? {
+      total: 0,
+      lastSevenDays: 0,
+      previousSevenDays: 0,
+    };
+    const clickedAt = new Date(row.clicked_at).getTime();
+    current.total += 1;
+    if (clickedAt >= sevenDayCutoff) current.lastSevenDays += 1;
+    else if (clickedAt >= previousSevenDayCutoff) current.previousSevenDays += 1;
+    counts.set(key, current);
+  }
+
+  return [...counts.entries()]
+    .map(([key, count]) => {
+      const growthRate = count.previousSevenDays > 0
+        ? Math.round(
+            ((count.lastSevenDays - count.previousSevenDays) /
+              count.previousSevenDays) *
+              100,
+          )
+        : null;
+      const classification = classifyTrafficInsight({
+        ...count,
+        growthRate,
+      });
+      return {
+        key,
+        label: getLabel(key),
+        ...count,
+        share: rows.length > 0 ? Math.round((count.total / rows.length) * 100) : 0,
+        growthRate,
+        ...classification,
+      };
+    })
+    .sort((a, b) => b.total - a.total);
+}
+
 export async function getAffiliateAnalytics() {
   const result = await fetchAffiliateClicks(30);
   const now = new Date();
@@ -160,6 +276,21 @@ export async function getAffiliateAnalytics() {
     sourcePlacementMap.set(row.source_page, current);
   }
 
+  const sourceInsights = buildTrafficInsights(
+    result.rows,
+    (row) => row.source_page,
+    (key) => AFFILIATE_SOURCE_LABELS[normalizeAffiliateSource(key)],
+    sevenDayCutoff,
+    previousSevenDayCutoff,
+  );
+  const placementInsights = buildTrafficInsights(
+    result.rows,
+    (row) => row.placement,
+    (key) => AFFILIATE_PLACEMENT_LABELS[key] ?? key,
+    sevenDayCutoff,
+    previousSevenDayCutoff,
+  );
+
   return {
     error: result.error,
     sourceAttributionEnabled: result.sourceAttributionEnabled,
@@ -186,6 +317,8 @@ export async function getAffiliateAnalytics() {
           : 0,
       }))
       .sort((a, b) => b.total - a.total),
+    sourceInsights,
+    placementInsights,
     topWorks: workCounts.map((item) => ({
       workId: Number(item.key),
       title: works.get(Number(item.key))?.title ?? `作品ID ${item.key}`,
