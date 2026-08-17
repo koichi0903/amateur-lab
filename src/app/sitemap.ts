@@ -128,6 +128,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     changeFrequency: "monthly",
     priority: 0.5,
   },
+  ...["affiliate-disclosure", "privacy", "terms"].map((page) => ({
+    url: `${BASE_URL}/${page}`,
+    changeFrequency: "monthly" as const,
+    priority: 0.3,
+  })),
   {
     url: `${BASE_URL}/new`,
     changeFrequency: "daily",

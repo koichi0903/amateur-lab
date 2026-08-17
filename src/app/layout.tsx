@@ -5,6 +5,8 @@ import WebSiteStructuredData from "./components/WebSiteStructuredData";
 import OrganizationStructuredData from "./components/OrganizationStructuredData";
 import { SITE_URL } from "@/lib/seo";
 import AgeGate from "@/components/compliance/AgeGate";
+import PublicDisclosure from "@/components/compliance/PublicDisclosure";
+import Footer from "@/components/layout/Footer";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -99,10 +101,12 @@ export default function RootLayout({
   <WebSiteStructuredData />
 <OrganizationStructuredData />
 <AgeGate />
+<PublicDisclosure />
 
-<main className="flex-1">
+<div className="flex-1">
   {children}
-</main>
+</div>
+<Footer />
 </body>
     </html>
   );
