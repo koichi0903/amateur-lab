@@ -21,7 +21,7 @@ import DealWorkCard, { type DealWork } from "@/components/deals/DealWorkCard";
 import PriceTypes from "@/app/components/PriceTypes";
 import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
 import { isInsightVisible } from "@/lib/insights/visibility";
-import { pageMetadata } from "@/lib/seo";
+import { pageMetadata, SITE_URL } from "@/lib/seo";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
@@ -209,8 +209,31 @@ export async function generateMetadata(
   const actressText = work.actress ? `${work.actress}出演。` : "";
   const title = `${work.title}｜レビュー${scoreText} | 発掘LAB`;
   const description = `${work.title}のレビュー・評価を掲載。${actressText}作品情報を独自データで分析しています。`;
-  const metadata = pageMetadata({ title, description, canonical: `/works/${id}`, image: work.image_url || "/ogp.png" });
-  return { ...metadata, openGraph: { ...metadata.openGraph, type: "article" } };
+  const encodedId = encodeURIComponent(id);
+  const openGraphImage = `${SITE_URL}/works/${encodedId}/opengraph-image`;
+  const twitterImage = `${SITE_URL}/works/${encodedId}/twitter-image`;
+  const metadata = pageMetadata({ title, description, canonical: `/works/${encodedId}` });
+
+  return {
+    ...metadata,
+    openGraph: {
+      ...metadata.openGraph,
+      type: "article",
+      images: [
+        {
+          url: openGraphImage,
+          width: 1200,
+          height: 630,
+          alt: title,
+        },
+      ],
+    },
+    twitter: {
+      ...metadata.twitter,
+      card: "summary_large_image",
+      images: [twitterImage],
+    },
+  };
 }
 
 export default async function WorkDetailPage(
