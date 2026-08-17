@@ -5,6 +5,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
+$env:NO_COLOR = "1"
+$env:FORCE_COLOR = "0"
 $projectDir = Split-Path -Parent $PSScriptRoot
 $logDir = Join-Path $env:LOCALAPPDATA "HakkutsuLAB\scheduled-update-logs"
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"

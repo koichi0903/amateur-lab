@@ -108,6 +108,7 @@ export async function updateMissingPrices() {
     browser = await createBrowser();
     const batchSize = UPDATE_CONFIG.parallel;
     let updated = 0;
+    const failedProductIds: string[] = [];
     let nextBrowserRestart =
       (Math.floor(processed / UPDATE_CONFIG.browserRestartInterval) + 1) *
       UPDATE_CONFIG.browserRestartInterval;
@@ -126,22 +127,23 @@ export async function updateMissingPrices() {
       }
 
       const succeeded = batch.length - failed.length;
-      processed += succeeded;
+      processed += batch.length;
       updated += succeeded;
+      failedProductIds.push(...failed.map((work) => work.product_id));
 
-      if (succeeded > 0) {
-        await updateJob(
-          JOBS.MISSING_PRICES,
-          processed,
-          batch[batch.length - 1].product_id
-        );
-      }
+      await updateJob(
+        JOBS.MISSING_PRICES,
+        processed,
+        batch[batch.length - 1].product_id
+      );
 
-      console.log(`[missing-prices] 完了${updated}/${targets.length}`);
+      console.log(
+        `[missing-prices] 処理${processed}/${targets.length} 成功${updated} 失敗${failedProductIds.length}`
+      );
 
       if (failed.length > 0) {
-        throw new Error(
-          `価格補完に失敗しました: ${failed
+        console.warn(
+          `[missing-prices] 失敗を記録して後続作品を継続します: ${failed
             .map((work) => work.product_id)
             .join(", ")}`
         );
@@ -152,6 +154,12 @@ export async function updateMissingPrices() {
         browser = await createBrowser();
         nextBrowserRestart += UPDATE_CONFIG.browserRestartInterval;
       }
+    }
+
+    if (failedProductIds.length > 0) {
+      throw new Error(
+        `価格補完は全対象を処理しましたが${failedProductIds.length}件失敗しました: ${failedProductIds.join(", ")}`
+      );
     }
 
     await finishJob(JOBS.MISSING_PRICES);

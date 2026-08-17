@@ -159,11 +159,48 @@ async function run(taskName) {
     const taskNames = taskName === "all"
       ? ALL_TASKS
       : (TASK_GROUPS[taskName] ?? [taskName]);
+    const succeededTasks = [];
+    const failedTasks = [];
+
     for (const name of taskNames) {
       if (interrupted) break;
-      await executeTask(name);
+      try {
+        await executeTask(name);
+        succeededTasks.push(name);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failedTasks.push({ name, message });
+        console.error(
+          `\n[工程失敗] ${TASKS[name].label}: ${message}`,
+        );
+        console.log("[継続] 後続の更新工程を実行します。");
+      }
     }
-    if (!interrupted) console.log("\n[全工程完了] ローカル更新が終了しました。ローカルサーバーを停止します。");
+
+    if (!interrupted) {
+      console.log("\n[実行結果]");
+      console.log(
+        `  成功 ${succeededTasks.length}件: ${succeededTasks.join(", ") || "なし"}`,
+      );
+      console.log(
+        `  失敗 ${failedTasks.length}件: ${failedTasks.map(({ name }) => name).join(", ") || "なし"}`,
+      );
+
+      for (const failure of failedTasks) {
+        console.error(`  - ${failure.name}: ${failure.message}`);
+      }
+
+      if (failedTasks.length > 0) {
+        process.exitCode = 1;
+        console.error(
+          "\n[一部失敗] 後続工程まで実行しましたが、失敗した工程があります。",
+        );
+      } else {
+        console.log(
+          "\n[全工程完了] ローカル更新が終了しました。ローカルサーバーを停止します。",
+        );
+      }
+    }
   } catch (error) {
     if (!interrupted) {
       console.error("\n[失敗]", error instanceof Error ? error.message : error);
