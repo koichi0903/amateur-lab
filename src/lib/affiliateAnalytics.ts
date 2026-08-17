@@ -147,6 +147,19 @@ export async function getAffiliateAnalytics() {
     if (dailyCounts.has(key)) dailyCounts.set(key, (dailyCounts.get(key) ?? 0) + 1);
   }
 
+  const sourcePlacementMap = new Map<AffiliateSource, { total: number; desktop: number; mobile: number }>();
+  for (const row of result.rows) {
+    const current = sourcePlacementMap.get(row.source_page) ?? {
+      total: 0,
+      desktop: 0,
+      mobile: 0,
+    };
+    current.total += 1;
+    if (row.placement === "mobile-sticky") current.mobile += 1;
+    if (row.placement === "detail-sidebar") current.desktop += 1;
+    sourcePlacementMap.set(row.source_page, current);
+  }
+
   return {
     error: result.error,
     sourceAttributionEnabled: result.sourceAttributionEnabled,
@@ -163,6 +176,16 @@ export async function getAffiliateAnalytics() {
       label: AFFILIATE_SOURCE_LABELS[item.key],
     })),
     placements: countBy(result.rows.map((row) => row.placement)),
+    sourcePlacements: [...sourcePlacementMap.entries()]
+      .map(([key, counts]) => ({
+        key,
+        label: AFFILIATE_SOURCE_LABELS[key],
+        ...counts,
+        mobileShare: counts.total > 0
+          ? Math.round((counts.mobile / counts.total) * 100)
+          : 0,
+      }))
+      .sort((a, b) => b.total - a.total),
     topWorks: workCounts.map((item) => ({
       workId: Number(item.key),
       title: works.get(Number(item.key))?.title ?? `作品ID ${item.key}`,

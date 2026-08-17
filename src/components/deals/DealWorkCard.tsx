@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Clock3, PlayCircle, Star } from "lucide-react";
 import WorkImage from "@/components/home/WorkImage";
-import { workDetailHref } from "@/lib/affiliateTracking";
+import { workDetailHref, type AffiliateSource } from "@/lib/affiliateTracking";
 import type { Work } from "@/types/work";
 
 export type DealWork = Pick<
@@ -32,7 +32,13 @@ function formatSaleEnd(value: string | null) {
   }).format(new Date(value));
 }
 
-export default function DealWorkCard({ work }: { work: DealWork }) {
+export default function DealWorkCard({
+  work,
+  source = "deals",
+}: {
+  work: DealWork;
+  source?: AffiliateSource;
+}) {
   const currentPrice = work.sale_price > 0 ? work.sale_price : work.price;
   const regularPrice = work.list_price && work.list_price > currentPrice
     ? work.list_price
@@ -46,7 +52,7 @@ export default function DealWorkCard({ work }: { work: DealWork }) {
 
   return (
     <article className="group flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg">
-      <Link href={workDetailHref(work.id, "deals")} className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100">
+      <Link href={workDetailHref(work.id, source)} className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100">
         <WorkImage
           src={work.image_url}
           alt={work.title}
@@ -72,7 +78,7 @@ export default function DealWorkCard({ work }: { work: DealWork }) {
       </Link>
 
       <h2 className="mt-3 line-clamp-2 min-h-10 break-all text-sm font-black leading-5">
-        <Link href={workDetailHref(work.id, "deals")} className="hover:text-pink-600">{work.title}</Link>
+        <Link href={workDetailHref(work.id, source)} className="hover:text-pink-600">{work.title}</Link>
       </h2>
 
       <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-black">
@@ -94,7 +100,7 @@ export default function DealWorkCard({ work }: { work: DealWork }) {
         {saleEnd && (
           <p className="mt-1 flex items-center gap-1 text-[10px] font-bold text-amber-700"><Clock3 size={11} /> {saleEnd}終了予定</p>
         )}
-        <Link href={workDetailHref(work.id, "deals")} className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-xs font-black text-pink-600">
+        <Link href={workDetailHref(work.id, source)} className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-xs font-black text-pink-600">
           価格・サンプルを確認 <ArrowRight size={14} />
         </Link>
       </div>

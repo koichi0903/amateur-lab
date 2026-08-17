@@ -390,7 +390,7 @@ const chartData = createChartData(
             <Link href={`/deals/under-1000`} className="text-sm font-black text-pink-600 hover:underline">さらにお得な作品を見る →</Link>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            {valueAlternatives.map((alternative) => <DealWorkCard key={alternative.id} work={alternative} />)}
+            {valueAlternatives.map((alternative) => <DealWorkCard key={alternative.id} work={alternative} source="comparison" />)}
           </div>
         </section>
       )}

@@ -112,6 +112,41 @@ export default async function RevenueDashboardPage() {
 
         <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">
           <div className="flex items-center gap-3">
+            <Smartphone className="text-cyan-400" size={21} />
+            <div>
+              <h2 className="font-black">流入元ごとのCTA利用</h2>
+              <p className="mt-1 text-xs text-zinc-500">直近30日・特集と買い比べも個別に判定</p>
+            </div>
+          </div>
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[620px] text-left text-sm">
+              <thead className="text-xs text-zinc-500">
+                <tr className="border-b border-zinc-800">
+                  <th className="pb-3 pr-4">流入元</th>
+                  <th className="pb-3 pr-4 text-right">合計</th>
+                  <th className="pb-3 pr-4 text-right">PC</th>
+                  <th className="pb-3 pr-4 text-right">スマホ</th>
+                  <th className="pb-3 text-right">スマホ比率</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/80">
+                {analytics.sourcePlacements.map((item) => (
+                  <tr key={item.key}>
+                    <td className="py-3 pr-4 font-bold text-zinc-200">{item.label}</td>
+                    <td className="py-3 pr-4 text-right font-black">{item.total.toLocaleString("ja-JP")}</td>
+                    <td className="py-3 pr-4 text-right text-zinc-400">{item.desktop.toLocaleString("ja-JP")}</td>
+                    <td className="py-3 pr-4 text-right text-cyan-300">{item.mobile.toLocaleString("ja-JP")}</td>
+                    <td className="py-3 text-right font-black text-cyan-300">{item.mobileShare}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!analytics.sourcePlacements.length && <p className="py-5 text-sm text-zinc-500">クリックデータはまだありません。</p>}
+          </div>
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">
+          <div className="flex items-center gap-3">
             <BarChart3 className="text-pink-500" size={22} />
             <div>
               <h2 className="font-black">日別クリック推移</h2>
