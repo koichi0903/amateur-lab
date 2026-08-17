@@ -211,8 +211,10 @@ export async function generateMetadata(
   const title = `${work.title}｜レビュー${scoreText} | 発掘LAB`;
   const description = `${work.title}のレビュー・評価を掲載。${actressText}作品情報を独自データで分析しています。`;
   const encodedId = encodeURIComponent(id);
-  const openGraphImage = `${SITE_URL}/works/${encodedId}/opengraph-image`;
-  const twitterImage = `${SITE_URL}/works/${encodedId}/twitter-image`;
+  // Keep a version in the URL so social crawlers do not reuse a previously
+  // failed or incomplete card image after the renderer changes.
+  const openGraphImage = `${SITE_URL}/works/${encodedId}/opengraph-image?v=2`;
+  const twitterImage = `${SITE_URL}/works/${encodedId}/twitter-image?v=2`;
   const metadata = pageMetadata({ title, description, canonical: `/works/${encodedId}` });
 
   return {

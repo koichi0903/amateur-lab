@@ -45,6 +45,7 @@ export default async function WorkOpenGraphImage({ params }: Props) {
           style={{
             position: "absolute",
             inset: 0,
+            zIndex: 0,
             width: "100%",
             height: "100%",
             objectFit: "cover",
@@ -58,6 +59,7 @@ export default async function WorkOpenGraphImage({ params }: Props) {
           style={{
             position: "absolute",
             inset: 0,
+            zIndex: 1,
             display: "flex",
             background:
               "linear-gradient(90deg, rgba(15,23,42,0.92) 0%, rgba(15,23,42,0.18) 32%, rgba(15,23,42,0.18) 68%, rgba(15,23,42,0.92) 100%)",
@@ -71,8 +73,8 @@ export default async function WorkOpenGraphImage({ params }: Props) {
           height={570}
           style={{
             position: "relative",
-            width: "auto",
-            maxWidth: "920px",
+            zIndex: 2,
+            width: "920px",
             height: "570px",
             objectFit: "contain",
             borderRadius: "24px",
@@ -85,6 +87,7 @@ export default async function WorkOpenGraphImage({ params }: Props) {
             position: "absolute",
             left: "42px",
             top: "36px",
+            zIndex: 3,
             display: "flex",
             alignItems: "center",
             padding: "14px 22px",
