@@ -179,6 +179,10 @@ export default function PurchaseCard({
             workId={work.id}
             placement="detail-sidebar"
             sourcePage={sourcePage}
+            experiment
+            variantChildren={{
+              "price-focus": "FANZA公式で最安価格を確認",
+            }}
             ariaLabel="FANZA公式で価格とサンプルを確認する（新しいタブで開きます）"
             className="mt-6 block w-full rounded-xl bg-gradient-to-r from-pink-600 to-fuchsia-600 px-4 py-4 text-center text-base font-black text-white shadow-md transition hover:scale-[1.02] hover:shadow-lg"
           >

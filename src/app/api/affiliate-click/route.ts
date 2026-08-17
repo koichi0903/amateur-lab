@@ -2,11 +2,17 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { AffiliatePlacement } from "@/app/components/AffiliateLink";
 import { normalizeAffiliateSource } from "@/lib/affiliateTracking";
+import { normalizeCtaVariant } from "@/lib/ctaExperiment";
 
 const placements = new Set<AffiliatePlacement>([
   "detail-sidebar",
   "mobile-sticky",
+  "compare-card",
 ]);
+
+function isMissingCtaVariant(error: { code?: string; message?: string }) {
+  return error.code === "PGRST204" || error.message?.includes("cta_variant");
+}
 
 export async function POST(request: Request) {
   let payload: unknown;
@@ -32,6 +38,11 @@ export async function POST(request: Request) {
         : null
       : null,
   );
+  const ctaVariant = normalizeCtaVariant(
+    typeof payload === "object" && payload !== null && "ctaVariant" in payload
+      ? payload.ctaVariant
+      : null,
+  );
 
   if (
     !Number.isSafeInteger(workId) ||
@@ -42,17 +53,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid event" }, { status: 400 });
   }
 
-  const { error } = await supabaseAdmin.from("affiliate_clicks").insert({
+  let { error } = await supabaseAdmin.from("affiliate_clicks").insert({
     work_id: workId,
     placement,
     source_page: sourcePage,
+    cta_variant: ctaVariant,
   });
+
+  // Do not lose click tracking while the database migration is being applied.
+  if (error && isMissingCtaVariant(error)) {
+    const fallback = await supabaseAdmin.from("affiliate_clicks").insert({
+      work_id: workId,
+      placement,
+      source_page: sourcePage,
+    });
+    error = fallback.error;
+  }
 
   if (error) {
     console.error("[affiliate-click] failed to record click", {
       workId,
       placement,
       sourcePage,
+      ctaVariant,
       code: error.code,
     });
     // Tracking must never turn a valid customer click into a UI error.

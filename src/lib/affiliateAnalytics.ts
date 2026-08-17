@@ -4,12 +4,19 @@ import {
   normalizeAffiliateSource,
   type AffiliateSource,
 } from "@/lib/affiliateTracking";
+import {
+  CTA_VARIANTS,
+  CTA_VARIANT_LABELS,
+  normalizeCtaVariant,
+  type CtaVariant,
+} from "@/lib/ctaExperiment";
 
 export type AffiliateClickRow = {
   id: number;
   work_id: number;
   placement: string;
   source_page: AffiliateSource;
+  cta_variant: CtaVariant | null;
   clicked_at: string;
 };
 
@@ -31,9 +38,23 @@ export type TrafficInsight = {
   actionReason: string;
 };
 
+export type CtaVariantPerformance = {
+  variant: CtaVariant;
+  label: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+};
+
+type AffiliateImpressionRow = {
+  cta_variant: CtaVariant;
+  viewed_at: string;
+};
+
 export const AFFILIATE_PLACEMENT_LABELS: Record<string, string> = {
   "detail-sidebar": "PC・詳細サイド",
   "mobile-sticky": "スマホ固定バー",
+  "compare-card": "比較カード",
 };
 
 type WorkSummary = {
@@ -61,10 +82,16 @@ async function fetchClickPage(
   cutoff: string,
   from: number,
   includeSource: boolean,
+  includeVariant: boolean,
 ) {
-  const columns = includeSource
-    ? "id,work_id,placement,source_page,clicked_at"
-    : "id,work_id,placement,clicked_at";
+  const columns = [
+    "id",
+    "work_id",
+    "placement",
+    includeSource ? "source_page" : null,
+    includeVariant ? "cta_variant" : null,
+    "clicked_at",
+  ].filter(Boolean).join(",");
   return supabaseAdmin
     .from("affiliate_clicks")
     .select(columns)
@@ -78,19 +105,31 @@ export async function fetchAffiliateClicks(days = 30) {
   const cutoff = new Date(Date.now() - safeDays * DAY_MS).toISOString();
   const rows: AffiliateClickRow[] = [];
   let sourceAttributionEnabled = true;
+  let ctaExperimentEnabled = true;
 
   for (let from = 0; from < MAX_ROWS; from += PAGE_SIZE) {
-    let result = await fetchClickPage(cutoff, from, sourceAttributionEnabled);
+    let result = await fetchClickPage(
+      cutoff,
+      from,
+      sourceAttributionEnabled,
+      ctaExperimentEnabled,
+    );
 
-    if (result.error && sourceAttributionEnabled) {
+    if (result.error && ctaExperimentEnabled && result.error.message.includes("cta_variant")) {
+      ctaExperimentEnabled = false;
+      result = await fetchClickPage(cutoff, from, sourceAttributionEnabled, false);
+    }
+
+    if (result.error && sourceAttributionEnabled && result.error.message.includes("source_page")) {
       sourceAttributionEnabled = false;
-      result = await fetchClickPage(cutoff, from, false);
+      result = await fetchClickPage(cutoff, from, false, ctaExperimentEnabled);
     }
 
     if (result.error) {
       return {
         rows: [] as AffiliateClickRow[],
         sourceAttributionEnabled,
+        ctaExperimentEnabled,
         error: result.error.message,
       };
     }
@@ -100,19 +139,63 @@ export async function fetchAffiliateClicks(days = 30) {
       work_id: number;
       placement: string;
       source_page?: string | null;
+      cta_variant?: string | null;
       clicked_at: string;
     }>;
     rows.push(
       ...page.map((row) => ({
         ...row,
         source_page: normalizeAffiliateSource(row.source_page),
+        cta_variant: row.cta_variant
+          ? normalizeCtaVariant(row.cta_variant)
+          : null,
       })),
     );
 
     if (page.length < PAGE_SIZE) break;
   }
 
-  return { rows, sourceAttributionEnabled, error: null as string | null };
+  return {
+    rows,
+    sourceAttributionEnabled,
+    ctaExperimentEnabled,
+    error: null as string | null,
+  };
+}
+
+async function fetchAffiliateImpressions(days = 30) {
+  const safeDays = Math.min(Math.max(Math.trunc(days), 1), 365);
+  const cutoff = new Date(Date.now() - safeDays * DAY_MS).toISOString();
+  const rows: AffiliateImpressionRow[] = [];
+
+  for (let from = 0; from < MAX_ROWS; from += PAGE_SIZE) {
+    const result = await supabaseAdmin
+      .from("affiliate_cta_impressions")
+      .select("cta_variant,viewed_at")
+      .gte("viewed_at", cutoff)
+      .order("viewed_at", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (result.error) {
+      return {
+        rows: [] as AffiliateImpressionRow[],
+        enabled: false,
+        error: result.error.message,
+      };
+    }
+
+    const page = (result.data ?? []) as Array<{
+      cta_variant: string;
+      viewed_at: string;
+    }>;
+    rows.push(...page.map((row) => ({
+      cta_variant: normalizeCtaVariant(row.cta_variant),
+      viewed_at: row.viewed_at,
+    })));
+    if (page.length < PAGE_SIZE) break;
+  }
+
+  return { rows, enabled: true, error: null as string | null };
 }
 
 async function fetchWorkSummaries(workIds: number[]) {
@@ -228,7 +311,10 @@ function buildTrafficInsights(
 }
 
 export async function getAffiliateAnalytics() {
-  const result = await fetchAffiliateClicks(30);
+  const [result, impressionResult] = await Promise.all([
+    fetchAffiliateClicks(30),
+    fetchAffiliateImpressions(30),
+  ]);
   const now = new Date();
   const todayKey = jstDayKey(now);
   const sevenDayCutoff = now.getTime() - 7 * DAY_MS;
@@ -290,10 +376,46 @@ export async function getAffiliateAnalytics() {
     sevenDayCutoff,
     previousSevenDayCutoff,
   );
+  const ctaVariantInsights = buildTrafficInsights(
+    result.rows.filter((row) =>
+      row.cta_variant !== null &&
+      (row.placement === "detail-sidebar" || row.placement === "mobile-sticky")
+    ),
+    (row) => row.cta_variant ?? "control",
+    (key) => CTA_VARIANT_LABELS[normalizeCtaVariant(key)],
+    sevenDayCutoff,
+    previousSevenDayCutoff,
+  );
+  const experimentStartedAt = impressionResult.rows.length
+    ? Math.min(...impressionResult.rows.map((row) => new Date(row.viewed_at).getTime()))
+    : null;
+  const experimentClicks = result.rows.filter((row) =>
+    row.cta_variant !== null &&
+    experimentStartedAt !== null &&
+    new Date(row.clicked_at).getTime() >= experimentStartedAt &&
+    (row.placement === "detail-sidebar" || row.placement === "mobile-sticky")
+  );
+  const ctaVariantPerformance: CtaVariantPerformance[] = CTA_VARIANTS.map((variant) => {
+    const impressions = impressionResult.rows.filter(
+      (row) => row.cta_variant === variant,
+    ).length;
+    const clicks = experimentClicks.filter(
+      (row) => row.cta_variant === variant,
+    ).length;
+    return {
+      variant,
+      label: CTA_VARIANT_LABELS[variant],
+      impressions,
+      clicks,
+      ctr: impressions > 0 ? Math.round((clicks / impressions) * 1000) / 10 : 0,
+    };
+  });
 
   return {
     error: result.error,
     sourceAttributionEnabled: result.sourceAttributionEnabled,
+    ctaExperimentEnabled: result.ctaExperimentEnabled,
+    ctaImpressionTrackingEnabled: impressionResult.enabled,
     totals: {
       today,
       sevenDays: lastSevenDays,
@@ -319,6 +441,8 @@ export async function getAffiliateAnalytics() {
       .sort((a, b) => b.total - a.total),
     sourceInsights,
     placementInsights,
+    ctaVariantInsights,
+    ctaVariantPerformance,
     topWorks: workCounts.map((item) => ({
       workId: Number(item.key),
       title: works.get(Number(item.key))?.title ?? `作品ID ${item.key}`,

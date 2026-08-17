@@ -1,8 +1,11 @@
-import { Route, Smartphone } from "lucide-react";
+import { FlaskConical, Route, Smartphone } from "lucide-react";
 import type {
+  CtaVariantPerformance,
   TrafficInsight,
   TrafficInsightAction,
 } from "@/lib/affiliateAnalytics";
+
+const MIN_IMPRESSIONS_FOR_DECISION = 100;
 
 const actionLabels: Record<TrafficInsightAction, string> = {
   expand: "露出強化",
@@ -49,9 +52,13 @@ function InsightTable({
   title: string;
   description: string;
   insights: TrafficInsight[];
-  kind: "source" | "placement";
+  kind: "source" | "placement" | "variant";
 }) {
-  const Icon = kind === "source" ? Route : Smartphone;
+  const Icon = kind === "source"
+    ? Route
+    : kind === "placement"
+      ? Smartphone
+      : FlaskConical;
 
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">
@@ -119,27 +126,129 @@ function InsightTable({
   );
 }
 
+function CtaPerformanceTable({
+  rows,
+  enabled,
+}: {
+  rows: CtaVariantPerformance[];
+  enabled: boolean;
+}) {
+  if (!enabled) {
+    return (
+      <section className="rounded-2xl border border-amber-800 bg-amber-950/30 p-5 text-sm leading-6 text-amber-200">
+        CTA表示回数の計測SQLが未適用です。最新のA/Bテスト用マイグレーションをSupabaseで実行すると、正確なCTR比較が始まります。
+      </section>
+    );
+  }
+
+  const enoughData = rows.every(
+    (row) => row.impressions >= MIN_IMPRESSIONS_FOR_DECISION,
+  );
+  const leader = [...rows].sort((a, b) => b.ctr - a.ctr)[0];
+
+  return (
+    <section className="rounded-2xl border border-violet-900/80 bg-violet-950/20 p-5 sm:p-6">
+      <div className="flex items-start gap-3">
+        <FlaskConical className="mt-0.5 shrink-0 text-violet-400" size={21} />
+        <div>
+          <h2 className="font-black">CTA文言A/Bテスト：CTR</h2>
+          <p className="mt-1 text-xs leading-5 text-zinc-500">
+            CTAの50%以上が画面に入った回数を表示数として、同じ計測期間のクリック率を比較します。
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 overflow-x-auto">
+        <table className="w-full min-w-[620px] text-left text-sm">
+          <thead className="text-xs text-zinc-500">
+            <tr className="border-b border-zinc-800">
+              <th className="pb-3 pr-4">文言</th>
+              <th className="pb-3 pr-4 text-right">表示数</th>
+              <th className="pb-3 pr-4 text-right">クリック</th>
+              <th className="pb-3 text-right">CTR</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-800/80">
+            {rows.map((row) => (
+              <tr key={row.variant}>
+                <td className="py-4 pr-4 font-bold text-zinc-200">{row.label}</td>
+                <td className="py-4 pr-4 text-right text-zinc-300">
+                  {row.impressions.toLocaleString("ja-JP")}
+                </td>
+                <td className="py-4 pr-4 text-right text-zinc-300">
+                  {row.clicks.toLocaleString("ja-JP")}
+                </td>
+                <td className="py-4 text-right text-xl font-black text-violet-300">
+                  {row.ctr.toFixed(1)}%
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className={`mt-4 rounded-xl border p-4 text-sm leading-6 ${
+        enoughData
+          ? "border-emerald-900 bg-emerald-950/30 text-emerald-200"
+          : "border-zinc-800 bg-zinc-950 text-zinc-400"
+      }`}>
+        {enoughData
+          ? `暫定首位は「${leader?.label ?? "-"}」です。売上データも合わせて採用判断してください。`
+          : `判定保留：各文言が最低${MIN_IMPRESSIONS_FOR_DECISION}表示に達するまでデータを蓄積します。`}
+      </div>
+    </section>
+  );
+}
+
 export default function TrafficImprovementPanel({
   sourceInsights,
   placementInsights,
+  ctaVariantInsights,
+  ctaExperimentEnabled,
+  ctaVariantPerformance,
+  ctaImpressionTrackingEnabled,
 }: {
   sourceInsights: TrafficInsight[];
   placementInsights: TrafficInsight[];
+  ctaVariantInsights: TrafficInsight[];
+  ctaExperimentEnabled: boolean;
+  ctaVariantPerformance: CtaVariantPerformance[];
+  ctaImpressionTrackingEnabled: boolean;
 }) {
   return (
-    <div className="mt-6 grid gap-6 xl:grid-cols-2">
-      <InsightTable
-        title="流入元の改善判定"
-        description="直近7日とその前7日のクリック推移から、伸ばす流入元と回復が必要な流入元を判定します。"
-        insights={sourceInsights}
-        kind="source"
-      />
-      <InsightTable
-        title="CTA位置の改善判定"
-        description="CTA位置ごとのクリック推移を比較します。売上の流入元別ひも付けがないため、ここではクリック傾向だけを判定します。"
-        insights={placementInsights}
-        kind="placement"
-      />
+    <div className="mt-6 space-y-6">
+      <div className="grid gap-6 xl:grid-cols-2">
+        <InsightTable
+          title="流入元の改善判定"
+          description="直近7日とその前7日のクリック推移から、伸ばす流入元と回復が必要な流入元を判定します。"
+          insights={sourceInsights}
+          kind="source"
+        />
+        <InsightTable
+          title="CTA位置の改善判定"
+          description="CTA位置ごとのクリック推移を比較します。売上の流入元別ひも付けがないため、ここではクリック傾向だけを判定します。"
+          insights={placementInsights}
+          kind="placement"
+        />
+      </div>
+      {ctaExperimentEnabled ? (
+        <>
+          <CtaPerformanceTable
+            rows={ctaVariantPerformance}
+            enabled={ctaImpressionTrackingEnabled}
+          />
+          <InsightTable
+            title="CTA文言別クリック推移"
+            description="CTRとは別に、各文言のクリック数が直近で伸びているかを確認します。"
+            insights={ctaVariantInsights}
+            kind="variant"
+          />
+        </>
+      ) : (
+        <section className="rounded-2xl border border-amber-800 bg-amber-950/30 p-5 text-sm leading-6 text-amber-200">
+          CTA文言A/Bテスト用SQLが未適用です。新しいマイグレーションをSupabaseで実行すると集計が始まります。
+        </section>
+      )}
     </div>
   );
 }

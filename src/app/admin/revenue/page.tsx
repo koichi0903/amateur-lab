@@ -269,6 +269,10 @@ export default async function RevenueDashboardPage() {
         <TrafficImprovementPanel
           sourceInsights={analytics.sourceInsights}
           placementInsights={analytics.placementInsights}
+          ctaVariantInsights={analytics.ctaVariantInsights}
+          ctaExperimentEnabled={analytics.ctaExperimentEnabled}
+          ctaVariantPerformance={analytics.ctaVariantPerformance}
+          ctaImpressionTrackingEnabled={analytics.ctaImpressionTrackingEnabled}
         />
 
         <XPostCandidatePanel
