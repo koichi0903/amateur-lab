@@ -9,7 +9,10 @@ $utf8 = [System.Text.UTF8Encoding]::new($false)
 [Console]::InputEncoding = $utf8
 [Console]::OutputEncoding = $utf8
 $OutputEncoding = $utf8
-$env:NO_COLOR = "1"
+# Node treats the mere presence of FORCE_COLOR as taking precedence over
+# NO_COLOR, even when FORCE_COLOR is "0". Keep only one setting so a harmless
+# startup warning cannot be promoted to a terminating PowerShell error.
+Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
 $env:FORCE_COLOR = "0"
 $projectDir = Split-Path -Parent $PSScriptRoot
 $logDir = Join-Path $env:LOCALAPPDATA "HakkutsuLAB\scheduled-update-logs"
@@ -32,11 +35,23 @@ try {
         Tee-Object -FilePath $logPath
 
     $node = (Get-Command node.exe -ErrorAction Stop).Source
-    & $node "scripts\local-admin-update.mjs" $Group 2>&1 |
-        Tee-Object -FilePath $logPath -Append
+    # Windows PowerShell converts a native process's stderr lines into
+    # ErrorRecord objects. With ErrorActionPreference=Stop, a warning written
+    # to stderr used to terminate the task before the updater started. Capture
+    # all output, then determine success only from Node's exit code.
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $node "scripts\local-admin-update.mjs" $Group 2>&1 |
+            Tee-Object -FilePath $logPath -Append
+        $nodeExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "Scheduled update failed with exit code $LASTEXITCODE."
+    if ($nodeExitCode -ne 0) {
+        throw "Scheduled update failed with exit code $nodeExitCode."
     }
 
     "[$(Get-Date -Format o)] Completed scheduled update: $Group" |
