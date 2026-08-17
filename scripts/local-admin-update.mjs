@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { readFile, rm, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 
@@ -69,6 +70,43 @@ async function findAvailablePort() {
   });
 }
 
+function postWithoutTimeout(url) {
+  return new Promise((resolveResponse, reject) => {
+    const request = httpRequest(
+      url,
+      {
+        method: "POST",
+        headers: { accept: "application/json" },
+        // Playwrightを使う更新は5分以上かかる。Node fetch (undici) の
+        // 既定タイムアウトで接続だけが切れ、サーバー処理が残るのを防ぐ。
+        timeout: 0,
+      },
+      (response) => {
+        response.setEncoding("utf8");
+        let body = "";
+
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.once("aborted", () => {
+          reject(new Error("更新APIからの応答が途中で切断されました。"));
+        });
+        response.once("error", reject);
+        response.once("end", () => {
+          resolveResponse({
+            ok: (response.statusCode ?? 500) >= 200 && (response.statusCode ?? 500) < 300,
+            status: response.statusCode ?? 500,
+            text: body,
+          });
+        });
+      },
+    );
+
+    request.once("error", reject);
+    request.end();
+  });
+}
+
 async function run(taskName) {
   const port = await findAvailablePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -133,8 +171,8 @@ async function run(taskName) {
       batch += 1;
       console.log(`\n[開始] ${task.label}${task.repeat ? `（バッチ${batch}）` : ""}`);
       const startedAt = Date.now();
-      const response = await fetch(`${baseUrl}${task.path}`, { method: "POST" });
-      const text = await response.text();
+      const response = await postWithoutTimeout(`${baseUrl}${task.path}`);
+      const text = response.text;
       let result;
       try {
         result = JSON.parse(text);
@@ -161,6 +199,7 @@ async function run(taskName) {
       : (TASK_GROUPS[taskName] ?? [taskName]);
     const succeededTasks = [];
     const failedTasks = [];
+    let stoppedAfterFailure = false;
 
     for (const name of taskNames) {
       if (interrupted) break;
@@ -173,7 +212,11 @@ async function run(taskName) {
         console.error(
           `\n[工程失敗] ${TASKS[name].label}: ${message}`,
         );
-        console.log("[継続] 後続の更新工程を実行します。");
+        console.error(
+          "[中断] 同時実行とデータ不整合を防ぐため、後続の更新工程は実行しません。",
+        );
+        stoppedAfterFailure = true;
+        break;
       }
     }
 
@@ -193,7 +236,9 @@ async function run(taskName) {
       if (failedTasks.length > 0) {
         process.exitCode = 1;
         console.error(
-          "\n[一部失敗] 後続工程まで実行しましたが、失敗した工程があります。",
+          stoppedAfterFailure
+            ? "\n[工程中断] 失敗した工程で停止しました。後続工程は未実行です。"
+            : "\n[一部失敗] 失敗した工程があります。",
         );
       } else {
         console.log(
