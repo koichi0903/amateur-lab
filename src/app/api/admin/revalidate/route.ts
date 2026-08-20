@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
   }
   for (const path of paths) revalidatePath(path);
 
-  revalidateTag(WORK_DETAIL_CACHE_TAG);
+  revalidateTag(WORK_DETAIL_CACHE_TAG, "max");
   revalidatePath("/works/[id]", "page");
   for (const path of ["/actress/[name]", "/genre/[name]", "/maker/[name]", "/series/[name]"]) {
     revalidatePath(path, "page");

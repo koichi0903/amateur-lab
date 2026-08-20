@@ -67,7 +67,7 @@ const WORK_DETAIL_COLUMNS = [
 
 // Work data changes at most a few times per day. Reusing the rendered page keeps
 // crawler traffic from issuing the same group of Supabase queries on every hit.
-export const revalidate = WORK_DETAIL_REVALIDATE_SECONDS;
+export const revalidate = 86400;
 
 // generateMetadata and the page render both need the same row. React cache
 // deduplicates that lookup within a single server render.
