@@ -35,6 +35,7 @@ yarn-error.log*
 # local development and visual QA artifacts
 /.codex-*.log
 /work/
+/work-npm-cache/
 /actress-ranking.png
 /daily-ranking.png
 /ranking.html
@@ -42,6 +43,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel

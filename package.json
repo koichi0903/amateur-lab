@@ -21,6 +21,7 @@
     "backfill:actresses": "tsx scripts/backfill-work-actresses.ts"
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.70.0",
     "@sparticuz/chromium": "^149.0.0",
     "@supabase/supabase-js": "^2.108.2",
     "dotenv": "^17.4.2",
