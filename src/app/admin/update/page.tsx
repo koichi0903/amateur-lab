@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import UpdateHeader from "./components/UpdateHeader";
 import JobCard from "./components/JobCard";
 import UpdateButtons from "./components/UpdateButtons";
+import ScheduleStatusPanel from "./components/ScheduleStatusPanel";
 import { JOB_REGISTRY } from "./jobRegistry";
 
 type Job = {
@@ -488,6 +489,8 @@ const idleJobCount = displayedJobs.filter(
       <div className="mx-auto max-w-7xl p-10">
 
         <UpdateHeader />
+
+        <ScheduleStatusPanel />
 
         {idleJobCount > 0 && (
   <div className="mb-6">

@@ -18,21 +18,57 @@ $projectDir = Split-Path -Parent $PSScriptRoot
 $logDir = Join-Path $env:LOCALAPPDATA "HakkutsuLAB\scheduled-update-logs"
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $logPath = Join-Path $logDir "$timestamp-$Group.log"
+$logFile = Split-Path -Leaf $logPath
+$runId = [guid]::NewGuid().ToString()
 $mutex = [System.Threading.Mutex]::new($false, "HakkutsuLAB-LocalUpdate")
 $hasLock = $false
 
+function Invoke-ScheduleMonitor {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Status,
+        [string]$Message = ""
+    )
+
+    $monitorArguments = @(
+        "scripts\scheduled-update-monitor.mjs",
+        "--run-id=$runId",
+        "--group=$Group",
+        "--status=$Status",
+        "--log-file=$logFile"
+    )
+    if ($Message) {
+        $monitorArguments += "--error=$Message"
+    }
+
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & node.exe $monitorArguments 2>&1 | Tee-Object -FilePath $logPath -Append
+        if ($LASTEXITCODE -ne 0) {
+            "[$(Get-Date -Format o)] WARNING: Schedule monitor exited with code $LASTEXITCODE." |
+                Tee-Object -FilePath $logPath -Append
+        }
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+}
+
 try {
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    Set-Location -LiteralPath $projectDir
     $hasLock = $mutex.WaitOne(0)
     if (-not $hasLock) {
         "[$(Get-Date -Format o)] Another HakkutsuLAB update is already running. Skipped: $Group" |
             Tee-Object -FilePath $logPath
+        Invoke-ScheduleMonitor -Status "skipped"
         exit 0
     }
 
-    Set-Location -LiteralPath $projectDir
     "[$(Get-Date -Format o)] Starting scheduled update: $Group" |
         Tee-Object -FilePath $logPath
+    Invoke-ScheduleMonitor -Status "running"
 
     $node = (Get-Command node.exe -ErrorAction Stop).Source
     # Windows PowerShell converts a native process's stderr lines into
@@ -56,10 +92,20 @@ try {
 
     "[$(Get-Date -Format o)] Completed scheduled update: $Group" |
         Tee-Object -FilePath $logPath -Append
+    Invoke-ScheduleMonitor -Status "completed"
 }
 catch {
-    "[$(Get-Date -Format o)] ERROR: $($_.Exception.Message)" |
+    $failureMessage = $_.Exception.Message
+    "[$(Get-Date -Format o)] ERROR: $failureMessage" |
         Tee-Object -FilePath $logPath -Append
+    try {
+        Set-Location -LiteralPath $projectDir
+        Invoke-ScheduleMonitor -Status "failed" -Message $failureMessage
+    }
+    catch {
+        "[$(Get-Date -Format o)] WARNING: Failed to record schedule error: $($_.Exception.Message)" |
+            Tee-Object -FilePath $logPath -Append
+    }
     exit 1
 }
 finally {
