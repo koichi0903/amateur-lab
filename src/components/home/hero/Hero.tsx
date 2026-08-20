@@ -1,9 +1,9 @@
 import Link from "next/link";
-import type { Work } from "@/types/work";
+import type { DailyDiscoveryWork } from "@/lib/getDailyDiscovery";
 import WorkImage from "../WorkImage";
 import { workDetailHref } from "@/lib/affiliateTracking";
 
-export default function Hero({ work, eyebrow = "TODAY'S PICK", reason }: { work: Work | null; eyebrow?: string; reason?: string }) {
+export default function Hero({ work, eyebrow = "TODAY'S PICK", reason }: { work: DailyDiscoveryWork | null; eyebrow?: string; reason?: string }) {
   const hasValidWorkId = work != null && Number.isInteger(work.id) && work.id > 0;
 
   return (

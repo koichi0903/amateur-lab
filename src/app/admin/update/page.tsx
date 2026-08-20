@@ -442,7 +442,7 @@ async function handleUpdateStage() {
       if (cancelled || document.visibilityState !== "visible") return;
 
       const hasRunningJob = latestJobs.some((job) => job.status === "running");
-      scheduleNext(hasRunningJob ? 3_000 : 60_000);
+      scheduleNext(hasRunningJob ? 5_000 : 60_000);
     };
 
     const handleVisibilityChange = () => {

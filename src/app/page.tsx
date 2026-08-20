@@ -56,7 +56,7 @@ export default async function Home() {
     ]);
 
   const statistics = statisticsResult.data;
-  const featuredWork = (dailyDiscovery.work ?? rankingResult.data?.[0] ?? null) as Work | null;
+  const featuredWork = dailyDiscovery.work ?? rankingResult.data?.[0] ?? null;
 
   return (
     <>

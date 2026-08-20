@@ -153,6 +153,16 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (pathname === "/api/admin/revalidate") {
+    if (!process.env.CRON_SECRET) return unavailable();
+    return hasValidCronSecret(request)
+      ? NextResponse.next()
+      : NextResponse.json(
+          { error: "Unauthorized" },
+          { status: 401, headers: { "Cache-Control": "no-store" } },
+        );
+  }
+
   if (pathname === "/api/cron") {
     if (!process.env.CRON_SECRET) return unavailable();
     return hasValidCronSecret(request)

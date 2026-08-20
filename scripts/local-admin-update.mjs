@@ -1,8 +1,11 @@
 import { spawn } from "node:child_process";
+import { config as loadEnv } from "dotenv";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
+
+loadEnv({ path: resolve(process.cwd(), ".env.local"), quiet: true });
 
 const TASKS = {
   reserve: { label: "予約作品更新", path: "/api/update-reserve" },
@@ -38,6 +41,50 @@ const TASK_GROUPS = {
   "tue-fri-1800": ["review", "semi-new"],
   "sunday-1800": ["missing-prices", "sample-movie"],
 };
+
+async function revalidateProduction(tasks) {
+  if (tasks.length === 0) return;
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "");
+  const secret = process.env.CRON_SECRET?.trim();
+  if (!siteUrl || !secret) {
+    console.warn("[再検証] NEXT_PUBLIC_SITE_URL または CRON_SECRET がないためスキップしました。");
+    return;
+  }
+
+  let endpoint;
+  try {
+    endpoint = new URL("/api/admin/revalidate", siteUrl);
+  } catch {
+    console.warn("[再検証] NEXT_PUBLIC_SITE_URL が不正なためスキップしました。");
+    return;
+  }
+
+  if (["localhost", "127.0.0.1"].includes(endpoint.hostname)) {
+    console.warn("[再検証] 本番URLではないためスキップしました。");
+    return;
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${secret}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ tasks }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    console.log(`[再検証] 本番キャッシュを更新しました: ${tasks.join(", ")}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[再検証] 本番キャッシュの更新通知に失敗しました: ${message}`);
+  }
+}
 
 function usage() {
   console.log("使い方: npm run update:local -- <task>");
@@ -219,6 +266,8 @@ async function run(taskName) {
         break;
       }
     }
+
+    await revalidateProduction(succeededTasks);
 
     if (!interrupted) {
       console.log("\n[実行結果]");

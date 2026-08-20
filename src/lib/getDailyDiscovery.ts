@@ -2,8 +2,10 @@ import { unstable_cache } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 
+export type DailyDiscoveryWork = Pick<Work, "id" | "title" | "image_url">;
+
 type DailyDiscovery = {
-  work: Work | null;
+  work: DailyDiscoveryWork | null;
   eyebrow: string;
   reason: string;
 };
@@ -22,7 +24,7 @@ export const getDailyDiscovery = unstable_cache(
     const offset = seed % 12;
     let query = supabase
       .from("works")
-      .select("*")
+      .select("id,title,image_url")
       .not("image_url", "is", null)
       .neq("image_url", "");
 
@@ -37,10 +39,10 @@ export const getDailyDiscovery = unstable_cache(
     }
 
     const result = await query.range(offset, offset).maybeSingle();
-    if (result.data) return { work: result.data as Work, ...themes[themeIndex] };
+    if (result.data) return { work: result.data, ...themes[themeIndex] };
 
-    const fallback = await supabase.from("works").select("*").order("score", { ascending: false }).limit(1).maybeSingle();
-    return { work: (fallback.data as Work | null) ?? null, eyebrow: "TODAY'S PICK", reason: "本日の発掘スコア上位から選定" };
+    const fallback = await supabase.from("works").select("id,title,image_url").order("score", { ascending: false }).limit(1).maybeSingle();
+    return { work: fallback.data ?? null, eyebrow: "TODAY'S PICK", reason: "本日の発掘スコア上位から選定" };
   },
   ["home-daily-discovery"],
   { revalidate: 3600 },
