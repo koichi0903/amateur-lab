@@ -134,6 +134,10 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.hostname,
   );
 
+  if (/^\/works\/[^/]+\/(?:opengraph-image|twitter-image)$/.test(pathname)) {
+    return NextResponse.redirect(new URL("/ogp.png", request.url), 308);
+  }
+
   // The local admin UI is the control panel for update jobs that cannot run
   // reliably on Vercel (notably Playwright). Keep production admin routes
   // authenticated, while allowing the loopback-only development server.
@@ -192,5 +196,10 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/:path*"],
+  matcher: [
+    "/admin/:path*",
+    "/api/:path*",
+    "/works/:id/opengraph-image",
+    "/works/:id/twitter-image",
+  ],
 };

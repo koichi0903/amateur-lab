@@ -259,10 +259,7 @@ export async function generateMetadata(
   const title = `${work.title}｜レビュー${scoreText} | 発掘LAB`;
   const description = `${work.title}のレビュー・評価を掲載。${actressText}作品情報を独自データで分析しています。`;
   const encodedId = encodeURIComponent(id);
-  // Keep a version in the URL so social crawlers do not reuse a previously
-  // failed or incomplete card image after the renderer changes.
-  const openGraphImage = `${SITE_URL}/works/${encodedId}/opengraph-image?v=3`;
-  const twitterImage = `${SITE_URL}/works/${encodedId}/twitter-image?v=3`;
+  const socialImage = `${SITE_URL}/ogp.png`;
   const metadata = pageMetadata({ title, description, canonical: `/works/${encodedId}` });
 
   return {
@@ -272,7 +269,7 @@ export async function generateMetadata(
       type: "article",
       images: [
         {
-          url: openGraphImage,
+          url: socialImage,
           width: 1200,
           height: 630,
           alt: title,
@@ -282,7 +279,7 @@ export async function generateMetadata(
     twitter: {
       ...metadata.twitter,
       card: "summary_large_image",
-      images: [twitterImage],
+      images: [socialImage],
     },
   };
 }
