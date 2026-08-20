@@ -135,7 +135,7 @@ export async function proxy(request: NextRequest) {
   );
 
   if (/^\/works\/[^/]+\/(?:opengraph-image|twitter-image)$/.test(pathname)) {
-    return NextResponse.redirect(new URL("/ogp.png", request.url), 308);
+    return NextResponse.rewrite(new URL("/ogp.png", request.url));
   }
 
   // The local admin UI is the control panel for update jobs that cannot run
