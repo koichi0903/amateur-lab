@@ -29,6 +29,7 @@ const ADMIN_SESSION_MAX_AGE = 60 * 60 * 12;
 const BOT_PATTERN =
   /bot|crawler|spider|crawling|preview|facebookexternalhit|twitterbot|slackbot|discordbot|line|whatsapp|telegram|pinterest|embedly|quora|vkshare|curl|wget|python-requests/i;
 const WORK_DETAIL_PATH_PATTERN = /^\/works\/[^/]+$/;
+const WORK_SOCIAL_IMAGE_PATH_PATTERN = /^\/works\/[^/]+\/(?:opengraph-image|twitter-image)$/;
 const CATALOG_DETAIL_PATH_PATTERN = /^\/(?:actress|series|maker|genre)\/[^/]+$/;
 const BOT_LIGHTWEIGHT_INDEX_PATHS = new Set([
   "/actress",
@@ -77,7 +78,8 @@ function lightweightWorkResponse(request: NextRequest) {
   const description =
     "FANZA作品をレビュー・ランキング・セール情報から独自分析。";
   const url = request.nextUrl.href;
-  const image = new URL("/ogp.png", request.url).href;
+  const workId = request.nextUrl.pathname.split("/")[2] ?? "";
+  const image = new URL(`/works/${encodeURIComponent(workId)}/opengraph-image`, request.url).href;
   const body = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><meta name="description" content="${description}"><link rel="canonical" href="${url}"><meta property="og:title" content="${title}"><meta property="og:description" content="${description}"><meta property="og:url" content="${url}"><meta property="og:site_name" content="発掘LAB"><meta property="og:locale" content="ja_JP"><meta property="og:type" content="article"><meta property="og:image" content="${image}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${description}"><meta name="twitter:image" content="${image}"><meta name="robots" content="noarchive"></head><body><a href="${url}">${title}</a></body></html>`;
 
   return new NextResponse(body, {
@@ -185,8 +187,8 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.hostname,
   );
 
-  if (/^\/works\/[^/]+\/(?:opengraph-image|twitter-image)$/.test(pathname)) {
-    return NextResponse.rewrite(new URL("/ogp.png", request.url));
+  if (WORK_SOCIAL_IMAGE_PATH_PATTERN.test(pathname)) {
+    return NextResponse.next();
   }
 
   if (WORK_DETAIL_PATH_PATTERN.test(pathname) && isBotRequest(request)) {
