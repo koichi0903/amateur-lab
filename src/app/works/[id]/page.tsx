@@ -64,7 +64,7 @@ const WORK_DETAIL_COLUMNS = [
 
 // Work data changes at most a few times per day. Reusing the rendered page keeps
 // crawler traffic from issuing the same group of Supabase queries on every hit.
-export const revalidate = 3600;
+export const revalidate = 14400;
 
 // generateMetadata and the page render both need the same row. React cache
 // deduplicates that lookup within a single server render.
@@ -80,7 +80,7 @@ const getWork = cache(
       return data as WorkDetail | null;
     },
     ["work-detail-row"],
-    { revalidate: 3600 }
+    { revalidate: 14400 }
   )
 );
 
@@ -118,7 +118,7 @@ const getWorkDetailData = unstable_cache(
     };
   },
   ["work-detail-data"],
-  { revalidate: 3600 }
+  { revalidate: 14400 }
 );
 
 const getEntityRanks = unstable_cache(
@@ -151,7 +151,7 @@ const getEntityRanks = unstable_cache(
     };
   },
   ["work-detail-entity-ranks"],
-  { revalidate: 3600 }
+  { revalidate: 14400 }
 );
 
 const getRelatedWorks = unstable_cache(
@@ -203,7 +203,7 @@ const getRelatedWorks = unstable_cache(
       .map((candidate) => candidate.work);
   },
   ["work-detail-related-works"],
-  { revalidate: 3600 }
+  { revalidate: 14400 }
 );
 
 const getValueAlternatives = unstable_cache(
@@ -232,7 +232,7 @@ const getValueAlternatives = unstable_cache(
       .slice(0, 5);
   },
   ["work-detail-value-alternatives"],
-  { revalidate: 3600 }
+  { revalidate: 14400 }
 );
 
 
