@@ -39,6 +39,14 @@ const BOT_LIGHTWEIGHT_INDEX_PATHS = new Set([
   "/sale",
   "/series",
 ]);
+const PUBLIC_CATALOG_INDEX_PATHS = new Set([
+  "/actress",
+  "/genre",
+  "/maker",
+  "/ranking",
+  "/sale",
+  "/series",
+]);
 
 function secureCompare(actual: string, expected: string): boolean {
   if (actual.length !== expected.length) return false;
@@ -183,6 +191,13 @@ export async function proxy(request: NextRequest) {
 
   if (BOT_LIGHTWEIGHT_INDEX_PATHS.has(pathname) && isBotRequest(request)) {
     return lightweightCatalogResponse(request);
+  }
+
+  if (
+    CATALOG_DETAIL_PATH_PATTERN.test(pathname) ||
+    PUBLIC_CATALOG_INDEX_PATHS.has(pathname)
+  ) {
+    return NextResponse.next();
   }
 
   // The local admin UI is the control panel for update jobs that cannot run
