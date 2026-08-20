@@ -9,7 +9,7 @@ import type { Work } from "@/types/work";
 import { pageMetadata } from "@/lib/seo";
 import { workDetailHref } from "@/lib/affiliateTracking";
 
-export const revalidate = 1800;
+export const revalidate = 86400;
 
 const rankingTypes = {
   overall: { label: "総合", title: "発掘作品ランキング", description: "作品の魅力を総合評価した「発掘スコア」が高い作品順です。", metric: "発掘スコア" },

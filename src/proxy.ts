@@ -30,6 +30,14 @@ const BOT_PATTERN =
   /bot|crawler|spider|crawling|preview|facebookexternalhit|twitterbot|slackbot|discordbot|line|whatsapp|telegram|pinterest|embedly|quora|vkshare|curl|wget|python-requests/i;
 const WORK_DETAIL_PATH_PATTERN = /^\/works\/[^/]+$/;
 const CATALOG_DETAIL_PATH_PATTERN = /^\/(?:actress|series|maker|genre)\/[^/]+$/;
+const BOT_LIGHTWEIGHT_INDEX_PATHS = new Set([
+  "/actress",
+  "/genre",
+  "/maker",
+  "/ranking",
+  "/sale",
+  "/series",
+]);
 
 function secureCompare(actual: string, expected: string): boolean {
   if (actual.length !== expected.length) return false;
@@ -189,6 +197,10 @@ export async function proxy(request: NextRequest) {
     return lightweightCatalogResponse(request);
   }
 
+  if (BOT_LIGHTWEIGHT_INDEX_PATHS.has(pathname) && isBotRequest(request)) {
+    return lightweightCatalogResponse(request);
+  }
+
   // The local admin UI is the control panel for update jobs that cannot run
   // reliably on Vercel (notably Playwright). Keep production admin routes
   // authenticated, while allowing the loopback-only development server.
@@ -252,9 +264,15 @@ export const config = {
     "/api/:path*",
     "/works/:id",
     "/actress/:name",
+    "/actress",
     "/series/:name",
+    "/series",
     "/maker/:name",
+    "/maker",
     "/genre/:name",
+    "/genre",
+    "/ranking",
+    "/sale",
     "/works/:id/opengraph-image",
     "/works/:id/twitter-image",
   ],

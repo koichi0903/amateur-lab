@@ -6,7 +6,7 @@ import WorkImage from "@/components/home/WorkImage";
 import { getEntityIndexSummaries } from "@/lib/catalog/entityIndexSummaries";
 import { pageMetadata } from "@/lib/seo";
 
-export const revalidate = 3600;
+export const revalidate = 86400;
 
 export async function generateMetadata({ searchParams }: { searchParams: Promise<{ q?: string; page?: string }> }): Promise<Metadata> {
   const params = await searchParams;

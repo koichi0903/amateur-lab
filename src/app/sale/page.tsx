@@ -9,6 +9,7 @@ import { pageMetadata } from "@/lib/seo";
 import { workDetailHref } from "@/lib/affiliateTracking";
 
 const PAGE_SIZE = 20;
+export const revalidate = 86400;
 
 type SaleParams = {
   page?: string;
