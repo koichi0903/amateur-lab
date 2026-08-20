@@ -37,6 +37,9 @@ type WorkDetail = Work & {
   long_hit_rank: number | null;
 };
 
+const WORK_DETAIL_REVALIDATE_SECONDS = 60 * 60 * 24;
+const WORK_DETAIL_CACHE_TAG = "work-detail";
+
 // The official share page nests this DMM player in a minimum 476px-wide iframe.
 // Use the same official player directly so its viewport can match narrow phones.
 function getOfficialSampleEmbedUrl(work: WorkDetail): string | null {
@@ -64,7 +67,7 @@ const WORK_DETAIL_COLUMNS = [
 
 // Work data changes at most a few times per day. Reusing the rendered page keeps
 // crawler traffic from issuing the same group of Supabase queries on every hit.
-export const revalidate = 14400;
+export const revalidate = WORK_DETAIL_REVALIDATE_SECONDS;
 
 // generateMetadata and the page render both need the same row. React cache
 // deduplicates that lookup within a single server render.
@@ -80,7 +83,7 @@ const getWork = cache(
       return data as WorkDetail | null;
     },
     ["work-detail-row"],
-    { revalidate: 14400 }
+    { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
   )
 );
 
@@ -118,7 +121,7 @@ const getWorkDetailData = unstable_cache(
     };
   },
   ["work-detail-data"],
-  { revalidate: 14400 }
+  { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
 );
 
 const getEntityRanks = unstable_cache(
@@ -151,7 +154,7 @@ const getEntityRanks = unstable_cache(
     };
   },
   ["work-detail-entity-ranks"],
-  { revalidate: 14400 }
+  { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
 );
 
 const getRelatedWorks = unstable_cache(
@@ -203,7 +206,7 @@ const getRelatedWorks = unstable_cache(
       .map((candidate) => candidate.work);
   },
   ["work-detail-related-works"],
-  { revalidate: 14400 }
+  { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
 );
 
 const getValueAlternatives = unstable_cache(
@@ -232,7 +235,7 @@ const getValueAlternatives = unstable_cache(
       .slice(0, 5);
   },
   ["work-detail-value-alternatives"],
-  { revalidate: 14400 }
+  { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
 );
 
 

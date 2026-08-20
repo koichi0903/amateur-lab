@@ -1,4 +1,4 @@
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +22,7 @@ const ENTITY_PATHS = ["/actress", "/genre", "/maker", "/series"];
 const CATALOG_TASKS = new Set(["reserve", "new", "semi-new", "old", "stage"]);
 const PRICE_TASKS = new Set(["sale", "ended-sale", "missing-prices"]);
 const DISCOVERY_TASKS = new Set(["review", "ranking", "score"]);
+const WORK_DETAIL_CACHE_TAG = "work-detail";
 
 function isAuthorized(request: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -67,6 +68,7 @@ export async function POST(request: NextRequest) {
   }
   for (const path of paths) revalidatePath(path);
 
+  revalidateTag(WORK_DETAIL_CACHE_TAG);
   revalidatePath("/works/[id]", "page");
   for (const path of ["/actress/[name]", "/genre/[name]", "/maker/[name]", "/series/[name]"]) {
     revalidatePath(path, "page");
