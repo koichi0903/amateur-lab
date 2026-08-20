@@ -10,7 +10,7 @@ import { pageMetadata } from "@/lib/seo";
 import { unstable_cache } from "next/cache";
 import { workDetailHref } from "@/lib/affiliateTracking";
 
-export const revalidate = 1800;
+export const revalidate = 86400;
 
 function actressNames(value: string | null) {
   return value?.split(" / ").map((name) => name.trim()).filter(Boolean) ?? [];
@@ -40,7 +40,7 @@ async function loadActressWorks(actressName: string) {
 const getActressWorks = unstable_cache(
   loadActressWorks,
   ["actress-detail-works-v1"],
-  { revalidate: 1800 }
+  { revalidate: 86400 }
 );
 
 export async function generateMetadata({ params, searchParams }: { params: Promise<{ name: string }>; searchParams: Promise<{ page?: string }> }): Promise<Metadata> {

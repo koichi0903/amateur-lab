@@ -71,7 +71,7 @@ async function loadWorks(kind: CatalogKind, name: string) {
 const getWorks = unstable_cache(
   loadWorks,
   ["catalog-detail-works-v1"],
-  { revalidate: 1800 }
+  { revalidate: 86400 }
 );
 
 function Price({ work }: { work: Work }) {

@@ -29,6 +29,7 @@ const ADMIN_SESSION_MAX_AGE = 60 * 60 * 12;
 const BOT_PATTERN =
   /bot|crawler|spider|crawling|preview|facebookexternalhit|twitterbot|slackbot|discordbot|line|whatsapp|telegram|pinterest|embedly|quora|vkshare|curl|wget|python-requests/i;
 const WORK_DETAIL_PATH_PATTERN = /^\/works\/[^/]+$/;
+const CATALOG_DETAIL_PATH_PATTERN = /^\/(?:actress|series|maker|genre)\/[^/]+$/;
 
 function secureCompare(actual: string, expected: string): boolean {
   if (actual.length !== expected.length) return false;
@@ -70,6 +71,23 @@ function lightweightWorkResponse(request: NextRequest) {
   const url = request.nextUrl.href;
   const image = new URL("/ogp.png", request.url).href;
   const body = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><meta name="description" content="${description}"><link rel="canonical" href="${url}"><meta property="og:title" content="${title}"><meta property="og:description" content="${description}"><meta property="og:url" content="${url}"><meta property="og:site_name" content="発掘LAB"><meta property="og:locale" content="ja_JP"><meta property="og:type" content="article"><meta property="og:image" content="${image}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${description}"><meta name="twitter:image" content="${image}"><meta name="robots" content="noarchive"></head><body><a href="${url}">${title}</a></body></html>`;
+
+  return new NextResponse(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
+    },
+  });
+}
+
+function lightweightCatalogResponse(request: NextRequest) {
+  const title = "発掘LAB | FANZA作品分析メディア";
+  const description =
+    "FANZA作品をレビュー・ランキング・セール情報から独自分析。";
+  const url = request.nextUrl.href;
+  const image = new URL("/ogp.png", request.url).href;
+  const body = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><meta name="description" content="${description}"><link rel="canonical" href="${url}"><meta property="og:title" content="${title}"><meta property="og:description" content="${description}"><meta property="og:url" content="${url}"><meta property="og:site_name" content="発掘LAB"><meta property="og:locale" content="ja_JP"><meta property="og:type" content="website"><meta property="og:image" content="${image}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${description}"><meta name="twitter:image" content="${image}"><meta name="robots" content="noarchive"></head><body><a href="${url}">${title}</a></body></html>`;
 
   return new NextResponse(body, {
     status: 200,
@@ -167,6 +185,10 @@ export async function proxy(request: NextRequest) {
     return lightweightWorkResponse(request);
   }
 
+  if (CATALOG_DETAIL_PATH_PATTERN.test(pathname) && isBotRequest(request)) {
+    return lightweightCatalogResponse(request);
+  }
+
   // The local admin UI is the control panel for update jobs that cannot run
   // reliably on Vercel (notably Playwright). Keep production admin routes
   // authenticated, while allowing the loopback-only development server.
@@ -229,6 +251,10 @@ export const config = {
     "/admin/:path*",
     "/api/:path*",
     "/works/:id",
+    "/actress/:name",
+    "/series/:name",
+    "/maker/:name",
+    "/genre/:name",
     "/works/:id/opengraph-image",
     "/works/:id/twitter-image",
   ],
