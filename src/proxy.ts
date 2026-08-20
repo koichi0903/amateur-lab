@@ -28,6 +28,7 @@ const LOCAL_UPDATE_API_PATHS = new Set([
 const ADMIN_SESSION_MAX_AGE = 60 * 60 * 12;
 const BOT_PATTERN =
   /bot|crawler|spider|crawling|preview|facebookexternalhit|twitterbot|slackbot|discordbot|line|whatsapp|telegram|pinterest|embedly|quora|vkshare|curl|wget|python-requests/i;
+const WORK_METADATA_BOT_PATTERN = /twitterbot/i;
 const WORK_DETAIL_PATH_PATTERN = /^\/works\/[^/]+$/;
 const WORK_SOCIAL_IMAGE_PATH_PATTERN = /^\/works\/[^/]+\/(?:opengraph-image|twitter-image)$/;
 const CATALOG_DETAIL_PATH_PATTERN = /^\/(?:actress|series|maker|genre)\/[^/]+$/;
@@ -79,6 +80,11 @@ function unavailable() {
 function isBotRequest(request: NextRequest): boolean {
   const userAgent = request.headers.get("user-agent") ?? "";
   return BOT_PATTERN.test(userAgent);
+}
+
+function shouldServeWorkMetadata(request: NextRequest): boolean {
+  const userAgent = request.headers.get("user-agent") ?? "";
+  return WORK_METADATA_BOT_PATTERN.test(userAgent);
 }
 
 function lightweightCatalogResponse(request: NextRequest) {
@@ -204,7 +210,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (WORK_DETAIL_PATH_PATTERN.test(pathname)) {
-    if (isBotRequest(request)) {
+    if (isBotRequest(request) && !shouldServeWorkMetadata(request)) {
       return lightweightWorkResponse(request);
     }
 
