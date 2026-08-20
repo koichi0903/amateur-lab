@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { AffiliatePlacement } from "@/app/components/AffiliateLink";
 import { normalizeAffiliateSource } from "@/lib/affiliateTracking";
 import { normalizeCtaVariant } from "@/lib/ctaExperiment";
+import { normalizeExternalAttribution } from "@/lib/externalAttribution";
 
 const placements = new Set<AffiliatePlacement>([
   "detail-sidebar",
@@ -12,6 +13,15 @@ const placements = new Set<AffiliatePlacement>([
 
 function isMissingCtaVariant(error: { code?: string; message?: string }) {
   return error.code === "PGRST204" || error.message?.includes("cta_variant");
+}
+
+function isMissingAttribution(error: { code?: string; message?: string }) {
+  return (
+    error.code === "PGRST204" ||
+    error.message?.includes("external_channel") ||
+    error.message?.includes("external_source") ||
+    error.message?.includes("landing_path")
+  );
 }
 
 export async function POST(request: Request) {
@@ -43,6 +53,11 @@ export async function POST(request: Request) {
       ? payload.ctaVariant
       : null,
   );
+  const externalAttribution = normalizeExternalAttribution(
+    typeof payload === "object" && payload !== null && "externalAttribution" in payload
+      ? payload.externalAttribution
+      : null,
+  );
 
   if (
     !Number.isSafeInteger(workId) ||
@@ -53,12 +68,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid event" }, { status: 400 });
   }
 
-  let { error } = await supabaseAdmin.from("affiliate_clicks").insert({
+  const clickEvent = {
     work_id: workId,
     placement,
     source_page: sourcePage,
     cta_variant: ctaVariant,
-  });
+    external_channel: externalAttribution?.channel,
+    external_source: externalAttribution?.source,
+    landing_path: externalAttribution?.landingPath,
+  };
+
+  let { error } = await supabaseAdmin.from("affiliate_clicks").insert(clickEvent);
+
+  if (error && isMissingAttribution(error)) {
+    const fallback = await supabaseAdmin.from("affiliate_clicks").insert({
+      work_id: workId,
+      placement,
+      source_page: sourcePage,
+      cta_variant: ctaVariant,
+    });
+    error = fallback.error;
+  }
 
   // Do not lose click tracking while the database migration is being applied.
   if (error && isMissingCtaVariant(error)) {

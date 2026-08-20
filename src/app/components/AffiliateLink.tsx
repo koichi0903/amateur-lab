@@ -6,6 +6,7 @@ import {
   normalizeCtaVariant,
   type CtaVariant,
 } from "@/lib/ctaExperiment";
+import { readExternalAttribution } from "./Analytics";
 
 export type AffiliatePlacement = "detail-sidebar" | "mobile-sticky" | "compare-card";
 
@@ -100,12 +101,20 @@ export default function AffiliateLink({
   const activeVariant = ctaVariant ?? "control";
 
   const recordClick = () => {
+    const externalAttribution = readExternalAttribution();
+
     // Never delay the purchase destination for analytics. keepalive lets this
     // finish after the new FANZA tab opens, and failures are intentionally ignored.
     void fetch("/api/affiliate-click", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workId, placement, sourcePage, ctaVariant: activeVariant }),
+      body: JSON.stringify({
+        workId,
+        placement,
+        sourcePage,
+        ctaVariant: activeVariant,
+        externalAttribution,
+      }),
       keepalive: true,
     }).catch(() => undefined);
   };

@@ -7,6 +7,7 @@ import { SITE_URL } from "@/lib/seo";
 import AgeGate from "@/components/compliance/AgeGate";
 import PublicDisclosure from "@/components/compliance/PublicDisclosure";
 import Footer from "@/components/layout/Footer";
+import Analytics from "./components/Analytics";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -100,6 +101,7 @@ export default function RootLayout({
 
   <WebSiteStructuredData />
 <OrganizationStructuredData />
+<Analytics />
 <AgeGate />
 <PublicDisclosure />
 
