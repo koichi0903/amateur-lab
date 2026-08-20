@@ -98,6 +98,23 @@ function lightweightCatalogResponse(request: NextRequest) {
   });
 }
 
+function lightweightWorkResponse(request: NextRequest) {
+  const title = "作品情報 | 発掘LAB";
+  const description =
+    "FANZA作品の価格、セール、ランキング、レビュー情報を発掘LABで確認できます。";
+  const url = request.nextUrl.href;
+  const image = new URL("/ogp.png", request.url).href;
+  const body = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><meta name="description" content="${description}"><link rel="canonical" href="${url}"><meta property="og:title" content="${title}"><meta property="og:description" content="${description}"><meta property="og:url" content="${url}"><meta property="og:site_name" content="発掘LAB"><meta property="og:locale" content="ja_JP"><meta property="og:type" content="article"><meta property="og:image" content="${image}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${description}"><meta name="twitter:image" content="${image}"><meta name="robots" content="noarchive"></head><body><a href="${url}">${title}</a></body></html>`;
+
+  return new NextResponse(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800",
+    },
+  });
+}
+
 function hasValidBasicAuth(request: NextRequest): boolean {
   const username = process.env.ADMIN_USERNAME;
   const password = process.env.ADMIN_PASSWORD;
@@ -178,10 +195,19 @@ export async function proxy(request: NextRequest) {
   );
 
   if (WORK_SOCIAL_IMAGE_PATH_PATTERN.test(pathname)) {
-    return NextResponse.next();
+    return NextResponse.redirect(new URL("/ogp.png", request.url), {
+      status: 308,
+      headers: {
+        "Cache-Control": "public, s-maxage=604800, stale-while-revalidate=2592000",
+      },
+    });
   }
 
   if (WORK_DETAIL_PATH_PATTERN.test(pathname)) {
+    if (isBotRequest(request)) {
+      return lightweightWorkResponse(request);
+    }
+
     return NextResponse.next();
   }
 

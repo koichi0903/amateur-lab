@@ -262,7 +262,7 @@ export async function generateMetadata(
   const title = `${work.title}｜レビュー${scoreText} | 発掘LAB`;
   const description = `${work.title}のレビュー・評価を掲載。${actressText}作品情報を独自データで分析しています。`;
   const encodedId = encodeURIComponent(id);
-  const socialImage = `${SITE_URL}/works/${encodedId}/opengraph-image`;
+  const socialImage = `${SITE_URL}/ogp.png`;
   const metadata = pageMetadata({ title, description, canonical: `/works/${encodedId}` });
 
   return {
