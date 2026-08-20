@@ -52,6 +52,67 @@ function MetricCard({
   );
 }
 
+type XTraffic = Awaited<ReturnType<typeof getAffiliateAnalytics>>["xTraffic"];
+
+function XTrafficPanel({ xTraffic }: { xTraffic: XTraffic }) {
+  return (
+    <section className="mt-6 rounded-2xl border border-sky-800/80 bg-sky-950/20 p-5 sm:p-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-xs font-black tracking-[0.18em] text-sky-300">
+            X TRAFFIC
+          </p>
+          <h2 className="mt-2 text-xl font-black">X送客管理</h2>
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
+            X投稿リンクの <code className="rounded bg-black/30 px-1.5 py-0.5">?from=x</code> 経由で作品詳細に入り、FANZA公式CTAを押したクリックだけを集計します。
+          </p>
+        </div>
+        <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[30rem]">
+          <MetricCard label="今日" value={`${xTraffic.today.toLocaleString("ja-JP")}回`} note="日本時間0:00から" />
+          <MetricCard label="直近7日" value={`${xTraffic.sevenDays.toLocaleString("ja-JP")}回`} note="X投稿からの送客" />
+          <MetricCard label="直近30日" value={`${xTraffic.thirtyDays.toLocaleString("ja-JP")}回`} note="X投稿からの送客" />
+          <MetricCard label="全体比率" value={`${xTraffic.share}%`} note="直近30日の送客内訳" />
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div>
+          <h3 className="text-sm font-black text-zinc-300">X経由のクリック上位作品</h3>
+          <div className="mt-3 divide-y divide-zinc-800 rounded-xl bg-zinc-950 px-4">
+            {xTraffic.topWorks.length ? xTraffic.topWorks.map((work, index) => (
+              <Link
+                key={work.workId}
+                href={`/works/${work.workId}`}
+                className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-3 py-3 transition hover:text-sky-300"
+              >
+                <span className="text-center text-xs font-black text-zinc-600">{index + 1}</span>
+                <span className="truncate text-sm font-bold text-zinc-200">{work.title}</span>
+                <span className="whitespace-nowrap text-sm font-black text-sky-300">{work.clicks.toLocaleString("ja-JP")}回</span>
+              </Link>
+            )) : <p className="py-5 text-sm text-zinc-500">X経由のクリックはまだありません。</p>}
+          </div>
+        </div>
+
+        <div>
+          <h3 className="text-sm font-black text-zinc-300">直近のX経由クリック</h3>
+          <div className="mt-3 divide-y divide-zinc-800 rounded-xl bg-zinc-950 px-4">
+            {xTraffic.recent.length ? xTraffic.recent.map((click) => (
+              <Link
+                key={click.id}
+                href={`/works/${click.work_id}`}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 transition hover:text-sky-300"
+              >
+                <span className="truncate text-sm font-bold text-zinc-200">{click.title}</span>
+                <span className="whitespace-nowrap text-xs font-bold text-zinc-500">{formatDateTime(click.clicked_at)}</span>
+              </Link>
+            )) : <p className="py-5 text-sm text-zinc-500">X経由のクリックはまだありません。</p>}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default async function RevenueDashboardPage() {
   const [analytics, salesAnalytics] = await Promise.all([
     getAffiliateAnalytics(),
@@ -274,6 +335,8 @@ export default async function RevenueDashboardPage() {
           ctaVariantPerformance={analytics.ctaVariantPerformance}
           ctaImpressionTrackingEnabled={analytics.ctaImpressionTrackingEnabled}
         />
+
+        <XTrafficPanel xTraffic={analytics.xTraffic} />
 
         <XPostCandidatePanel
           candidates={xPostCandidates.candidates}

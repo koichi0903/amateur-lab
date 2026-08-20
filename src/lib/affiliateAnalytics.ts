@@ -336,9 +336,16 @@ export async function getAffiliateAnalytics() {
 
   const workCounts = countBy(result.rows.map((row) => String(row.work_id)))
     .slice(0, 10);
+  const xRows = result.rows.filter((row) => row.source_page === "x");
+  const xWorkCounts = countBy(xRows.map((row) => String(row.work_id)))
+    .slice(0, 8);
   const workIds = workCounts.map((item) => Number(item.key));
+  const xWorkIds = xWorkCounts.map((item) => Number(item.key));
   const recentWorkIds = result.rows.slice(0, 20).map((row) => row.work_id);
-  const works = await fetchWorkSummaries([...new Set([...workIds, ...recentWorkIds])]);
+  const recentXWorkIds = xRows.slice(0, 10).map((row) => row.work_id);
+  const works = await fetchWorkSummaries([
+    ...new Set([...workIds, ...xWorkIds, ...recentWorkIds, ...recentXWorkIds]),
+  ]);
 
   const dailyKeys = Array.from({ length: 14 }, (_, index) =>
     jstDayKey(new Date(now.getTime() - (13 - index) * DAY_MS)),
@@ -439,6 +446,27 @@ export async function getAffiliateAnalytics() {
           : 0,
       }))
       .sort((a, b) => b.total - a.total),
+    xTraffic: {
+      today: xRows.filter(
+        (row) => jstDayKey(new Date(row.clicked_at)) === todayKey,
+      ).length,
+      sevenDays: xRows.filter(
+        (row) => new Date(row.clicked_at).getTime() >= sevenDayCutoff,
+      ).length,
+      thirtyDays: xRows.length,
+      share: result.rows.length > 0
+        ? Math.round((xRows.length / result.rows.length) * 100)
+        : 0,
+      topWorks: xWorkCounts.map((item) => ({
+        workId: Number(item.key),
+        title: works.get(Number(item.key))?.title ?? `作品ID ${item.key}`,
+        clicks: item.count,
+      })),
+      recent: xRows.slice(0, 10).map((row) => ({
+        ...row,
+        title: works.get(row.work_id)?.title ?? `作品ID ${row.work_id}`,
+      })),
+    },
     sourceInsights,
     placementInsights,
     ctaVariantInsights,
