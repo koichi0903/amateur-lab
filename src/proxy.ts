@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 const PUBLIC_API_PATHS = new Set([
   "/api/affiliate-click",
+  "/api/affiliate-impression",
+  "/api/compare",
+  "/api/contact",
   "/api/favorites",
 ]);
 const LOCAL_UPDATE_API_PATHS = new Set([

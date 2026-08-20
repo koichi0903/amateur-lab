@@ -110,5 +110,5 @@ async function loadDiscoveryEntityRankings(kind: DiscoveryEntityKind) {
 export const getDiscoveryEntityRankings = unstable_cache(
   loadDiscoveryEntityRankings,
   ["discovery-entity-rankings-v1"],
-  { revalidate: 300 }
+  { revalidate: 1800 }
 );

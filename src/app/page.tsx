@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { getDailyDiscovery } from "@/lib/getDailyDiscovery";
 
-export const revalidate = 300;
+export const revalidate = 1800;
 
 export default async function Home() {
   const now = new Date();

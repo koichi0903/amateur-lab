@@ -20,8 +20,16 @@ export async function GET() {
       timeZone: "Asia/Tokyo",
     }).toLowerCase();
 
-  // Hobby cron invocations may occur at any point within the scheduled hour.
-  // The endpoint itself is scheduled once per day, so always run the daily job.
+  if (process.env.VERCEL && process.env.ENABLE_VERCEL_CRON_UPDATES !== "true") {
+    return NextResponse.json({
+      now: time,
+      day,
+      skipped: true,
+      reason:
+        "Vercel cron updates are disabled. Run the update jobs from the local scheduler or set ENABLE_VERCEL_CRON_UPDATES=true.",
+    });
+  }
+
   await run0030();
 
   return NextResponse.json({

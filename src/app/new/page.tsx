@@ -8,7 +8,7 @@ import type { Work } from "@/types/work";
 import { pageMetadata } from "@/lib/seo";
 import { workDetailHref } from "@/lib/affiliateTracking";
 
-export const revalidate = 300;
+export const revalidate = 1800;
 type NewParams = { page?: string; sort?: string; maxPrice?: string; sample?: string };
 
 export async function generateMetadata({ searchParams }: { searchParams: Promise<NewParams> }): Promise<Metadata> {
