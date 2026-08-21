@@ -127,10 +127,10 @@ export async function getXPostOutcomes(): Promise<{
         ? "winner"
         : "replace";
     const recommendation = status === "testing"
-      ? "Keep watching until day 7."
+      ? "7日目まで様子を見る"
       : status === "winner"
-        ? "Reuse this angle and make a similar post."
-        : "Replace this angle with a clearer hook.";
+        ? "この切り口を次の投稿でも使う"
+        : "見せ方を変えて再投稿する";
 
     return {
       ...log,

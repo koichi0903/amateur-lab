@@ -132,31 +132,31 @@ function buildActionQueue({
   if (remainingPosts.length) {
     actions.push({
       key: "post-next",
-      label: `Post ${remainingPosts.length} remaining draft${remainingPosts.length === 1 ? "" : "s"}`,
-      detail: `Start with: ${remainingPosts[0].title}`,
+      label: `未投稿が${remainingPosts.length}本あります`,
+      detail: `まずはこれから: ${remainingPosts[0].title}`,
       priority: "high",
     });
   } else {
     actions.push({
       key: "all-posted",
-      label: "Today's 3 posts are done",
-      detail: "Spend the rest of the session on replies and observation.",
+      label: "今日の3投稿は完了",
+      detail: "次は補足リプを1つずつ付けて、余裕があれば返信先を探します。",
       priority: "medium",
     });
   }
 
   actions.push({
     key: "reply-search",
-    label: "Reply to 10 related X posts",
-    detail: "Search FANZA sale, title keywords, actresses, and genre terms. Reply with one useful note, then only link when it fits.",
+    label: "関連投稿を探す",
+    detail: "無理に返信しなくてOK。自然に入れそうな投稿があれば、役に立つ一言だけ返します。",
     priority: "high",
   });
 
   if (winner) {
     actions.push({
       key: "reuse-winner",
-      label: "Reuse the winning angle",
-      detail: `${winner.clicksSevenDays} clicks: ${winner.title}`,
+      label: "クリックされた型を再利用",
+      detail: `${winner.clicksSevenDays}クリック: ${winner.title}`,
       priority: "medium",
     });
   }
@@ -164,22 +164,23 @@ function buildActionQueue({
   if (replace) {
     actions.push({
       key: "replace-loser",
-      label: "Rewrite one zero-click angle",
-      detail: `Replace the hook for: ${replace.title}`,
+      label: "クリック0の切り口を変える",
+      detail: `見せ方を変える作品: ${replace.title}`,
       priority: "medium",
     });
   }
 
   actions.push({
     key: "observe",
-    label: `Check watch list: ${testingCount} post${testingCount === 1 ? "" : "s"}`,
-    detail: "Do not judge posts before day 7. Keep posting while the signal matures.",
+    label: `判定待ち: ${testingCount}本`,
+    detail: "7日たつ前に失敗判定しない。投稿を続けながらクリックを待ちます。",
     priority: "low",
   });
 
   return actions.slice(0, 5);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildReplyTargets(
   candidates: XPostCandidate[],
   outcomes: XPostOutcome[],
@@ -221,31 +222,32 @@ function buildReplyTargets(
 function followUpRepliesFor(candidate: XPostCandidate): string[] {
   if (candidate.category === "deal") {
     return [
-      "割引率だけで決めるより、サンプルの雰囲気まで見てから判断した方が外しにくいです。",
-      "セール中は価格が動くこともあるので、気になるなら先に価格と内容だけ確認しておくのが良さそうです。",
+      "これ、安さだけで見るよりサンプルの空気が合うか先に見た方がよさそう。刺さる人にはかなり得だと思う。",
+      "セール中なら候補に入れていいやつ。迷うならまずサンプルだけ見て、雰囲気が合えば買いでよさそう。",
     ];
   }
 
   if (candidate.category === "score") {
     return [
-      "点数だけじゃなく、レビュー数も一緒に見ると判断しやすいです。材料が多い作品は選びやすい。",
-      "迷ったときは評価、サンプル、価格の3つが揃っているかを見るとかなり絞れます。",
+      "こういうのは点数だけじゃなくて、レビュー数もある程度あるのが安心材料。迷ったら候補に入れやすい。",
+      "サンプルを見て雰囲気が合うならかなり堅そう。評価だけで押し切るより、まず試し見がよさげ。",
     ];
   }
 
   if (candidate.category === "new") {
     return [
-      "新作はレビューが少ないこともあるので、最初はサンプルの空気感で見るか決めるのが良さそうです。",
-      "発売直後は情報が少ない分、価格とサンプルを先に見ておくと判断しやすいです。",
+      "新作はレビュー待ちでもいいけど、サンプルの時点で雰囲気が合うなら早めに見る価値ありそう。",
+      "まだ情報が少ない分、タイトルよりサンプルの第一印象で決めるのがよさげ。気になる人は先に確認で。",
     ];
   }
 
   return [
-    "実際に動いている作品は、迷ったときの候補に入れやすいです。まず外しにくい方から見たい人向け。",
-    "売れている理由があるかを見るなら、価格、サンプル、レビュー数をまとめて確認すると早いです。",
+    "実際に選ばれてる作品は、迷ったときに候補へ入れやすい。まず外しにくいところから見たい人向け。",
+    "売れてる系は好みが合えば強いので、サンプルで空気だけ先に見ておくと判断しやすいです。",
   ];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildFollowUpReplies(dailyPlan: ReturnType<typeof buildDailyPlan>): XFollowUpReply[] {
   return dailyPlan
     .map((item) => item.candidate)
@@ -260,10 +262,10 @@ function buildFollowUpReplies(dailyPlan: ReturnType<typeof buildDailyPlan>): XFo
 
 function buildPatternStats(outcomes: XPostOutcome[]): XPatternStat[] {
   const labels: Record<XPostCandidate["category"], string> = {
-    sales: "Sales proof",
-    deal: "Deal",
-    score: "Score",
-    new: "New release",
+    sales: "売れてる訴求",
+    deal: "セール訴求",
+    score: "スコア訴求",
+    new: "新作訴求",
   };
 
   return (Object.keys(labels) as XPostCandidate["category"][]).map((key) => {
@@ -283,23 +285,101 @@ function buildZeroClickReasons(outcomes: XPostOutcome[]): XZeroClickReason[] {
     .slice(0, 5)
     .map((outcome) => {
       const reason = outcome.category === "deal"
-        ? "Price hook was not enough. Add a sample/review reason."
+        ? "安さだけでは弱い可能性あり。サンプルの雰囲気や見どころを足す。"
         : outcome.category === "score"
-          ? "Score hook did not convert. Make the benefit more concrete."
+          ? "点数だけでは伝わっていない可能性あり。誰向けかを具体化する。"
           : outcome.category === "new"
-            ? "Newness alone was weak. Add why it is worth checking now."
-            : "Sales proof was not clear enough. Add why people chose it.";
+            ? "新作というだけでは弱い可能性あり。今見る理由を足す。"
+            : "売れてる理由が伝わっていない可能性あり。選ばれている理由を足す。";
 
       return { key: `zero-${outcome.id}`, title: outcome.title, reason };
     });
 }
 
 function buildProfileCopy(patternStats: XPatternStat[]) {
-  const strongest = patternStats.find((stat) => stat.clicks > 0)?.label ?? "sale and score";
+  const strongest = patternStats.find((stat) => stat.clicks > 0)?.label ?? "セール・評価";
   return {
-    bio: `FANZA works picked by ${strongest.toLowerCase()} signals. Prices, samples, reviews, and quick notes before you choose. #PR`,
+    bio: `FANZA作品を${strongest}中心にメモ。価格、サンプル、レビュー数を見て選びやすいものだけ拾います。#PR`,
     pinned: "毎日、価格・サンプル・レビュー数を見て、選びやすいFANZA作品だけメモしています。気になる作品は詳細で確認してください。#PR #FANZA",
   };
+}
+
+function buildJapaneseReplyTargets(
+  candidates: XPostCandidate[],
+  outcomes: XPostOutcome[],
+): XReplyTarget[] {
+  const winningTitles = outcomes
+    .filter((outcome) => outcome.status === "winner")
+    .map((outcome) => outcome.title);
+  const candidateTitles = candidates.map((candidate) => candidate.title);
+  const titles = [...winningTitles, ...candidateTitles].slice(0, 3);
+  const targets: XReplyTarget[] = [
+    {
+      key: "fanza-sale-ja",
+      query: "FANZA セール",
+      template: "セール中なら、安さだけじゃなくてサンプルの雰囲気まで見てから選ぶと外しにくいです。",
+    },
+    {
+      key: "fanza-recommend-ja",
+      query: "FANZA おすすめ",
+      template: "迷ってるなら、価格・サンプル・レビュー数の3つが揃っている作品から見ると選びやすいです。",
+    },
+    {
+      key: "fanza-new-ja",
+      query: "FANZA 新作",
+      template: "新作はレビューが少ないこともあるので、まずサンプルで雰囲気が合うか見るのがよさそうです。",
+    },
+  ];
+
+  titles.forEach((title, index) => {
+    targets.push({
+      key: `title-ja-${index}`,
+      query: title,
+      template: `この作品なら、まずサンプルと価格を見て好みに合うか確認するのがよさそうです。${title}`,
+    });
+  });
+
+  return targets.slice(0, 6);
+}
+
+function naturalFollowUpRepliesFor(candidate: XPostCandidate): string[] {
+  if (candidate.category === "deal") {
+    return [
+      "これ、安さだけで見るよりサンプルの空気が合うか先に見た方がよさそう。刺さる人にはかなり得だと思う。",
+      "セール中なら候補に入れていいやつ。迷うならまずサンプルだけ見て、雰囲気が合えば買いでよさそう。",
+    ];
+  }
+
+  if (candidate.category === "score") {
+    return [
+      "こういうのは点数だけじゃなくて、レビュー数もある程度あるのが安心材料。迷ったら候補に入れやすい。",
+      "サンプルを見て雰囲気が合うならかなり堅そう。評価だけで押し切るより、まず試し見がよさげ。",
+    ];
+  }
+
+  if (candidate.category === "new") {
+    return [
+      "新作はレビュー待ちでもいいけど、サンプルの時点で雰囲気が合うなら早めに見る価値ありそう。",
+      "まだ情報が少ない分、タイトルよりサンプルの第一印象で決めるのがよさげ。気になる人は先に確認で。",
+    ];
+  }
+
+  return [
+    "実際に選ばれてる作品は、迷ったときに候補へ入れやすい。まず外しにくいところから見たい人向け。",
+    "売れてる系は好みが合えば強いので、サンプルで空気だけ先に見ておくと判断しやすいです。",
+  ];
+}
+
+function buildNaturalFollowUpReplies(dailyPlan: ReturnType<typeof buildDailyPlan>): XFollowUpReply[] {
+  return dailyPlan
+    .map((item) => item.candidate)
+    .filter((candidate): candidate is XPostCandidate => Boolean(candidate))
+    .map((candidate) => ({
+      key: `natural-follow-${candidate.key}`,
+      candidateKey: candidate.key,
+      title: candidate.title,
+      replies: naturalFollowUpRepliesFor(candidate),
+    }));
 }
 
 export default function XPostCandidatePanel({
@@ -339,10 +419,10 @@ export default function XPostCandidatePanel({
     [dailyPlan, outcomes, postedKeys],
   );
   const replyTargets = useMemo(
-    () => buildReplyTargets(candidates, outcomes),
+    () => buildJapaneseReplyTargets(candidates, outcomes),
     [candidates, outcomes],
   );
-  const followUpReplies = useMemo(() => buildFollowUpReplies(dailyPlan), [dailyPlan]);
+  const followUpReplies = useMemo(() => buildNaturalFollowUpReplies(dailyPlan), [dailyPlan]);
   const patternStats = useMemo(() => buildPatternStats(outcomes), [outcomes]);
   const zeroClickReasons = useMemo(() => buildZeroClickReasons(outcomes), [outcomes]);
   const profileCopy = useMemo(() => buildProfileCopy(patternStats), [patternStats]);
@@ -494,8 +574,8 @@ export default function XPostCandidatePanel({
       "all-followups",
       followUpReplies
         .map((item, index) => [
-          `Post #${index + 1}: ${item.title}`,
-          ...item.replies.map((reply, replyIndex) => `Reply ${replyIndex + 1}: ${reply}`),
+          `投稿${index + 1}: ${item.title}`,
+          ...item.replies.map((reply, replyIndex) => `補足${replyIndex + 1}: ${reply}`),
         ].join("\n"))
         .join("\n\n---\n\n"),
     );
@@ -543,7 +623,7 @@ export default function XPostCandidatePanel({
         </div>
         <div className="rounded-xl border border-sky-900 bg-sky-950/30 px-4 py-3 text-sm">
           <p className="text-xs font-black tracking-[0.16em] text-sky-300">
-            TODAY
+            今日
           </p>
           <p className="mt-1 font-black text-white">
             {postedPlannedCount}/3 投稿済み
@@ -557,10 +637,10 @@ export default function XPostCandidatePanel({
           >
             <Send size={14} />
             {savingKey === "bulk"
-              ? "Opening..."
+              ? "起動中..."
               : remainingDailyCandidates.length
-                ? `Open ${remainingDailyCandidates.length} drafts`
-                : "All opened"}
+                ? `未投稿${remainingDailyCandidates.length}本を開く`
+                : "投稿準備完了"}
           </button>
         </div>
       </div>
@@ -568,28 +648,28 @@ export default function XPostCandidatePanel({
       <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
         <div className="flex items-center gap-2">
           <Trophy className="text-amber-300" size={18} />
-          <h3 className="text-sm font-black">X post outcome board</h3>
+          <h3 className="text-sm font-black">X投稿の判定</h3>
         </div>
         <div className="mt-4 grid gap-3 lg:grid-cols-3">
           {([
             {
               key: "winner" as const,
-              label: "Keep",
-              note: "7 days / clicked",
+              label: "残す",
+              note: "7日以内にクリックあり",
               icon: <Trophy size={16} />,
               tone: "border-emerald-800 bg-emerald-950/30 text-emerald-300",
             },
             {
               key: "testing" as const,
-              label: "Watch",
-              note: "Under 7 days",
+              label: "判定待ち",
+              note: "投稿から7日未満",
               icon: <Target size={16} />,
               tone: "border-sky-800 bg-sky-950/30 text-sky-300",
             },
             {
               key: "replace" as const,
-              label: "Replace",
-              note: "7 days / no click",
+              label: "差し替え",
+              note: "7日後もクリックなし",
               icon: <RefreshCw size={16} />,
               tone: "border-rose-800 bg-rose-950/30 text-rose-300",
             },
@@ -607,12 +687,12 @@ export default function XPostCandidatePanel({
                   <div key={outcome.id} className="rounded-lg bg-zinc-950 px-3 py-2">
                     <p className="line-clamp-1 text-xs font-black text-zinc-200">{outcome.title}</p>
                     <p className="mt-1 text-[11px] text-zinc-500">
-                      {outcome.clicksSevenDays} clicks / day {outcome.daysSincePost} / {outcome.recommendation}
+                      {outcome.clicksSevenDays}クリック / {outcome.daysSincePost}日目 / {outcome.recommendation}
                     </p>
                   </div>
                 ))}
                 {!groupedOutcomes[group.key].length && (
-                  <p className="py-3 text-xs text-zinc-600">No posts yet.</p>
+                  <p className="py-3 text-xs text-zinc-600">まだ対象の投稿はありません。</p>
                 )}
               </div>
             </div>
@@ -623,7 +703,7 @@ export default function XPostCandidatePanel({
       <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
         <div className="flex items-center gap-2">
           <ListChecks className="text-emerald-300" size={18} />
-          <h3 className="text-sm font-black">Today action queue</h3>
+          <h3 className="text-sm font-black">今日やること</h3>
         </div>
         <div className="mt-4 grid gap-3 lg:grid-cols-5">
           {actionQueue.map((action, index) => (
@@ -639,7 +719,7 @@ export default function XPostCandidatePanel({
                         : "border-zinc-700 bg-zinc-950 text-zinc-400"
                   }`}
                 >
-                  {action.priority}
+                  {action.priority === "high" ? "優先" : action.priority === "medium" ? "次点" : "確認"}
                 </span>
               </div>
               <p className={`mt-3 text-xs font-black leading-5 ${
@@ -660,7 +740,7 @@ export default function XPostCandidatePanel({
                 }`}
               >
                 <Check size={13} />
-                {doneActionKeys.has(action.key) ? "Done" : "Mark done"}
+                {doneActionKeys.has(action.key) ? "完了" : "完了にする"}
               </button>
             </div>
           ))}
@@ -671,7 +751,7 @@ export default function XPostCandidatePanel({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="text-amber-300" size={18} />
-            <h3 className="text-sm font-black">Follow-up replies</h3>
+            <h3 className="text-sm font-black">投稿後に付ける補足リプ</h3>
           </div>
           <button
             type="button"
@@ -679,13 +759,13 @@ export default function XPostCandidatePanel({
             className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-zinc-700 px-3 text-xs font-black transition hover:border-amber-400 hover:text-amber-200"
           >
             {copiedKey === "all-followups" ? <Check size={14} /> : <Copy size={14} />}
-            {copiedKey === "all-followups" ? "Copied" : "Copy all follow-ups"}
+            {copiedKey === "all-followups" ? "コピー済み" : "補足リプをまとめてコピー"}
           </button>
         </div>
         <div className="mt-4 grid gap-3 lg:grid-cols-3">
           {followUpReplies.map((item, index) => (
             <div key={item.key} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-              <p className="text-xs font-black text-sky-300">Post #{index + 1}</p>
+              <p className="text-xs font-black text-sky-300">投稿{index + 1}</p>
               <p className="mt-1 line-clamp-1 text-xs font-black text-zinc-100">{item.title}</p>
               <div className="mt-3 space-y-2">
                 {item.replies.map((reply, replyIndex) => (
@@ -695,7 +775,7 @@ export default function XPostCandidatePanel({
                     onClick={() => copyText(`${item.key}-${replyIndex}`, reply)}
                     className="block w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-left text-[11px] leading-5 text-zinc-400 transition hover:border-amber-500 hover:text-amber-100"
                   >
-                    {copiedKey === `${item.key}-${replyIndex}` ? "Copied: " : `Reply ${replyIndex + 1}: `}
+                    {copiedKey === `${item.key}-${replyIndex}` ? "コピー済み: " : `補足${replyIndex + 1}: `}
                     {reply}
                   </button>
                 ))}
@@ -703,7 +783,7 @@ export default function XPostCandidatePanel({
             </div>
           ))}
           {!followUpReplies.length && (
-            <p className="text-xs text-zinc-600">No daily posts yet.</p>
+            <p className="text-xs text-zinc-600">今日の投稿候補がまだありません。</p>
           )}
         </div>
       </section>
@@ -711,7 +791,7 @@ export default function XPostCandidatePanel({
       <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
         <div className="flex items-center gap-2">
           <MessageCircle className="text-sky-300" size={18} />
-          <h3 className="text-sm font-black">Reply finder</h3>
+          <h3 className="text-sm font-black">返信先探し</h3>
         </div>
         <button
           type="button"
@@ -719,7 +799,7 @@ export default function XPostCandidatePanel({
           className="mt-3 inline-flex h-9 items-center gap-2 rounded-xl border border-zinc-700 px-3 text-xs font-black transition hover:border-sky-500 hover:text-sky-300"
         >
           <Search size={14} />
-          Open top searches
+          検索をまとめて開く
         </button>
         <div className="mt-4 grid gap-3 lg:grid-cols-3">
           {replyTargets.map((target) => (
@@ -736,7 +816,7 @@ export default function XPostCandidatePanel({
                   className="inline-flex h-9 items-center gap-2 rounded-xl border border-zinc-700 px-3 text-xs font-black transition hover:border-sky-500 hover:text-sky-300"
                 >
                   <Search size={14} />
-                  Search
+                  検索
                 </a>
                 <button
                   type="button"
@@ -744,7 +824,7 @@ export default function XPostCandidatePanel({
                   className="inline-flex h-9 items-center gap-2 rounded-xl border border-zinc-700 px-3 text-xs font-black transition hover:border-emerald-500 hover:text-emerald-300"
                 >
                   {copiedKey === `reply-${target.key}` ? <Check size={14} /> : <Copy size={14} />}
-                  {copiedKey === `reply-${target.key}` ? "Copied" : "Copy reply"}
+                  {copiedKey === `reply-${target.key}` ? "コピー済み" : "返信文をコピー"}
                 </button>
               </div>
             </div>
@@ -755,28 +835,28 @@ export default function XPostCandidatePanel({
       <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
         <div className="flex items-center gap-2">
           <BarChart3 className="text-emerald-300" size={18} />
-          <h3 className="text-sm font-black">Winning pattern analysis</h3>
+          <h3 className="text-sm font-black">クリックされた型の分析</h3>
         </div>
         <div className="mt-4 grid gap-3 lg:grid-cols-4">
           {patternStats.map((stat) => (
             <div key={stat.key} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
               <p className="text-xs font-black text-zinc-100">{stat.label}</p>
               <p className="mt-2 text-2xl font-black text-emerald-300">{stat.clicks}</p>
-              <p className="mt-1 text-[11px] text-zinc-500">{stat.posts} tracked posts</p>
+              <p className="mt-1 text-[11px] text-zinc-500">記録済み {stat.posts}本</p>
             </div>
           ))}
         </div>
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-            <p className="text-xs font-black text-zinc-100">Tomorrow bias</p>
+            <p className="text-xs font-black text-zinc-100">明日の寄せ方</p>
             <p className="mt-2 text-xs leading-5 text-zinc-500">
               {patternStats[0]?.clicks
-                ? `Increase ${patternStats[0].label} posts first. Keep the daily 3-post rhythm.`
-                : "No winner yet. Keep the current mix until the first click signal appears."}
+                ? `まず${patternStats[0].label}を少し増やします。毎日3投稿のペースは崩しません。`
+                : "まだ勝ち型はありません。最初のクリックが出るまで、今の配分で続けます。"}
             </p>
           </div>
           <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-            <p className="text-xs font-black text-zinc-100">Zero-click fixes</p>
+            <p className="text-xs font-black text-zinc-100">クリック0の直し方</p>
             <div className="mt-2 space-y-2">
               {zeroClickReasons.map((item) => (
                 <p key={item.key} className="line-clamp-2 text-[11px] leading-5 text-zinc-500">
@@ -784,7 +864,7 @@ export default function XPostCandidatePanel({
                 </p>
               ))}
               {!zeroClickReasons.length && (
-                <p className="text-[11px] text-zinc-600">No 7-day zero-click posts yet.</p>
+                <p className="text-[11px] text-zinc-600">7日経過したクリック0投稿はまだありません。</p>
               )}
             </div>
           </div>
@@ -794,11 +874,11 @@ export default function XPostCandidatePanel({
       <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
         <div className="flex items-center gap-2">
           <UserRound className="text-violet-300" size={18} />
-          <h3 className="text-sm font-black">Profile and pinned post</h3>
+          <h3 className="text-sm font-black">プロフィールと固定投稿</h3>
         </div>
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-            <p className="text-xs font-black text-zinc-100">Bio draft</p>
+            <p className="text-xs font-black text-zinc-100">プロフィール文案</p>
             <p className="mt-2 text-[11px] leading-5 text-zinc-500">{profileCopy.bio}</p>
             <button
               type="button"
@@ -806,11 +886,11 @@ export default function XPostCandidatePanel({
               className="mt-3 inline-flex h-8 items-center gap-2 rounded-xl border border-zinc-700 px-3 text-[11px] font-black transition hover:border-violet-500 hover:text-violet-200"
             >
               {copiedKey === "profile-bio" ? <Check size={13} /> : <Copy size={13} />}
-              {copiedKey === "profile-bio" ? "Copied" : "Copy bio"}
+              {copiedKey === "profile-bio" ? "コピー済み" : "プロフィール文をコピー"}
             </button>
           </div>
           <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-            <p className="text-xs font-black text-zinc-100">Pinned post draft</p>
+            <p className="text-xs font-black text-zinc-100">固定投稿案</p>
             <p className="mt-2 text-[11px] leading-5 text-zinc-500">{profileCopy.pinned}</p>
             <button
               type="button"
@@ -818,7 +898,7 @@ export default function XPostCandidatePanel({
               className="mt-3 inline-flex h-8 items-center gap-2 rounded-xl border border-zinc-700 px-3 text-[11px] font-black transition hover:border-violet-500 hover:text-violet-200"
             >
               {copiedKey === "profile-pinned" ? <Check size={13} /> : <Copy size={13} />}
-              {copiedKey === "profile-pinned" ? "Copied" : "Copy pinned"}
+              {copiedKey === "profile-pinned" ? "コピー済み" : "固定投稿をコピー"}
             </button>
           </div>
         </div>
@@ -827,14 +907,14 @@ export default function XPostCandidatePanel({
       <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
         <div className="flex items-center gap-2">
           <CalendarDays className="text-cyan-300" size={18} />
-          <h3 className="text-sm font-black">30-day operating plan</h3>
+          <h3 className="text-sm font-black">30日運用プラン</h3>
         </div>
         <div className="mt-4 grid gap-3 lg:grid-cols-4">
           {[
-            ["Days 1-7", "Post 3 drafts daily. Add one follow-up reply to each post. Do not judge too early."],
-            ["Days 8-14", "Increase the best clicked pattern. Replace zero-click hooks."],
-            ["Days 15-21", "Turn winners into pinned/profile language and repeat the strongest angle."],
-            ["Days 22-30", "Keep winners, remove dead angles, and review X clicks against revenue imports."],
+            ["1-7日目", "毎日3投稿。各投稿に補足リプを1つ付ける。早すぎる失敗判定はしない。"],
+            ["8-14日目", "クリックされた型を少し増やす。クリック0の切り口は言い方を変える。"],
+            ["15-21日目", "勝ち型をプロフィール文や固定投稿にも反映する。強い切り口を繰り返す。"],
+            ["22-30日目", "伸びる型を残し、弱い型を減らす。Xクリックと売上CSVを見比べる。"],
           ].map(([label, detail]) => (
             <div key={label} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
               <p className="text-xs font-black text-cyan-200">{label}</p>
