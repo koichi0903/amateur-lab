@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  BarChart3,
+  CalendarDays,
   Check,
   ClipboardList,
   Copy,
@@ -11,8 +13,10 @@ import {
   RefreshCw,
   Search,
   Send,
+  Sparkles,
   Target,
   Trophy,
+  UserRound,
 } from "lucide-react";
 import type { XPostCandidate } from "@/lib/xPostCandidates";
 import type { XPostLog, XPostOutcome, XPostOutcomeStatus } from "@/lib/xPostLogs";
@@ -42,6 +46,26 @@ type XReplyTarget = {
   key: string;
   query: string;
   template: string;
+};
+
+type XFollowUpReply = {
+  key: string;
+  candidateKey: string;
+  title: string;
+  replies: string[];
+};
+
+type XPatternStat = {
+  key: XPostCandidate["category"];
+  label: string;
+  posts: number;
+  clicks: number;
+};
+
+type XZeroClickReason = {
+  key: string;
+  title: string;
+  reason: string;
 };
 
 const DAILY_POSTS: DailyPost[] = [
@@ -194,6 +218,90 @@ function buildReplyTargets(
   return targets.slice(0, 6);
 }
 
+function followUpRepliesFor(candidate: XPostCandidate): string[] {
+  if (candidate.category === "deal") {
+    return [
+      "割引率だけで決めるより、サンプルの雰囲気まで見てから判断した方が外しにくいです。",
+      "セール中は価格が動くこともあるので、気になるなら先に価格と内容だけ確認しておくのが良さそうです。",
+    ];
+  }
+
+  if (candidate.category === "score") {
+    return [
+      "点数だけじゃなく、レビュー数も一緒に見ると判断しやすいです。材料が多い作品は選びやすい。",
+      "迷ったときは評価、サンプル、価格の3つが揃っているかを見るとかなり絞れます。",
+    ];
+  }
+
+  if (candidate.category === "new") {
+    return [
+      "新作はレビューが少ないこともあるので、最初はサンプルの空気感で見るか決めるのが良さそうです。",
+      "発売直後は情報が少ない分、価格とサンプルを先に見ておくと判断しやすいです。",
+    ];
+  }
+
+  return [
+    "実際に動いている作品は、迷ったときの候補に入れやすいです。まず外しにくい方から見たい人向け。",
+    "売れている理由があるかを見るなら、価格、サンプル、レビュー数をまとめて確認すると早いです。",
+  ];
+}
+
+function buildFollowUpReplies(dailyPlan: ReturnType<typeof buildDailyPlan>): XFollowUpReply[] {
+  return dailyPlan
+    .map((item) => item.candidate)
+    .filter((candidate): candidate is XPostCandidate => Boolean(candidate))
+    .map((candidate) => ({
+      key: `follow-${candidate.key}`,
+      candidateKey: candidate.key,
+      title: candidate.title,
+      replies: followUpRepliesFor(candidate),
+    }));
+}
+
+function buildPatternStats(outcomes: XPostOutcome[]): XPatternStat[] {
+  const labels: Record<XPostCandidate["category"], string> = {
+    sales: "Sales proof",
+    deal: "Deal",
+    score: "Score",
+    new: "New release",
+  };
+
+  return (Object.keys(labels) as XPostCandidate["category"][]).map((key) => {
+    const rows = outcomes.filter((outcome) => outcome.category === key);
+    return {
+      key,
+      label: labels[key],
+      posts: rows.length,
+      clicks: rows.reduce((sum, row) => sum + row.clicksSevenDays, 0),
+    };
+  }).sort((a, b) => b.clicks - a.clicks);
+}
+
+function buildZeroClickReasons(outcomes: XPostOutcome[]): XZeroClickReason[] {
+  return outcomes
+    .filter((outcome) => outcome.status === "replace")
+    .slice(0, 5)
+    .map((outcome) => {
+      const reason = outcome.category === "deal"
+        ? "Price hook was not enough. Add a sample/review reason."
+        : outcome.category === "score"
+          ? "Score hook did not convert. Make the benefit more concrete."
+          : outcome.category === "new"
+            ? "Newness alone was weak. Add why it is worth checking now."
+            : "Sales proof was not clear enough. Add why people chose it.";
+
+      return { key: `zero-${outcome.id}`, title: outcome.title, reason };
+    });
+}
+
+function buildProfileCopy(patternStats: XPatternStat[]) {
+  const strongest = patternStats.find((stat) => stat.clicks > 0)?.label ?? "sale and score";
+  return {
+    bio: `FANZA works picked by ${strongest.toLowerCase()} signals. Prices, samples, reviews, and quick notes before you choose. #PR`,
+    pinned: "毎日、価格・サンプル・レビュー数を見て、選びやすいFANZA作品だけメモしています。気になる作品は詳細で確認してください。#PR #FANZA",
+  };
+}
+
 export default function XPostCandidatePanel({
   candidates,
   error,
@@ -234,6 +342,10 @@ export default function XPostCandidatePanel({
     () => buildReplyTargets(candidates, outcomes),
     [candidates, outcomes],
   );
+  const followUpReplies = useMemo(() => buildFollowUpReplies(dailyPlan), [dailyPlan]);
+  const patternStats = useMemo(() => buildPatternStats(outcomes), [outcomes]);
+  const zeroClickReasons = useMemo(() => buildZeroClickReasons(outcomes), [outcomes]);
+  const profileCopy = useMemo(() => buildProfileCopy(patternStats), [patternStats]);
 
   useEffect(() => {
     try {
@@ -375,6 +487,30 @@ export default function XPostCandidatePanel({
     }
 
     setSavingKey(null);
+  }
+
+  async function copyAllFollowUps() {
+    await copyText(
+      "all-followups",
+      followUpReplies
+        .map((item, index) => [
+          `Post #${index + 1}: ${item.title}`,
+          ...item.replies.map((reply, replyIndex) => `Reply ${replyIndex + 1}: ${reply}`),
+        ].join("\n"))
+        .join("\n\n---\n\n"),
+    );
+  }
+
+  function openReplySearches() {
+    replyTargets.slice(0, 3).forEach((target, index) => {
+      window.setTimeout(() => {
+        window.open(
+          `https://x.com/search?q=${encodeURIComponent(target.query)}&src=typed_query&f=live`,
+          "_blank",
+          "noopener,noreferrer",
+        );
+      }, index * 350);
+    });
   }
 
   function toggleActionDone(actionKey: string) {
@@ -532,10 +668,59 @@ export default function XPostCandidatePanel({
       </section>
 
       <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="text-amber-300" size={18} />
+            <h3 className="text-sm font-black">Follow-up replies</h3>
+          </div>
+          <button
+            type="button"
+            onClick={copyAllFollowUps}
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-zinc-700 px-3 text-xs font-black transition hover:border-amber-400 hover:text-amber-200"
+          >
+            {copiedKey === "all-followups" ? <Check size={14} /> : <Copy size={14} />}
+            {copiedKey === "all-followups" ? "Copied" : "Copy all follow-ups"}
+          </button>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          {followUpReplies.map((item, index) => (
+            <div key={item.key} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+              <p className="text-xs font-black text-sky-300">Post #{index + 1}</p>
+              <p className="mt-1 line-clamp-1 text-xs font-black text-zinc-100">{item.title}</p>
+              <div className="mt-3 space-y-2">
+                {item.replies.map((reply, replyIndex) => (
+                  <button
+                    key={reply}
+                    type="button"
+                    onClick={() => copyText(`${item.key}-${replyIndex}`, reply)}
+                    className="block w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-left text-[11px] leading-5 text-zinc-400 transition hover:border-amber-500 hover:text-amber-100"
+                  >
+                    {copiedKey === `${item.key}-${replyIndex}` ? "Copied: " : `Reply ${replyIndex + 1}: `}
+                    {reply}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          {!followUpReplies.length && (
+            <p className="text-xs text-zinc-600">No daily posts yet.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
         <div className="flex items-center gap-2">
           <MessageCircle className="text-sky-300" size={18} />
           <h3 className="text-sm font-black">Reply finder</h3>
         </div>
+        <button
+          type="button"
+          onClick={openReplySearches}
+          className="mt-3 inline-flex h-9 items-center gap-2 rounded-xl border border-zinc-700 px-3 text-xs font-black transition hover:border-sky-500 hover:text-sky-300"
+        >
+          <Search size={14} />
+          Open top searches
+        </button>
         <div className="mt-4 grid gap-3 lg:grid-cols-3">
           {replyTargets.map((target) => (
             <div key={target.key} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
@@ -562,6 +747,98 @@ export default function XPostCandidatePanel({
                   {copiedKey === `reply-${target.key}` ? "Copied" : "Copy reply"}
                 </button>
               </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="text-emerald-300" size={18} />
+          <h3 className="text-sm font-black">Winning pattern analysis</h3>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-4">
+          {patternStats.map((stat) => (
+            <div key={stat.key} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+              <p className="text-xs font-black text-zinc-100">{stat.label}</p>
+              <p className="mt-2 text-2xl font-black text-emerald-300">{stat.clicks}</p>
+              <p className="mt-1 text-[11px] text-zinc-500">{stat.posts} tracked posts</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+            <p className="text-xs font-black text-zinc-100">Tomorrow bias</p>
+            <p className="mt-2 text-xs leading-5 text-zinc-500">
+              {patternStats[0]?.clicks
+                ? `Increase ${patternStats[0].label} posts first. Keep the daily 3-post rhythm.`
+                : "No winner yet. Keep the current mix until the first click signal appears."}
+            </p>
+          </div>
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+            <p className="text-xs font-black text-zinc-100">Zero-click fixes</p>
+            <div className="mt-2 space-y-2">
+              {zeroClickReasons.map((item) => (
+                <p key={item.key} className="line-clamp-2 text-[11px] leading-5 text-zinc-500">
+                  {item.title}: {item.reason}
+                </p>
+              ))}
+              {!zeroClickReasons.length && (
+                <p className="text-[11px] text-zinc-600">No 7-day zero-click posts yet.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+        <div className="flex items-center gap-2">
+          <UserRound className="text-violet-300" size={18} />
+          <h3 className="text-sm font-black">Profile and pinned post</h3>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+            <p className="text-xs font-black text-zinc-100">Bio draft</p>
+            <p className="mt-2 text-[11px] leading-5 text-zinc-500">{profileCopy.bio}</p>
+            <button
+              type="button"
+              onClick={() => copyText("profile-bio", profileCopy.bio)}
+              className="mt-3 inline-flex h-8 items-center gap-2 rounded-xl border border-zinc-700 px-3 text-[11px] font-black transition hover:border-violet-500 hover:text-violet-200"
+            >
+              {copiedKey === "profile-bio" ? <Check size={13} /> : <Copy size={13} />}
+              {copiedKey === "profile-bio" ? "Copied" : "Copy bio"}
+            </button>
+          </div>
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+            <p className="text-xs font-black text-zinc-100">Pinned post draft</p>
+            <p className="mt-2 text-[11px] leading-5 text-zinc-500">{profileCopy.pinned}</p>
+            <button
+              type="button"
+              onClick={() => copyText("profile-pinned", profileCopy.pinned)}
+              className="mt-3 inline-flex h-8 items-center gap-2 rounded-xl border border-zinc-700 px-3 text-[11px] font-black transition hover:border-violet-500 hover:text-violet-200"
+            >
+              {copiedKey === "profile-pinned" ? <Check size={13} /> : <Copy size={13} />}
+              {copiedKey === "profile-pinned" ? "Copied" : "Copy pinned"}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="text-cyan-300" size={18} />
+          <h3 className="text-sm font-black">30-day operating plan</h3>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-4">
+          {[
+            ["Days 1-7", "Post 3 drafts daily. Add one follow-up reply to each post. Do not judge too early."],
+            ["Days 8-14", "Increase the best clicked pattern. Replace zero-click hooks."],
+            ["Days 15-21", "Turn winners into pinned/profile language and repeat the strongest angle."],
+            ["Days 22-30", "Keep winners, remove dead angles, and review X clicks against revenue imports."],
+          ].map(([label, detail]) => (
+            <div key={label} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+              <p className="text-xs font-black text-cyan-200">{label}</p>
+              <p className="mt-2 text-[11px] leading-5 text-zinc-500">{detail}</p>
             </div>
           ))}
         </div>
