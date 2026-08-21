@@ -7,7 +7,9 @@ import {
   Copy,
   ExternalLink,
   ListChecks,
+  MessageCircle,
   RefreshCw,
+  Search,
   Send,
   Target,
   Trophy,
@@ -34,6 +36,12 @@ type XActionItem = {
   label: string;
   detail: string;
   priority: "high" | "medium" | "low";
+};
+
+type XReplyTarget = {
+  key: string;
+  query: string;
+  template: string;
 };
 
 const DAILY_POSTS: DailyPost[] = [
@@ -148,6 +156,44 @@ function buildActionQueue({
   return actions.slice(0, 5);
 }
 
+function buildReplyTargets(
+  candidates: XPostCandidate[],
+  outcomes: XPostOutcome[],
+): XReplyTarget[] {
+  const winningTitles = outcomes
+    .filter((outcome) => outcome.status === "winner")
+    .map((outcome) => outcome.title);
+  const candidateTitles = candidates.map((candidate) => candidate.title);
+  const titles = [...winningTitles, ...candidateTitles].slice(0, 3);
+  const targets: XReplyTarget[] = [
+    {
+      key: "fanza-sale",
+      query: "FANZA sale",
+      template: "セール対象で迷っている人向けに、価格と見どころを先に確認すると選びやすいです。",
+    },
+    {
+      key: "fanza-recommend",
+      query: "FANZA おすすめ",
+      template: "まず価格、評価数、サンプルの順で見ると失敗しにくいです。",
+    },
+    {
+      key: "fanza-new",
+      query: "FANZA 新作",
+      template: "新作は発売直後の価格とレビュー数の伸びを見てから選ぶのが良さそうです。",
+    },
+  ];
+
+  titles.forEach((title, index) => {
+    targets.push({
+      key: `title-${index}`,
+      query: title,
+      template: `この作品なら、最初にサンプルと価格を見て判断するのが良さそうです: ${title}`,
+    });
+  });
+
+  return targets.slice(0, 6);
+}
+
 export default function XPostCandidatePanel({
   candidates,
   error,
@@ -161,9 +207,11 @@ export default function XPostCandidatePanel({
 }) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [postedKeys, setPostedKeys] = useState<Set<string>>(new Set());
+  const [doneActionKeys, setDoneActionKeys] = useState<Set<string>>(new Set());
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const dateKey = todayKey();
   const storageKey = `hakkutsu-lab:x-posted:${dateKey}`;
+  const actionStorageKey = `hakkutsu-lab:x-actions:${dateKey}`;
   const dailyPlan = useMemo(() => buildDailyPlan(candidates), [candidates]);
   const plannedKeys = dailyPlan
     .map((item) => item.candidate?.key)
@@ -177,6 +225,10 @@ export default function XPostCandidatePanel({
   const actionQueue = useMemo(
     () => buildActionQueue({ dailyPlan, postedKeys, outcomes }),
     [dailyPlan, outcomes, postedKeys],
+  );
+  const replyTargets = useMemo(
+    () => buildReplyTargets(candidates, outcomes),
+    [candidates, outcomes],
   );
 
   useEffect(() => {
@@ -195,10 +247,23 @@ export default function XPostCandidatePanel({
     }
   }, [dateKey, logs, storageKey]);
 
-  async function copyPost(candidate: XPostCandidate) {
-    await navigator.clipboard.writeText(candidate.postText);
-    setCopiedKey(candidate.key);
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(actionStorageKey);
+      setDoneActionKeys(new Set(stored ? (JSON.parse(stored) as string[]) : []));
+    } catch {
+      setDoneActionKeys(new Set());
+    }
+  }, [actionStorageKey]);
+
+  async function copyText(key: string, text: string) {
+    await navigator.clipboard.writeText(text);
+    setCopiedKey(key);
     window.setTimeout(() => setCopiedKey(null), 1800);
+  }
+
+  async function copyPost(candidate: XPostCandidate) {
+    await copyText(candidate.key, candidate.postText);
   }
 
   async function togglePosted(candidate: XPostCandidate) {
@@ -243,6 +308,22 @@ export default function XPostCandidatePanel({
       return next;
     });
     setSavingKey(null);
+  }
+
+  function toggleActionDone(actionKey: string) {
+    setDoneActionKeys((current) => {
+      const next = new Set(current);
+      if (next.has(actionKey)) next.delete(actionKey);
+      else next.add(actionKey);
+
+      try {
+        window.localStorage.setItem(actionStorageKey, JSON.stringify([...next]));
+      } catch {
+        // Local action progress is only for today's dashboard session.
+      }
+
+      return next;
+    });
   }
 
   return (
@@ -345,12 +426,62 @@ export default function XPostCandidatePanel({
                   {action.priority}
                 </span>
               </div>
-              <p className="mt-3 text-xs font-black leading-5 text-zinc-100">
+              <p className={`mt-3 text-xs font-black leading-5 ${
+                doneActionKeys.has(action.key) ? "text-zinc-500 line-through" : "text-zinc-100"
+              }`}>
                 {action.label}
               </p>
               <p className="mt-2 line-clamp-3 text-[11px] leading-5 text-zinc-500">
                 {action.detail}
               </p>
+              <button
+                type="button"
+                onClick={() => toggleActionDone(action.key)}
+                className={`mt-3 inline-flex h-8 items-center gap-2 rounded-xl border px-3 text-[11px] font-black transition ${
+                  doneActionKeys.has(action.key)
+                    ? "border-emerald-800 bg-emerald-950/40 text-emerald-300"
+                    : "border-zinc-700 hover:border-emerald-500 hover:text-emerald-300"
+                }`}
+              >
+                <Check size={13} />
+                {doneActionKeys.has(action.key) ? "Done" : "Mark done"}
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+        <div className="flex items-center gap-2">
+          <MessageCircle className="text-sky-300" size={18} />
+          <h3 className="text-sm font-black">Reply finder</h3>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          {replyTargets.map((target) => (
+            <div key={target.key} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+              <p className="line-clamp-1 text-xs font-black text-zinc-100">{target.query}</p>
+              <p className="mt-2 line-clamp-3 text-[11px] leading-5 text-zinc-500">
+                {target.template}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a
+                  href={`https://x.com/search?q=${encodeURIComponent(target.query)}&src=typed_query&f=live`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-zinc-700 px-3 text-xs font-black transition hover:border-sky-500 hover:text-sky-300"
+                >
+                  <Search size={14} />
+                  Search
+                </a>
+                <button
+                  type="button"
+                  onClick={() => copyText(`reply-${target.key}`, target.template)}
+                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-zinc-700 px-3 text-xs font-black transition hover:border-emerald-500 hover:text-emerald-300"
+                >
+                  {copiedKey === `reply-${target.key}` ? <Check size={14} /> : <Copy size={14} />}
+                  {copiedKey === `reply-${target.key}` ? "Copied" : "Copy reply"}
+                </button>
+              </div>
             </div>
           ))}
         </div>
