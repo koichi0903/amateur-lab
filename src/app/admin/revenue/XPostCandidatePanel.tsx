@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Copy,
   ExternalLink,
+  ListChecks,
   RefreshCw,
   Send,
   Target,
@@ -26,6 +27,13 @@ type DailyPost = {
   title: string;
   detail: string;
   preferred: XPostCandidate["category"][];
+};
+
+type XActionItem = {
+  key: string;
+  label: string;
+  detail: string;
+  priority: "high" | "medium" | "low";
 };
 
 const DAILY_POSTS: DailyPost[] = [
@@ -72,6 +80,74 @@ function buildDailyPlan(candidates: XPostCandidate[]) {
   });
 }
 
+function buildActionQueue({
+  dailyPlan,
+  postedKeys,
+  outcomes,
+}: {
+  dailyPlan: ReturnType<typeof buildDailyPlan>;
+  postedKeys: Set<string>;
+  outcomes: XPostOutcome[];
+}): XActionItem[] {
+  const remainingPosts = dailyPlan
+    .filter((item) => item.candidate && !postedKeys.has(item.candidate.key))
+    .map((item) => item.candidate!);
+  const winner = outcomes.find((outcome) => outcome.status === "winner");
+  const replace = outcomes.find((outcome) => outcome.status === "replace");
+  const testingCount = outcomes.filter((outcome) => outcome.status === "testing").length;
+  const actions: XActionItem[] = [];
+
+  if (remainingPosts.length) {
+    actions.push({
+      key: "post-next",
+      label: `Post ${remainingPosts.length} remaining draft${remainingPosts.length === 1 ? "" : "s"}`,
+      detail: `Start with: ${remainingPosts[0].title}`,
+      priority: "high",
+    });
+  } else {
+    actions.push({
+      key: "all-posted",
+      label: "Today's 3 posts are done",
+      detail: "Spend the rest of the session on replies and observation.",
+      priority: "medium",
+    });
+  }
+
+  actions.push({
+    key: "reply-search",
+    label: "Reply to 10 related X posts",
+    detail: "Search FANZA sale, title keywords, actresses, and genre terms. Reply with one useful note, then only link when it fits.",
+    priority: "high",
+  });
+
+  if (winner) {
+    actions.push({
+      key: "reuse-winner",
+      label: "Reuse the winning angle",
+      detail: `${winner.clicksSevenDays} clicks: ${winner.title}`,
+      priority: "medium",
+    });
+  }
+
+  if (replace) {
+    actions.push({
+      key: "replace-loser",
+      label: "Rewrite one zero-click angle",
+      detail: `Replace the hook for: ${replace.title}`,
+      priority: "medium",
+    });
+  }
+
+  actions.push({
+    key: "observe",
+    label: `Check watch list: ${testingCount} post${testingCount === 1 ? "" : "s"}`,
+    detail: "Do not judge posts before day 7. Keep posting while the signal matures.",
+    priority: "low",
+  });
+
+  return actions.slice(0, 5);
+}
+
 export default function XPostCandidatePanel({
   candidates,
   error,
@@ -98,6 +174,10 @@ export default function XPostCandidatePanel({
     testing: outcomes.filter((outcome) => outcome.status === "testing"),
     replace: outcomes.filter((outcome) => outcome.status === "replace"),
   };
+  const actionQueue = useMemo(
+    () => buildActionQueue({ dailyPlan, postedKeys, outcomes }),
+    [dailyPlan, outcomes, postedKeys],
+  );
 
   useEffect(() => {
     try {
@@ -238,6 +318,39 @@ export default function XPostCandidatePanel({
                   <p className="py-3 text-xs text-zinc-600">No posts yet.</p>
                 )}
               </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+        <div className="flex items-center gap-2">
+          <ListChecks className="text-emerald-300" size={18} />
+          <h3 className="text-sm font-black">Today action queue</h3>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-5">
+          {actionQueue.map((action, index) => (
+            <div key={action.key} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-black text-zinc-500">#{index + 1}</span>
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${
+                    action.priority === "high"
+                      ? "border-emerald-800 bg-emerald-950/30 text-emerald-300"
+                      : action.priority === "medium"
+                        ? "border-sky-800 bg-sky-950/30 text-sky-300"
+                        : "border-zinc-700 bg-zinc-950 text-zinc-400"
+                  }`}
+                >
+                  {action.priority}
+                </span>
+              </div>
+              <p className="mt-3 text-xs font-black leading-5 text-zinc-100">
+                {action.label}
+              </p>
+              <p className="mt-2 line-clamp-3 text-[11px] leading-5 text-zinc-500">
+                {action.detail}
+              </p>
             </div>
           ))}
         </div>
