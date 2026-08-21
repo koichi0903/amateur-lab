@@ -16,6 +16,7 @@ import {
 import { getAffiliateSalesAnalytics } from "@/lib/affiliateSalesAnalytics";
 import { AFFILIATE_SOURCE_LABELS } from "@/lib/affiliateTracking";
 import { getXPostCandidates } from "@/lib/xPostCandidates";
+import { getRecentXPostLogs } from "@/lib/xPostLogs";
 import RevenueImportForm from "./RevenueImportForm";
 import RevenuePerformanceTable from "./RevenuePerformanceTable";
 import TrafficImprovementPanel from "./TrafficImprovementPanel";
@@ -118,7 +119,10 @@ export default async function RevenueDashboardPage() {
     getAffiliateAnalytics(),
     getAffiliateSalesAnalytics(),
   ]);
-  const xPostCandidates = await getXPostCandidates(salesAnalytics.performance);
+  const [xPostCandidates, xPostLogs] = await Promise.all([
+    getXPostCandidates(salesAnalytics.performance),
+    getRecentXPostLogs(),
+  ]);
   const maxDaily = Math.max(...analytics.daily.map((item) => item.count), 1);
   const thirtyDayTotal = analytics.totals.thirtyDays;
   const mobileClicks = analytics.placements.find(
@@ -340,7 +344,8 @@ export default async function RevenueDashboardPage() {
 
         <XPostCandidatePanel
           candidates={xPostCandidates.candidates}
-          error={xPostCandidates.error}
+          error={[xPostCandidates.error, xPostLogs.error].filter(Boolean).join(" / ") || null}
+          logs={xPostLogs.logs}
         />
 
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
