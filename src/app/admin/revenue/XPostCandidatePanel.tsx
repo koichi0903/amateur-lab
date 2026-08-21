@@ -6,11 +6,13 @@ import {
   ClipboardList,
   Copy,
   ExternalLink,
+  RefreshCw,
   Send,
   Target,
+  Trophy,
 } from "lucide-react";
 import type { XPostCandidate } from "@/lib/xPostCandidates";
-import type { XPostLog } from "@/lib/xPostLogs";
+import type { XPostLog, XPostOutcome, XPostOutcomeStatus } from "@/lib/xPostLogs";
 
 const CATEGORY_STYLES: Record<XPostCandidate["category"], string> = {
   sales: "border-emerald-800 bg-emerald-950/30 text-emerald-300",
@@ -74,10 +76,12 @@ export default function XPostCandidatePanel({
   candidates,
   error,
   logs,
+  outcomes,
 }: {
   candidates: XPostCandidate[];
   error: string | null;
   logs: XPostLog[];
+  outcomes: XPostOutcome[];
 }) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [postedKeys, setPostedKeys] = useState<Set<string>>(new Set());
@@ -89,6 +93,11 @@ export default function XPostCandidatePanel({
     .map((item) => item.candidate?.key)
     .filter((key): key is string => Boolean(key));
   const postedPlannedCount = plannedKeys.filter((key) => postedKeys.has(key)).length;
+  const groupedOutcomes: Record<XPostOutcomeStatus, XPostOutcome[]> = {
+    winner: outcomes.filter((outcome) => outcome.status === "winner"),
+    testing: outcomes.filter((outcome) => outcome.status === "testing"),
+    replace: outcomes.filter((outcome) => outcome.status === "replace"),
+  };
 
   useEffect(() => {
     try {
@@ -178,6 +187,61 @@ export default function XPostCandidatePanel({
           <p className="mt-1 text-xs text-zinc-500">{dateKey}</p>
         </div>
       </div>
+
+      <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+        <div className="flex items-center gap-2">
+          <Trophy className="text-amber-300" size={18} />
+          <h3 className="text-sm font-black">X post outcome board</h3>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          {([
+            {
+              key: "winner" as const,
+              label: "Keep",
+              note: "7 days / clicked",
+              icon: <Trophy size={16} />,
+              tone: "border-emerald-800 bg-emerald-950/30 text-emerald-300",
+            },
+            {
+              key: "testing" as const,
+              label: "Watch",
+              note: "Under 7 days",
+              icon: <Target size={16} />,
+              tone: "border-sky-800 bg-sky-950/30 text-sky-300",
+            },
+            {
+              key: "replace" as const,
+              label: "Replace",
+              note: "7 days / no click",
+              icon: <RefreshCw size={16} />,
+              tone: "border-rose-800 bg-rose-950/30 text-rose-300",
+            },
+          ]).map((group) => (
+            <div key={group.key} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-black ${group.tone}`}>
+                  {group.icon}
+                  {group.label}
+                </span>
+                <span className="text-[11px] font-bold text-zinc-500">{group.note}</span>
+              </div>
+              <div className="mt-3 space-y-2">
+                {groupedOutcomes[group.key].slice(0, 4).map((outcome) => (
+                  <div key={outcome.id} className="rounded-lg bg-zinc-950 px-3 py-2">
+                    <p className="line-clamp-1 text-xs font-black text-zinc-200">{outcome.title}</p>
+                    <p className="mt-1 text-[11px] text-zinc-500">
+                      {outcome.clicksSevenDays} clicks / day {outcome.daysSincePost} / {outcome.recommendation}
+                    </p>
+                  </div>
+                ))}
+                {!groupedOutcomes[group.key].length && (
+                  <p className="py-3 text-xs text-zinc-600">No posts yet.</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr]">
         <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">

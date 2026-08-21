@@ -21,6 +21,22 @@ export type XPostLogInput = {
   postDate: string;
 };
 
+export type XPostOutcomeStatus = "winner" | "testing" | "replace";
+
+export type XPostOutcome = XPostLog & {
+  clicksSevenDays: number;
+  daysSincePost: number;
+  status: XPostOutcomeStatus;
+  recommendation: string;
+};
+
+type XClickRow = {
+  work_id: number;
+  clicked_at: string;
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export async function getRecentXPostLogs(): Promise<{
   logs: XPostLog[];
   error: string | null;
@@ -59,4 +75,84 @@ export async function deleteXPostLog(postKey: string, postDate: string) {
     .delete()
     .eq("post_key", postKey)
     .eq("post_date", postDate);
+}
+
+export async function getXPostOutcomes(): Promise<{
+  outcomes: XPostOutcome[];
+  error: string | null;
+}> {
+  const { logs, error } = await getRecentXPostLogs();
+
+  if (error) {
+    return { outcomes: [], error };
+  }
+
+  if (!logs.length) {
+    return { outcomes: [], error: null };
+  }
+
+  const workIds = Array.from(new Set(logs.map((log) => log.work_id)));
+  const oldestPostTime = Math.min(
+    ...logs.map((log) => new Date(log.posted_at).getTime()),
+  );
+  const clickCutoff = new Date(oldestPostTime).toISOString();
+  const { data, error: clickError } = await supabaseAdmin
+    .from("affiliate_clicks")
+    .select("work_id,clicked_at")
+    .eq("source_page", "x")
+    .in("work_id", workIds)
+    .gte("clicked_at", clickCutoff);
+
+  if (clickError) {
+    return { outcomes: [], error: clickError.message };
+  }
+
+  const now = Date.now();
+  const clicks = (data ?? []) as XClickRow[];
+  const outcomes = logs.map((log) => {
+    const postedAt = new Date(log.posted_at).getTime();
+    const windowEnd = postedAt + (7 * DAY_MS);
+    const clicksSevenDays = clicks.filter((click) => {
+      const clickedAt = new Date(click.clicked_at).getTime();
+      return (
+        click.work_id === log.work_id &&
+        clickedAt >= postedAt &&
+        clickedAt <= windowEnd
+      );
+    }).length;
+    const daysSincePost = Math.max(0, Math.floor((now - postedAt) / DAY_MS));
+    const status: XPostOutcomeStatus = daysSincePost < 7
+      ? "testing"
+      : clicksSevenDays > 0
+        ? "winner"
+        : "replace";
+    const recommendation = status === "testing"
+      ? "Keep watching until day 7."
+      : status === "winner"
+        ? "Reuse this angle and make a similar post."
+        : "Replace this angle with a clearer hook.";
+
+    return {
+      ...log,
+      clicksSevenDays,
+      daysSincePost,
+      status,
+      recommendation,
+    };
+  });
+
+  return {
+    outcomes: outcomes.sort((a, b) => {
+      if (a.status !== b.status) {
+        const order: Record<XPostOutcomeStatus, number> = {
+          winner: 0,
+          testing: 1,
+          replace: 2,
+        };
+        return order[a.status] - order[b.status];
+      }
+      return b.clicksSevenDays - a.clicksSevenDays;
+    }),
+    error: null,
+  };
 }

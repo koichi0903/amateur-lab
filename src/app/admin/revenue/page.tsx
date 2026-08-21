@@ -16,7 +16,7 @@ import {
 import { getAffiliateSalesAnalytics } from "@/lib/affiliateSalesAnalytics";
 import { AFFILIATE_SOURCE_LABELS } from "@/lib/affiliateTracking";
 import { getXPostCandidates } from "@/lib/xPostCandidates";
-import { getRecentXPostLogs } from "@/lib/xPostLogs";
+import { getRecentXPostLogs, getXPostOutcomes } from "@/lib/xPostLogs";
 import RevenueImportForm from "./RevenueImportForm";
 import RevenuePerformanceTable from "./RevenuePerformanceTable";
 import TrafficImprovementPanel from "./TrafficImprovementPanel";
@@ -119,9 +119,10 @@ export default async function RevenueDashboardPage() {
     getAffiliateAnalytics(),
     getAffiliateSalesAnalytics(),
   ]);
-  const [xPostCandidates, xPostLogs] = await Promise.all([
+  const [xPostCandidates, xPostLogs, xPostOutcomes] = await Promise.all([
     getXPostCandidates(salesAnalytics.performance),
     getRecentXPostLogs(),
+    getXPostOutcomes(),
   ]);
   const maxDaily = Math.max(...analytics.daily.map((item) => item.count), 1);
   const thirtyDayTotal = analytics.totals.thirtyDays;
@@ -344,8 +345,9 @@ export default async function RevenueDashboardPage() {
 
         <XPostCandidatePanel
           candidates={xPostCandidates.candidates}
-          error={[xPostCandidates.error, xPostLogs.error].filter(Boolean).join(" / ") || null}
+          error={[xPostCandidates.error, xPostLogs.error, xPostOutcomes.error].filter(Boolean).join(" / ") || null}
           logs={xPostLogs.logs}
+          outcomes={xPostOutcomes.outcomes}
         />
 
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
