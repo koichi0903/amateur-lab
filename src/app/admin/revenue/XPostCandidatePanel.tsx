@@ -217,6 +217,10 @@ export default function XPostCandidatePanel({
     .map((item) => item.candidate?.key)
     .filter((key): key is string => Boolean(key));
   const postedPlannedCount = plannedKeys.filter((key) => postedKeys.has(key)).length;
+  const remainingDailyCandidates = dailyPlan
+    .map((item) => item.candidate)
+    .filter((candidate): candidate is XPostCandidate => Boolean(candidate))
+    .filter((candidate) => !postedKeys.has(candidate.key));
   const groupedOutcomes: Record<XPostOutcomeStatus, XPostOutcome[]> = {
     winner: outcomes.filter((outcome) => outcome.status === "winner"),
     testing: outcomes.filter((outcome) => outcome.status === "testing"),
@@ -310,6 +314,69 @@ export default function XPostCandidatePanel({
     setSavingKey(null);
   }
 
+  async function savePosted(candidate: XPostCandidate) {
+    const response = await fetch("/api/admin/x-posts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        postKey: candidate.key,
+        workId: candidate.workId,
+        category: candidate.category,
+        title: candidate.title,
+        postText: candidate.postText,
+        postDate: dateKey,
+      }),
+    });
+
+    if (!response.ok) throw new Error("Failed to save X post log");
+  }
+
+  async function launchTodayPosts() {
+    if (!remainingDailyCandidates.length || savingKey) return;
+
+    setSavingKey("bulk");
+    const draftWindows = remainingDailyCandidates.map(() => {
+      const draftWindow = window.open("about:blank", "_blank");
+      if (draftWindow) draftWindow.opener = null;
+      return draftWindow;
+    });
+    await copyText(
+      "bulk-posts",
+      remainingDailyCandidates
+        .map((candidate, index) => `#${index + 1}\n${candidate.postText}`)
+        .join("\n\n---\n\n"),
+    );
+
+    remainingDailyCandidates.forEach((candidate, index) => {
+      window.setTimeout(() => {
+        const url = `https://x.com/intent/post?text=${encodeURIComponent(candidate.postText)}`;
+        const draftWindow = draftWindows[index];
+        if (draftWindow) draftWindow.location.href = url;
+        else window.open(url, "_blank", "noopener,noreferrer");
+      }, index * 350);
+    });
+
+    try {
+      await Promise.all(remainingDailyCandidates.map(savePosted));
+      setPostedKeys((current) => {
+        const next = new Set(current);
+        remainingDailyCandidates.forEach((candidate) => next.add(candidate.key));
+
+        try {
+          window.localStorage.setItem(storageKey, JSON.stringify([...next]));
+        } catch {
+          // Local progress is a convenience only.
+        }
+
+        return next;
+      });
+    } catch {
+      // Opened drafts still remain usable even when server logging fails.
+    }
+
+    setSavingKey(null);
+  }
+
   function toggleActionDone(actionKey: string) {
     setDoneActionKeys((current) => {
       const next = new Set(current);
@@ -346,6 +413,19 @@ export default function XPostCandidatePanel({
             {postedPlannedCount}/3 投稿済み
           </p>
           <p className="mt-1 text-xs text-zinc-500">{dateKey}</p>
+          <button
+            type="button"
+            onClick={launchTodayPosts}
+            disabled={!remainingDailyCandidates.length || savingKey === "bulk"}
+            className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-white px-4 text-xs font-black text-black transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+          >
+            <Send size={14} />
+            {savingKey === "bulk"
+              ? "Opening..."
+              : remainingDailyCandidates.length
+                ? `Open ${remainingDailyCandidates.length} drafts`
+                : "All opened"}
+          </button>
         </div>
       </div>
 
