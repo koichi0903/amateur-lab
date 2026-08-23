@@ -1,0 +1,51 @@
+import { unstable_cache } from "next/cache";
+import { supabase } from "@/lib/supabase";
+
+export type AiDiscovery = {
+  id: number;
+  title: string;
+  image_url: string | null;
+  price: number;
+  sale_price: number;
+  list_price: number | null;
+  discount_rate: number;
+  review_average: number;
+  review_count: number;
+  score: number;
+  ranking: number;
+  realtime_rank: number | null;
+  previous_realtime_rank: number | null;
+  reason: string;
+  reasonType: "price" | "rank" | "review" | "score" | "hidden";
+};
+
+const columns = "id,title,image_url,price,sale_price,list_price,discount_rate,review_average,review_count,score,ranking,realtime_rank,previous_realtime_rank";
+
+function price(work: AiDiscovery) { return work.sale_price > 0 ? work.sale_price : work.price; }
+
+function reason(work: AiDiscovery, used: Set<string>) {
+  const current = price(work);
+  const rise = work.previous_realtime_rank && work.realtime_rank ? work.previous_realtime_rank - work.realtime_rank : 0;
+  const options: Array<[AiDiscovery["reasonType"], string, boolean]> = [
+    ["price", `${Math.round(work.discount_rate)}%OFF。価格面で今チェックしたい作品です。`, work.discount_rate >= 20],
+    ["rank", `ランキングが${rise}位上昇。いま注目度が伸びている作品です。`, rise >= 5],
+    ["review", `評価${work.review_average.toFixed(1)}・レビュー${work.review_count}件。反応の確かさに注目です。`, work.review_average >= 4.2 && work.review_count >= 10],
+    ["score", `発掘スコア${Math.round(work.score)}。複数の指標でおすすめできる作品です。`, work.score >= 70],
+    ["hidden", "ランキングだけでは見つけにくい、注目候補として選びました。", current > 0],
+  ];
+  const selected = options.find(([type, , valid]) => valid && !used.has(type)) ?? options.find(([, , valid]) => valid) ?? options[4];
+  used.add(selected[0]);
+  return { reason: selected[1], reasonType: selected[0] };
+}
+
+async function fetchAiDiscoveries() {
+  const result = await supabase.from("works").select(columns)
+    .not("image_url", "is", null).neq("image_url", "")
+    .or("ranking.lte.2000,realtime_rank.lte.2000,review_count.gte.10,review_average.gte.4.2,score.gte.60")
+    .order("score", { ascending: false, nullsFirst: false }).limit(80);
+  if (result.error) throw result.error;
+  const used = new Set<string>();
+  return (result.data ?? []).map((work) => ({ ...work, ...reason(work as AiDiscovery, used) })) as AiDiscovery[];
+}
+
+export const getAiDiscoveries = unstable_cache(fetchAiDiscoveries, ["ai-discoveries"], { revalidate: 3600, tags: ["ai-discoveries", "home-daily-discovery"] });

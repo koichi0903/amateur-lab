@@ -15,6 +15,11 @@ const configurations: Record<string, { label: string; accent: string; badge: str
   REVIEW_INCREASE: { label: "レビュー急増", accent: "text-amber-600", badge: "bg-amber-50 text-amber-600" },
   RANK_UP: { label: "初ランクイン", accent: "text-blue-600", badge: "bg-blue-50 text-blue-600" },
   RECOMMEND: { label: "AIおすすめ", accent: "text-violet-600", badge: "bg-violet-50 text-violet-600" },
+  price: { label: "価格発掘", accent: "text-rose-700", badge: "bg-rose-50 text-rose-700" },
+  rank: { label: "人気上昇", accent: "text-blue-600", badge: "bg-blue-50 text-blue-600" },
+  review: { label: "高評価", accent: "text-amber-600", badge: "bg-amber-50 text-amber-600" },
+  score: { label: "スコア発掘", accent: "text-violet-600", badge: "bg-violet-50 text-violet-600" },
+  hidden: { label: "隠れた候補", accent: "text-emerald-600", badge: "bg-emerald-50 text-emerald-600" },
 };
 
 export default function InsightCard({ insight }: { insight: Insight }) {

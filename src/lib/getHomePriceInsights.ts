@@ -27,6 +27,11 @@ export type HomePriceInsightWork = Pick<
   | "discount_rate"
   | "lowest_price"
   | "is_bottom_price"
+  | "ranking"
+  | "realtime_rank"
+  | "review_average"
+  | "review_count"
+  | "score"
 > & {
   currentPrice: number;
   previousPrice: number | null;
@@ -142,7 +147,7 @@ async function fetchHomePriceInsights() {
 
   const { data: works } = await supabase
     .from("works")
-    .select("id,product_id,title,image_url,price,sale_price,list_price,discount_rate,lowest_price,is_bottom_price")
+    .select("id,product_id,title,image_url,price,sale_price,list_price,discount_rate,lowest_price,is_bottom_price,ranking,realtime_rank,review_average,review_count,score")
     .in("product_id", productIds)
     .gt("price", 0)
     .limit(HOME_PRICE_WORK_LIMIT);
@@ -153,6 +158,12 @@ async function fetchHomePriceInsights() {
   }
 
   const insights = ((works ?? []) as HomePriceInsightWork[])
+    .filter((work) =>
+      (work.ranking > 0 && work.ranking <= 2000) ||
+      (work.realtime_rank != null && work.realtime_rank <= 2000) ||
+      (work.review_count >= 10 && work.review_average >= 4) ||
+      work.score >= 60,
+    )
     .map((work) => buildInsight(work, rowsByProduct.get(work.product_id) ?? []))
     .filter((work): work is HomePriceInsightWork => work !== null);
 

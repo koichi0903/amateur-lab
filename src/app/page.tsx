@@ -14,6 +14,7 @@ import { getDailyDiscovery, type DailyDiscoveryWork } from "@/lib/getDailyDiscov
 import { getHomePriceInsights } from "@/lib/getHomePriceInsights";
 import { getLatestDailyUpdate } from "@/lib/getLatestDailyUpdate";
 import { getHomeRanking } from "@/lib/getHomeRanking";
+import { getAiDiscoveries } from "@/lib/getAiDiscoveries";
 
 export const revalidate = 1800;
 
@@ -25,7 +26,7 @@ export default async function Home() {
   const todayStart = new Date(`${jstDate}T00:00:00+09:00`);
   const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, dailyDiscovery, latestDailyUpdate, rankingResult, saleResult, insightsResult, priceInsights] =
+  const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, dailyDiscovery, latestDailyUpdate, rankingResult, saleResult, priceInsights, aiDiscoveries] =
     await Promise.all([
       supabase.from("site_statistics").select("total_works").eq("id", 1).maybeSingle(),
       supabase.from("works").select("id", { count: "exact", head: true }),
@@ -48,30 +49,28 @@ export default async function Home() {
         .eq("is_on_sale", true)
         .order("discount_rate", { ascending: false })
         .limit(5),
-      supabase
-        .from("insights")
-        .select("id,type,title,description,works(id,title,image_url,score,review_average)")
-        .order("priority", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(5),
       getHomePriceInsights(),
+      getAiDiscoveries(),
     ]);
 
   const statistics = statisticsResult.data;
   const featuredWork = dailyDiscovery.work ?? (rankingResult[0] as DailyDiscoveryWork | undefined) ?? null;
+  const heroPriceInsight = featuredWork
+    ? priceInsights.buyTiming.find((insight) => insight.id === featuredWork.id) ?? null
+    : null;
 
   return (
     <>
       <Header />
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
-        <Hero work={featuredWork} eyebrow={dailyDiscovery.eyebrow} reason={dailyDiscovery.reason} priceInsight={priceInsights.buyTiming[0] ?? null} />
+        <Hero work={featuredWork} eyebrow={dailyDiscovery.eyebrow} reason={dailyDiscovery.reason} priceInsight={heroPriceInsight} />
         <StatStrip
           totalWorks={totalWorksResult.count ?? statistics?.total_works ?? 0}
           todayUpdates={todayUpdatesResult.count ?? 0}
           saleWorks={saleWorksResult.count ?? 0}
           aiInsights={totalInsightsResult.count ?? 0}
         />
-        <InsightFeed insights={insightsResult.data ?? []} lastUpdatedAt={latestDailyUpdate} />
+        <InsightFeed insights={aiDiscoveries.slice(0, 5).map((work) => ({ id: work.id, type: work.reasonType, title: work.title, description: work.reason, works: work }))} lastUpdatedAt={latestDailyUpdate} />
         <PriceInsightSections
           priceDrops={priceInsights.priceDrops}
           lowestUpdates={priceInsights.lowestUpdates}
