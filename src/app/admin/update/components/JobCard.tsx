@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 const PHASE_LABELS: Record<string, string> = {
-  ranking_api: "DMMランキング上位2,000件を取得",
+  ranking_api: "DMMランキング上位10,000件を取得",
   ranking_register: "未登録作品を初回登録",
   ranking_save: "作品順位を保存",
   ranking_price_scan: "FANZA人気順一覧の価格を照合",

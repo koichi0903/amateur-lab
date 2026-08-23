@@ -4,8 +4,8 @@ const REALTIME_RANKING_URL =
   "https://video.dmm.co.jp/av/list/?sort=ranking";
 
 const REALTIME_ITEMS_PER_PAGE = 120;
-const REALTIME_MAX_PAGES = 17;
-const REALTIME_TARGET_COUNT = 2000;
+const REALTIME_MAX_PAGES = 84;
+const REALTIME_TARGET_COUNT = 10000;
 
 export async function getRealtimeRanking() {
   return getRankingProducts(
