@@ -68,6 +68,27 @@ type XZeroClickReason = {
   reason: string;
 };
 
+type XComparisonPost = {
+  key: string;
+  title: string;
+  text: string;
+};
+
+type XRewritePlan = {
+  key: string;
+  title: string;
+  previous: string;
+  next: string;
+  reason: string;
+  postText: string;
+  followUp: string;
+};
+
+type XCalendarDay = {
+  date: string;
+  count: number;
+};
+
 const DAILY_POSTS: DailyPost[] = [
   {
     slot: "1本目",
@@ -300,7 +321,7 @@ function buildProfileCopy(patternStats: XPatternStat[]) {
   const strongest = patternStats.find((stat) => stat.clicks > 0)?.label ?? "セール・評価";
   return {
     bio: `FANZA作品を${strongest}中心にメモ。価格、サンプル、レビュー数を見て選びやすいものだけ拾います。#PR`,
-    pinned: "毎日、価格・サンプル・レビュー数を見て、選びやすいFANZA作品だけメモしています。気になる作品は詳細で確認してください。#PR #FANZA",
+    pinned: "毎日、価格・サンプル・レビュー数を見て、選びやすいFANZA作品だけメモしています。迷ったらこの入口からどうぞ。\nhttps://hakkutsu-lab.com/x\n#PR #FANZA",
   };
 }
 
@@ -382,6 +403,111 @@ function buildNaturalFollowUpReplies(dailyPlan: ReturnType<typeof buildDailyPlan
     }));
 }
 
+function buildComparisonPosts(candidates: XPostCandidate[]): XComparisonPost[] {
+  const groups = [
+    {
+      key: "deal-compare",
+      title: "セール比較投稿",
+      heading: "セールで迷うなら、今日はこの3本から見るのがよさそう。",
+      items: candidates.filter((candidate) => candidate.category === "deal").slice(0, 3),
+    },
+    {
+      key: "score-compare",
+      title: "高評価比較投稿",
+      heading: "外しにくさ重視なら、まずこの3本を比べるのが早いです。",
+      items: candidates.filter((candidate) => candidate.category === "score" || candidate.category === "sales").slice(0, 3),
+    },
+    {
+      key: "new-compare",
+      title: "新作比較投稿",
+      heading: "新作から探すなら、最初に見る候補はこのあたり。",
+      items: candidates.filter((candidate) => candidate.category === "new").slice(0, 3),
+    },
+  ];
+
+  return groups
+    .filter((group) => group.items.length >= 2)
+    .map((group) => ({
+      key: group.key,
+      title: group.title,
+      text: [
+        group.heading,
+        "",
+        ...group.items.map((item, index) => `${index + 1}. ${item.title}`),
+        "",
+        "迷ったら、価格・サンプル・レビュー数の順に見ると選びやすいです。",
+        "https://hakkutsu-lab.com/x",
+        "#PR #FANZA",
+      ].join("\n"),
+    }));
+}
+
+function rewritePlanFor(outcome: XPostOutcome): XRewritePlan {
+  const plans: Record<XPostCandidate["category"], Pick<XRewritePlan, "previous" | "next" | "reason">> = {
+    deal: {
+      previous: "セール訴求",
+      next: "サンプル・雰囲気訴求",
+      reason: "安さだけではクリックされなかった可能性があります。",
+    },
+    score: {
+      previous: "スコア訴求",
+      next: "誰向けか訴求",
+      reason: "点数だけでは、自分に合う作品か伝わりにくかった可能性があります。",
+    },
+    new: {
+      previous: "新作訴求",
+      next: "今見る理由訴求",
+      reason: "新作というだけでは、クリックする理由が弱かった可能性があります。",
+    },
+    sales: {
+      previous: "売れてる訴求",
+      next: "外しにくさ訴求",
+      reason: "売れている事実より、なぜ候補に入るかを見せる必要があります。",
+    },
+  };
+  const plan = plans[outcome.category];
+  const postText = [
+    `${plan.next}で出し直し。`,
+    outcome.title,
+    outcome.category === "deal"
+      ? "安いから買う、というよりサンプルの雰囲気が合う人にはかなり見やすそう。"
+      : outcome.category === "score"
+        ? "評価だけで決めず、レビュー数とサンプルまで見ると判断しやすい作品です。"
+        : outcome.category === "new"
+          ? "新作で情報は少なめだけど、サンプルの時点で雰囲気が合うなら早めに候補入り。"
+          : "実際に選ばれている作品なので、迷ったときの外しにくい候補として見やすいです。",
+    `https://hakkutsu-lab.com/works/${outcome.work_id}?from=x`,
+    "#PR #FANZA",
+  ].join("\n");
+
+  return {
+    key: `rewrite-${outcome.id}`,
+    title: outcome.title,
+    previous: plan.previous,
+    next: plan.next,
+    reason: plan.reason,
+    postText,
+    followUp: "前回は切り口が弱かったので、今回は作品名より「見る理由」が伝わる形に変えています。",
+  };
+}
+
+function buildPostingCalendar(logs: XPostLog[]): XCalendarDay[] {
+  const counts = new Map<string, number>();
+  logs.forEach((log) => counts.set(log.post_date, (counts.get(log.post_date) ?? 0) + 1));
+
+  return Array.from({ length: 14 }).map((_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (13 - index));
+    const key = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(date);
+    return { date: key, count: counts.get(key) ?? 0 };
+  });
+}
+
 export default function XPostCandidatePanel({
   candidates,
   error,
@@ -426,6 +552,22 @@ export default function XPostCandidatePanel({
   const patternStats = useMemo(() => buildPatternStats(outcomes), [outcomes]);
   const zeroClickReasons = useMemo(() => buildZeroClickReasons(outcomes), [outcomes]);
   const profileCopy = useMemo(() => buildProfileCopy(patternStats), [patternStats]);
+  const comparisonPosts = useMemo(() => buildComparisonPosts(candidates), [candidates]);
+  const rewritePlans = useMemo(
+    () => outcomes.filter((outcome) => outcome.status === "replace").slice(0, 4).map(rewritePlanFor),
+    [outcomes],
+  );
+  const xClicks = outcomes.reduce((sum, outcome) => sum + outcome.clicksSevenDays, 0);
+  const requiredMonthlyClicks = 50000;
+  const monthlyProgress = Math.min(100, Math.round((xClicks / requiredMonthlyClicks) * 100));
+  const postingCalendar = useMemo(() => buildPostingCalendar(logs), [logs]);
+  const repeatedWorkIds = useMemo(() => {
+    const counts = new Map<number, number>();
+    logs.slice(0, 50).forEach((log) => counts.set(log.work_id, (counts.get(log.work_id) ?? 0) + 1));
+    return Array.from(counts.entries())
+      .filter(([, count]) => count >= 3)
+      .map(([workId]) => workId);
+  }, [logs]);
 
   useEffect(() => {
     try {
@@ -790,6 +932,62 @@ export default function XPostCandidatePanel({
 
       <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
         <div className="flex items-center gap-2">
+          <BarChart3 className="text-pink-300" size={18} />
+          <h3 className="text-sm font-black">月100万への進捗</h3>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+            <p className="text-xs font-black text-zinc-100">記録済みXクリック</p>
+            <p className="mt-2 text-3xl font-black text-pink-300">{xClicks.toLocaleString("ja-JP")}</p>
+            <p className="mt-1 text-[11px] text-zinc-500">投稿後7日以内クリックの合計</p>
+          </div>
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+            <p className="text-xs font-black text-zinc-100">仮の必要クリック</p>
+            <p className="mt-2 text-3xl font-black text-amber-300">{requiredMonthlyClicks.toLocaleString("ja-JP")}</p>
+            <p className="mt-1 text-[11px] text-zinc-500">CVRと報酬単価で後から調整</p>
+          </div>
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+            <p className="text-xs font-black text-zinc-100">到達率</p>
+            <p className="mt-2 text-3xl font-black text-emerald-300">{monthlyProgress}%</p>
+            <div className="mt-3 h-2 rounded-full bg-zinc-800">
+              <div className="h-full rounded-full bg-emerald-400" style={{ width: `${monthlyProgress}%` }} />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+        <div className="flex items-center gap-2">
+          <Sparkles className="text-cyan-300" size={18} />
+          <h3 className="text-sm font-black">比較投稿</h3>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          {comparisonPosts.map((post) => (
+            <div key={post.key} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+              <p className="text-xs font-black text-zinc-100">{post.title}</p>
+              <textarea
+                readOnly
+                value={post.text}
+                className="mt-3 h-44 w-full resize-none rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-[11px] leading-5 text-zinc-300 outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => copyText(post.key, post.text)}
+                className="mt-3 inline-flex h-9 items-center gap-2 rounded-xl border border-zinc-700 px-3 text-xs font-black transition hover:border-cyan-500 hover:text-cyan-200"
+              >
+                {copiedKey === post.key ? <Check size={14} /> : <Copy size={14} />}
+                {copiedKey === post.key ? "コピー済み" : "比較投稿をコピー"}
+              </button>
+            </div>
+          ))}
+          {!comparisonPosts.length && (
+            <p className="text-xs text-zinc-600">比較投稿を作る候補がまだ足りません。</p>
+          )}
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+        <div className="flex items-center gap-2">
           <MessageCircle className="text-sky-300" size={18} />
           <h3 className="text-sm font-black">返信先探し</h3>
         </div>
@@ -873,6 +1071,44 @@ export default function XPostCandidatePanel({
 
       <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
         <div className="flex items-center gap-2">
+          <RefreshCw className="text-rose-300" size={18} />
+          <h3 className="text-sm font-black">クリック0の自動リライト指示</h3>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          {rewritePlans.map((plan) => (
+            <div key={plan.key} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+              <p className="line-clamp-1 text-xs font-black text-zinc-100">{plan.title}</p>
+              <div className="mt-3 grid gap-2 text-[11px] leading-5 text-zinc-500 sm:grid-cols-2">
+                <p>前回: <span className="font-black text-zinc-300">{plan.previous}</span></p>
+                <p>次回: <span className="font-black text-rose-200">{plan.next}</span></p>
+              </div>
+              <p className="mt-2 text-[11px] leading-5 text-zinc-500">{plan.reason}</p>
+              <textarea
+                readOnly
+                value={plan.postText}
+                className="mt-3 h-36 w-full resize-none rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-[11px] leading-5 text-zinc-300 outline-none"
+              />
+              <p className="mt-2 rounded-lg bg-zinc-950 p-3 text-[11px] leading-5 text-zinc-500">
+                補足リプ: {plan.followUp}
+              </p>
+              <button
+                type="button"
+                onClick={() => copyText(plan.key, `${plan.postText}\n\n補足リプ:\n${plan.followUp}`)}
+                className="mt-3 inline-flex h-9 items-center gap-2 rounded-xl border border-zinc-700 px-3 text-xs font-black transition hover:border-rose-500 hover:text-rose-200"
+              >
+                {copiedKey === plan.key ? <Check size={14} /> : <Copy size={14} />}
+                {copiedKey === plan.key ? "コピー済み" : "リライト案をコピー"}
+              </button>
+            </div>
+          ))}
+          {!rewritePlans.length && (
+            <p className="text-xs text-zinc-600">7日経過したクリック0投稿はまだありません。</p>
+          )}
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+        <div className="flex items-center gap-2">
           <UserRound className="text-violet-300" size={18} />
           <h3 className="text-sm font-black">プロフィールと固定投稿</h3>
         </div>
@@ -921,6 +1157,44 @@ export default function XPostCandidatePanel({
               <p className="mt-2 text-[11px] leading-5 text-zinc-500">{detail}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="text-emerald-300" size={18} />
+          <h3 className="text-sm font-black">投稿カレンダーと週次作戦</h3>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_1fr]">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+            <p className="text-xs font-black text-zinc-100">直近14日</p>
+            <div className="mt-3 grid grid-cols-7 gap-2">
+              {postingCalendar.map((day) => (
+                <div
+                  key={day.date}
+                  className={`rounded-lg border px-2 py-2 text-center ${
+                    day.count >= 3
+                      ? "border-emerald-800 bg-emerald-950/30 text-emerald-200"
+                      : day.count > 0
+                        ? "border-amber-800 bg-amber-950/30 text-amber-200"
+                        : "border-zinc-800 bg-zinc-950 text-zinc-600"
+                  }`}
+                >
+                  <p className="text-[10px] font-bold">{day.date.slice(5).replace("-", "/")}</p>
+                  <p className="mt-1 text-sm font-black">{day.count}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+            <p className="text-xs font-black text-zinc-100">今週の指示</p>
+            <div className="mt-3 space-y-2 text-[11px] leading-5 text-zinc-500">
+              <p>増やす: {patternStats[0]?.clicks ? patternStats[0].label : "まだ決めない"}</p>
+              <p>減らす: {zeroClickReasons.length ? "クリック0になった切り口" : "まだ決めない"}</p>
+              <p>再投稿: {rewritePlans.length ? `${rewritePlans.length}本あり` : "まだなし"}</p>
+              <p>重複注意: {repeatedWorkIds.length ? `${repeatedWorkIds.length}作品` : "なし"}</p>
+            </div>
+          </div>
         </div>
       </section>
 

@@ -93,6 +93,7 @@ export default function PurchaseCard({
   const saleEnd = work.is_on_sale ? formatDateTime(work.sale_end_at) : null;
   const checkedLabel = formatDateTime(checkedAt);
   const affiliateUrl = work.affiliate_url?.trim() || null;
+  const isXVisitor = sourcePage === "x";
   const decisionFacts = [
     isLowestPrice ? "登録以降の最安価格" : null,
     sampleMovieAvailable ? "無料サンプル動画あり" : null,
@@ -181,12 +182,14 @@ export default function PurchaseCard({
             sourcePage={sourcePage}
             experiment
             variantChildren={{
-              "price-focus": "FANZA公式で最安価格を確認",
+              "price-focus": isXVisitor
+                ? "サンプルと価格をFANZAで確認"
+                : "FANZA公式で最安価格を確認",
             }}
             ariaLabel="FANZA公式で価格とサンプルを確認する（新しいタブで開きます）"
             className="mt-6 block w-full rounded-xl bg-gradient-to-r from-pink-600 to-fuchsia-600 px-4 py-4 text-center text-base font-black text-white shadow-md transition hover:scale-[1.02] hover:shadow-lg"
           >
-            FANZA公式で価格・サンプルを確認
+            {isXVisitor ? "サンプルと価格を確認する" : "FANZA公式で価格・サンプルを確認"}
           </AffiliateLink>
         ) : (
           <div className="mt-6 rounded-xl bg-zinc-200 px-4 py-4 text-center text-sm font-bold text-zinc-500">
