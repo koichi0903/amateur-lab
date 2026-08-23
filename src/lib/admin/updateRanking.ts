@@ -18,7 +18,7 @@ import {
 } from "./rankingPlaywrightTargets";
 import { updateTopRankingWorks } from "./updateTopRankingWorks";
 
-const RANKING_LIMIT = 1000;
+const RANKING_LIMIT = 2000;
 const API_PAGE_SIZE = 100;
 const DB_BATCH_SIZE = 500;
 const SAVE_BATCH_SIZE = 10;
@@ -192,7 +192,7 @@ export async function updateRanking() {
     await reportProgress(0, "ranking_api", 0, 10);
     const allItems: DmmItem[] = [];
     let page = 0;
-    for (let offset = 1; offset <= 901; offset += API_PAGE_SIZE) {
+    for (let offset = 1; offset <= 1901; offset += API_PAGE_SIZE) {
       const items = await fetchRankingPage(apiId, affiliateId, offset);
       if (items.length !== API_PAGE_SIZE) {
         throw new Error(
@@ -252,7 +252,7 @@ export async function updateRanking() {
     await updateRankingValues(rankingTargets);
     await resetStaleRankings(new Set(productIds));
 
-    await reportProgress(25, "ranking_price_scan", 0, 9);
+    await reportProgress(25, "ranking_price_scan", 0, 17);
     const realtimeListings = await getRealtimeRanking();
     if (realtimeListings.length === 0) {
       throw new Error("FANZA人気順一覧の価格取得結果が0件です");

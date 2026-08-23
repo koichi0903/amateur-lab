@@ -6,7 +6,7 @@ import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
 import type { RankingPlaywrightTarget } from "./rankingPlaywrightTargets";
 import { updateWork } from "./updateWork";
 
-const PLAYWRIGHT_LIMIT = 1000;
+const PLAYWRIGHT_LIMIT = 2000;
 
 async function updateBatch(
   targets: RankingPlaywrightTarget[],
