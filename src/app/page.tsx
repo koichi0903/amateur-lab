@@ -7,9 +7,11 @@ import {
   SaleSection,
   StatStrip,
 } from "@/components/home/HomeSections";
+import PriceInsightSections from "@/components/home/PriceInsightSections";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { getDailyDiscovery } from "@/lib/getDailyDiscovery";
+import { getHomePriceInsights } from "@/lib/getHomePriceInsights";
 
 export const revalidate = 1800;
 
@@ -21,7 +23,7 @@ export default async function Home() {
   const todayStart = new Date(`${jstDate}T00:00:00+09:00`);
   const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, dailyDiscovery, rankingResult, saleResult, insightsResult] =
+  const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, dailyDiscovery, rankingResult, saleResult, insightsResult, priceInsights] =
     await Promise.all([
       supabase.from("site_statistics").select("total_works").eq("id", 1).maybeSingle(),
       supabase.from("works").select("id", { count: "exact", head: true }),
@@ -53,6 +55,7 @@ export default async function Home() {
         .order("priority", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(5),
+      getHomePriceInsights(),
     ]);
 
   const statistics = statisticsResult.data;
@@ -62,7 +65,7 @@ export default async function Home() {
     <>
       <Header />
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
-        <Hero work={featuredWork} eyebrow={dailyDiscovery.eyebrow} reason={dailyDiscovery.reason} />
+        <Hero work={featuredWork} eyebrow={dailyDiscovery.eyebrow} reason={dailyDiscovery.reason} priceInsight={priceInsights.buyTiming[0] ?? null} />
         <StatStrip
           totalWorks={totalWorksResult.count ?? statistics?.total_works ?? 0}
           todayUpdates={todayUpdatesResult.count ?? 0}
@@ -70,6 +73,11 @@ export default async function Home() {
           aiInsights={totalInsightsResult.count ?? 0}
         />
         <InsightFeed insights={insightsResult.data ?? []} />
+        <PriceInsightSections
+          priceDrops={priceInsights.priceDrops}
+          lowestUpdates={priceInsights.lowestUpdates}
+          buyTiming={priceInsights.buyTiming}
+        />
         <RankingSection works={(rankingResult.data ?? []) as Work[]} />
         <SaleSection works={(saleResult.data ?? []) as Work[]} />
         <CategorySection />
