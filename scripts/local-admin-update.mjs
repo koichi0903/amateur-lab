@@ -267,7 +267,11 @@ async function run(taskName) {
       }
     }
 
-    await revalidateProduction(succeededTasks);
+    if (failedTasks.length === 0) {
+      await revalidateProduction(succeededTasks);
+    } else {
+      console.warn("[revalidate] 更新失敗があるため、キャッシュは維持します");
+    }
 
     if (!interrupted) {
       console.log("\n[実行結果]");

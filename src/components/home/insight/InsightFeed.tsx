@@ -8,13 +8,23 @@ type Insight = {
   works?: Record<string, unknown> | Record<string, unknown>[] | null;
 };
 
-export default function InsightFeed({ insights }: { insights: Insight[] }) {
+export default function InsightFeed({ insights, lastUpdatedAt }: { insights: Insight[]; lastUpdatedAt?: string | null }) {
+  const updatedLabel = lastUpdatedAt
+    ? new Intl.DateTimeFormat("ja-JP", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Asia/Tokyo",
+      }).format(new Date(lastUpdatedAt))
+    : "毎日10:30頃に更新";
+
   return (
     <section id="daily-discovery" className="mx-auto mt-14 max-w-[1500px] scroll-mt-28 px-4 sm:px-6 lg:px-8">
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
-          <p className="text-sm font-black text-pink-700">毎日10:00更新</p>
-          <h2 className="mt-2 text-2xl font-black sm:text-3xl">🔥 今日のAI発掘</h2>
+          <p className="text-sm font-black text-pink-700">最終更新 {updatedLabel}</p>
+          <h2 className="mt-2 text-2xl font-black sm:text-3xl">今日のAI発掘</h2>
         </div>
         <span className="hidden text-xs font-bold text-slate-400 sm:block">AIが価格・評価・人気推移を分析</span>
       </div>

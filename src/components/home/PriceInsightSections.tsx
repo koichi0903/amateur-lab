@@ -31,6 +31,7 @@ function MiniChart({ values, color = "#ec4899" }: { values: number[]; color?: st
 
 function MainBuyCard({ work, rank }: { work: HomePriceInsightWork; rank: number }) {
   const previous = work.previousPrice ?? work.list_price ?? work.price;
+  const productDiscountRate = Math.max(0, Math.round(work.discount_rate ?? 0));
   return (
     <Link href={workDetailHref(work.id, "home")} className="group grid min-w-[280px] grid-cols-[112px_1fr] gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-pink-300 hover:shadow-md sm:min-w-0">
       <div className="relative aspect-square overflow-hidden rounded-lg bg-slate-100">
@@ -46,7 +47,7 @@ function MainBuyCard({ work, rank }: { work: HomePriceInsightWork; rank: number 
         <p className="text-xl font-black text-pink-600">{formatPrice(work.currentPrice)}</p>
         <p className="mt-1 text-[11px] font-bold text-slate-500">通常価格 {formatPrice(previous)}</p>
         <div className="mt-2 flex items-center gap-2">
-          <span className="rounded-md bg-pink-50 px-1.5 py-1 text-[11px] font-black text-pink-700">{work.dropRate}%OFF</span>
+          <span className="rounded-md bg-pink-50 px-1.5 py-1 text-[11px] font-black text-pink-700">商品 {productDiscountRate}%OFF</span>
           <span className="text-[11px] font-black text-slate-500">買い時 {work.buyScore}点</span>
         </div>
       </div>

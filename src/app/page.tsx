@@ -10,8 +10,10 @@ import {
 import PriceInsightSections from "@/components/home/PriceInsightSections";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
-import { getDailyDiscovery } from "@/lib/getDailyDiscovery";
+import { getDailyDiscovery, type DailyDiscoveryWork } from "@/lib/getDailyDiscovery";
 import { getHomePriceInsights } from "@/lib/getHomePriceInsights";
+import { getLatestDailyUpdate } from "@/lib/getLatestDailyUpdate";
+import { getHomeRanking } from "@/lib/getHomeRanking";
 
 export const revalidate = 1800;
 
@@ -23,7 +25,7 @@ export default async function Home() {
   const todayStart = new Date(`${jstDate}T00:00:00+09:00`);
   const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, dailyDiscovery, rankingResult, saleResult, insightsResult, priceInsights] =
+  const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, dailyDiscovery, latestDailyUpdate, rankingResult, saleResult, insightsResult, priceInsights] =
     await Promise.all([
       supabase.from("site_statistics").select("total_works").eq("id", 1).maybeSingle(),
       supabase.from("works").select("id", { count: "exact", head: true }),
@@ -38,11 +40,8 @@ export default async function Home() {
         .eq("is_on_sale", true),
       supabase.from("insights").select("id", { count: "exact", head: true }),
       getDailyDiscovery(jstDate),
-      supabase
-        .from("works")
-        .select("id,title,image_url,score,price,sale_price,list_price,discount_rate")
-        .order("score", { ascending: false })
-        .limit(10),
+      getLatestDailyUpdate(),
+      getHomeRanking(),
       supabase
         .from("works")
         .select("id,title,image_url,price,sale_price,discount_rate")
@@ -59,7 +58,7 @@ export default async function Home() {
     ]);
 
   const statistics = statisticsResult.data;
-  const featuredWork = dailyDiscovery.work ?? rankingResult.data?.[0] ?? null;
+  const featuredWork = dailyDiscovery.work ?? (rankingResult[0] as DailyDiscoveryWork | undefined) ?? null;
 
   return (
     <>
@@ -72,13 +71,13 @@ export default async function Home() {
           saleWorks={saleWorksResult.count ?? 0}
           aiInsights={totalInsightsResult.count ?? 0}
         />
-        <InsightFeed insights={insightsResult.data ?? []} />
+        <InsightFeed insights={insightsResult.data ?? []} lastUpdatedAt={latestDailyUpdate} />
         <PriceInsightSections
           priceDrops={priceInsights.priceDrops}
           lowestUpdates={priceInsights.lowestUpdates}
           buyTiming={priceInsights.buyTiming}
         />
-        <RankingSection works={(rankingResult.data ?? []) as Work[]} />
+        <RankingSection works={rankingResult as Work[]} />
         <SaleSection works={(saleResult.data ?? []) as Work[]} />
         <CategorySection />
       </main>
