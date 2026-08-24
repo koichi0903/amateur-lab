@@ -61,7 +61,8 @@ export default function PriceHistory({
       items.findIndex(
         (candidate) =>
           normalizePriceType(candidate.display_name) ===
-          normalizePriceType(item.display_name)
+          normalizePriceType(item.display_name) &&
+          (candidate.period ?? null) === (item.period ?? null)
       ) === index
   );
 
@@ -128,11 +129,19 @@ export default function PriceHistory({
     {uniquePriceTypes.map((item) => (
 
         <div
-          key={item.display_name}
+          key={`${item.display_name}\u0000${item.period ?? ""}`}
           className="max-w-full rounded-full border bg-white px-3 py-1.5 text-sm"
         >
           <span className="break-words text-zinc-600">
             {item.display_name}
+            {item.period && (
+              <span className="ml-2 inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">
+                {item.period}
+              </span>
+            )}
+            <span className="ml-2 text-xs text-zinc-500">
+              {(item.price_kind ?? (item.sale_price != null && item.normal_price != null && item.sale_price < item.normal_price ? "sale" : "regular")) === "sale" ? "期間限定セール" : "通常価格"}
+            </span>
           </span>
 
           <span className="ml-2 font-bold text-pink-600">

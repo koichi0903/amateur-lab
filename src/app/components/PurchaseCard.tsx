@@ -71,10 +71,12 @@ export default function PurchaseCard({
       offer.effectivePrice !== null
     )
     .sort((a, b) => a.effectivePrice - b.effectivePrice);
-  const bestOffer = sortedOffers[0] ?? null;
-  const currentPrice =
-    bestOffer?.effectivePrice ??
-    (work.sale_price && work.sale_price > 0 ? work.sale_price : work.price);
+  // The server render must compare against the current time to hide expired sales.
+  // eslint-disable-next-line react-hooks/purity
+  const saleActive = !work.sale_end_at || new Date(work.sale_end_at).getTime() > Date.now();
+  const representativePrice = saleActive && work.sale_price && work.sale_price > 0 ? work.sale_price : work.price;
+  const bestOffer = sortedOffers.find((offer) => offer.effectivePrice === representativePrice) ?? null;
+  const currentPrice = representativePrice ?? sortedOffers[0]?.effectivePrice ?? null;
   const regularPrice =
     bestOffer?.normal_price && currentPrice && bestOffer.normal_price > currentPrice
       ? bestOffer.normal_price

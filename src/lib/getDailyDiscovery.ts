@@ -4,7 +4,7 @@ import type { Work } from "@/types/work";
 
 export type DailyDiscoveryWork = Pick<
   Work,
-  | "id" | "title" | "image_url" | "price" | "sale_price" | "list_price"
+  | "id" | "product_id" | "title" | "image_url" | "price" | "sale_price" | "list_price"
   | "discount_rate" | "review_average" | "review_count" | "score"
   | "ranking" | "realtime_rank" | "previous_realtime_rank"
 >;
@@ -57,7 +57,7 @@ function buildReason(work: DailyDiscoveryWork, themeIndex: number) {
   ][themeIndex] ?? "価格・評価・人気のバランスから選定しています。";
 }
 
-const WORK_COLUMNS = "id,title,image_url,price,sale_price,list_price,discount_rate,review_average,review_count,score,ranking,realtime_rank,previous_realtime_rank";
+const WORK_COLUMNS = "id,product_id,title,image_url,price,sale_price,list_price,discount_rate,review_average,review_count,score,ranking,realtime_rank,previous_realtime_rank";
 
 export const getDailyDiscovery = unstable_cache(
   async (dateKey: string): Promise<DailyDiscovery> => {

@@ -9,6 +9,7 @@ type Props = {
     sale_price: number | null;
     price: number | null;
     discount_rate: number | null;
+    sale_end_at?: string | null;
   };
   displayPrice?: number | null;
   displayDiscountRate?: number | null;
@@ -21,13 +22,15 @@ export default function MobilePurchaseBar({
   displayDiscountRate,
   sourcePage,
 }: Props) {
+  // eslint-disable-next-line react-hooks/purity
+  const saleActive = !work.sale_end_at || new Date(work.sale_end_at).getTime() > Date.now();
   const currentPrice =
     displayPrice && displayPrice > 0
       ? displayPrice
-      : work.sale_price && work.sale_price > 0
+      : saleActive && work.sale_price && work.sale_price > 0
         ? work.sale_price
         : work.price;
-  const discountRate = displayDiscountRate ?? work.discount_rate;
+  const discountRate = saleActive ? (displayDiscountRate ?? work.discount_rate) : 0;
   const affiliateUrl = work.affiliate_url?.trim() || null;
   const isXVisitor = sourcePage === "x";
 

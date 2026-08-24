@@ -16,14 +16,16 @@ export function formatDisplayName(name: string) {
 
 export function createChartData(
   history: PriceHistoryItem[],
-  displayName: string
+  displayName: string,
+  period: string | null = null,
 ) {
   const target = normalizeDisplayName(displayName);
 
   return history
     .filter(
       (item) =>
-        normalizeDisplayName(item.display_name) === target
+        normalizeDisplayName(item.display_name) === target &&
+        (item.period ?? null) === period
     )
     .map((item) => ({
       changed_at: item.changed_at,

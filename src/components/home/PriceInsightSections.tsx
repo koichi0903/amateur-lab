@@ -48,7 +48,6 @@ function MainBuyCard({ work, rank }: { work: HomePriceInsightWork; rank: number 
         <p className="mt-1 text-[11px] font-bold text-slate-500">通常価格 {formatPrice(previous)}</p>
         <div className="mt-2 flex items-center gap-2">
           <span className="rounded-md bg-pink-50 px-1.5 py-1 text-[11px] font-black text-pink-700">商品 {productDiscountRate}%OFF</span>
-          <span className="text-[11px] font-black text-slate-500">買い時 {work.buyScore}点</span>
         </div>
       </div>
       <div className="col-span-2 rounded-lg bg-slate-50 px-2 py-1"><MiniChart values={work.sparkline} color={rank === 1 ? "#ec4899" : "#60a5fa"} /></div>

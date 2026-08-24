@@ -5,7 +5,7 @@ export interface PriceInfo {
 
   name: string;
 
-  period?: string;
+  period?: string | null;
 
   normalPrice?: number;
 
@@ -145,94 +145,65 @@ async function getPrices(
 
   const labels = page.locator("label");
 
-const count = await labels.count();
+  const count = await labels.count();
 
-for (let i = 0; i < count; i++) {
-  const label = labels.nth(i);
+  for (let i = 0; i < count; i++) {
+    const label = labels.nth(i);
+    const text = (await label.innerText()).replace(/\s+/g, " ").trim();
 
-  const text =
-    (await label.innerText()).trim();
+    // A FANZA price option is a single label, but its child layout has
+    // changed over time. Read the whole option and normalize the period
+    // before removing price/period tokens from the display name.
+    const periodMatch = text.match(/\u7121\u671f\u9650|\d+\s*\u65e5(?:\u9593)?/);
+    const rawPeriod = periodMatch?.[0].replace(/\s+/g, "") ?? null;
+    const period = rawPeriod
+      ? rawPeriod === "\u7121\u671f\u9650"
+        ? rawPeriod
+        : rawPeriod.endsWith("\u9593")
+          ? rawPeriod
+          : `${rawPeriod}\u9593`
+      : null;
 
-    const lines = text
-      .split("\n")
-      .map((v) => v.trim())
-      .filter(Boolean);
-
-    const prices = lines.filter((v) =>
-      v.includes("円")
+    const priceText = text.replace(periodMatch?.[0] ?? "", " ");
+    const prices = [...priceText.matchAll(/¥?([\d,]+)円?/g)].map((match) =>
+      Number(match[1].replace(/,/g, "")),
     );
 
-    if (prices.length === 0) {
-      continue;
-    }
+    if (prices.length === 0) continue;
 
-    const toNumber = (value: string) =>
-      Number(value.replace(/[^\d]/g, ""));
-
-    let normalPrice: number | undefined;
-    let salePrice: number | undefined;
-
-    if (prices.length >= 2) {
-  normalPrice = toNumber(prices[0]);
-  salePrice = toNumber(prices[1]);
-} else {
-  normalPrice = toNumber(prices[0]);
-}
-
-    const period = lines.find(
-  (v) =>
-    v === "無期限" ||
-    v.includes("日間")
-);
-
-    const name = lines
-  .filter(
-    (v) =>
-      !v.includes("円") &&
-      v !== "無期限" &&
-      !v.includes("日間")
-  )
-  .join(" ");
+    const priceTokens = [...priceText.matchAll(/¥?[\d,]+円?/g)].map((match) => match[0]);
+    const name = priceText
+      .replace(new RegExp(priceTokens.map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "g"), " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
     result.push({
-  type: "",
-  name,
-  period,
-  normalPrice,
-  salePrice,
-});
-  }
-
-  const nameCounts = new Map<string, number>();
-
-  for (const price of result) {
-    nameCounts.set(
-      price.name,
-      (nameCounts.get(price.name) ?? 0) + 1
-    );
+      type: "",
+      name,
+      period,
+      normalPrice: prices[0],
+      salePrice: prices.length >= 2 ? prices[1] : undefined,
+    });
   }
 
   // 同じ販売名でも「無期限」「7日間」などが異なる別プランがある。
-  // work_prices は display_name を一意キーにしているため、重複時だけ期間を付けて区別する。
-  const normalized = result.map((price) =>
-    (nameCounts.get(price.name) ?? 0) > 1
-      ? {
-          ...price,
-          name: `${price.name}（${price.period ?? "期間不明"}）`,
-        }
-      : price
-  );
+  // Keep the display name stable. The period is persisted separately.
+  const normalized = result.map((price) => ({
+    ...price,
+    period: price.period ?? null,
+  }));
 
   const normalizedNames = new Set<string>();
 
   for (const price of normalized) {
-    if (normalizedNames.has(price.name)) {
+    const key = `${price.name}\u0000${price.period ?? ""}`;
+    if (normalizedNames.has(key)) {
       throw new Error(
         `価格プランを一意に識別できません: ${price.name}`
       );
     }
 
-    normalizedNames.add(price.name);
+    normalizedNames.add(key);
   }
 
   return normalized;

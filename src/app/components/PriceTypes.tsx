@@ -2,6 +2,8 @@ type PriceItem = {
   id?: number;
   display_name: string | null;
   type?: string | null;
+  period?: string | null;
+  price_kind?: "regular" | "sale" | null;
   normal_price: number | null;
   sale_price: number | null;
 };
@@ -43,6 +45,16 @@ export default function PriceTypes({ prices }: Props) {
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="font-semibold">
                   {item.display_name ?? item.type ?? "販売価格"}
+                  {item.period && (
+                    <span className="ml-2 inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">
+                      {item.period}
+                    </span>
+                  )}
+                  {(item.price_kind ?? (item.sale_price != null && item.normal_price != null && item.sale_price < item.normal_price ? "sale" : "regular")) === "sale" && (
+                    <span className="rounded-full bg-pink-50 px-2 py-0.5 text-[10px] font-bold text-pink-600">
+                      期間限定セール
+                    </span>
+                  )}
                 </span>
                 {index === 0 && (
                   <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700">

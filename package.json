@@ -18,7 +18,8 @@
     "update:ranking": "tsx scripts/update-ranking.ts",
     "update:longhit": "tsx scripts/update-longhit.ts",
     "update:score": "tsx src/lib/admin/updateScore.ts",
-    "backfill:actresses": "tsx scripts/backfill-work-actresses.ts"
+    "backfill:actresses": "tsx scripts/backfill-work-actresses.ts",
+    "repair:price-periods": "tsx scripts/repair-price-periods.ts"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.70.0",

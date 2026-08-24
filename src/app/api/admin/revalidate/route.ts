@@ -70,6 +70,7 @@ export async function POST(request: NextRequest) {
 
   revalidateTag(WORK_DETAIL_CACHE_TAG, "max");
   revalidateTag("home-daily-discovery", "max");
+  revalidateTag("hero-price-drop", "max");
   revalidateTag("ai-discoveries", "max");
   revalidateTag("latest-daily-update", "max");
   revalidateTag("home-ranking", "max");

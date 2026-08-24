@@ -25,6 +25,9 @@ export default function WorkHero({
   officialSampleEmbedUrl,
 }: Props) {
 
+// eslint-disable-next-line react-hooks/purity
+const saleActive = !work.sale_end_at || new Date(work.sale_end_at).getTime() > Date.now();
+
 const genres = work.genre
   ?.split(/\s*\/\s*/)
   .map((name) => name.trim())
@@ -534,7 +537,7 @@ useEffect(() => {
         </div>
 
         <div className="font-black text-pink-600">
-          ¥{(work.sale_price || work.price).toLocaleString()}
+          ¥{(saleActive && work.sale_price ? work.sale_price : work.price).toLocaleString()}
         </div>
       </div>
 

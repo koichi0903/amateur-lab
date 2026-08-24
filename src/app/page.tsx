@@ -11,7 +11,7 @@ import PriceInsightSections from "@/components/home/PriceInsightSections";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { getDailyDiscovery, type DailyDiscoveryWork } from "@/lib/getDailyDiscovery";
-import { getHomePriceInsights } from "@/lib/getHomePriceInsights";
+import { getHeroPriceDrop, getHomePriceInsights } from "@/lib/getHomePriceInsights";
 import { getLatestDailyUpdate } from "@/lib/getLatestDailyUpdate";
 import { getHomeRanking } from "@/lib/getHomeRanking";
 import { getAiDiscoveries } from "@/lib/getAiDiscoveries";
@@ -26,7 +26,7 @@ export default async function Home() {
   const todayStart = new Date(`${jstDate}T00:00:00+09:00`);
   const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, dailyDiscovery, latestDailyUpdate, rankingResult, saleResult, priceInsights, aiDiscoveries] =
+  const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, dailyDiscovery, latestDailyUpdate, rankingResult, saleResult, priceInsights, aiDiscoveries, heroPriceDrop] =
     await Promise.all([
       supabase.from("site_statistics").select("total_works").eq("id", 1).maybeSingle(),
       supabase.from("works").select("id", { count: "exact", head: true }),
@@ -51,13 +51,12 @@ export default async function Home() {
         .limit(5),
       getHomePriceInsights(),
       getAiDiscoveries(),
+      getHeroPriceDrop(),
     ]);
 
   const statistics = statisticsResult.data;
-  const featuredWork = dailyDiscovery.work ?? (rankingResult[0] as DailyDiscoveryWork | undefined) ?? null;
-  const heroPriceInsight = featuredWork
-    ? priceInsights.buyTiming.find((insight) => insight.id === featuredWork.id) ?? null
-    : null;
+  const heroPriceInsight = heroPriceDrop;
+  const featuredWork = heroPriceDrop as unknown as DailyDiscoveryWork | null;
 
   return (
     <>

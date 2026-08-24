@@ -74,11 +74,15 @@ export const revalidate = 86400;
 const getWork = cache(
   unstable_cache(
     async (id: string) => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("works")
         .select(WORK_DETAIL_COLUMNS)
         .eq("id", id)
         .single();
+
+      if (error) {
+        console.error("[work-detail] failed to load work", { id, error });
+      }
 
       return data as WorkDetail | null;
     },
@@ -97,13 +101,13 @@ const getWorkDetailData = unstable_cache(
         .order("sort_order"),
       supabase
         .from("price_history")
-        .select("id,changed_at,display_name,type,normal_price,sale_price")
+        .select("id,changed_at,display_name,type,period,price_kind,normal_price,sale_price")
         .eq("product_id", productId)
         .order("changed_at", { ascending: false })
         .limit(100),
       supabase
         .from("work_prices")
-        .select("display_name,type,normal_price,sale_price")
+        .select("display_name,type,period,price_kind,normal_price,sale_price")
         .eq("product_id", productId)
         .order("display_name"),
       supabase
@@ -120,7 +124,9 @@ const getWorkDetailData = unstable_cache(
       insights: insights.data ?? [],
     };
   },
-  ["work-detail-data"],
+  // Versioned after adding period-aware price history. This prevents the old
+  // period-less payload from hiding the 7-day and unlimited series.
+  ["work-detail-data-v3-period-aware-history-refresh"],
   { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
 );
 
@@ -305,6 +311,12 @@ export default async function WorkDetailPage(
 
   const { sampleImages, priceHistory, workPrices, insights } =
     await getWorkDetailData(work.product_id, work.id);
+  const latestOffers = new Map<string, (typeof priceHistory)[number]>();
+  for (const offer of priceHistory ?? []) {
+    const key = `${offer.display_name ?? offer.type ?? ""}\u0000${offer.period ?? ""}`;
+    if (!latestOffers.has(key)) latestOffers.set(key, offer);
+  }
+  const currentOffers = latestOffers.size ? [...latestOffers.values()] : (workPrices ?? []);
 
   const visibleInsights = (insights ?? []).filter((insight) =>
     isInsightVisible(insight, work)
@@ -321,11 +333,13 @@ export default async function WorkDetailPage(
     const ranks = values.filter((value): value is number => typeof value === "number" && value > 0);
     return ranks.length ? Math.min(...ranks) : null;
   };
-  const currentPrice = [...(workPrices ?? [])].sort((a, b) =>
-    (a.sale_price ?? a.normal_price ?? Number.MAX_SAFE_INTEGER) - (b.sale_price ?? b.normal_price ?? Number.MAX_SAFE_INTEGER)
-  )[0] ?? {
+  const representativePrice = work.sale_price > 0 ? work.sale_price : work.price;
+  const currentPrice = currentOffers.find((offer) =>
+    (offer.sale_price ?? offer.normal_price ?? 0) === representativePrice
+  ) ?? {
     display_name: "代表価格",
     type: null,
+    period: null,
     normal_price: work.list_price ?? work.price,
     sale_price: work.sale_price || null,
   };
@@ -375,11 +389,15 @@ const valueAlternatives = await getValueAlternatives(
   conclusion,
 } = analyzeWork(work);
 
-  const lowestPriceType = currentPrice.display_name ?? "";
+const chartPrice = (priceHistory ?? []).find((item) => {
+  const value = item.sale_price ?? item.normal_price ?? 0;
+  return value === (work.sale_price > 0 ? work.sale_price : work.price);
+}) ?? currentPrice;
 
 const chartData = createChartData(
   priceHistory ?? [],
-  lowestPriceType
+  chartPrice.display_name ?? chartPrice.type ?? "",
+  chartPrice.period ?? null,
 );
 
   return (
@@ -441,7 +459,7 @@ const chartData = createChartData(
             }
             price={
               <div className="space-y-8">
-                <PriceTypes prices={workPrices ?? []} />
+                <PriceTypes prices={currentOffers} />
                 <PriceHistory history={priceHistory ?? []} />
               </div>
             }
@@ -451,7 +469,7 @@ const chartData = createChartData(
 
           <PurchaseCard
             work={work}
-            offers={workPrices ?? []}
+            offers={currentOffers}
             checkedAt={priceHistory[0]?.changed_at ?? null}
             sampleMovieAvailable={!!work.sample_movie_url}
             recommendationReasons={recommendationReasons}

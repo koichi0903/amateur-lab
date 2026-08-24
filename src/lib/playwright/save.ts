@@ -28,7 +28,7 @@ export async function saveWork(
 ) {
 
   const duplicatedPriceNames = data.prices
-    .map((price) => price.name)
+    .map((price) => `${price.name}\u0000${price.period ?? ""}`)
     .filter((name, index, names) => names.indexOf(name) !== index);
 
   if (duplicatedPriceNames.length > 0) {
@@ -38,6 +38,14 @@ export async function saveWork(
       ].join(", ")}`
     );
   }
+
+  const getPriceKind = (price: ParsedData["prices"][number]) =>
+    price.salePrice != null &&
+    price.normalPrice != null &&
+    price.salePrice > 0 &&
+    price.salePrice < price.normalPrice
+      ? "sale"
+      : "regular";
 
   // ------------------------
 // サイトで表示する代表価格
@@ -295,7 +303,7 @@ if (changed) {
   // 現在の価格を取得
   const { data: currentPrices, error: currentPricesError } = await supabase
     .from("work_prices")
-    .select("id,display_name,normal_price,sale_price")
+    .select("id,display_name,period,price_kind,normal_price,sale_price")
     .eq("product_id", productId);
 
   if (currentPricesError) {
@@ -306,14 +314,14 @@ if (changed) {
 
   const currentMap = new Map(
     (currentPrices ?? []).map((price) => [
-      price.display_name,
+      `${price.display_name}\u0000${price.period ?? ""}`,
       price,
     ])
   );
 
   // 新しい価格を保存
   for (const price of data.prices) {
-    const current = currentMap.get(price.name);
+    const current = currentMap.get(`${price.name}\u0000${price.period ?? ""}`);
 
     if (!current) {
   // 新規追加
@@ -322,6 +330,8 @@ if (changed) {
     .insert({
       product_id: productId,
       display_name: price.name,
+      period: price.period ?? null,
+      price_kind: getPriceKind(price),
       type: price.type,
       normal_price: price.normalPrice,
       sale_price: price.salePrice,
@@ -339,6 +349,8 @@ if (changed) {
     .insert({
       product_id: productId,
       display_name: price.name,
+      period: price.period ?? null,
+      price_kind: getPriceKind(price),
       type: price.type,
       normal_price: price.normalPrice,
       sale_price: price.salePrice,
@@ -356,7 +368,8 @@ if (changed) {
     // 価格変更あり？
     const changed =
       current.normal_price !== price.normalPrice ||
-      current.sale_price !== price.salePrice;
+      current.sale_price !== price.salePrice ||
+      current.price_kind !== getPriceKind(price);
 
     if (changed) {
       // 履歴保存
@@ -365,6 +378,8 @@ if (changed) {
   .insert({
     product_id: productId,
     display_name: price.name,
+    period: price.period ?? null,
+    price_kind: getPriceKind(price),
     type: price.type,
     normal_price: price.normalPrice,
     sale_price: price.salePrice,
@@ -381,6 +396,8 @@ if (changed) {
         .from("work_prices")
         .update({
           type: price.type,
+          period: price.period ?? null,
+          price_kind: getPriceKind(price),
           normal_price: price.normalPrice,
           sale_price: price.salePrice,
           updated_at: new Date().toISOString(),
@@ -400,7 +417,7 @@ if (changed) {
       }
     }
 
-    currentMap.delete(price.name);
+    currentMap.delete(`${price.name}\u0000${price.period ?? ""}`);
   }
 
   // 取得できなくなった価格を削除
