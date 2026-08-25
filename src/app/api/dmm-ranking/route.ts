@@ -1,5 +1,18 @@
 import { updateRanking } from "@/lib/admin/updateRanking";
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return String(error);
+}
+
 export async function POST() {
   try {
     const ranking = await updateRanking();
@@ -14,14 +27,9 @@ export async function POST() {
     return Response.json(
       {
         success: false,
-        message:
-          error instanceof Error
-            ? `ランキング更新に失敗しました: ${error.message}`
-            : "ランキング更新に失敗しました。",
+        message: `ランキング更新に失敗しました: ${errorMessage(error)}`,
       },
-      {
-        status: 500,
-      }
+      { status: 500 },
     );
   }
 }

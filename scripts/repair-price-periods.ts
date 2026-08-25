@@ -259,35 +259,41 @@ async function main() {
   const requestedProductId = process.env.REPAIR_PRODUCT_ID?.trim();
   const targets = (requestedProductId ? [requestedProductId] : detectedTargets).sort();
 
-  // Full repair is intentionally resumable. A successful scrape removes the
-  // work from the null-period target set, so the next run continues naturally.
-  const defaultLimit = repairAll ? 200 : targets.length;
-  const limit = Number(process.env.REPAIR_LIMIT ?? defaultLimit);
+  // --all processes every detected target. REPAIR_LIMIT is only used when an
+  // intentionally bounded run is requested.
+  const limit = Number(process.env.REPAIR_LIMIT ?? targets.length);
   const selected = targets.slice(0, Number.isFinite(limit) && limit > 0 ? limit : targets.length);
   const works = await readWorks(selected);
   console.log(`[repair] 対象 ${targets.length}作品、今回 ${works.length}作品`);
 
-  const browser = await createBrowser();
   const failures: string[] = [];
   let completed = 0;
-  try {
-    const configuredConcurrency = Number(process.env.REPAIR_CONCURRENCY ?? 3);
-    const concurrency = Number.isFinite(configuredConcurrency)
-      ? Math.max(1, Math.min(4, Math.floor(configuredConcurrency)))
-      : 3;
+  const configuredConcurrency = Number(process.env.REPAIR_CONCURRENCY ?? 3);
+  const concurrency = Number.isFinite(configuredConcurrency)
+    ? Math.max(1, Math.min(4, Math.floor(configuredConcurrency)))
+    : 3;
+  const configuredBatchSize = Number(process.env.REPAIR_BATCH_SIZE ?? 200);
+  const batchSize = Number.isFinite(configuredBatchSize)
+    ? Math.max(1, Math.floor(configuredBatchSize))
+    : 200;
+
+  for (let batchStart = 0; batchStart < works.length; batchStart += batchSize) {
+    const batch = works.slice(batchStart, batchStart + batchSize);
+    const browser = await createBrowser();
     let cursor = 0;
 
-    async function worker() {
-      while (true) {
-        const index = cursor++;
-        const work = works[index];
-        if (!work) return;
+    try {
+      async function worker() {
+        while (true) {
+          const index = cursor++;
+          const work = batch[index];
+          if (!work) return;
 
-        try {
-          await updatePlaywrightItem(work.product_id, work.url, browser);
-          const historyResult = repairAll
-            ? await repairHistoryPeriods(work.product_id)
-            : (await resetHistory(work.product_id), { repaired: 0, removed: 0 });
+          try {
+            await updatePlaywrightItem(work.product_id, work.url, browser);
+            const historyResult = repairAll
+              ? await repairHistoryPeriods(work.product_id)
+              : (await resetHistory(work.product_id), { repaired: 0, removed: 0 });
           console.log(
             `[repair] 完了 ${work.product_id} 履歴期間補正${historyResult.repaired}件` +
               ` 不明履歴削除${historyResult.removed}件`,
@@ -301,10 +307,15 @@ async function main() {
     }
 
     await Promise.all(
-      Array.from({ length: Math.min(concurrency, works.length) }, () => worker()),
+      Array.from({ length: Math.min(concurrency, batch.length) }, () => worker()),
     );
-  } finally {
-    await closeBrowser(browser);
+    } finally {
+      await closeBrowser(browser);
+    }
+
+    console.log(
+      `[repair] batch ${Math.min(batchStart + batch.length, works.length)}/${works.length}`,
+    );
   }
 
   console.log(

@@ -10,7 +10,6 @@ import {
 import PriceInsightSections from "@/components/home/PriceInsightSections";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
-import { getDailyDiscovery, type DailyDiscoveryWork } from "@/lib/getDailyDiscovery";
 import { getHeroPriceDrop, getHomePriceInsights } from "@/lib/getHomePriceInsights";
 import { getLatestDailyUpdate } from "@/lib/getLatestDailyUpdate";
 import { getHomeRanking } from "@/lib/getHomeRanking";
@@ -26,7 +25,7 @@ export default async function Home() {
   const todayStart = new Date(`${jstDate}T00:00:00+09:00`);
   const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, dailyDiscovery, latestDailyUpdate, rankingResult, saleResult, priceInsights, aiDiscoveries, heroPriceDrop] =
+  const [statisticsResult, totalWorksResult, todayUpdatesResult, saleWorksResult, totalInsightsResult, latestDailyUpdate, rankingResult, saleResult, priceInsights, aiDiscoveries, heroPriceDrop] =
     await Promise.all([
       supabase.from("site_statistics").select("total_works").eq("id", 1).maybeSingle(),
       supabase.from("works").select("id", { count: "exact", head: true }),
@@ -40,12 +39,11 @@ export default async function Home() {
         .select("id", { count: "exact", head: true })
         .eq("is_on_sale", true),
       supabase.from("insights").select("id", { count: "exact", head: true }),
-      getDailyDiscovery(jstDate),
       getLatestDailyUpdate(),
       getHomeRanking(),
       supabase
         .from("works")
-        .select("id,title,image_url,price,sale_price,discount_rate")
+        .select("id,title,image_url,price,sale_price,list_price,discount_rate,sale_end_at")
         .eq("is_on_sale", true)
         .order("discount_rate", { ascending: false })
         .limit(5),
@@ -56,13 +54,15 @@ export default async function Home() {
 
   const statistics = statisticsResult.data;
   const heroPriceInsight = heroPriceDrop;
-  const featuredWork = heroPriceDrop as unknown as DailyDiscoveryWork | null;
+  const featuredWork = heroPriceDrop
+    ? aiDiscoveries.find((work) => work.id === heroPriceDrop.id) ?? null
+    : null;
 
   return (
     <>
       <Header />
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
-        <Hero work={featuredWork} eyebrow={dailyDiscovery.eyebrow} reason={dailyDiscovery.reason} priceInsight={heroPriceInsight} />
+        <Hero work={featuredWork} eyebrow="TODAY'S PRICE DISCOVERY" reason={featuredWork?.reason} priceInsight={heroPriceInsight} />
         <StatStrip
           totalWorks={totalWorksResult.count ?? statistics?.total_works ?? 0}
           todayUpdates={todayUpdatesResult.count ?? 0}

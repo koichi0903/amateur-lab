@@ -10,6 +10,7 @@ import {
 import type { Work } from "@/types/work";
 import WorkImage from "./WorkImage";
 import { workDetailHref } from "@/lib/affiliateTracking";
+import SaleCountdown from "./SaleCountdown";
 
 const formatNumber = (value: number) => new Intl.NumberFormat("ja-JP").format(value);
 const salePrice = (work: Work) => work.sale_price > 0 ? work.sale_price : 0;
@@ -78,7 +79,10 @@ export function SaleSection({ works }: { works: Work[] }) {
               <h3 className="mt-3 line-clamp-2 h-10 text-sm font-bold leading-5">{work.title}</h3>
               <div className="mt-2 min-h-12">
                 {salePrice(work) > 0 && work.price > salePrice(work) && <p className="text-xs font-bold text-slate-600 line-through">通常 ¥{formatNumber(work.price)}</p>}
-                <p className="text-lg font-black text-pink-600">{displayPrice(work) > 0 ? `¥${formatNumber(displayPrice(work))}` : "価格未取得"}</p>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <p className="text-lg font-black text-pink-600">{displayPrice(work) > 0 ? `¥${formatNumber(displayPrice(work))}` : "価格未取得"}</p>
+                  <SaleCountdown saleEndAt={work.sale_end_at} />
+                </div>
               </div>
             </Link>
           ))}

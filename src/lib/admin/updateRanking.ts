@@ -24,6 +24,19 @@ const DB_BATCH_SIZE = 500;
 const SAVE_BATCH_SIZE = 10;
 const JOB_TOTAL = 100;
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return String(error);
+}
+
 type RankingPhase =
   | "ranking_api"
   | "ranking_register"
@@ -340,10 +353,7 @@ export async function updateRanking() {
       entityCounts,
     };
   } catch (error) {
-    await failJob(
-      JOBS.RANKING,
-      error instanceof Error ? error.message : "Unknown error",
-    );
+    await failJob(JOBS.RANKING, errorMessage(error));
     throw error;
   }
 }

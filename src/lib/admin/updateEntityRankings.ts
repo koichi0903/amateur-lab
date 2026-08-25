@@ -19,6 +19,31 @@ type EntityRankingRow = {
 };
 
 const ENTITY_STEPS = 7;
+const MAX_ENCODED_FILTER_LENGTH = 3_000;
+
+function chunkFilterValues(values: string[]) {
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  let encodedLength = 0;
+
+  for (const value of values) {
+    const valueLength = encodeURIComponent(value).length + 1;
+    if (
+      current.length > 0 &&
+      encodedLength + valueLength > MAX_ENCODED_FILTER_LENGTH
+    ) {
+      chunks.push(current);
+      current = [];
+      encodedLength = 0;
+    }
+
+    current.push(value);
+    encodedLength += valueLength;
+  }
+
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
 
 function getRankingPoint(rank: number) {
   return Math.max(1, Math.floor(500 / Math.sqrt(rank)));
@@ -64,12 +89,11 @@ async function syncRankingByName(
     }
   } else {
     const names = rows.map((row) => row.name);
-    const chunkSize = 50;
-    for (let offset = 0; offset < names.length; offset += chunkSize) {
+    for (const namesChunk of chunkFilterValues(names)) {
       const { data, error } = await supabase
         .from(table)
         .select("id,name")
-        .in("name", names.slice(offset, offset + chunkSize));
+        .in("name", namesChunk);
       if (error) throw error;
       existingRows.push(...((data ?? []) as typeof existingRows));
     }
@@ -120,11 +144,14 @@ async function syncRankingByName(
     .map((row) => row.id);
 
   if (staleIds.length > 0 && options.deleteStale) {
-    const { error: deleteError } = await supabase
-      .from(table)
-      .delete()
-      .in("id", staleIds);
-    if (deleteError) throw deleteError;
+    const chunkSize = 100;
+    for (let offset = 0; offset < staleIds.length; offset += chunkSize) {
+      const { error: deleteError } = await supabase
+        .from(table)
+        .delete()
+        .in("id", staleIds.slice(offset, offset + chunkSize));
+      if (deleteError) throw deleteError;
+    }
   }
 
   console.log(`[entity-ranking] ${table} completed`, {

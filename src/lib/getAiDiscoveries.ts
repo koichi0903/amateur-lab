@@ -3,11 +3,14 @@ import { supabase } from "@/lib/supabase";
 
 export type AiDiscovery = {
   id: number;
+  product_id: string;
   title: string;
   image_url: string | null;
   price: number;
   sale_price: number;
   list_price: number | null;
+  lowest_price: number | null;
+  is_bottom_price: boolean;
   discount_rate: number;
   review_average: number;
   review_count: number;
@@ -15,11 +18,12 @@ export type AiDiscovery = {
   ranking: number;
   realtime_rank: number | null;
   previous_realtime_rank: number | null;
+  sale_end_at: string | null;
   reason: string;
   reasonType: "price" | "rank" | "review" | "score" | "hidden";
 };
 
-const columns = "id,title,image_url,price,sale_price,list_price,discount_rate,review_average,review_count,score,ranking,realtime_rank,previous_realtime_rank";
+const columns = "id,product_id,title,image_url,price,sale_price,list_price,lowest_price,is_bottom_price,discount_rate,review_average,review_count,score,ranking,realtime_rank,previous_realtime_rank,sale_end_at";
 
 function price(work: AiDiscovery) { return work.sale_price > 0 ? work.sale_price : work.price; }
 
@@ -48,4 +52,4 @@ async function fetchAiDiscoveries() {
   return (result.data ?? []).map((work) => ({ ...work, ...reason(work as AiDiscovery, used) })) as AiDiscovery[];
 }
 
-export const getAiDiscoveries = unstable_cache(fetchAiDiscoveries, ["ai-discoveries"], { revalidate: 3600, tags: ["ai-discoveries", "home-daily-discovery"] });
+export const getAiDiscoveries = unstable_cache(fetchAiDiscoveries, ["ai-discoveries-v2"], { revalidate: 3600, tags: ["ai-discoveries", "home-daily-discovery"] });
