@@ -17,9 +17,14 @@ import {
   type RankingWorkSnapshot,
 } from "./rankingPlaywrightTargets";
 import { updateTopRankingWorks } from "./updateTopRankingWorks";
+import { RANKING_UPDATE_CONFIG } from "@/config/update";
 
-const RANKING_LIMIT = 10000;
-const API_PAGE_SIZE = 100;
+const RANKING_LIMIT = RANKING_UPDATE_CONFIG.targetCount;
+const API_PAGE_SIZE = RANKING_UPDATE_CONFIG.apiPageSize;
+const API_PAGE_COUNT = Math.ceil(RANKING_LIMIT / API_PAGE_SIZE);
+const FANZA_PAGE_COUNT = Math.ceil(
+  RANKING_LIMIT / RANKING_UPDATE_CONFIG.fanzaItemsPerPage,
+);
 const DB_BATCH_SIZE = 500;
 const SAVE_BATCH_SIZE = 10;
 const JOB_TOTAL = 100;
@@ -202,10 +207,10 @@ export async function updateRanking() {
       throw new Error("DMM_API_ID または DMM_AFFILIATE_ID が未設定です");
     }
 
-    await reportProgress(0, "ranking_api", 0, 100);
+    await reportProgress(0, "ranking_api", 0, API_PAGE_COUNT);
     const allItems: DmmItem[] = [];
     let page = 0;
-    for (let offset = 1; offset <= 9901; offset += API_PAGE_SIZE) {
+    for (let offset = 1; offset <= RANKING_LIMIT; offset += API_PAGE_SIZE) {
       const items = await fetchRankingPage(apiId, affiliateId, offset);
       if (items.length !== API_PAGE_SIZE) {
         throw new Error(
@@ -214,7 +219,12 @@ export async function updateRanking() {
       }
       allItems.push(...items);
       page += 1;
-      await reportProgress(page, "ranking_api", page, 100);
+      await reportProgress(
+        Math.round((page / API_PAGE_COUNT) * 10),
+        "ranking_api",
+        page,
+        API_PAGE_COUNT,
+      );
     }
 
     const uniqueItems = Array.from(
@@ -265,7 +275,7 @@ export async function updateRanking() {
     await updateRankingValues(rankingTargets);
     await resetStaleRankings(new Set(productIds));
 
-    await reportProgress(25, "ranking_price_scan", 0, 84);
+    await reportProgress(25, "ranking_price_scan", 0, FANZA_PAGE_COUNT);
     const realtimeListings = await getRealtimeRanking();
     if (realtimeListings.length === 0) {
       throw new Error("FANZA人気順一覧の価格取得結果が0件です");
