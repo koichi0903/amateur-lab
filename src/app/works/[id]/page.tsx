@@ -126,7 +126,7 @@ const getWorkDetailData = unstable_cache(
   },
   // Versioned after adding period-aware price history. This prevents the old
   // period-less payload from hiding the 7-day and unlimited series.
-  ["work-detail-data-v3-period-aware-history-refresh"],
+  ["work-detail-data-v4-period-keyed-current-offers"],
   { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
 );
 
@@ -316,7 +316,11 @@ export default async function WorkDetailPage(
     const key = `${offer.display_name ?? offer.type ?? ""}\u0000${offer.period ?? ""}`;
     if (!latestOffers.has(key)) latestOffers.set(key, offer);
   }
-  const currentOffers = latestOffers.size ? [...latestOffers.values()] : (workPrices ?? []);
+  // Current offers are authoritative. History can contain plans that ended,
+  // so deriving the purchase list from it can resurrect stale price options.
+  const currentOffers = workPrices?.length
+    ? workPrices
+    : [...latestOffers.values()];
 
   const visibleInsights = (insights ?? []).filter((insight) =>
     isInsightVisible(insight, work)

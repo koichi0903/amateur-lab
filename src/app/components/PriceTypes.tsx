@@ -38,7 +38,10 @@ export default function PriceTypes({ prices }: Props) {
       <div className="divide-y">
         {sortedPrices.map((item, index) => (
           <div
-            key={item.id ?? `${item.type ?? ""}-${item.display_name ?? index}`}
+            key={
+              item.id ??
+              `${item.type ?? ""}-${item.display_name ?? index}-${item.period ?? ""}`
+            }
             className="flex items-center justify-between gap-4 px-4 py-5 sm:px-6"
           >
             <div className="min-w-0">

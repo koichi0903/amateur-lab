@@ -19,7 +19,9 @@
     "update:longhit": "tsx scripts/update-longhit.ts",
     "update:score": "tsx src/lib/admin/updateScore.ts",
     "backfill:actresses": "tsx scripts/backfill-work-actresses.ts",
-    "repair:price-periods": "tsx scripts/repair-price-periods.ts"
+    "repair:price-periods": "tsx scripts/repair-price-periods.ts",
+    "repair:all-price-periods": "tsx scripts/repair-price-periods.ts --all",
+    "repair:invalid-prices": "tsx scripts/repair-invalid-price-data.ts"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.70.0",

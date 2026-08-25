@@ -276,9 +276,9 @@ async function fetchHomePriceInsightsSeparated() {
   const insights: HomePriceInsightWork[] = [];
   const batchSize = 250;
 
-  // Candidates are already ordered by discovery score. Process bounded
-  // batches and stop once the requested top 60 have been found; fetching all
-  // history for 50,000 works concurrently can exhaust the Data API.
+  // Process every candidate in bounded batches before ranking the independent
+  // result sets. Stopping after 60 buy-timing matches can hide regular-price
+  // drops that occur later in the score-ordered works list.
   for (let start = 0; start < candidates.length; start += batchSize) {
     const works = candidates.slice(start, start + batchSize) as unknown as HomePriceInsightWork[];
     const ids = works.map((work) => work.product_id).filter(Boolean);
@@ -308,8 +308,6 @@ async function fetchHomePriceInsightsSeparated() {
       const insight = buildInsight(work, rowsByProduct.get(work.product_id) ?? []);
       if (insight) insights.push(insight);
     }
-    const buyCount = insights.filter((work) => work.peak90Price > work.currentPrice && work.currentPrice <= work.low90Price).length;
-    if (buyCount >= 60) break;
   }
   const priceDrops = insights
     .filter((work) => work.sale_price > 0 && (!work.sale_end_at || new Date(work.sale_end_at).getTime() > Date.now()) && work.dropAmount > 0)

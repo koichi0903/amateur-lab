@@ -7,6 +7,7 @@ import type { AffiliateSource } from "@/lib/affiliateTracking";
 type PriceOffer = {
   display_name: string | null;
   type: string | null;
+  period?: string | null;
   normal_price: number | null;
   sale_price: number | null;
 };
@@ -158,11 +159,12 @@ export default function PurchaseCard({
             <div className="mt-2 space-y-2">
               {sortedOffers.slice(0, 4).map((offer, index) => (
                 <div
-                  key={`${offer.type ?? ""}-${offer.display_name ?? index}`}
+                  key={`${offer.type ?? ""}-${offer.display_name ?? index}-${offer.period ?? ""}`}
                   className="flex items-center justify-between gap-3 text-xs"
                 >
                   <span className="min-w-0 truncate font-bold text-zinc-600">
                     {offer.display_name ?? offer.type ?? "販売価格"}
+                    {offer.period ? `（${offer.period}）` : ""}
                     {index === 0 && (
                       <span className="ml-1 text-emerald-600">最安</span>
                     )}

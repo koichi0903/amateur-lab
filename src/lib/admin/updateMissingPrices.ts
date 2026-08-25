@@ -20,19 +20,32 @@ type PriceTarget = {
 
 const PAGE_SIZE = 1000;
 
+function resolveRunLimit(totalCount: number): number {
+  const configured = Number(process.env.MISSING_PRICE_BATCH_LIMIT);
+  if (Number.isInteger(configured) && configured > 0) {
+    return Math.min(configured, totalCount);
+  }
+
+  return process.env.VERCEL ? Math.min(20, totalCount) : totalCount;
+}
+
 async function loadPriceTargets(): Promise<PriceTarget[]> {
   const works: PriceTarget[] = [];
   const productsWithPricePlans = new Set<string>();
+  const productsWithMissingPeriods = new Set<string>();
 
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabase
       .from("work_prices")
-      .select("id,product_id")
+      .select("id,product_id,period")
       .order("id", { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
 
     if (error) throw error;
-    for (const row of data ?? []) productsWithPricePlans.add(row.product_id);
+    for (const row of data ?? []) {
+      productsWithPricePlans.add(row.product_id);
+      if (!row.period) productsWithMissingPeriods.add(row.product_id);
+    }
     if (!data || data.length < PAGE_SIZE) break;
   }
 
@@ -52,7 +65,8 @@ async function loadPriceTargets(): Promise<PriceTarget[]> {
         work.price <= 0 ||
         work.list_price == null ||
         work.list_price <= 0 ||
-        !productsWithPricePlans.has(work.product_id)
+        !productsWithPricePlans.has(work.product_id) ||
+        productsWithMissingPeriods.has(work.product_id)
       ) {
         works.push(work);
       }
@@ -94,11 +108,14 @@ export async function updateMissingPrices() {
   try {
     // 完了した作品は条件から外れるため、再開時に processed_count で
     // 再度sliceしない。現在残っている対象をID順に処理する。
-    const targets = await loadPriceTargets();
+    const allTargets = await loadPriceTargets();
+    const targets = allTargets.slice(0, resolveRunLimit(allTargets.length));
     const job = await beginJob(JOBS.MISSING_PRICES, targets.length);
     let processed = job.processed_count ?? 0;
 
-    console.log(`[missing-prices] 現在の補完対象 ${targets.length}件`);
+    console.log(
+      `[missing-prices] 今回の補完対象 ${targets.length}件 / 未補完 ${allTargets.length}件`
+    );
 
     if (targets.length === 0) {
       await finishJob(JOBS.MISSING_PRICES);
