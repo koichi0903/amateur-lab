@@ -353,5 +353,8 @@ async function fetchHomePriceInsightsSeparated() {
 export const getHomePriceInsights = unstable_cache(
   fetchHomePriceInsightsSeparated,
   ["home-price-insights-v25"],
-  { revalidate: HOME_PRICE_REVALIDATE_SECONDS }
+  {
+    revalidate: HOME_PRICE_REVALIDATE_SECONDS,
+    tags: ["home-price-insights"],
+  }
 );

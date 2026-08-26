@@ -151,6 +151,13 @@ function hasValidCronSecret(request: NextRequest): boolean {
   return secureCompare(authorization.slice("Bearer ".length), cronSecret);
 }
 
+function hasSignedRevalidationHeaders(request: NextRequest): boolean {
+  const timestamp = request.headers.get("x-hakkutsu-timestamp") ?? "";
+  const signature = request.headers.get("x-hakkutsu-signature") ?? "";
+
+  return /^\d{13}$/.test(timestamp) && /^[a-f0-9]{64}$/i.test(signature);
+}
+
 function adminCookieName(request: NextRequest): string {
   return request.nextUrl.protocol === "https:"
     ? "__Host-hakkutsu_admin"
@@ -255,6 +262,9 @@ export async function proxy(request: NextRequest) {
   }
 
   if (pathname === "/api/admin/revalidate") {
+    // HMAC signatures are verified against the exact request body in the route.
+    // The proxy can only recognize the signed request shape without consuming it.
+    if (hasSignedRevalidationHeaders(request)) return NextResponse.next();
     if (!process.env.CRON_SECRET) return unavailable();
     return hasValidCronSecret(request)
       ? NextResponse.next()

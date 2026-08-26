@@ -24,6 +24,16 @@ const CATALOG_TASKS = new Set(["reserve", "new", "semi-new", "old", "stage"]);
 const PRICE_TASKS = new Set(["sale", "ended-sale", "missing-prices"]);
 const DISCOVERY_TASKS = new Set(["review", "ranking", "score"]);
 const WORK_DETAIL_CACHE_TAG = "work-detail";
+const HOME_CACHE_TAGS = [
+  "home-daily-discovery",
+  "hero-price-drop",
+  "home-price-insights",
+  "ai-discoveries",
+  "latest-daily-update",
+  "home-ranking",
+  "home-catalog",
+  "deals",
+];
 
 function isAuthorized(request: NextRequest, body: string): boolean {
   const secret = process.env.CRON_SECRET;
@@ -88,13 +98,7 @@ export async function POST(request: NextRequest) {
   for (const path of paths) revalidatePath(path);
 
   revalidateTag(WORK_DETAIL_CACHE_TAG, "max");
-  revalidateTag("home-daily-discovery", "max");
-  revalidateTag("hero-price-drop", "max");
-  revalidateTag("ai-discoveries", "max");
-  revalidateTag("latest-daily-update", "max");
-  revalidateTag("home-ranking", "max");
-  revalidateTag("home-catalog", "max");
-  revalidateTag("deals", "max");
+  for (const tag of HOME_CACHE_TAGS) revalidateTag(tag, { expire: 0 });
   revalidatePath("/works/[id]", "page");
   for (const path of ["/actress/[name]", "/genre/[name]", "/maker/[name]", "/series/[name]"]) {
     revalidatePath(path, "page");
