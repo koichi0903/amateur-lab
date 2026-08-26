@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import type { XPostCandidate } from "@/lib/xPostCandidates";
+import type { XPostCandidate } from "@/lib/xPostPlanner";
 
 export type XPostLog = {
   id: number;

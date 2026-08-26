@@ -13,13 +13,16 @@ import {
   RefreshCw,
   Search,
   Send,
+  Shuffle,
   Sparkles,
   Target,
   Trophy,
   UserRound,
 } from "lucide-react";
-import type { XPostCandidate } from "@/lib/xPostCandidates";
+import type { XPostCandidate } from "@/lib/xPostPlanner";
 import type { XPostLog, XPostOutcome, XPostOutcomeStatus } from "@/lib/xPostLogs";
+import { getXWeightedLength, truncateXText } from "@/lib/xText";
+import XCreativeAsset from "./XCreativeAsset";
 
 const CATEGORY_STYLES: Record<XPostCandidate["category"], string> = {
   sales: "border-emerald-800 bg-emerald-950/30 text-emerald-300",
@@ -72,6 +75,7 @@ type XComparisonPost = {
   key: string;
   title: string;
   text: string;
+  weightedLength: number;
 };
 
 type XRewritePlan = {
@@ -92,21 +96,21 @@ type XCalendarDay = {
 const DAILY_POSTS: DailyPost[] = [
   {
     slot: "1本目",
-    title: "セール訴求",
-    detail: "割引率や価格の強い作品。まずクリックを取りに行く投稿。",
-    preferred: ["deal", "sales"],
+    title: "価格推移アラート",
+    detail: "同じ販売形式・利用期間の実履歴で、値下げを確認できた作品。",
+    preferred: ["deal"],
   },
   {
     slot: "2本目",
-    title: "発掘スコア訴求",
-    detail: "フォロワー0でも理由が伝わる、サイト独自の発見枠。",
+    title: "AI発掘",
+    detail: "評価・レビュー・発掘スコアから、見る理由を一つに絞った投稿。",
     preferred: ["score", "sales"],
   },
   {
     slot: "3本目",
-    title: "新作訴求",
-    detail: "新着・鮮度で検索やおすすめ露出を狙う投稿。",
-    preferred: ["new", "deal"],
+    title: "日替わり発掘",
+    detail: "新作と販売実績を日替わりで混ぜ、投稿全体を一種類に偏らせない枠。",
+    preferred: ["new", "sales"],
   },
 ];
 
@@ -120,15 +124,14 @@ function todayKey() {
 }
 
 function buildDailyPlan(candidates: XPostCandidate[]) {
-  const used = new Set<string>();
+  const used = new Set<number>();
 
   return DAILY_POSTS.map((post) => {
-    const candidate =
-      candidates.find(
-        (item) => !used.has(item.key) && post.preferred.includes(item.category),
-      ) ?? candidates.find((item) => !used.has(item.key));
+    const candidate = candidates.find(
+      (item) => !used.has(item.workId) && post.preferred.includes(item.category),
+    );
 
-    if (candidate) used.add(candidate.key);
+    if (candidate) used.add(candidate.workId);
     return { ...post, candidate };
   });
 }
@@ -364,31 +367,48 @@ function buildJapaneseReplyTargets(
 }
 
 function naturalFollowUpRepliesFor(candidate: XPostCandidate): string[] {
-  if (candidate.category === "deal") {
-    return [
-      "これ、安さだけで見るよりサンプルの空気が合うか先に見た方がよさそう。刺さる人にはかなり得だと思う。",
-      "セール中なら候補に入れていいやつ。迷うならまずサンプルだけ見て、雰囲気が合えば買いでよさそう。",
-    ];
+  const checkedAt = new Date(candidate.checkedAt).toLocaleString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const series = candidate.seriesName
+    ? `${candidate.seriesName}${candidate.seriesPeriod ? `（${candidate.seriesPeriod}）` : ""}`
+    : "同じ販売形式・利用期間";
+
+  if (candidate.previousPrice && candidate.currentPrice && candidate.previousPrice > candidate.currentPrice) {
+    const drop = candidate.previousPrice - candidate.currentPrice;
+    const rate = Math.round((drop / candidate.previousPrice) * 100);
+    const lowLabel = candidate.isNinetyDayLow
+      ? "現在は過去90日の最安値です。"
+      : candidate.seriesMinimumPrice === candidate.currentPrice
+        ? "現在は取得期間内の最安値です。"
+        : "直近の値下げを確認しました。";
+    return [[
+      "価格推移を確認すると、",
+      `${candidate.previousPrice.toLocaleString("ja-JP")}円 → ${candidate.currentPrice.toLocaleString("ja-JP")}円`,
+      `${drop.toLocaleString("ja-JP")}円値下げ（${rate}%OFF）`,
+      lowLabel,
+      `対象: ${series}`,
+      `確認: ${checkedAt}`,
+      "",
+      "価格・販売状況は変わるため、購入前にFANZA公式でもご確認ください。",
+    ].join("\n")];
   }
 
-  if (candidate.category === "score") {
-    return [
-      "こういうのは点数だけじゃなくて、レビュー数もある程度あるのが安心材料。迷ったら候補に入れやすい。",
-      "サンプルを見て雰囲気が合うならかなり堅そう。評価だけで押し切るより、まず試し見がよさげ。",
-    ];
-  }
-
-  if (candidate.category === "new") {
-    return [
-      "新作はレビュー待ちでもいいけど、サンプルの時点で雰囲気が合うなら早めに見る価値ありそう。",
-      "まだ情報が少ない分、タイトルよりサンプルの第一印象で決めるのがよさげ。気になる人は先に確認で。",
-    ];
-  }
-
-  return [
-    "実際に選ばれてる作品は、迷ったときに候補へ入れやすい。まず外しにくいところから見たい人向け。",
-    "売れてる系は好みが合えば強いので、サンプルで空気だけ先に見ておくと判断しやすいです。",
-  ];
+  const review = candidate.reviewAverage && candidate.reviewCount
+    ? `評価${candidate.reviewAverage.toFixed(1)}／レビュー${candidate.reviewCount}件`
+    : "レビュー情報は作品ページで確認できます";
+  return [[
+    "AI発掘データの補足です。",
+    `発掘スコア${candidate.score}点・${review}。`,
+    candidate.currentPrice ? `現在価格 ${candidate.currentPrice.toLocaleString("ja-JP")}円` : "価格は作品ページで確認できます。",
+    `確認: ${checkedAt}`,
+    "",
+    "購入前にサンプルとFANZA公式の最新情報をご確認ください。",
+  ].join("\n")];
 }
 
 function buildNaturalFollowUpReplies(dailyPlan: ReturnType<typeof buildDailyPlan>): XFollowUpReply[] {
@@ -400,7 +420,8 @@ function buildNaturalFollowUpReplies(dailyPlan: ReturnType<typeof buildDailyPlan
       candidateKey: candidate.key,
       title: candidate.title,
       replies: naturalFollowUpRepliesFor(candidate),
-    }));
+    }))
+    .filter((item) => item.replies.length > 0);
 }
 
 function buildComparisonPosts(candidates: XPostCandidate[]): XComparisonPost[] {
@@ -425,21 +446,24 @@ function buildComparisonPosts(candidates: XPostCandidate[]): XComparisonPost[] {
     },
   ];
 
-  return groups
-    .filter((group) => group.items.length >= 2)
-    .map((group) => ({
-      key: group.key,
-      title: group.title,
-      text: [
-        group.heading,
-        "",
-        ...group.items.map((item, index) => `${index + 1}. ${item.title}`),
-        "",
-        "迷ったら、価格・サンプル・レビュー数の順に見ると選びやすいです。",
-        "https://hakkutsu-lab.com/x",
-        "#PR #FANZA",
-      ].join("\n"),
-    }));
+  return groups.filter((group) => group.items.length >= 2).map((group) => {
+    let count = Math.min(3, group.items.length);
+    const makeText = (itemCount: number) => [
+      group.heading,
+      "",
+      ...group.items.slice(0, itemCount).map((item, index) => `${index + 1}. ${truncateXText(item.title, 52)}`),
+      "",
+      "価格・サンプル・レビュー数の順に比較できます。",
+      "https://hakkutsu-lab.com/x",
+      "#PR #FANZA",
+    ].join("\n");
+    let text = makeText(count);
+    while (getXWeightedLength(text) > 280 && count > 2) {
+      count -= 1;
+      text = makeText(count);
+    }
+    return { key: group.key, title: group.title, text, weightedLength: getXWeightedLength(text) };
+  }).filter((post) => post.weightedLength <= 280);
 }
 
 function rewritePlanFor(outcome: XPostOutcome): XRewritePlan {
@@ -508,6 +532,94 @@ function buildPostingCalendar(logs: XPostLog[]): XCalendarDay[] {
   });
 }
 
+function TwoStepPostKit({
+  candidate,
+  copiedKey,
+  onCopy,
+}: {
+  candidate: XPostCandidate;
+  copiedKey: string | null;
+  onCopy: (key: string, text: string) => Promise<void>;
+}) {
+  const replyText = naturalFollowUpRepliesFor(candidate)[0];
+  const replyLength = getXWeightedLength(replyText);
+  const mainKey = `main-${candidate.key}`;
+  const replyKey = `reply-${candidate.key}`;
+
+  return (
+    <div className="mt-3 space-y-3">
+      <section className="rounded-xl border border-sky-900 bg-sky-950/20 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-xs font-black text-sky-300">1. 本文を投稿</p>
+            <p className="mt-1 text-[11px] leading-5 text-zinc-500">
+              画像は添付しません。作品URLのリンクカードに商品ジャケットを表示させます。
+            </p>
+          </div>
+          <span className={`text-[11px] font-bold ${candidate.weightedLength > 280 ? "text-red-400" : "text-zinc-500"}`}>
+            X換算 {candidate.weightedLength}/280文字
+          </span>
+        </div>
+        <textarea
+          readOnly
+          value={candidate.postText}
+          aria-label={`${candidate.title}の1投稿目`}
+          className="mt-3 h-40 w-full resize-none rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-sm leading-6 text-zinc-200 outline-none"
+        />
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => onCopy(mainKey, candidate.postText)}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-zinc-700 px-3 text-xs font-black transition hover:border-sky-500 hover:text-sky-300"
+          >
+            {copiedKey === mainKey ? <Check size={14} /> : <Copy size={14} />}
+            {copiedKey === mainKey ? "コピー済み" : "1投稿目をコピー"}
+          </button>
+          <a
+            href={`https://x.com/intent/post?text=${encodeURIComponent(candidate.postText)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3 text-xs font-black text-black transition hover:bg-sky-100"
+          >
+            1投稿目をXで開く <ExternalLink size={13} />
+          </a>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-amber-900 bg-amber-950/20 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="inline-flex items-center gap-2 text-xs font-black text-amber-300">
+              <MessageCircle size={14} /> 2. 投稿した本文へ返信
+            </p>
+            <p className="mt-1 text-[11px] leading-5 text-zinc-500">
+              補足文を貼り、下の価格推移画像を1枚添付します。
+            </p>
+          </div>
+          <span className={`text-[11px] font-bold ${replyLength > 280 ? "text-red-400" : "text-zinc-500"}`}>
+            X換算 {replyLength}/280文字
+          </span>
+        </div>
+        <textarea
+          readOnly
+          value={replyText}
+          aria-label={`${candidate.title}の補足リプ`}
+          className="mt-3 h-40 w-full resize-none rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-sm leading-6 text-zinc-200 outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => onCopy(replyKey, replyText)}
+          className="mt-2 inline-flex h-9 items-center gap-2 rounded-lg border border-zinc-700 px-3 text-xs font-black transition hover:border-amber-500 hover:text-amber-200"
+        >
+          {copiedKey === replyKey ? <Check size={14} /> : <Copy size={14} />}
+          {copiedKey === replyKey ? "コピー済み" : "補足リプをコピー"}
+        </button>
+        <XCreativeAsset candidate={candidate} />
+      </section>
+    </div>
+  );
+}
+
 export default function XPostCandidatePanel({
   candidates,
   error,
@@ -523,10 +635,15 @@ export default function XPostCandidatePanel({
   const [postedKeys, setPostedKeys] = useState<Set<string>>(new Set());
   const [doneActionKeys, setDoneActionKeys] = useState<Set<string>>(new Set());
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [excludedKeys, setExcludedKeys] = useState<Set<string>>(new Set());
   const dateKey = todayKey();
   const storageKey = `hakkutsu-lab:x-posted:${dateKey}`;
   const actionStorageKey = `hakkutsu-lab:x-actions:${dateKey}`;
-  const dailyPlan = useMemo(() => buildDailyPlan(candidates), [candidates]);
+  const activeCandidates = useMemo(
+    () => candidates.filter((candidate) => !excludedKeys.has(candidate.key)),
+    [candidates, excludedKeys],
+  );
+  const dailyPlan = useMemo(() => buildDailyPlan(activeCandidates), [activeCandidates]);
   const plannedKeys = dailyPlan
     .map((item) => item.candidate?.key)
     .filter((key): key is string => Boolean(key));
@@ -545,14 +662,14 @@ export default function XPostCandidatePanel({
     [dailyPlan, outcomes, postedKeys],
   );
   const replyTargets = useMemo(
-    () => buildJapaneseReplyTargets(candidates, outcomes),
-    [candidates, outcomes],
+    () => buildJapaneseReplyTargets(activeCandidates, outcomes),
+    [activeCandidates, outcomes],
   );
   const followUpReplies = useMemo(() => buildNaturalFollowUpReplies(dailyPlan), [dailyPlan]);
   const patternStats = useMemo(() => buildPatternStats(outcomes), [outcomes]);
   const zeroClickReasons = useMemo(() => buildZeroClickReasons(outcomes), [outcomes]);
   const profileCopy = useMemo(() => buildProfileCopy(patternStats), [patternStats]);
-  const comparisonPosts = useMemo(() => buildComparisonPosts(candidates), [candidates]);
+  const comparisonPosts = useMemo(() => buildComparisonPosts(activeCandidates), [activeCandidates]);
   const rewritePlans = useMemo(
     () => outcomes.filter((outcome) => outcome.status === "replace").slice(0, 4).map(rewritePlanFor),
     [outcomes],
@@ -600,10 +717,6 @@ export default function XPostCandidatePanel({
     window.setTimeout(() => setCopiedKey(null), 1800);
   }
 
-  async function copyPost(candidate: XPostCandidate) {
-    await copyText(candidate.key, candidate.postText);
-  }
-
   async function togglePosted(candidate: XPostCandidate) {
     if (savingKey) return;
 
@@ -648,23 +761,6 @@ export default function XPostCandidatePanel({
     setSavingKey(null);
   }
 
-  async function savePosted(candidate: XPostCandidate) {
-    const response = await fetch("/api/admin/x-posts", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        postKey: candidate.key,
-        workId: candidate.workId,
-        category: candidate.category,
-        title: candidate.title,
-        postText: candidate.postText,
-        postDate: dateKey,
-      }),
-    });
-
-    if (!response.ok) throw new Error("Failed to save X post log");
-  }
-
   async function launchTodayPosts() {
     if (!remainingDailyCandidates.length || savingKey) return;
 
@@ -690,25 +786,11 @@ export default function XPostCandidatePanel({
       }, index * 350);
     });
 
-    try {
-      await Promise.all(remainingDailyCandidates.map(savePosted));
-      setPostedKeys((current) => {
-        const next = new Set(current);
-        remainingDailyCandidates.forEach((candidate) => next.add(candidate.key));
-
-        try {
-          window.localStorage.setItem(storageKey, JSON.stringify([...next]));
-        } catch {
-          // Local progress is a convenience only.
-        }
-
-        return next;
-      });
-    } catch {
-      // Opened drafts still remain usable even when server logging fails.
-    }
-
     setSavingKey(null);
+  }
+
+  function excludeCandidate(candidate: XPostCandidate) {
+    setExcludedKeys((current) => new Set(current).add(candidate.key));
   }
 
   async function copyAllFollowUps() {
@@ -781,11 +863,24 @@ export default function XPostCandidatePanel({
             {savingKey === "bulk"
               ? "起動中..."
               : remainingDailyCandidates.length
-                ? `未投稿${remainingDailyCandidates.length}本を開く`
+                ? `未投稿${remainingDailyCandidates.length}本のX画面を開く`
                 : "投稿準備完了"}
           </button>
         </div>
       </div>
+
+      <section className="mt-5 rounded-2xl border border-sky-900 bg-sky-950/20 p-4">
+        <div className="flex items-center gap-2">
+          <ListChecks className="text-sky-300" size={18} />
+          <h3 className="text-sm font-black">無料アカウントでの投稿手順</h3>
+        </div>
+        <div className="mt-3 grid gap-3 text-xs leading-5 text-zinc-300 md:grid-cols-4">
+          <p className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"><b className="text-white">1. 内容確認</b><br />選出根拠と価格系列を確認。合わなければ入れ替えます。</p>
+          <p className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"><b className="text-white">2. 本文を投稿</b><br />画像を付けずに投稿し、URLのジャケットカードを表示させます。</p>
+          <p className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"><b className="text-white">3. 補足を返信</b><br />投稿へ補足文を返信し、価格推移PNGを1枚添付します。</p>
+          <p className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"><b className="text-white">4. 投稿を記録</b><br />本文と補足リプを確認してから「投稿した」を押します。</p>
+        </div>
+      </section>
 
       <section className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
         <div className="flex items-center gap-2">
@@ -893,7 +988,7 @@ export default function XPostCandidatePanel({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="text-amber-300" size={18} />
-            <h3 className="text-sm font-black">投稿後に付ける補足リプ</h3>
+            <h3 className="text-sm font-black">今日の補足リプ一覧</h3>
           </div>
           <button
             type="button"
@@ -917,7 +1012,7 @@ export default function XPostCandidatePanel({
                     onClick={() => copyText(`${item.key}-${replyIndex}`, reply)}
                     className="block w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-left text-[11px] leading-5 text-zinc-400 transition hover:border-amber-500 hover:text-amber-100"
                   >
-                    {copiedKey === `${item.key}-${replyIndex}` ? "コピー済み: " : `補足${replyIndex + 1}: `}
+                    {copiedKey === `${item.key}-${replyIndex}` ? "コピー済み: " : "任意の補足: "}
                     {reply}
                   </button>
                 ))}
@@ -970,6 +1065,9 @@ export default function XPostCandidatePanel({
                 value={post.text}
                 className="mt-3 h-44 w-full resize-none rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-[11px] leading-5 text-zinc-300 outline-none"
               />
+              <p className={`mt-2 text-[11px] font-bold ${post.weightedLength > 280 ? "text-red-400" : "text-zinc-500"}`}>
+                X換算 {post.weightedLength}/280文字
+              </p>
               <button
                 type="button"
                 onClick={() => copyText(post.key, post.text)}
@@ -1204,6 +1302,14 @@ export default function XPostCandidatePanel({
             <Target className="text-emerald-400" size={18} />
             <h3 className="text-sm font-black">今日やる3投稿</h3>
           </div>
+          <button
+            type="button"
+            onClick={() => setExcludedKeys(new Set())}
+            disabled={!excludedKeys.size}
+            className="mt-3 inline-flex h-8 items-center gap-2 rounded-lg border border-zinc-700 px-3 text-[11px] font-black transition hover:border-sky-500 hover:text-sky-200 disabled:opacity-40"
+          >
+            <RefreshCw size={13} /> 入れ替えをリセット
+          </button>
           <div className="mt-4 space-y-3">
             {dailyPlan.map((item) => (
               <div
@@ -1239,9 +1345,18 @@ export default function XPostCandidatePanel({
                   )}
                 </div>
                 {item.candidate ? (
-                  <p className="mt-3 line-clamp-2 text-sm font-bold text-zinc-200">
-                    {item.candidate.title}
-                  </p>
+                  <>
+                    <p className="mt-3 line-clamp-2 text-sm font-bold text-zinc-200">{item.candidate.title}</p>
+                    <p className="mt-2 text-[11px] leading-5 text-zinc-500">{item.candidate.selectionReason}</p>
+                    <TwoStepPostKit candidate={item.candidate} copiedKey={copiedKey} onCopy={copyText} />
+                    <button
+                      type="button"
+                      onClick={() => excludeCandidate(item.candidate!)}
+                      className="mt-3 inline-flex h-8 items-center gap-2 rounded-lg border border-zinc-700 px-3 text-[11px] font-black transition hover:border-amber-500 hover:text-amber-200"
+                    >
+                      <Shuffle size={13} /> 別の候補に入れ替える
+                    </button>
+                  </>
                 ) : (
                   <p className="mt-3 text-sm text-zinc-500">
                     候補が足りません。作品更新後に再確認してください。
@@ -1294,7 +1409,7 @@ export default function XPostCandidatePanel({
       )}
 
       <div className="mt-5 grid gap-4 xl:grid-cols-2">
-        {candidates.map((candidate) => (
+        {activeCandidates.map((candidate) => (
           <article
             key={candidate.key}
             className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4"
@@ -1317,22 +1432,13 @@ export default function XPostCandidatePanel({
             <p className="mt-3 line-clamp-2 text-sm font-bold text-zinc-200">
               {candidate.title}
             </p>
-            <textarea
-              readOnly
-              value={candidate.postText}
-              aria-label={`${candidate.title}のX投稿文`}
-              className="mt-3 h-44 w-full resize-none rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-sm leading-6 text-zinc-200 outline-none focus:border-sky-600"
-            />
+            <p className="mt-2 text-[11px] leading-5 text-zinc-500">
+              選出根拠: {candidate.selectionReason}<br />
+              確認: {new Date(candidate.checkedAt).toLocaleString("ja-JP")} / 作品休止 {candidate.cooldownDays}日
+            </p>
+            <TwoStepPostKit candidate={candidate} copiedKey={copiedKey} onCopy={copyText} />
             <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-              <span
-                className={`text-xs font-bold ${
-                  candidate.postText.length > 280
-                    ? "text-red-400"
-                    : "text-zinc-500"
-                }`}
-              >
-                {candidate.postText.length}/280文字
-              </span>
+              <span className="text-xs font-bold text-zinc-500">本文と補足リプを投稿後に記録</span>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -1352,24 +1458,11 @@ export default function XPostCandidatePanel({
                 </button>
                 <button
                   type="button"
-                  onClick={() => copyPost(candidate)}
-                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-700 px-4 text-xs font-black transition hover:border-sky-500 hover:text-sky-300"
+                  onClick={() => excludeCandidate(candidate)}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-zinc-700 px-4 text-xs font-black transition hover:border-amber-500 hover:text-amber-200"
                 >
-                  {copiedKey === candidate.key ? (
-                    <Check size={15} />
-                  ) : (
-                    <Copy size={15} />
-                  )}
-                  {copiedKey === candidate.key ? "コピー済み" : "本文コピー"}
+                  <Shuffle size={14} /> 除外
                 </button>
-                <a
-                  href={`https://x.com/intent/post?text=${encodeURIComponent(candidate.postText)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-xs font-black text-black transition hover:bg-sky-100"
-                >
-                  Xで開く <ExternalLink size={14} />
-                </a>
               </div>
             </div>
           </article>

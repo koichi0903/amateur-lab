@@ -15,7 +15,7 @@ import {
 } from "@/lib/affiliateAnalytics";
 import { getAffiliateSalesAnalytics } from "@/lib/affiliateSalesAnalytics";
 import { AFFILIATE_SOURCE_LABELS } from "@/lib/affiliateTracking";
-import { getXPostCandidates } from "@/lib/xPostCandidates";
+import { getXPostCandidates } from "@/lib/xPostPlanner";
 import { getRecentXPostLogs, getXPostOutcomes } from "@/lib/xPostLogs";
 import RevenueImportForm from "./RevenueImportForm";
 import RevenuePerformanceTable from "./RevenuePerformanceTable";
@@ -119,11 +119,14 @@ export default async function RevenueDashboardPage() {
     getAffiliateAnalytics(),
     getAffiliateSalesAnalytics(),
   ]);
-  const [xPostCandidates, xPostLogs, xPostOutcomes] = await Promise.all([
-    getXPostCandidates(salesAnalytics.performance),
+  const [xPostLogs, xPostOutcomes] = await Promise.all([
     getRecentXPostLogs(),
     getXPostOutcomes(),
   ]);
+  const xPostCandidates = await getXPostCandidates(
+    salesAnalytics.performance,
+    xPostLogs.logs,
+  );
   const maxDaily = Math.max(...analytics.daily.map((item) => item.count), 1);
   const thirtyDayTotal = analytics.totals.thirtyDays;
   const mobileClicks = analytics.placements.find(

@@ -36,6 +36,7 @@ yarn-error.log*
 /.codex-*.log
 /work/
 /work-npm-cache/
+/.npm-cache/
 /actress-ranking.png
 /daily-ranking.png
 /ranking.html
