@@ -38,6 +38,69 @@ const [runningAll, setRunningAll] = useState(false);
 
 const [showIdleJobs, setShowIdleJobs] = useState(false);
 
+  async function revalidateAfterManualUpdate(tasks: string[]) {
+    const response = await fetch("/api/admin/revalidate-production", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tasks }),
+    });
+    const result = (await response.json().catch(() => null)) as {
+      success?: boolean;
+      message?: string;
+    } | null;
+    if (!response.ok || result?.success === false) {
+      throw new Error(result?.message ?? "本番キャッシュの更新に失敗しました");
+    }
+  }
+
+  async function runManualRequest(input: RequestInfo | URL, init?: RequestInit) {
+    const response = await fetch(input, init);
+    if (!response.ok) return response;
+
+    const result = (await response.clone().json().catch(() => null)) as {
+      success?: boolean;
+      completed?: boolean;
+    } | null;
+    if (result?.success === false || result?.completed === false) return response;
+
+    const requestUrl = typeof input === "string" ? input : input.toString();
+    const url = new URL(requestUrl, window.location.origin);
+    const taskByPath: Record<string, string> = {
+      "/api/update-reserve": "reserve",
+      "/api/update-new": "new",
+      "/api/update-semi-new": "semi-new",
+      "/api/update-old": "old",
+      "/api/update-sale": "sale",
+      "/api/update-ended-sale": "ended-sale",
+      "/api/sync/update-stage": "stage",
+      "/api/review-update": "review",
+      "/api/dmm-ranking": "ranking",
+      "/api/score-update": "score",
+      "/api/update-missing-prices": "missing-prices",
+      "/api/admin/fill-sample-movie": "sample-movie",
+    };
+
+    const task = taskByPath[url.pathname];
+    if (task) {
+      await revalidateAfterManualUpdate([task]);
+    } else if (url.pathname === "/api/update-all" && url.searchParams.get("step") === "score") {
+      await revalidateAfterManualUpdate([
+        "reserve",
+        "new",
+        "semi-new",
+        "old",
+        "sale",
+        "ended-sale",
+        "stage",
+        "review",
+        "ranking",
+        "score",
+      ]);
+    }
+
+    return response;
+  }
+
   const isUpdating = runningAll || jobs.some(
   (job) =>
     job.status === "running" &&
@@ -51,7 +114,7 @@ const [showIdleJobs, setShowIdleJobs] = useState(false);
     const MAX_REQUESTS = 200;
 
     for (let attempt = 0; attempt < MAX_REQUESTS; attempt++) {
-      const res = await fetch(url, {
+      const res = await runManualRequest(url, {
         method: "POST",
       });
 
@@ -150,7 +213,7 @@ const [showIdleJobs, setShowIdleJobs] = useState(false);
 
 async function handleUpdateNew() {
   try {
-    const res = await fetch("/api/update-new", {
+    const res = await runManualRequest("/api/update-new", {
       method: "POST",
     });
 
@@ -170,7 +233,7 @@ async function handleUpdateNew() {
 async function handleUpdateSemiNew() {
 
   try {
-    const res = await fetch("/api/update-semi-new", {
+    const res = await runManualRequest("/api/update-semi-new", {
       method: "POST",
     });
 
@@ -190,7 +253,7 @@ async function handleUpdateSemiNew() {
 async function handleUpdateSale() {
 
   try {
-    const res = await fetch("/api/update-sale", {
+    const res = await runManualRequest("/api/update-sale", {
       method: "POST",
     });
 
@@ -210,7 +273,7 @@ async function handleUpdateSale() {
 async function handleUpdateRanking() {
 
   try {
-    const res = await fetch("/api/dmm-ranking", {
+    const res = await runManualRequest("/api/dmm-ranking", {
       method: "POST",
     });
 
@@ -234,7 +297,7 @@ async function handleUpdateRanking() {
 async function handleUpdateOld() {
 
   try {
-    const res = await fetch("/api/update-old", {
+    const res = await runManualRequest("/api/update-old", {
       method: "POST",
     });
 
@@ -254,7 +317,7 @@ async function handleUpdateOld() {
 async function handleUpdateEndedSale() {
 
   try {
-    const res = await fetch("/api/update-ended-sale", {
+    const res = await runManualRequest("/api/update-ended-sale", {
       method: "POST",
     });
 
@@ -274,7 +337,7 @@ async function handleUpdateEndedSale() {
 async function handleUpdateScore() {
 
   try {
-    const res = await fetch("/api/score-update", {
+    const res = await runManualRequest("/api/score-update", {
       method: "POST",
     });
 
@@ -320,7 +383,7 @@ async function handleUpdateReview() {
 async function handleUpdateMissingPrices() {
 
   try {
-    const res = await fetch("/api/update-missing-prices", {
+    const res = await runManualRequest("/api/update-missing-prices", {
       method: "POST",
     });
 
@@ -340,7 +403,7 @@ async function handleUpdateMissingPrices() {
 async function handleFillSampleMovie() {
 
   try {
-    const res = await fetch("/api/admin/fill-sample-movie", {
+    const res = await runManualRequest("/api/admin/fill-sample-movie", {
       method: "POST",
     });
 
@@ -362,7 +425,7 @@ async function handleFillSampleMovie() {
 async function handleUpdateReserve() {
 
   try {
-    const res = await fetch("/api/update-reserve", {
+    const res = await runManualRequest("/api/update-reserve", {
       method: "POST",
     });
 
@@ -382,7 +445,7 @@ async function handleUpdateReserve() {
 async function handleUpdateStage() {
 
   try {
-    const res = await fetch("/api/sync/update-stage", {
+    const res = await runManualRequest("/api/sync/update-stage", {
       method: "POST",
     });
 
