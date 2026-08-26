@@ -43,13 +43,23 @@ function reason(work: AiDiscovery, used: Set<string>) {
 }
 
 async function fetchAiDiscoveries() {
-  const result = await supabase.from("works").select(columns)
-    .not("image_url", "is", null).neq("image_url", "")
-    .or("ranking.lte.2000,realtime_rank.lte.2000,review_count.gte.10,review_average.gte.4.2,score.gte.60")
-    .order("score", { ascending: false, nullsFirst: false }).limit(80);
-  if (result.error) throw result.error;
+  const base = () => supabase.from("works").select(columns)
+    .not("image_url", "is", null).neq("image_url", "");
+  const results = await Promise.all([
+    base().lte("ranking", 2000).order("score", { ascending: false, nullsFirst: false }).limit(80),
+    base().lte("realtime_rank", 2000).order("score", { ascending: false, nullsFirst: false }).limit(80),
+    base().gte("review_count", 10).gte("review_average", 4.2).order("score", { ascending: false, nullsFirst: false }).limit(80),
+    base().gte("score", 60).order("score", { ascending: false, nullsFirst: false }).limit(80),
+  ]);
+  const failed = results.find((result) => result.error);
+  if (failed?.error) throw failed.error;
+  const works = [...new Map(
+    results.flatMap((result) => result.data ?? []).map((work) => [work.id, work]),
+  ).values()]
+    .sort((a, b) => b.score - a.score || a.id - b.id)
+    .slice(0, 80);
   const used = new Set<string>();
-  return (result.data ?? []).map((work) => ({ ...work, ...reason(work as AiDiscovery, used) })) as AiDiscovery[];
+  return works.map((work) => ({ ...work, ...reason(work as AiDiscovery, used) })) as AiDiscovery[];
 }
 
 export const getAiDiscoveries = unstable_cache(fetchAiDiscoveries, ["ai-discoveries-v2"], { revalidate: 3600, tags: ["ai-discoveries", "home-daily-discovery"] });

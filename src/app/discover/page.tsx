@@ -4,7 +4,9 @@ import WorkImage from "@/components/home/WorkImage";
 import { getAiDiscoveries, type AiDiscovery } from "@/lib/getAiDiscoveries";
 import { workDetailHref } from "@/lib/affiliateTracking";
 
-export const revalidate = 3600;
+// The discovery dataset is cached in getAiDiscoveries. Keep its database query
+// out of the deployment build so a transient statement timeout cannot fail it.
+export const dynamic = "force-dynamic";
 
 const styles: Record<AiDiscovery["reasonType"], { label: string; badge: string; accent: string }> = {
   price: { label: "価格発掘", badge: "bg-pink-50 text-pink-700", accent: "text-pink-600" },

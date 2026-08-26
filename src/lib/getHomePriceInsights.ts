@@ -7,6 +7,15 @@ import { getAiDiscoveries } from "@/lib/getAiDiscoveries";
 const HOME_PRICE_REVALIDATE_SECONDS = 1800;
 const HOME_PRICE_HISTORY_LIMIT = 2000;
 const HOME_PRICE_SPARKLINE_POINTS = 8;
+const HOME_PRICE_WORK_PAGE_SIZE = 250;
+const HOME_PRICE_HISTORY_BATCH_SIZE = 25;
+const HOME_PRICE_HISTORY_PAGE_SIZE = 1000;
+const HOME_BUY_TIMING_LIMIT = 60;
+const HOME_PRICE_DROP_CANDIDATE_LIMIT = 25;
+const HOME_LOWEST_UPDATE_LIMIT = 5;
+
+const HOME_PRICE_WORK_COLUMNS =
+  "id,product_id,title,image_url,price,sale_price,list_price,discount_rate,lowest_price,is_bottom_price,sale_end_at,ranking,realtime_rank,review_average,review_count,score";
 
 type PriceHistoryRow = {
   product_id: string;
@@ -272,87 +281,161 @@ export const getHeroPriceDrop = unstable_cache(async () => {
   return eligible[stableHash(seed) % eligible.length] ?? null;
 }, ["hero-ai-price-drop-v1"], { revalidate: 86400, tags: ["hero-price-drop", "home-daily-discovery"] });
 
-async function fetchHomePriceInsightsSeparated() {
-  const columns = "id,product_id,title,image_url,price,sale_price,list_price,discount_rate,lowest_price,is_bottom_price,sale_end_at,ranking,realtime_rank,review_average,review_count,score";
-  const allWorks: Record<string, unknown>[] = [];
-  for (let offset = 0; ; offset += 1000) {
-    const { data, error } = await supabase
-      .from("works")
-      .select(columns)
-      .gt("price", 0)
-      .order("score", { ascending: false, nullsFirst: false })
-      .range(offset, offset + 999);
-    if (error || !data?.length) break;
-    allWorks.push(...(data as Record<string, unknown>[]));
-    if (data.length < 1000) break;
-  }
-  const candidates = allWorks;
-  const productIds = [...new Set(candidates.map((work) => work.product_id).filter(Boolean))];
-  if (!productIds.length) return { priceDrops: [], lowestUpdates: [], buyTiming: [], all: [] };
-  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-  const insights: HomePriceInsightWork[] = [];
-  const batchSize = 250;
+async function fetchPriceHistory(productIds: string[], since: string) {
+  const history: PriceHistoryRow[] = [];
 
-  // Process every candidate in bounded batches before ranking the independent
-  // result sets. Stopping after 60 buy-timing matches can hide regular-price
-  // drops that occur later in the score-ordered works list.
-  for (let start = 0; start < candidates.length; start += batchSize) {
-    const works = candidates.slice(start, start + batchSize) as unknown as HomePriceInsightWork[];
-    const ids = works.map((work) => work.product_id).filter(Boolean);
-    const history: PriceHistoryRow[] = [];
-    let historyError = false;
-    for (let offset = 0; ; offset += 5000) {
+  for (let start = 0; start < productIds.length; start += HOME_PRICE_HISTORY_BATCH_SIZE) {
+    const ids = productIds.slice(start, start + HOME_PRICE_HISTORY_BATCH_SIZE);
+    for (let offset = 0; ; offset += HOME_PRICE_HISTORY_PAGE_SIZE) {
       const { data, error } = await supabase
         .from("price_history")
         .select("product_id,changed_at,display_name,period,price_kind,normal_price,sale_price")
         .in("product_id", ids)
         .gte("changed_at", since)
+        .order("product_id", { ascending: true })
+        .order("display_name", { ascending: true })
+        .order("period", { ascending: true, nullsFirst: true })
         .order("changed_at", { ascending: false })
-        .range(offset, offset + 4999);
-      if (error) {
-        historyError = true;
-        break;
-      }
+        .range(offset, offset + HOME_PRICE_HISTORY_PAGE_SIZE - 1);
+      if (error) throw error;
       history.push(...((data ?? []) as PriceHistoryRow[]));
-      if (!data?.length || data.length < 5000) break;
-    }
-    if (historyError) continue;
-    const rowsByProduct = new Map<string, PriceHistoryRow[]>();
-    for (const row of history) {
-      rowsByProduct.set(row.product_id, [...(rowsByProduct.get(row.product_id) ?? []), row]);
-    }
-    for (const work of works) {
-      const insight = buildInsight(work, rowsByProduct.get(work.product_id) ?? []);
-      if (insight) insights.push(insight);
+      if (!data?.length || data.length < HOME_PRICE_HISTORY_PAGE_SIZE) break;
     }
   }
-  const priceDrops = insights
-    .filter((work) => work.sale_price > 0 && (!work.sale_end_at || new Date(work.sale_end_at).getTime() > Date.now()) && work.dropAmount > 0)
+
+  return history;
+}
+
+async function buildInsightsForWorks(works: HomePriceInsightWork[], since: string) {
+  const productIds = [...new Set(works.map((work) => work.product_id).filter(Boolean))];
+  if (!productIds.length) return [];
+
+  const history = await fetchPriceHistory(productIds, since);
+  const rowsByProduct = new Map<string, PriceHistoryRow[]>();
+  for (const row of history) {
+    const rows = rowsByProduct.get(row.product_id);
+    if (rows) rows.push(row);
+    else rowsByProduct.set(row.product_id, [row]);
+  }
+
+  return works
+    .map((work) => buildInsight(work, rowsByProduct.get(work.product_id) ?? []))
+    .filter((work): work is HomePriceInsightWork => work !== null);
+}
+
+const isBuyTimingWork = (work: HomePriceInsightWork) =>
+  work.peak90Price > work.currentPrice && work.currentPrice <= work.low90Price;
+
+async function fetchBuyTiming(since: string) {
+  const matches: HomePriceInsightWork[] = [];
+
+  for (let offset = 0; matches.length < HOME_BUY_TIMING_LIMIT; offset += HOME_PRICE_WORK_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("works")
+      .select(HOME_PRICE_WORK_COLUMNS)
+      .gt("price", 0)
+      .order("score", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: true })
+      .range(offset, offset + HOME_PRICE_WORK_PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!data?.length) break;
+
+    const insights = await buildInsightsForWorks(data as HomePriceInsightWork[], since);
+    matches.push(...insights.filter(isBuyTimingWork));
+    if (data.length < HOME_PRICE_WORK_PAGE_SIZE) break;
+  }
+
+  return matches
+    .sort((a, b) => b.score - a.score || a.id - b.id)
+    .slice(0, HOME_BUY_TIMING_LIMIT);
+}
+
+async function fetchPriceDrops(since: string) {
+  const matches: HomePriceInsightWork[] = [];
+
+  for (let offset = 0; matches.length < HOME_PRICE_DROP_CANDIDATE_LIMIT; offset += HOME_PRICE_WORK_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("works")
+      .select(HOME_PRICE_WORK_COLUMNS)
+      .eq("is_on_sale", true)
+      .gt("sale_price", 0)
+      .order("discount_rate", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: true })
+      .range(offset, offset + HOME_PRICE_WORK_PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!data?.length) break;
+
+    const insights = await buildInsightsForWorks(data as HomePriceInsightWork[], since);
+    matches.push(
+      ...insights.filter(
+        (work) =>
+          work.dropAmount > 0 &&
+          work.sale_price > 0 &&
+          (!work.sale_end_at || new Date(work.sale_end_at).getTime() > Date.now()),
+      ),
+    );
+    if (data.length < HOME_PRICE_WORK_PAGE_SIZE) break;
+  }
+
+  return matches
     .sort((a, b) => b.dropAmount - a.dropAmount || b.dropRate - a.dropRate)
     .slice(0, 5);
-  const buyTiming = insights
-    .filter((work) => work.peak90Price > work.currentPrice && work.currentPrice <= work.low90Price)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 60);
-  // Select lowest-price updates only after validating every candidate's
-  // 90-day history. Limiting `is_bottom_price` rows before validation can
-  // leave this section empty when high-score rows contain stale flags from
-  // sales that have already ended.
-  const lowestUpdates = insights
-    .filter(
-      (work) =>
-        work.lowest_price != null &&
-        work.lowest_price > 0 &&
-        work.currentPrice <= work.lowest_price,
-    )
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 60);
-  return { priceDrops, lowestUpdates: lowestUpdates.slice(0, 5), buyTiming: buyTiming.slice(0, 100), all: insights };
+}
+
+async function fetchLowestUpdates(since: string) {
+  const matches: HomePriceInsightWork[] = [];
+
+  for (let offset = 0; matches.length < HOME_LOWEST_UPDATE_LIMIT; offset += HOME_PRICE_WORK_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("works")
+      .select(HOME_PRICE_WORK_COLUMNS)
+      .eq("is_bottom_price", true)
+      .gt("lowest_price", 0)
+      .gt("price", 0)
+      .order("score", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: true })
+      .range(offset, offset + HOME_PRICE_WORK_PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!data?.length) break;
+
+    const insights = await buildInsightsForWorks(data as HomePriceInsightWork[], since);
+    matches.push(
+      ...insights.filter(
+        (work) =>
+          work.lowest_price != null &&
+          work.lowest_price > 0 &&
+          work.currentPrice <= work.lowest_price,
+      ),
+    );
+    if (data.length < HOME_PRICE_WORK_PAGE_SIZE) break;
+  }
+
+  return matches
+    .sort((a, b) => b.score - a.score || a.id - b.id)
+    .slice(0, HOME_LOWEST_UPDATE_LIMIT);
+}
+
+async function fetchHomePriceInsightsSeparated() {
+  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const [priceDrops, lowestUpdates, buyTiming] = await Promise.all([
+    fetchPriceDrops(since),
+    fetchLowestUpdates(since),
+    fetchBuyTiming(since),
+  ]);
+
+  if (!priceDrops.length && !lowestUpdates.length && !buyTiming.length) {
+    throw new Error("Home price insight refresh returned no eligible works");
+  }
+
+  const all = [...new Map(
+    [...buyTiming, ...priceDrops, ...lowestUpdates].map((work) => [work.id, work]),
+  ).values()];
+  return { priceDrops, lowestUpdates, buyTiming, all };
 }
 
 export const getHomePriceInsights = unstable_cache(
   fetchHomePriceInsightsSeparated,
-  ["home-price-insights-v25"],
+  ["home-price-insights-v26"],
   {
     revalidate: HOME_PRICE_REVALIDATE_SECONDS,
     tags: ["home-price-insights"],
