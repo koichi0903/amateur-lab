@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { config as loadEnv } from "dotenv";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
@@ -45,45 +46,62 @@ const TASK_GROUPS = {
 async function revalidateProduction(tasks) {
   if (tasks.length === 0) return;
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "");
-  const secret = process.env.CRON_SECRET?.trim();
-  if (!siteUrl || !secret) {
-    console.warn("[再検証] NEXT_PUBLIC_SITE_URL または CRON_SECRET がないためスキップしました。");
-    return;
+  const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "");
+  const siteUrls = configuredSiteUrl
+    ? [configuredSiteUrl]
+    : ["https://hakkutsu-lab.com", "https://amateur-lab.vercel.app"];
+  const cronSecret = process.env.CRON_SECRET?.trim();
+  const signingSecret = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!cronSecret && !signingSecret) {
+    throw new Error(
+      "[再検証] CRON_SECRET と SUPABASE_SERVICE_ROLE_KEY の両方が未設定です。",
+    );
   }
 
-  let endpoint;
-  try {
-    endpoint = new URL("/api/admin/revalidate", siteUrl);
-  } catch {
-    console.warn("[再検証] NEXT_PUBLIC_SITE_URL が不正なためスキップしました。");
-    return;
+  const body = JSON.stringify({ tasks });
+  const timestamp = Date.now().toString();
+  const headers = { "content-type": "application/json" };
+  if (cronSecret) {
+    headers.authorization = `Bearer ${cronSecret}`;
+  } else {
+    headers["x-hakkutsu-timestamp"] = timestamp;
+    headers["x-hakkutsu-signature"] = createHmac("sha256", signingSecret)
+      .update(`${timestamp}.${body}`)
+      .digest("hex");
   }
 
-  if (["localhost", "127.0.0.1"].includes(endpoint.hostname)) {
-    console.warn("[再検証] 本番URLではないためスキップしました。");
-    return;
-  }
-
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${secret}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ tasks }),
-      signal: AbortSignal.timeout(30_000),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+  const failures = [];
+  for (const siteUrl of siteUrls) {
+    let endpoint;
+    try {
+      endpoint = new URL("/api/admin/revalidate", siteUrl);
+    } catch {
+      failures.push(`${siteUrl}: URL不正`);
+      continue;
     }
-    console.log(`[再検証] 本番キャッシュを更新しました: ${tasks.join(", ")}`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(`[再検証] 本番キャッシュの更新通知に失敗しました: ${message}`);
+    if (["localhost", "127.0.0.1"].includes(endpoint.hostname)) {
+      failures.push(`${siteUrl}: 本番URLではありません`);
+      continue;
+    }
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body,
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      console.log(`[再検証] 本番キャッシュを更新しました: ${tasks.join(", ")}`);
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(`${siteUrl}: ${message}`);
+    }
   }
+
+  throw new Error(`[再検証] 本番キャッシュの更新に失敗しました: ${failures.join(" / ")}`);
 }
 
 function usage() {

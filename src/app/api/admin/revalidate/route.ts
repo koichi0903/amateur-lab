@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -24,23 +25,41 @@ const PRICE_TASKS = new Set(["sale", "ended-sale", "missing-prices"]);
 const DISCOVERY_TASKS = new Set(["review", "ranking", "score"]);
 const WORK_DETAIL_CACHE_TAG = "work-detail";
 
-function isAuthorized(request: NextRequest): boolean {
+function isAuthorized(request: NextRequest, body: string): boolean {
   const secret = process.env.CRON_SECRET;
   const authorization = request.headers.get("authorization");
-  return Boolean(secret && authorization === `Bearer ${secret}`);
+  if (secret && authorization === `Bearer ${secret}`) return true;
+
+  const signingSecret = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const timestamp = request.headers.get("x-hakkutsu-timestamp");
+  const signature = request.headers.get("x-hakkutsu-signature");
+  if (!signingSecret || !timestamp || !signature || !/^\d{13}$/.test(timestamp)) {
+    return false;
+  }
+  if (Math.abs(Date.now() - Number(timestamp)) > 5 * 60 * 1000) return false;
+
+  const expected = createHmac("sha256", signingSecret)
+    .update(`${timestamp}.${body}`)
+    .digest("hex");
+  if (!/^[a-f0-9]{64}$/i.test(signature)) return false;
+  return timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(expected, "hex"));
 }
 
 export async function POST(request: NextRequest) {
-  if (!isAuthorized(request)) {
+  const body = await request.text();
+  if (!isAuthorized(request, body)) {
     return NextResponse.json(
       { error: "Unauthorized" },
       { status: 401, headers: { "Cache-Control": "no-store" } },
     );
   }
 
-  const payload = (await request.json().catch(() => null)) as {
-    tasks?: unknown;
-  } | null;
+  let payload: { tasks?: unknown } | null = null;
+  try {
+    payload = JSON.parse(body) as { tasks?: unknown };
+  } catch {
+    payload = null;
+  }
   const tasks = Array.isArray(payload?.tasks)
     ? payload.tasks.filter(
         (task): task is string => typeof task === "string" && KNOWN_TASKS.has(task),
