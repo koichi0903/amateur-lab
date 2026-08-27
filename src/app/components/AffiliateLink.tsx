@@ -7,6 +7,7 @@ import {
   type CtaVariant,
 } from "@/lib/ctaExperiment";
 import { readExternalAttribution } from "./Analytics";
+import { isOperatorLandingPath } from "@/lib/externalAttribution";
 
 export type AffiliatePlacement = "detail-sidebar" | "mobile-sticky" | "compare-card";
 
@@ -102,6 +103,13 @@ export default function AffiliateLink({
 
   const recordClick = () => {
     const externalAttribution = readExternalAttribution();
+
+    if (
+      isOperatorLandingPath(window.location.pathname) ||
+      isOperatorLandingPath(externalAttribution?.landingPath)
+    ) {
+      return;
+    }
 
     window.gtag?.("event", "affiliate_click", {
       work_id: String(workId),

@@ -3,9 +3,10 @@
 import Script from "next/script";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import type {
-  ExternalAttribution,
-  ExternalAttributionChannel,
+import {
+  isOperatorLandingPath,
+  type ExternalAttribution,
+  type ExternalAttributionChannel,
 } from "@/lib/externalAttribution";
 
 declare global {
@@ -73,6 +74,19 @@ function currentLandingPath() {
 
 function storeFirstPartyAttribution() {
   try {
+    if (isOperatorLandingPath(window.location.pathname)) {
+      window.sessionStorage.removeItem(SESSION_ATTRIBUTION_STORAGE_KEY);
+
+      const fallback = window.localStorage.getItem(ATTRIBUTION_STORAGE_KEY);
+      if (fallback) {
+        const parsed = JSON.parse(fallback) as Partial<ExternalAttribution>;
+        if (isOperatorLandingPath(parsed.landingPath)) {
+          window.localStorage.removeItem(ATTRIBUTION_STORAGE_KEY);
+        }
+      }
+      return;
+    }
+
     const referrer = classifyReferrer(document.referrer);
     if (referrer.channel === "internal") return;
 

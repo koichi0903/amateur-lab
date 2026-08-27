@@ -17,6 +17,13 @@ export type ExternalAttribution = {
 
 const channelSet = new Set<string>(EXTERNAL_ATTRIBUTION_CHANNELS);
 
+export function isOperatorLandingPath(value: string | null | undefined) {
+  if (!value) return false;
+
+  const pathname = value.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
+  return pathname === "/admin" || pathname.startsWith("/admin/");
+}
+
 export function normalizeExternalAttribution(
   value: unknown,
 ): ExternalAttribution | null {

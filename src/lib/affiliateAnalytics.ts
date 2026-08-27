@@ -12,6 +12,7 @@ import {
 } from "@/lib/ctaExperiment";
 import {
   EXTERNAL_ATTRIBUTION_CHANNELS,
+  isOperatorLandingPath,
   type ExternalAttributionChannel,
 } from "@/lib/externalAttribution";
 
@@ -373,14 +374,17 @@ export async function getAffiliateAnalytics() {
   const todayKey = jstDayKey(now);
   const sevenDayCutoff = now.getTime() - 7 * DAY_MS;
   const previousSevenDayCutoff = now.getTime() - 14 * DAY_MS;
+  const reportingRows = result.rows.filter(
+    (row) => !isOperatorLandingPath(row.landing_path),
+  );
 
-  const today = result.rows.filter(
+  const today = reportingRows.filter(
     (row) => jstDayKey(new Date(row.clicked_at)) === todayKey,
   ).length;
-  const lastSevenDays = result.rows.filter(
+  const lastSevenDays = reportingRows.filter(
     (row) => new Date(row.clicked_at).getTime() >= sevenDayCutoff,
   ).length;
-  const previousSevenDays = result.rows.filter((row) => {
+  const previousSevenDays = reportingRows.filter((row) => {
     const time = new Date(row.clicked_at).getTime();
     return time >= previousSevenDayCutoff && time < sevenDayCutoff;
   }).length;
@@ -388,14 +392,14 @@ export async function getAffiliateAnalytics() {
     ? Math.round(((lastSevenDays - previousSevenDays) / previousSevenDays) * 100)
     : null;
 
-  const workCounts = countBy(result.rows.map((row) => String(row.work_id)))
+  const workCounts = countBy(reportingRows.map((row) => String(row.work_id)))
     .slice(0, 10);
-  const xRows = result.rows.filter((row) => row.source_page === "x");
+  const xRows = reportingRows.filter((row) => row.source_page === "x");
   const xWorkCounts = countBy(xRows.map((row) => String(row.work_id)))
     .slice(0, 8);
   const workIds = workCounts.map((item) => Number(item.key));
   const xWorkIds = xWorkCounts.map((item) => Number(item.key));
-  const recentWorkIds = result.rows.slice(0, 20).map((row) => row.work_id);
+  const recentWorkIds = reportingRows.slice(0, 20).map((row) => row.work_id);
   const recentXWorkIds = xRows.slice(0, 10).map((row) => row.work_id);
   const works = await fetchWorkSummaries([
     ...new Set([...workIds, ...xWorkIds, ...recentWorkIds, ...recentXWorkIds]),
@@ -405,13 +409,13 @@ export async function getAffiliateAnalytics() {
     jstDayKey(new Date(now.getTime() - (13 - index) * DAY_MS)),
   );
   const dailyCounts = new Map(dailyKeys.map((key) => [key, 0]));
-  for (const row of result.rows) {
+  for (const row of reportingRows) {
     const key = jstDayKey(new Date(row.clicked_at));
     if (dailyCounts.has(key)) dailyCounts.set(key, (dailyCounts.get(key) ?? 0) + 1);
   }
 
   const sourcePlacementMap = new Map<AffiliateSource, { total: number; desktop: number; mobile: number }>();
-  for (const row of result.rows) {
+  for (const row of reportingRows) {
     const current = sourcePlacementMap.get(row.source_page) ?? {
       total: 0,
       desktop: 0,
@@ -424,21 +428,21 @@ export async function getAffiliateAnalytics() {
   }
 
   const sourceInsights = buildTrafficInsights(
-    result.rows,
+    reportingRows,
     (row) => row.source_page,
     (key) => AFFILIATE_SOURCE_LABELS[normalizeAffiliateSource(key)],
     sevenDayCutoff,
     previousSevenDayCutoff,
   );
   const placementInsights = buildTrafficInsights(
-    result.rows,
+    reportingRows,
     (row) => row.placement,
     (key) => AFFILIATE_PLACEMENT_LABELS[key] ?? key,
     sevenDayCutoff,
     previousSevenDayCutoff,
   );
   const ctaVariantInsights = buildTrafficInsights(
-    result.rows.filter((row) =>
+    reportingRows.filter((row) =>
       row.cta_variant !== null &&
       (row.placement === "detail-sidebar" || row.placement === "mobile-sticky")
     ),
@@ -454,7 +458,7 @@ export async function getAffiliateAnalytics() {
     referral: "外部サイト",
     internal: "サイト内",
   };
-  const externallyAttributedRows = result.rows.filter(
+  const externallyAttributedRows = reportingRows.filter(
     (row) => row.external_channel !== null,
   );
   const externalChannelInsights = buildTrafficInsights(
@@ -464,7 +468,7 @@ export async function getAffiliateAnalytics() {
     sevenDayCutoff,
     previousSevenDayCutoff,
   );
-  const organicRows = result.rows.filter(
+  const organicRows = reportingRows.filter(
     (row) => row.external_channel === "organic_search" && row.landing_path,
   );
   const organicLandingInsights = buildTrafficInsights(
@@ -477,7 +481,7 @@ export async function getAffiliateAnalytics() {
   const experimentStartedAt = impressionResult.rows.length
     ? Math.min(...impressionResult.rows.map((row) => new Date(row.viewed_at).getTime()))
     : null;
-  const experimentClicks = result.rows.filter((row) =>
+  const experimentClicks = reportingRows.filter((row) =>
     row.cta_variant !== null &&
     experimentStartedAt !== null &&
     new Date(row.clicked_at).getTime() >= experimentStartedAt &&
@@ -508,16 +512,16 @@ export async function getAffiliateAnalytics() {
     totals: {
       today,
       sevenDays: lastSevenDays,
-      thirtyDays: result.rows.length,
-      uniqueWorks: new Set(result.rows.map((row) => row.work_id)).size,
+      thirtyDays: reportingRows.length,
+      uniqueWorks: new Set(reportingRows.map((row) => row.work_id)).size,
       growthRate,
     },
     daily: dailyKeys.map((key) => ({ key, count: dailyCounts.get(key) ?? 0 })),
-    sources: countBy(result.rows.map((row) => row.source_page)).map((item) => ({
+    sources: countBy(reportingRows.map((row) => row.source_page)).map((item) => ({
       ...item,
       label: AFFILIATE_SOURCE_LABELS[item.key],
     })),
-    placements: countBy(result.rows.map((row) => row.placement)),
+    placements: countBy(reportingRows.map((row) => row.placement)),
     sourcePlacements: [...sourcePlacementMap.entries()]
       .map(([key, counts]) => ({
         key,
@@ -536,8 +540,8 @@ export async function getAffiliateAnalytics() {
         (row) => new Date(row.clicked_at).getTime() >= sevenDayCutoff,
       ).length,
       thirtyDays: xRows.length,
-      share: result.rows.length > 0
-        ? Math.round((xRows.length / result.rows.length) * 100)
+      share: reportingRows.length > 0
+        ? Math.round((xRows.length / reportingRows.length) * 100)
         : 0,
       topWorks: xWorkCounts.map((item) => ({
         workId: Number(item.key),
@@ -560,7 +564,7 @@ export async function getAffiliateAnalytics() {
       title: works.get(Number(item.key))?.title ?? `作品ID ${item.key}`,
       clicks: item.count,
     })),
-    recent: result.rows.slice(0, 20).map((row) => ({
+    recent: reportingRows.slice(0, 20).map((row) => ({
       ...row,
       title: works.get(row.work_id)?.title ?? `作品ID ${row.work_id}`,
     })),

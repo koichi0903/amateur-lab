@@ -3,7 +3,10 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { AffiliatePlacement } from "@/app/components/AffiliateLink";
 import { normalizeAffiliateSource } from "@/lib/affiliateTracking";
 import { normalizeCtaVariant } from "@/lib/ctaExperiment";
-import { normalizeExternalAttribution } from "@/lib/externalAttribution";
+import {
+  isOperatorLandingPath,
+  normalizeExternalAttribution,
+} from "@/lib/externalAttribution";
 
 const placements = new Set<AffiliatePlacement>([
   "detail-sidebar",
@@ -66,6 +69,10 @@ export async function POST(request: Request) {
     !placements.has(placement as AffiliatePlacement)
   ) {
     return NextResponse.json({ error: "Invalid event" }, { status: 400 });
+  }
+
+  if (isOperatorLandingPath(externalAttribution?.landingPath)) {
+    return new NextResponse(null, { status: 204 });
   }
 
   const clickEvent = {
