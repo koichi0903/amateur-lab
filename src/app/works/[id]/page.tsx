@@ -23,6 +23,7 @@ import PriceTypes from "@/app/components/PriceTypes";
 import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
 import { isInsightVisible } from "@/lib/insights/visibility";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
+import { isWorkIndexable } from "@/lib/seoQuality";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
@@ -269,7 +270,14 @@ export async function generateMetadata(
   const description = `${work.title}のレビュー・評価を掲載。${actressText}作品情報を独自データで分析しています。`;
   const encodedId = encodeURIComponent(id);
   const socialImage = work.image_url || `${SITE_URL}/ogp.png`;
-  const metadata = pageMetadata({ title, description, canonical: `/works/${encodedId}` });
+  const metadata = pageMetadata({
+    title,
+    description,
+    canonical: `/works/${encodedId}`,
+    robots: isWorkIndexable(work)
+      ? undefined
+      : { index: false, follow: true },
+  });
 
   return {
     ...metadata,

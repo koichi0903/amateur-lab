@@ -103,6 +103,17 @@ export default function AffiliateLink({
   const recordClick = () => {
     const externalAttribution = readExternalAttribution();
 
+    window.gtag?.("event", "affiliate_click", {
+      work_id: String(workId),
+      placement,
+      source_page: sourcePage,
+      cta_variant: activeVariant,
+      external_channel: externalAttribution?.channel ?? "unknown",
+      external_source: externalAttribution?.source ?? "unknown",
+      link_url: href,
+      transport_type: "beacon",
+    });
+
     // Never delay the purchase destination for analytics. keepalive lets this
     // finish after the new FANZA tab opens, and failures are intentionally ignored.
     void fetch("/api/affiliate-click", {

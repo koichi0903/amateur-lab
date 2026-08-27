@@ -11,6 +11,16 @@ const shouldBundleServerlessChromium =
 
 const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next",
+  async redirects() {
+    return [
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "amateur-lab.vercel.app" }],
+        destination: "https://hakkutsu-lab.com/:path*",
+        permanent: true,
+      },
+    ];
+  },
   serverExternalPackages: [
     "@sparticuz/chromium",
     "playwright-core",
