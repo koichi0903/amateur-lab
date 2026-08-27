@@ -87,11 +87,13 @@ export function analyzeCatalogIntent({
   name,
   works,
   relatedWorks,
+  totalCount,
 }: {
   kind: CatalogIntentKind;
   name: string;
   works: CatalogIntentWork[];
   relatedWorks?: CatalogIntentWork[];
+  totalCount?: number;
 }): CatalogIntentAnalysis {
   const pricedWorks = works
     .map((work) => ({ work, price: effectivePrice(work) }))
@@ -153,7 +155,7 @@ export function analyzeCatalogIntent({
     trustedReviewWork ? "レビュー件数と平均評価" : null,
     lowestPriceWork ? "現在価格" : null,
   ].filter(Boolean).join("・");
-  const summary = `${name}の登録${works.length}作品を${basis || "登録情報"}で比較しています。順位だけでなく、評価の根拠と価格条件を合わせて候補を選べます。`;
+  const summary = `${name}の登録${totalCount ?? works.length}作品を${basis || "登録情報"}で比較しています。順位だけでなく、評価の根拠と価格条件を合わせて候補を選べます。`;
 
   return {
     summary,

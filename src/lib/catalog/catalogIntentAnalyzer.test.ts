@@ -29,3 +29,14 @@ test("creates internal links from recurring related entities", () => {
   });
   assert.ok(result.related.some((item) => item.kind === "actress" && item.name === "女優A" && item.count === 2));
 });
+
+test("uses the full entity count when analysis is based on a limited context", () => {
+  const result = analyzeCatalogIntent({
+    kind: "genre",
+    name: "ドラマ",
+    works,
+    totalCount: 240,
+  });
+
+  assert.match(result.summary, /登録240作品/);
+});
