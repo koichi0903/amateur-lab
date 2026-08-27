@@ -181,6 +181,12 @@ export default async function RevenueDashboardPage() {
           </section>
         )}
 
+        {!analytics.externalAttributionEnabled && !analytics.error && (
+          <section className="mt-8 rounded-2xl border border-amber-800 bg-amber-950/30 p-5 text-sm leading-6 text-amber-200">
+            外部流入計測用SQLが未適用です。<code className="mx-1 rounded bg-black/30 px-1.5 py-0.5">20260820_add_external_attribution_to_affiliate_clicks.sql</code>をSupabaseで実行すると、自然検索からFANZAクリックまでの集計が始まります。
+          </section>
+        )}
+
         <section className="mt-8 rounded-2xl border border-emerald-900/80 bg-emerald-950/20 p-5 sm:p-6">
           <div className="flex items-start gap-3">
             <CircleDollarSign className="mt-0.5 shrink-0 text-emerald-400" size={23} />
@@ -336,6 +342,8 @@ export default async function RevenueDashboardPage() {
         </section>
 
         <TrafficImprovementPanel
+          externalChannelInsights={analytics.externalChannelInsights}
+          organicLandingInsights={analytics.organicLandingInsights}
           sourceInsights={analytics.sourceInsights}
           placementInsights={analytics.placementInsights}
           ctaVariantInsights={analytics.ctaVariantInsights}

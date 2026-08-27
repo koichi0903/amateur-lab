@@ -10,6 +10,10 @@ import {
   normalizeCtaVariant,
   type CtaVariant,
 } from "@/lib/ctaExperiment";
+import {
+  EXTERNAL_ATTRIBUTION_CHANNELS,
+  type ExternalAttributionChannel,
+} from "@/lib/externalAttribution";
 
 export type AffiliateClickRow = {
   id: number;
@@ -17,6 +21,9 @@ export type AffiliateClickRow = {
   placement: string;
   source_page: AffiliateSource;
   cta_variant: CtaVariant | null;
+  external_channel: ExternalAttributionChannel | null;
+  external_source: string | null;
+  landing_path: string | null;
   clicked_at: string;
 };
 
@@ -83,6 +90,7 @@ async function fetchClickPage(
   from: number,
   includeSource: boolean,
   includeVariant: boolean,
+  includeExternalAttribution: boolean,
 ) {
   const columns = [
     "id",
@@ -90,6 +98,9 @@ async function fetchClickPage(
     "placement",
     includeSource ? "source_page" : null,
     includeVariant ? "cta_variant" : null,
+    includeExternalAttribution ? "external_channel" : null,
+    includeExternalAttribution ? "external_source" : null,
+    includeExternalAttribution ? "landing_path" : null,
     "clicked_at",
   ].filter(Boolean).join(",");
   return supabaseAdmin
@@ -106,6 +117,7 @@ export async function fetchAffiliateClicks(days = 30) {
   const rows: AffiliateClickRow[] = [];
   let sourceAttributionEnabled = true;
   let ctaExperimentEnabled = true;
+  let externalAttributionEnabled = true;
 
   for (let from = 0; from < MAX_ROWS; from += PAGE_SIZE) {
     let result = await fetchClickPage(
@@ -113,16 +125,46 @@ export async function fetchAffiliateClicks(days = 30) {
       from,
       sourceAttributionEnabled,
       ctaExperimentEnabled,
+      externalAttributionEnabled,
     );
 
     if (result.error && ctaExperimentEnabled && result.error.message.includes("cta_variant")) {
       ctaExperimentEnabled = false;
-      result = await fetchClickPage(cutoff, from, sourceAttributionEnabled, false);
+      result = await fetchClickPage(
+        cutoff,
+        from,
+        sourceAttributionEnabled,
+        false,
+        externalAttributionEnabled,
+      );
     }
 
     if (result.error && sourceAttributionEnabled && result.error.message.includes("source_page")) {
       sourceAttributionEnabled = false;
-      result = await fetchClickPage(cutoff, from, false, ctaExperimentEnabled);
+      result = await fetchClickPage(
+        cutoff,
+        from,
+        false,
+        ctaExperimentEnabled,
+        externalAttributionEnabled,
+      );
+    }
+
+    if (
+      result.error &&
+      externalAttributionEnabled &&
+      ["external_channel", "external_source", "landing_path"].some((column) =>
+        result.error?.message.includes(column)
+      )
+    ) {
+      externalAttributionEnabled = false;
+      result = await fetchClickPage(
+        cutoff,
+        from,
+        sourceAttributionEnabled,
+        ctaExperimentEnabled,
+        false,
+      );
     }
 
     if (result.error) {
@@ -130,6 +172,7 @@ export async function fetchAffiliateClicks(days = 30) {
         rows: [] as AffiliateClickRow[],
         sourceAttributionEnabled,
         ctaExperimentEnabled,
+        externalAttributionEnabled,
         error: result.error.message,
       };
     }
@@ -140,6 +183,9 @@ export async function fetchAffiliateClicks(days = 30) {
       placement: string;
       source_page?: string | null;
       cta_variant?: string | null;
+      external_channel?: string | null;
+      external_source?: string | null;
+      landing_path?: string | null;
       clicked_at: string;
     }>;
     rows.push(
@@ -149,6 +195,13 @@ export async function fetchAffiliateClicks(days = 30) {
         cta_variant: row.cta_variant
           ? normalizeCtaVariant(row.cta_variant)
           : null,
+        external_channel: EXTERNAL_ATTRIBUTION_CHANNELS.includes(
+          row.external_channel as ExternalAttributionChannel,
+        )
+          ? (row.external_channel as ExternalAttributionChannel)
+          : null,
+        external_source: row.external_source ?? null,
+        landing_path: row.landing_path ?? null,
       })),
     );
 
@@ -159,6 +212,7 @@ export async function fetchAffiliateClicks(days = 30) {
     rows,
     sourceAttributionEnabled,
     ctaExperimentEnabled,
+    externalAttributionEnabled,
     error: null as string | null,
   };
 }
@@ -393,6 +447,33 @@ export async function getAffiliateAnalytics() {
     sevenDayCutoff,
     previousSevenDayCutoff,
   );
+  const externalChannelLabels: Record<ExternalAttributionChannel, string> = {
+    direct: "直接流入",
+    organic_search: "Google等の自然検索",
+    social: "X等のSNS",
+    referral: "外部サイト",
+    internal: "サイト内",
+  };
+  const externallyAttributedRows = result.rows.filter(
+    (row) => row.external_channel !== null,
+  );
+  const externalChannelInsights = buildTrafficInsights(
+    externallyAttributedRows,
+    (row) => row.external_channel ?? "direct",
+    (key) => externalChannelLabels[key as ExternalAttributionChannel] ?? key,
+    sevenDayCutoff,
+    previousSevenDayCutoff,
+  );
+  const organicRows = result.rows.filter(
+    (row) => row.external_channel === "organic_search" && row.landing_path,
+  );
+  const organicLandingInsights = buildTrafficInsights(
+    organicRows,
+    (row) => row.landing_path ?? "/",
+    (key) => key,
+    sevenDayCutoff,
+    previousSevenDayCutoff,
+  ).slice(0, 12);
   const experimentStartedAt = impressionResult.rows.length
     ? Math.min(...impressionResult.rows.map((row) => new Date(row.viewed_at).getTime()))
     : null;
@@ -423,6 +504,7 @@ export async function getAffiliateAnalytics() {
     sourceAttributionEnabled: result.sourceAttributionEnabled,
     ctaExperimentEnabled: result.ctaExperimentEnabled,
     ctaImpressionTrackingEnabled: impressionResult.enabled,
+    externalAttributionEnabled: result.externalAttributionEnabled,
     totals: {
       today,
       sevenDays: lastSevenDays,
@@ -470,6 +552,8 @@ export async function getAffiliateAnalytics() {
     sourceInsights,
     placementInsights,
     ctaVariantInsights,
+    externalChannelInsights,
+    organicLandingInsights,
     ctaVariantPerformance,
     topWorks: workCounts.map((item) => ({
       workId: Number(item.key),

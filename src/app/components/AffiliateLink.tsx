@@ -110,6 +110,8 @@ export default function AffiliateLink({
       cta_variant: activeVariant,
       external_channel: externalAttribution?.channel ?? "unknown",
       external_source: externalAttribution?.source ?? "unknown",
+      landing_path: externalAttribution?.landingPath ?? "unknown",
+      page_path: `${window.location.pathname}${window.location.search}`,
       link_url: href,
       transport_type: "beacon",
     });

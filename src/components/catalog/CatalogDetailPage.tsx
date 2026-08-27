@@ -9,6 +9,8 @@ import type { Work } from "@/types/work";
 import { SITE_URL, pageMetadata } from "@/lib/seo";
 import { unstable_cache } from "next/cache";
 import { workDetailHref } from "@/lib/affiliateTracking";
+import CatalogIntentGuide from "@/components/catalog/CatalogIntentGuide";
+import { analyzeCatalogIntent, type CatalogIntentWork } from "@/lib/catalog/catalogIntentAnalyzer";
 
 export type CatalogKind = "maker" | "series" | "genre";
 
@@ -29,9 +31,10 @@ export function decodeCatalogName(value: string) {
 export function catalogMetadata(kind: CatalogKind, name: string, page = 1): Metadata {
   const { label } = catalogConfig[kind];
   const suffix = page > 1 ? ` ${page}ページ目` : "";
+  const subject = kind === "series" ? `${name}シリーズ` : name;
   return pageMetadata({
-    title: `${name}の作品一覧${suffix} | 発掘LAB`,
-    description: `${name}${label === "シリーズ" ? "シリーズ" : ""}の作品を発掘スコア順に紹介します。`,
+    title: `${subject}のおすすめ作品・人気ランキング${suffix} | 発掘LAB`,
+    description: `${subject}のおすすめ・人気作品を、発掘スコア、レビュー件数、現在価格で比較。${label}別の買い時と関連条件から作品を探せます。`,
     canonical: `/${kind}/${encodeURIComponent(name)}${page > 1 ? `?page=${page}` : ""}`,
   });
 }
@@ -47,7 +50,7 @@ async function loadWorks(kind: CatalogKind, name: string) {
   let error: unknown = null;
 
   for (let from = 0; ; from += pageSize) {
-    const query = supabase.from("works").select("id,title,image_url,score,review_average,price,sale_price,genre");
+    const query = supabase.from("works").select("id,title,image_url,score,review_average,review_count,price,sale_price,genre");
     const result = kind === "genre"
       ? await query.ilike(column, `%${name}%`).order("score", { ascending: false, nullsFirst: false }).range(from, from + pageSize - 1)
       : await query.eq(column, name).order("score", { ascending: false, nullsFirst: false }).range(from, from + pageSize - 1);
@@ -70,8 +73,28 @@ async function loadWorks(kind: CatalogKind, name: string) {
 
 const getWorks = unstable_cache(
   loadWorks,
-  ["catalog-detail-works-v1"],
+  ["catalog-detail-works-v2-review-count"],
   { revalidate: 86400 }
+);
+
+async function loadCatalogContext(kind: CatalogKind, name: string) {
+  const { column } = catalogConfig[kind];
+  const query = supabase
+    .from("works")
+    .select("id,title,score,review_average,review_count,price,sale_price,discount_rate,actress,genre,maker,series");
+  const result = kind === "genre"
+    ? await query.ilike(column, `%${name}%`).order("score", { ascending: false, nullsFirst: false }).limit(300)
+    : await query.eq(column, name).order("score", { ascending: false, nullsFirst: false }).limit(300);
+  const works = (result.data ?? []) as CatalogIntentWork[];
+  return kind === "genre"
+    ? works.filter((work) => splitValues(work.genre ?? null).includes(name))
+    : works;
+}
+
+const getCatalogContext = unstable_cache(
+  loadCatalogContext,
+  ["catalog-detail-context-v1"],
+  { revalidate: 86400 },
 );
 
 function Price({ work }: { work: Work }) {
@@ -127,7 +150,10 @@ function JsonLd({ kind, name, works, page, pageSize }: { kind: CatalogKind; name
 
 export default async function CatalogDetailPage({ kind, name, page = 1 }: { kind: CatalogKind; name: string; page?: number }) {
   const config = catalogConfig[kind];
-  const { works, error } = await getWorks(kind, name);
+  const [{ works, error }, contextWorks] = await Promise.all([
+    getWorks(kind, name),
+    getCatalogContext(kind, name),
+  ]);
   if (!error && works.length === 0) notFound();
   const scoredWorks = works.filter((work) => work.score > 0);
   const reviewedWorks = works.filter((work) => work.review_average > 0);
@@ -143,6 +169,9 @@ export default async function CatalogDetailPage({ kind, name, page = 1 }: { kind
     ? `/${kind}/${encodeURIComponent(name)}?page=${targetPage}`
     : `/${kind}/${encodeURIComponent(name)}`;
   const Icon = config.icon;
+  const intentAnalysis = currentPage === 1
+    ? analyzeCatalogIntent({ kind, name, works, relatedWorks: contextWorks })
+    : null;
 
   return <><Header /><JsonLd kind={kind} name={name} works={displayedWorks} page={currentPage} pageSize={pageSize} /><main className="min-h-screen bg-[#f8fafc] text-slate-950">
     <section className="border-b border-slate-200 bg-white"><div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
@@ -154,6 +183,6 @@ export default async function CatalogDetailPage({ kind, name, page = 1 }: { kind
         </div>
       </div>
     </div></section>
-    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{error ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">作品を読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : works.length ? <><div className="mb-6 flex items-end justify-between gap-4"><div className="min-w-0"><p className="text-xs font-black tracking-widest text-pink-600">TOP WORKS</p><h2 className="mt-1 break-words text-2xl font-black">{name}の作品</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{works.length}作品中 {offset + 1}〜{offset + displayedWorks.length}作品</span></div><div className="grid gap-3 lg:grid-cols-2">{displayedWorks.map((work, index) => <WorkCard key={work.id} work={work} rank={offset + index + 1} kind={kind} />)}</div>{totalPages > 1 && <nav aria-label={`${name}の作品一覧のページ送り`} className="mt-10 flex items-center justify-center gap-3">{currentPage > 1 && <Link href={pageHref(currentPage - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-pink-300 hover:text-pink-600">← 前の60作品</Link>}<span className="text-xs font-bold text-slate-400">{currentPage} / {totalPages}</span>{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-pink-600">次の60作品 →</Link>}</nav>}</> : <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Icon className="mx-auto text-slate-300" size={40} /><p className="mt-4 font-black">登録作品がまだありません</p><Link href={`/${kind}`} className="mt-3 inline-block text-sm font-black text-pink-600">{config.label}一覧に戻る</Link></div>}</div>
+    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{!error && works.length > 0 && <CatalogIntentGuide name={name} source={kind} analysis={intentAnalysis} />}{error ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">作品を読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : works.length ? <><div className="mb-6 flex items-end justify-between gap-4"><div className="min-w-0"><p className="text-xs font-black tracking-widest text-pink-600">TOP WORKS</p><h2 className="mt-1 break-words text-2xl font-black">{name}の作品</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{works.length}作品中 {offset + 1}〜{offset + displayedWorks.length}作品</span></div><div className="grid gap-3 lg:grid-cols-2">{displayedWorks.map((work, index) => <WorkCard key={work.id} work={work} rank={offset + index + 1} kind={kind} />)}</div>{totalPages > 1 && <nav aria-label={`${name}の作品一覧のページ送り`} className="mt-10 flex items-center justify-center gap-3">{currentPage > 1 && <Link href={pageHref(currentPage - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-pink-300 hover:text-pink-600">← 前の60作品</Link>}<span className="text-xs font-bold text-slate-400">{currentPage} / {totalPages}</span>{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-pink-600">次の60作品 →</Link>}</nav>}</> : <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Icon className="mx-auto text-slate-300" size={40} /><p className="mt-4 font-black">登録作品がまだありません</p><Link href={`/${kind}`} className="mt-3 inline-block text-sm font-black text-pink-600">{config.label}一覧に戻る</Link></div>}</div>
   </main></>;
 }
