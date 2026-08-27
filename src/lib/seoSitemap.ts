@@ -69,35 +69,22 @@ const staticEntries: SitemapEntry[] = [
   })),
 ];
 
-async function loadQualityWorks(): Promise<SitemapWork[]> {
-  const works: SitemapWork[] = [];
-
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
+const getQualityWorkCount = unstable_cache(
+  async () => {
+    const { count, error } = await supabase
       .from("works")
-      .select("id, created_at, updated_at")
+      .select("id", { count: "exact", head: true })
       .gte("score", WORK_INDEX_MIN_SCORE)
       .gte("price", WORK_INDEX_MIN_PRICE)
       .not("image_url", "is", null)
       .neq("image_url", "")
       .not("affiliate_url", "is", null)
-      .neq("affiliate_url", "")
-      .order("id", { ascending: true })
-      .range(from, from + PAGE_SIZE - 1);
+      .neq("affiliate_url", "");
 
     if (error) throw error;
-
-    const page = (data ?? []) as SitemapWork[];
-    works.push(...page);
-    if (page.length < PAGE_SIZE) break;
-  }
-
-  return works;
-}
-
-const getQualityWorks = unstable_cache(
-  loadQualityWorks,
-  ["seo-sitemap-quality-works-v1"],
+    return count ?? 0;
+  },
+  ["seo-sitemap-quality-work-count-v2"],
   { revalidate: 3600 },
 );
 
@@ -105,8 +92,39 @@ export function getStaticSitemapEntries(): SitemapEntry[] {
   return staticEntries;
 }
 
-export async function getWorkSitemapEntries(): Promise<SitemapEntry[]> {
-  const works = await getQualityWorks();
+export async function getWorkSitemapPaths(): Promise<string[]> {
+  const count = await getQualityWorkCount();
+  return Array.from(
+    { length: Math.ceil(count / PAGE_SIZE) },
+    (_, index) => `/sitemaps/works-${index + 1}.xml`,
+  );
+}
+
+export async function getWorkSitemapEntries(
+  chunkNumber: number,
+): Promise<SitemapEntry[]> {
+  const from = (chunkNumber - 1) * PAGE_SIZE;
+  const getChunk = unstable_cache(
+    async () => {
+      const { data, error } = await supabase
+        .from("works")
+        .select("id, created_at, updated_at")
+        .gte("score", WORK_INDEX_MIN_SCORE)
+        .gte("price", WORK_INDEX_MIN_PRICE)
+        .not("image_url", "is", null)
+        .neq("image_url", "")
+        .not("affiliate_url", "is", null)
+        .neq("affiliate_url", "")
+        .order("id", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error) throw error;
+      return (data ?? []) as SitemapWork[];
+    },
+    ["seo-sitemap-quality-work-chunk-v2", String(chunkNumber)],
+    { revalidate: 3600 },
+  );
+  const works = await getChunk();
 
   return works.map((work) => ({
     url: `${SITE_URL}/works/${work.id}`,
