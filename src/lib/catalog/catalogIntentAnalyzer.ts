@@ -3,6 +3,7 @@ export type CatalogIntentKind = "actress" | "genre" | "maker" | "series";
 export type CatalogIntentWork = {
   id: number;
   title: string;
+  image_url?: string | null;
   score: number | null;
   review_average: number | null;
   review_count: number | null;

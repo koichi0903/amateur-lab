@@ -56,6 +56,13 @@ async function loadWorks(kind: CatalogKind, name: string) {
       : await query.eq(column, name).order("score", { ascending: false, nullsFirst: false }).range(from, from + pageSize - 1);
 
     if (result.error) {
+      console.error("[catalog-detail] failed to load works", {
+        kind,
+        name,
+        from,
+        code: result.error.code,
+        message: result.error.message,
+      });
       error = result.error;
       break;
     }
@@ -81,7 +88,7 @@ async function loadCatalogContext(kind: CatalogKind, name: string) {
   const { column } = catalogConfig[kind];
   const query = supabase
     .from("works")
-    .select("id,title,score,review_average,review_count,price,sale_price,discount_rate,actress,genre,maker,series");
+    .select("id,title,image_url,score,review_average,review_count,price,sale_price,discount_rate,actress,genre,maker,series");
   const result = kind === "genre"
     ? await query.ilike(column, `%${name}%`).order("score", { ascending: false, nullsFirst: false }).limit(300)
     : await query.eq(column, name).order("score", { ascending: false, nullsFirst: false }).limit(300);
@@ -150,10 +157,12 @@ function JsonLd({ kind, name, works, page, pageSize }: { kind: CatalogKind; name
 
 export default async function CatalogDetailPage({ kind, name, page = 1 }: { kind: CatalogKind; name: string; page?: number }) {
   const config = catalogConfig[kind];
-  const [{ works, error }, contextWorks] = await Promise.all([
+  const [{ works: loadedWorks, error: loadError }, contextWorks] = await Promise.all([
     getWorks(kind, name),
     getCatalogContext(kind, name),
   ]);
+  const works = (loadedWorks.length > 0 ? loadedWorks : contextWorks) as Work[];
+  const error = works.length === 0 ? loadError : null;
   if (!error && works.length === 0) notFound();
   const scoredWorks = works.filter((work) => work.score > 0);
   const reviewedWorks = works.filter((work) => work.review_average > 0);

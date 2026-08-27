@@ -115,6 +115,15 @@ export default function Analytics() {
 
   useEffect(() => {
     storeFirstPartyAttribution();
+    if (!GA_MEASUREMENT_ID) return;
+
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = window.gtag || ((...args: unknown[]) => {
+      window.dataLayer?.push(args);
+    });
+    window.gtag("js", new Date());
+    window.gtag("config", GA_MEASUREMENT_ID, { send_page_view: false });
+    setAnalyticsReady(true);
   }, []);
 
   useEffect(() => {
@@ -135,21 +144,9 @@ export default function Analytics() {
   if (!GA_MEASUREMENT_ID) return null;
 
   return (
-    <>
-      <Script id="ga4-init" strategy="afterInteractive">
-        {`
-          window.dataLayer = window.dataLayer || [];
-          function gtag(){dataLayer.push(arguments);}
-          window.gtag = gtag;
-          gtag('js', new Date());
-          gtag('config', '${GA_MEASUREMENT_ID}', { send_page_view: false });
-        `}
-      </Script>
-      <Script
-        src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
-        strategy="afterInteractive"
-        onReady={() => setAnalyticsReady(true)}
-      />
-    </>
+    <Script
+      src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
+      strategy="afterInteractive"
+    />
   );
 }
