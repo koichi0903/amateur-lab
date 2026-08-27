@@ -3,7 +3,10 @@ import Link from "next/link";
 import { ArrowRight, Search, Sparkles, Trophy, Users } from "lucide-react";
 import Header from "@/components/layout/Header";
 import WorkImage from "@/components/home/WorkImage";
-import { getEntityIndexSummaries } from "@/lib/catalog/entityIndexSummaries";
+import {
+  getEntityIndexSummaries,
+  isEntityIndexable,
+} from "@/lib/catalog/entityIndexSummaries";
 import { pageMetadata } from "@/lib/seo";
 
 export const revalidate = 86400;
@@ -26,7 +29,9 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
   const requestedPage = Number.parseInt(params.page ?? "1", 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const pageSize = 48;
-  const ranked = await getEntityIndexSummaries("actress");
+  const ranked = (await getEntityIndexSummaries("actress")).filter((summary) =>
+    isEntityIndexable("actress", summary),
+  );
   const filtered = query ? ranked.filter((item) => item.name.toLocaleLowerCase("ja").includes(query.toLocaleLowerCase("ja"))) : ranked;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);

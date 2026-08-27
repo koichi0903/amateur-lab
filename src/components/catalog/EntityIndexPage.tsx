@@ -2,7 +2,10 @@ import Link from "next/link";
 import { ArrowRight, Building2, Clapperboard, Search, Sparkles, Tags, Trophy } from "lucide-react";
 import Header from "@/components/layout/Header";
 import WorkImage from "@/components/home/WorkImage";
-import { getEntityIndexSummaries } from "@/lib/catalog/entityIndexSummaries";
+import {
+  getEntityIndexSummaries,
+  isEntityIndexable,
+} from "@/lib/catalog/entityIndexSummaries";
 
 type EntityKind = "maker" | "series" | "genre";
 
@@ -19,7 +22,9 @@ export default async function EntityIndexPage({ kind, searchParams }: { kind: En
   const requestedPage = Number.parseInt(params.page ?? "1", 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const pageSize = 48;
-  const ranked = await getEntityIndexSummaries(kind);
+  const ranked = (await getEntityIndexSummaries(kind)).filter((summary) =>
+    isEntityIndexable(kind, summary),
+  );
   const normalizedQuery = query.toLocaleLowerCase("ja");
   const filtered = query ? ranked.filter((item) => item.name.toLocaleLowerCase("ja").includes(normalizedQuery)) : ranked;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));

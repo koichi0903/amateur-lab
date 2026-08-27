@@ -11,6 +11,10 @@ import { unstable_cache } from "next/cache";
 import { workDetailHref } from "@/lib/affiliateTracking";
 import CatalogIntentGuide from "@/components/catalog/CatalogIntentGuide";
 import { analyzeCatalogIntent, type CatalogIntentWork } from "@/lib/catalog/catalogIntentAnalyzer";
+import {
+  getEntityIndexSummary,
+  isEntityIndexable,
+} from "@/lib/catalog/entityIndexSummaries";
 
 export type CatalogKind = "maker" | "series" | "genre";
 
@@ -28,14 +32,25 @@ export function decodeCatalogName(value: string) {
   }
 }
 
-export function catalogMetadata(kind: CatalogKind, name: string, page = 1): Metadata {
+export async function catalogMetadata(kind: CatalogKind, name: string, page = 1): Promise<Metadata> {
   const { label } = catalogConfig[kind];
   const suffix = page > 1 ? ` ${page}ページ目` : "";
   const subject = kind === "series" ? `${name}シリーズ` : name;
+  let robots: Metadata["robots"] = { index: false, follow: true };
+  try {
+    const summary = await getEntityIndexSummary(kind, name);
+    if (summary && isEntityIndexable(kind, summary)) {
+      robots = undefined;
+    }
+  } catch {
+    // Avoid indexing an error-thin page while quality data is unavailable.
+  }
+
   return pageMetadata({
     title: `${subject}のおすすめ作品・人気ランキング${suffix} | 発掘LAB`,
     description: `${subject}のおすすめ・人気作品を、発掘スコア、レビュー件数、現在価格で比較。${label}別の買い時と関連条件から作品を探せます。`,
     canonical: `/${kind}/${encodeURIComponent(name)}${page > 1 ? `?page=${page}` : ""}`,
+    robots,
   });
 }
 

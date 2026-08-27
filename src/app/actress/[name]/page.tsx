@@ -11,6 +11,10 @@ import { unstable_cache } from "next/cache";
 import { workDetailHref } from "@/lib/affiliateTracking";
 import CatalogIntentGuide from "@/components/catalog/CatalogIntentGuide";
 import { analyzeCatalogIntent } from "@/lib/catalog/catalogIntentAnalyzer";
+import {
+  getEntityIndexSummary,
+  isEntityIndexable,
+} from "@/lib/catalog/entityIndexSummaries";
 
 export const revalidate = 86400;
 
@@ -48,7 +52,16 @@ const getActressWorks = unstable_cache(
 export async function generateMetadata({ params, searchParams }: { params: Promise<{ name: string }>; searchParams: Promise<{ page?: string }> }): Promise<Metadata> {
   const actressName = decodeURIComponent((await params).name);
   const page = Math.max(1, Number.parseInt((await searchParams).page ?? "1", 10) || 1);
-  return pageMetadata({ title: `${actressName}のおすすめ作品・人気ランキング${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`, description: `${actressName}のおすすめ出演作品を、発掘スコア、レビュー件数、現在価格で比較。高評価作品やセール作品、関連ジャンルから選べます。`, canonical: `/actress/${encodeURIComponent(actressName)}${page > 1 ? `?page=${page}` : ""}` });
+  let robots: Metadata["robots"] = { index: false, follow: true };
+  try {
+    const summary = await getEntityIndexSummary("actress", actressName);
+    if (summary && isEntityIndexable("actress", summary)) {
+      robots = undefined;
+    }
+  } catch {
+    // Avoid indexing an error-thin page while quality data is unavailable.
+  }
+  return pageMetadata({ title: `${actressName}のおすすめ作品・人気ランキング${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`, description: `${actressName}のおすすめ出演作品を、発掘スコア、レビュー件数、現在価格で比較。高評価作品やセール作品、関連ジャンルから選べます。`, canonical: `/actress/${encodeURIComponent(actressName)}${page > 1 ? `?page=${page}` : ""}`, robots });
 }
 
 function Price({ work }: { work: Work }) {

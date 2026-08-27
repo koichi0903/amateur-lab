@@ -1,6 +1,7 @@
 import { unstable_cache } from "next/cache";
 import {
   getEntityIndexSummaries,
+  isEntityIndexable,
   type EntityIndexKind,
 } from "@/lib/catalog/entityIndexSummaries";
 import { SITE_URL } from "@/lib/seo";
@@ -144,10 +145,7 @@ export async function getCatalogSitemapEntries(): Promise<SitemapEntry[]> {
     const summaries = await getEntityIndexSummaries(kind);
     entries.push(
       ...summaries
-        .filter(
-          (summary) =>
-            summary.count >= 3 && summary.maxScore > 0 && summary.imageUrl,
-        )
+        .filter((summary) => isEntityIndexable(kind, summary))
         .map((summary) => ({
           url: `${SITE_URL}/${kind}/${encodeURIComponent(summary.name)}`,
           changeFrequency: "weekly" as const,
