@@ -13,6 +13,7 @@ import ProductJsonLd from "@/app/components/ProductJsonLd";
 import InsightTimeline from "@/app/components/InsightTimeline";
 import WorkTabs from "@/app/components/WorkTabs";
 import PurchaseCard from "@/app/components/PurchaseCard";
+import PurchaseDecisionGuide from "@/app/components/PurchaseDecisionGuide";
 import { createChartData } from "@/lib/createChartData";
 import ReviewTab from "@/app/components/ReviewTab";
 import SampleImageCarousel from "@/app/components/SampleImageCarousel";
@@ -21,6 +22,7 @@ import DealWorkCard, { type DealWork } from "@/components/deals/DealWorkCard";
 import CompareTray from "@/components/comparison/CompareTray";
 import PriceTypes from "@/app/components/PriceTypes";
 import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
+import { analyzePurchaseDecision } from "@/lib/analyzers/purchaseDecisionAnalyzer";
 import { isInsightVisible } from "@/lib/insights/visibility";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 import { isWorkIndexable } from "@/lib/seoQuality";
@@ -266,8 +268,13 @@ export async function generateMetadata(
 
   const scoreText = typeof work.score === "number" && work.score > 0 ? `・発掘スコア${work.score}` : "";
   const actressText = work.actress ? `${work.actress}出演。` : "";
-  const title = `${work.title}｜レビュー${scoreText} | 発掘LAB`;
-  const description = `${work.title}のレビュー・評価を掲載。${actressText}作品情報を独自データで分析しています。`;
+  const currentPrice = work.sale_price > 0 ? work.sale_price : work.price;
+  const priceText = currentPrice > 0 ? `現在価格${currentPrice.toLocaleString("ja-JP")}円。` : "";
+  const reviewText = work.review_count > 0
+    ? `レビュー${work.review_average.toFixed(2)}（${work.review_count}件）。`
+    : "";
+  const title = `${work.title}｜価格・レビュー${scoreText} | 発掘LAB`;
+  const description = `${work.title}の価格推移と買い時を分析。${priceText}${reviewText}${actressText}同価格帯の作品と比較できます。`;
   const encodedId = encodeURIComponent(id);
   const socialImage = work.image_url || `${SITE_URL}/ogp.png`;
   const metadata = pageMetadata({
@@ -411,6 +418,15 @@ const chartData = createChartData(
   chartPrice.display_name ?? chartPrice.type ?? "",
   chartPrice.period ?? null,
 );
+const purchaseDecision = analyzePurchaseDecision({
+  work,
+  currentPrice,
+  priceHistory: priceHistory ?? [],
+  offerCount: currentOffers.length,
+  mainActress,
+  mainGenre,
+  mainSeries,
+});
 
   return (
   <main className="min-h-screen bg-gray-100 py-8 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-8">
@@ -448,6 +464,11 @@ const chartData = createChartData(
           <InsightTimeline insights={visibleInsights} />
         </section>
       )}
+
+      <PurchaseDecisionGuide
+        decision={purchaseDecision}
+        hasAlternatives={valueAlternatives.length > 0}
+      />
 
       {/* タブ */}
       <section className="mt-8">
