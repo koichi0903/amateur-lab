@@ -5,26 +5,34 @@ import type { EntityIndexKind } from "./entityIndexSummaries";
 
 export const ENTITY_PAGE_SIZE = 60;
 
-const ENTITY_WORK_COLUMNS =
-  "id,title,image_url,score,review_average,review_count,price,sale_price,discount_rate,actress,genre,maker,series";
+async function loadEntityWorks(
+  kind: EntityIndexKind,
+  name: string,
+  offset: number,
+  limit: number,
+) {
+  const result = await supabase.rpc("get_entity_works_page", {
+    p_kind: kind,
+    p_name: name,
+    p_offset: offset,
+    p_limit: limit,
+  });
 
-const entityColumns: Record<EntityIndexKind, "actress" | "maker" | "series" | "genre"> = {
-  actress: "actress",
-  maker: "maker",
-  series: "series",
-  genre: "genre",
-};
+  if (result.error) {
+    console.error("[entity-works] failed to load works", {
+      kind,
+      name,
+      offset,
+      limit,
+      code: result.error.code,
+      message: result.error.message,
+    });
+  }
 
-function splitValues(value: string | null) {
-  return value
-    ?.split(/\s*\/\s*|\s*／\s*|\s*,\s*|\s*、\s*/)
-    .map((item) => item.trim())
-    .filter(Boolean) ?? [];
-}
-
-function hasExactEntity(work: Work, kind: EntityIndexKind, name: string) {
-  if (kind === "maker" || kind === "series") return true;
-  return splitValues(work[kind]).includes(name);
+  return {
+    error: result.error,
+    works: (result.data ?? []) as Work[],
+  };
 }
 
 async function loadEntityWorksPage(
@@ -34,62 +42,12 @@ async function loadEntityWorksPage(
 ) {
   const currentPage = Math.max(1, page);
   const from = (currentPage - 1) * ENTITY_PAGE_SIZE;
-  const column = entityColumns[kind];
-  const query = supabase.from("works").select(ENTITY_WORK_COLUMNS);
-  const result = kind === "actress" || kind === "genre"
-    ? await query
-        .ilike(column, `%${name}%`)
-        .order("score", { ascending: false, nullsFirst: false })
-        .range(from, from + ENTITY_PAGE_SIZE - 1)
-    : await query
-        .eq(column, name)
-        .order("score", { ascending: false, nullsFirst: false })
-        .range(from, from + ENTITY_PAGE_SIZE - 1);
-
-  if (result.error) {
-    console.error("[entity-works] failed to load page", {
-      kind,
-      name,
-      page: currentPage,
-      code: result.error.code,
-      message: result.error.message,
-    });
-  }
-
-  const works = ((result.data ?? []) as Work[]).filter((work) =>
-    hasExactEntity(work, kind, name),
-  );
-  return { error: result.error, works };
+  return loadEntityWorks(kind, name, from, ENTITY_PAGE_SIZE);
 }
 
 async function loadEntityContext(kind: EntityIndexKind, name: string) {
-  const column = entityColumns[kind];
-  const query = supabase.from("works").select(ENTITY_WORK_COLUMNS);
-  const result = kind === "actress" || kind === "genre"
-    ? await query
-        .ilike(column, `%${name}%`)
-        .order("score", { ascending: false, nullsFirst: false })
-        .limit(300)
-    : await query
-        .eq(column, name)
-        .order("score", { ascending: false, nullsFirst: false })
-        .limit(300);
-
-  if (result.error) {
-    console.error("[entity-works] failed to load context", {
-      kind,
-      name,
-      code: result.error.code,
-      message: result.error.message,
-    });
-  }
-
-  const works = ((result.data ?? []) as Work[]).filter((work) =>
-    hasExactEntity(work, kind, name),
-  );
-  return { error: result.error, works };
+  return loadEntityWorks(kind, name, 0, 300);
 }
 
 export const getEntityWorksPage = cache(loadEntityWorksPage);
 export const getEntityContext = cache(loadEntityContext);
-
