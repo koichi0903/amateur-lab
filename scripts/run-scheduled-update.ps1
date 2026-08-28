@@ -80,7 +80,14 @@ try {
     try {
         $updateOutput = @(
             & $node "scripts\local-admin-update.mjs" $Group 2>&1 |
-                ForEach-Object { $_.ToString() } |
+                ForEach-Object {
+                    if ($_ -is [System.Management.Automation.ErrorRecord] -and $_.Exception.Message) {
+                        $_.Exception.Message
+                    }
+                    else {
+                        $_.ToString()
+                    }
+                } |
                 Tee-Object -FilePath $logPath -Append
         )
         $nodeExitCode = $LASTEXITCODE

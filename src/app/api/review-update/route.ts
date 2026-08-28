@@ -1,24 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { updateReviewWorks } from "@/lib/admin/updateReviewWorks";
+import { describeReviewUpdateError } from "@/lib/admin/reviewUpdateSupport";
 
 export const maxDuration = 300;
 
 const REVIEW_BATCH_SIZE = 250;
 const REVIEW_TIME_BUDGET_MS = 240_000;
-
-function errorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-  ) {
-    return error.message;
-  }
-  return String(error);
-}
 
 export async function POST() {
   try {
@@ -43,7 +31,7 @@ export async function POST() {
     return NextResponse.json(
       {
         success: false,
-        message: `レビュー更新に失敗しました: ${errorMessage(error)}`,
+        message: `レビュー更新に失敗しました: ${describeReviewUpdateError(error)}`,
       },
       { status: 500 },
     );

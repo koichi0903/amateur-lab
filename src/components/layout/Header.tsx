@@ -2,18 +2,21 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Menu, Search, X } from "lucide-react";
+import { ChevronDown, Menu, Search, X } from "lucide-react";
 import { useState } from "react";
 import CompareTray from "@/components/comparison/CompareTray";
 
-const menus = [
-  { href: "/compare", label: "比較" },
+const primaryMenus = [
   { href: "/ranking", label: "ランキング" },
   { href: "/new", label: "新着" },
   { href: "/sale", label: "セール" },
-  { href: "/deals", label: "お得に探す" },
   { href: "/features", label: "特集" },
   { href: "/guides", label: "ガイド" },
+];
+
+const moreMenus = [
+  { href: "/compare", label: "作品比較" },
+  { href: "/deals", label: "お得に探す" },
   { href: "/reports", label: "データ" },
   { href: "/actress", label: "女優" },
   { href: "/maker", label: "メーカー" },
@@ -21,6 +24,8 @@ const menus = [
   { href: "/genre", label: "ジャンル" },
   { href: "/favorites", label: "お気に入り" },
 ];
+
+const menus = [...primaryMenus, ...moreMenus];
 
 export default function Header() {
   const [open, setOpen] = useState(false);
@@ -42,8 +47,16 @@ export default function Header() {
           <span className="hidden border-l border-slate-200 pl-3 text-[11px] font-bold text-slate-500 sm:block">AIが毎日、名作を発掘する。</span>
         </Link>
 
-        <nav className="ml-auto hidden items-center gap-4 xl:flex">
-          {menus.map((menu) => <Link key={menu.href} href={menu.href} className="text-sm font-bold text-slate-700 transition hover:text-pink-600">{menu.label}</Link>)}
+        <nav className="ml-auto hidden items-center gap-5 xl:flex">
+          {primaryMenus.map((menu) => <Link key={menu.href} href={menu.href} className="text-sm font-bold text-slate-700 transition hover:text-pink-600">{menu.label}</Link>)}
+          <details className="group relative">
+            <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-bold text-slate-700 transition hover:text-pink-600">
+              探す <ChevronDown size={15} className="transition group-open:rotate-180" />
+            </summary>
+            <div className="absolute right-0 top-full z-50 mt-4 grid w-64 grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+              {moreMenus.map((menu) => <Link key={menu.href} href={menu.href} className="rounded-md px-3 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-pink-50 hover:text-pink-600">{menu.label}</Link>)}
+            </div>
+          </details>
         </nav>
 
         <form action="/search" className="ml-auto hidden h-11 w-[310px] items-center rounded-full border border-slate-200 bg-slate-50 px-4 lg:flex xl:ml-3">
