@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 const links = [
   { href: "/about", label: "発掘LABについて" },
+  { href: "/editorial-policy", label: "編集・データ更新方針" },
   { href: "/affiliate-disclosure", label: "広告・アフィリエイトについて" },
   { href: "/privacy", label: "プライバシーポリシー" },
   { href: "/terms", label: "利用規約" },

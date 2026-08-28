@@ -13,6 +13,8 @@ const menus = [
   { href: "/sale", label: "セール" },
   { href: "/deals", label: "お得に探す" },
   { href: "/features", label: "特集" },
+  { href: "/guides", label: "ガイド" },
+  { href: "/reports", label: "データ" },
   { href: "/actress", label: "女優" },
   { href: "/maker", label: "メーカー" },
   { href: "/series", label: "シリーズ" },

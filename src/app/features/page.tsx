@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, LibraryBig } from "lucide-react";
+import { ArrowRight, BookOpenCheck, ChartNoAxesCombined, LibraryBig } from "lucide-react";
 import CollectionPageJsonLd from "@/app/components/CollectionPageJsonLd";
 import Header from "@/components/layout/Header";
 import { featureCategories, type FeatureCategory } from "@/lib/features";
@@ -74,6 +74,10 @@ export default function FeaturesPage() {
           >
             価格・セール条件から探す <ArrowRight size={18} />
           </Link>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <Link href="/guides" className="flex items-center justify-between border border-slate-200 bg-white px-5 py-5 font-black hover:border-indigo-300 hover:text-indigo-700"><span className="flex items-center gap-3"><BookOpenCheck size={20} />作品選びのガイド</span><ArrowRight size={17} /></Link>
+            <Link href="/reports" className="flex items-center justify-between border border-slate-200 bg-white px-5 py-5 font-black hover:border-emerald-300 hover:text-emerald-700"><span className="flex items-center gap-3"><ChartNoAxesCombined size={20} />価格・順位レポート</span><ArrowRight size={17} /></Link>
+          </div>
         </section>
       </main>
     </>

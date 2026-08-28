@@ -10,6 +10,7 @@ import {
   WORK_INDEX_MIN_SCORE,
 } from "@/lib/seoQuality";
 import { supabase } from "@/lib/supabase";
+import { editorialGuides, reportDefinitions } from "@/lib/editorialContent";
 
 export type SitemapEntry = {
   url: string;
@@ -39,6 +40,18 @@ const staticEntries: SitemapEntry[] = [
     changeFrequency: "weekly" as const,
     priority: 0.8,
   })),
+  { url: `${SITE_URL}/guides`, changeFrequency: "weekly", priority: 0.9 },
+  ...editorialGuides.map((guide) => ({
+    url: `${SITE_URL}/guides/${guide.slug}`,
+    changeFrequency: "monthly" as const,
+    priority: 0.9,
+  })),
+  { url: `${SITE_URL}/reports`, changeFrequency: "daily", priority: 0.9 },
+  ...reportDefinitions.map((report) => ({
+    url: `${SITE_URL}/reports/${report.slug}`,
+    changeFrequency: "daily" as const,
+    priority: 0.9,
+  })),
   ...[
     "ending-soon",
     "lowest-price",
@@ -63,6 +76,7 @@ const staticEntries: SitemapEntry[] = [
     priority: 0.8,
   })),
   { url: `${SITE_URL}/about`, changeFrequency: "monthly", priority: 0.5 },
+  { url: `${SITE_URL}/editorial-policy`, changeFrequency: "monthly", priority: 0.5 },
   ...["affiliate-disclosure", "privacy", "terms"].map((path) => ({
     url: `${SITE_URL}/${path}`,
     changeFrequency: "monthly" as const,
