@@ -1,5 +1,18 @@
 import { updateScore } from "@/lib/admin/updateScore";
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return String(error);
+}
+
 export async function POST() {
   try {
     const result = await updateScore();
@@ -15,14 +28,11 @@ export async function POST() {
     return Response.json(
       {
         success: false,
-        message:
-          error instanceof Error
-            ? `スコア更新に失敗しました: ${error.message}`
-            : "スコア更新に失敗しました。",
+        message: `スコア更新に失敗しました: ${errorMessage(error)}`,
       },
       {
         status: 500,
-      }
+      },
     );
   }
 }

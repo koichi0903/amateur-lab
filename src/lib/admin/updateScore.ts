@@ -54,6 +54,19 @@ const SELECT_COLUMNS = `
 const PAGE_SIZE = 1000;
 const UPDATE_BATCH_SIZE = 500;
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return String(error);
+}
+
 function splitNames(value: string | null): string[] {
   return value
     ?.split("/")
@@ -221,8 +234,15 @@ export async function updateScore(productIds?: string[]) {
 
       if (updates.length === UPDATE_BATCH_SIZE || index === targets.length - 1) {
         const batchSize = updates.length;
+        const batchWorkIds = updates.map(({ id }) => id);
         const { error } = await supabase.from("works").upsert(updates);
         if (error) throw error;
+
+        const { error: entityScoreError } = await supabase.rpc(
+          "sync_catalog_entity_scores",
+          { p_work_ids: batchWorkIds },
+        );
+        if (entityScoreError) throw entityScoreError;
 
         completed += batchSize;
         await updateJobProgress(JOBS.SCORE, {
@@ -250,10 +270,7 @@ export async function updateScore(productIds?: string[]) {
 
     return { success: true, count: total, updates: total };
   } catch (error) {
-    await failJob(
-      JOBS.SCORE,
-      error instanceof Error ? error.message : "Unknown error",
-    );
+    await failJob(JOBS.SCORE, errorMessage(error));
     throw error;
   }
 }

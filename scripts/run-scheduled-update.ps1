@@ -78,8 +78,11 @@ try {
     $previousErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        & $node "scripts\local-admin-update.mjs" $Group 2>&1 |
-            Tee-Object -FilePath $logPath -Append
+        $updateOutput = @(
+            & $node "scripts\local-admin-update.mjs" $Group 2>&1 |
+                ForEach-Object { $_.ToString() } |
+                Tee-Object -FilePath $logPath -Append
+        )
         $nodeExitCode = $LASTEXITCODE
     }
     finally {
@@ -87,6 +90,12 @@ try {
     }
 
     if ($nodeExitCode -ne 0) {
+        $failureDetail = $updateOutput |
+            Where-Object { $_ -match '\[工程失敗\]' } |
+            Select-Object -Last 1
+        if ($failureDetail) {
+            throw $failureDetail
+        }
         throw "Scheduled update failed with exit code $nodeExitCode."
     }
 
