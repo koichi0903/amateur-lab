@@ -9,7 +9,6 @@ const PUBLIC_API_PATHS = new Set([
 ]);
 const LOCAL_UPDATE_API_PATHS = new Set([
   "/api/admin/browser-health",
-  "/api/admin/fill-sample-movie",
   "/api/admin/local-playwright-update",
   "/api/dmm-ranking",
   "/api/fanza-page",

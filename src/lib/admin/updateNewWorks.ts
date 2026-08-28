@@ -126,13 +126,12 @@ async function registerMissingNewWorks(
             item.URL ?? item.affiliateURL,
             browser,
             product.listPrice,
-            false,
-            null,
+            { captureSampleMovie: true },
           );
           console.log(`[NEW_REGISTER_OK] ${product.productId}`);
         } catch (error) {
-          // saveDmmItem leaves the row as PENDING. The normal NEW update pass
-          // below retries Playwright, so a partial registration is not lost.
+          // The row remains PENDING. A later normal pass can complete pricing,
+          // but sample movie discovery is intentionally limited to this insert.
           console.error(
             `[NEW_REGISTER_PLAYWRIGHT_ERROR] ${product.productId}`,
             error,

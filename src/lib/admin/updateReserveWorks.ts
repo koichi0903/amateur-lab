@@ -115,14 +115,13 @@ async function registerMissingReservedWorks(
             item.URL ?? item.affiliateURL,
             browser,
             product.listPrice,
-            false,
-            null,
+            { captureSampleMovie: true },
           );
 
           console.log(`[RESERVE_REGISTER_OK] ${product.productId}`);
         } catch (error) {
-          // The inserted row remains PENDING if Playwright fails. The regular
-          // RESERVED pass below retries it during the same or next run.
+          // The row remains PENDING. A later normal pass can complete pricing,
+          // but sample movie discovery is intentionally limited to this insert.
           console.error(
             `[RESERVE_REGISTER_ERROR] ${product.productId}`,
             error,

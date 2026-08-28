@@ -76,11 +76,4 @@ export const JOB_REGISTRY = {
     method: "POST",
     visible: true,
   },
-  sample_movie: {
-    title: "🎬 サンプル動画補完",
-    order: 12,
-    api: "/api/admin/fill-sample-movie",
-    method: "POST",
-    visible: true,
-  },
 } as const;

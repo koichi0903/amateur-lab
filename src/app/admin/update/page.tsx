@@ -77,7 +77,6 @@ const [showIdleJobs, setShowIdleJobs] = useState(false);
       "/api/dmm-ranking": "ranking",
       "/api/score-update": "score",
       "/api/update-missing-prices": "missing-prices",
-      "/api/admin/fill-sample-movie": "sample-movie",
     };
 
     const task = taskByPath[url.pathname];
@@ -400,28 +399,6 @@ async function handleUpdateMissingPrices() {
   }
 }
 
-async function handleFillSampleMovie() {
-
-  try {
-    const res = await runManualRequest("/api/admin/fill-sample-movie", {
-      method: "POST",
-    });
-
-    const data = await res.json();
-
-    alert(
-      `動画URL補完完了\n成功:${data.success}件\n失敗:${data.failed}件`
-    );
-
-    await loadJobs();
-  } catch (e) {
-    console.error(e);
-    alert("動画URL補完に失敗しました");
-  } finally {
-    setLoading(false);
-  }
-}
-
 async function handleUpdateReserve() {
 
   try {
@@ -578,7 +555,6 @@ const idleJobCount = displayedJobs.filter(
 .filter(
   (job) =>
     showIdleJobs ||
-    job.job_name === "sample_movie" ||
     job.status !== "idle" ||
     job.total_count > 0
 )
@@ -631,7 +607,6 @@ const idleJobCount = displayedJobs.filter(
   onUpdateScore={handleUpdateScore}
 onUpdateReview={handleUpdateReview}
 onUpdateMissingPrices={handleUpdateMissingPrices}
-onFillSampleMovie={handleFillSampleMovie}
 onUpdateReserve={handleUpdateReserve}
   isUpdating={isUpdating}
   runningJobs={[

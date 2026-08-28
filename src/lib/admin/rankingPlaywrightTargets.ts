@@ -25,6 +25,7 @@ export type RankingPlaywrightTarget = {
   item: DmmItem;
   listPrice: number | null;
   reasons: RankingPlaywrightReason[];
+  captureSampleMovie?: boolean;
 };
 
 function isRefreshDue(updatedAt: string | null, now: number): boolean {

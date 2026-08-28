@@ -7,7 +7,7 @@
  * 年齢認証処理は確認済みのため、原則修正禁止。
  */
 
-import type { Browser, BrowserContext } from "playwright-core";
+import type { Browser } from "playwright-core";
 import { getDmmItem } from "@/lib/dmm/getDmmItem";
 import { createBrowser } from "@/lib/playwright/browserManager";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
@@ -17,8 +17,11 @@ import { saveWork } from "./save";
 
 export type PlaywrightUpdateResult =
   | "updated"
-  | "unavailable"
-  | "sample_movie_missing";
+  | "unavailable";
+
+export type PlaywrightUpdateOptions = {
+  captureSampleMovie?: boolean;
+};
 
 const UNAVAILABLE_STATUS_PATTERN =
   /^UNAVAILABLE_(\d+)_([0-9]{8})_(RESERVED|NEW|SEMI_NEW|OLD)$/;
@@ -104,19 +107,17 @@ export async function updatePlaywrightItem(
   url?: string | null,
   browser?: Browser,
   listPrice?: number | null,
-  sampleMovieOnly = false,
-  existingSampleMovieUrl?: string | null,
-  sharedContext?: BrowserContext,
+  options: PlaywrightUpdateOptions = {},
 ): Promise<PlaywrightUpdateResult>
 {
+  const captureSampleMovie = options.captureSampleMovie === true;
   let workUrl: string | undefined =
   url ?? undefined;
-  let preservedSampleMovieUrl = existingSampleMovieUrl;
 
-if (!workUrl || preservedSampleMovieUrl === undefined) {
+if (!workUrl) {
   const { data: work, error } = await supabase
     .from("works")
-    .select("url,sample_movie_url")
+    .select("url")
     .eq("product_id", productId)
     .single();
 
@@ -126,10 +127,6 @@ if (!workUrl || preservedSampleMovieUrl === undefined) {
   }
 
   workUrl ??= work?.url ?? undefined;
-
-  if (preservedSampleMovieUrl === undefined) {
-    preservedSampleMovieUrl = work?.sample_movie_url ?? null;
-  }
 
   if (!workUrl) {
     console.log("URLが見つかりません:", productId);
@@ -149,9 +146,7 @@ if (!workUrl || preservedSampleMovieUrl === undefined) {
   let page;
 
   try {
-    page = sharedContext
-      ? await sharedContext.newPage()
-      : await browser.newPage();
+    page = await browser.newPage();
   } catch (error) {
     // The disconnected event may arrive just after isConnected() was checked.
     // Retry once with a fresh process instead of failing the whole update job.
@@ -163,14 +158,18 @@ if (!workUrl || preservedSampleMovieUrl === undefined) {
     page = await browser.newPage();
   }
 
-  // Product images and fonts are not needed for parsing. Blocking them keeps
-  // serverless Chromium below its memory limit while preserving media requests
-  // used to discover sample movie URLs.
-  if (process.env.VERCEL || sampleMovieOnly) {
+  // Routine updates never need video traffic. Initial registration explicitly
+  // opts in so the sample URL can be captured once and then kept unchanged.
+  if (process.env.VERCEL || !captureSampleMovie) {
     await page.route("**/*", async (route) => {
       const resourceType = route.request().resourceType();
+      const requestUrl = route.request().url();
 
-      if (resourceType === "image" || resourceType === "font") {
+      if (
+        (process.env.VERCEL && (resourceType === "image" || resourceType === "font")) ||
+        (!captureSampleMovie &&
+          (resourceType === "media" || /\.mp4(?:$|\?)/i.test(requestUrl)))
+      ) {
         await route.abort();
         return;
       }
@@ -181,25 +180,23 @@ if (!workUrl || preservedSampleMovieUrl === undefined) {
 
   let sampleMovieUrl: string | null = null;
   let resolveSampleMovie: ((url: string) => void) | null = null;
-  const sampleMovieDetected = new Promise<string>((resolve) => {
-    resolveSampleMovie = resolve;
-  });
+  const sampleMovieDetected = captureSampleMovie
+    ? new Promise<string>((resolve) => {
+        resolveSampleMovie = resolve;
+      })
+    : null;
 
-page.on("response", (response) => {
-  const responseUrl = response.url();
+  if (captureSampleMovie) {
+    page.on("response", (response) => {
+      const responseUrl = response.url();
 
-  if (
-    /\.mp4(?:$|\?)/i.test(responseUrl) &&
-    sampleMovieUrl === null
-  ) {
-    sampleMovieUrl = responseUrl;
-    resolveSampleMovie?.(responseUrl);
-
-    console.log(
-      `[MP4] ${productId} ${sampleMovieUrl}`
-    );
+      if (/\.mp4(?:$|\?)/i.test(responseUrl) && sampleMovieUrl === null) {
+        sampleMovieUrl = responseUrl;
+        resolveSampleMovie?.(responseUrl);
+        console.log(`[MP4_INITIAL] ${productId} ${sampleMovieUrl}`);
+      }
+    });
   }
-});
 
   try {
 
@@ -210,7 +207,7 @@ page.on("response", (response) => {
     // Mark the browser context as age-confirmed before the first request.
     // Following the English age-gate link redirects serverless visitors to
     // account login, while the same cookie is used by the normal storefront.
-    if (!sharedContext) await page.context().addCookies([
+    await page.context().addCookies([
       {
         name: "age_check_done",
         value: "1",
@@ -253,106 +250,73 @@ page.on("response", (response) => {
       console.log(`[INFO] ${productId} 年齢認証Cookieを確認`);
     }
 
-    if (sampleMovieOnly) {
-      if (!sampleMovieUrl && !preservedSampleMovieUrl) {
-        const video = page.locator("video").first();
-        const hasVideo = await video
-          .waitFor({ state: "attached", timeout: 2_500 })
-          .then(() => true)
-          .catch(() => false);
-
-        const directMovieUrl = await page
-          .evaluate(() => {
-            const candidates = [
-              ...Array.from(document.querySelectorAll("video"), (node) =>
-                node.getAttribute("src"),
-              ),
-              ...Array.from(document.querySelectorAll("video source"), (node) =>
-                node.getAttribute("src"),
-              ),
-            ];
-            return (
-              candidates.find(
-                (value): value is string =>
-                  Boolean(value && /^https?:/i.test(value) && /\.mp4(?:$|\?)/i.test(value)),
-              ) ?? null
-            );
-          })
-          .catch(() => null);
-
-        if (directMovieUrl) {
-          sampleMovieUrl = directMovieUrl;
-          console.log(`[MP4_DOM] ${productId} ${directMovieUrl}`);
-        } else if (hasVideo) {
-          await video
-            .evaluate((element) => (element as HTMLVideoElement).play())
-            .catch(() => undefined);
-        }
-
-        if (!sampleMovieUrl) {
-          await Promise.race([
-            sampleMovieDetected,
-            new Promise<null>((resolve) =>
-              setTimeout(() => resolve(null), hasVideo ? 5_000 : 2_000),
-            ),
-          ]);
-        }
-      }
-
-      const detectedUrl = sampleMovieUrl ?? preservedSampleMovieUrl ?? null;
-      if (!detectedUrl) {
-        const { error: checkedAtError } = await supabase
-          .from("works")
-          .update({ sample_movie_checked_at: new Date().toISOString() })
-          .eq("product_id", productId);
-        if (checkedAtError) throw checkedAtError;
-
-        console.log(`[SAMPLE_MOVIE_MISSING] ${productId}`);
-        return "sample_movie_missing";
-      }
-
-      const { error: sampleMovieError } = await supabase
-        .from("works")
-        .update({
-          sample_movie_url: detectedUrl,
-          sample_movie_checked_at: new Date().toISOString(),
-        })
-        .eq("product_id", productId);
-      if (sampleMovieError) throw sampleMovieError;
-
-      console.log(`[SAMPLE_MOVIE_SAVED] ${productId} ${detectedUrl}`);
-      return "updated";
-    }
-
-    // The product page hydrates after DOMContentLoaded. Wait for the pricing
-    // controls when present, but still allow unavailable products to continue.
+    // The product page hydrates after DOMContentLoaded. Waiting for its pricing
+    // controls also gives an initial sample player time to attach.
     await page
       .locator("label")
       .first()
       .waitFor({ state: "attached", timeout: 15_000 })
       .catch(() => undefined);
 
-    const data = await parsePage(page);
+    if (captureSampleMovie && !sampleMovieUrl) {
+      const video = page.locator("video").first();
+      const hasVideo = await video
+        .waitFor({ state: "attached", timeout: 2_500 })
+        .then(() => true)
+        .catch(() => false);
 
-    // The preview request can start shortly after the product data has been
-    // parsed. Give it a small bounded window so a late MP4 response is saved
-    // instead of being logged only after persistence has already begun.
-    if (!sampleMovieUrl && !preservedSampleMovieUrl) {
-      await Promise.race([
-        sampleMovieDetected,
-        new Promise<null>((resolve) =>
-          setTimeout(() => resolve(null), 2_000),
-        ),
-      ]);
+      const directMovieUrl = await page
+        .evaluate(() => {
+          const candidates = [
+            ...Array.from(document.querySelectorAll("video"), (node) =>
+              node.getAttribute("src"),
+            ),
+            ...Array.from(document.querySelectorAll("video source"), (node) =>
+              node.getAttribute("src"),
+            ),
+          ];
+          return (
+            candidates.find(
+              (value): value is string =>
+                Boolean(value && /^https?:/i.test(value) && /\.mp4(?:$|\?)/i.test(value)),
+            ) ?? null
+          );
+        })
+        .catch(() => null);
+
+      if (directMovieUrl) {
+        sampleMovieUrl = directMovieUrl;
+        console.log(`[MP4_INITIAL_DOM] ${productId} ${directMovieUrl}`);
+      } else if (hasVideo) {
+        await video
+          .evaluate((element) => (element as HTMLVideoElement).play())
+          .catch(() => undefined);
+      }
+
+      if (!sampleMovieUrl && sampleMovieDetected) {
+        await Promise.race([
+          sampleMovieDetected,
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), hasVideo ? 5_000 : 2_000),
+          ),
+        ]);
+      }
+
+      if (sampleMovieUrl) {
+        const { error: sampleMovieError } = await supabase
+          .from("works")
+          .update({ sample_movie_url: sampleMovieUrl })
+          .eq("product_id", productId)
+          .is("sample_movie_url", null);
+        if (sampleMovieError) throw sampleMovieError;
+
+        console.log(`[SAMPLE_MOVIE_INITIAL_SAVED] ${productId}`);
+      } else {
+        console.log(`[SAMPLE_MOVIE_INITIAL_MISSING] ${productId}`);
+      }
     }
 
-    data.sampleMovieUrl = sampleMovieUrl ?? preservedSampleMovieUrl ?? undefined;
-
-console.log(
-  "[SampleMovie]",
-  data.sampleMovieUrl,
-  sampleMovieUrl ? "detected" : preservedSampleMovieUrl ? "preserved" : "missing",
-);
+    const data = await parsePage(page);
 
 // 価格取得失敗なら保存しない
 if (data.prices.length === 0) {

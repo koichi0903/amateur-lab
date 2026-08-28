@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
   let query = supabaseAdmin
     .from("works")
-    .select("product_id,url,list_price,sample_movie_url")
+    .select("product_id,url,list_price")
     .not("url", "is", null);
 
   query = requestedProductId
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
   const results: Array<{
     productId: string;
     success: boolean;
-    status: "updated" | "unavailable" | "sample_movie_missing" | "failed";
+    status: "updated" | "unavailable" | "failed";
     message?: string;
   }> = [];
 
@@ -98,8 +98,6 @@ export async function POST(request: NextRequest) {
               work.url,
               activeBrowser,
               work.list_price,
-              false,
-              work.sample_movie_url,
             );
             return {
               productId: work.product_id,

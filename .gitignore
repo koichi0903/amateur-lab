@@ -34,6 +34,7 @@ yarn-error.log*
 
 # local development and visual QA artifacts
 /.codex-*.log
+/.codex-*.png
 /work/
 /work-npm-cache/
 /.npm-cache/

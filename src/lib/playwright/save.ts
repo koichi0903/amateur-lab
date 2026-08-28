@@ -314,8 +314,6 @@ const workUpdate = {
   series: data.series,
   label: data.label,
 
-  sample_movie_url: data.sampleMovieUrl,
-
   release_date: data.releaseDate,
   product_release_date: data.productReleaseDate,
 

@@ -11,8 +11,14 @@ async function updateBatch(
   browser: Browser,
 ): Promise<RankingPlaywrightTarget[]> {
   const results = await Promise.allSettled(
-    targets.map(({ item, listPrice }) =>
-      updateWork(item.content_id, item, browser, listPrice ?? undefined),
+    targets.map(({ item, listPrice, captureSampleMovie }) =>
+      updateWork(
+        item.content_id,
+        item,
+        browser,
+        listPrice ?? undefined,
+        { captureSampleMovie },
+      ),
     ),
   );
 

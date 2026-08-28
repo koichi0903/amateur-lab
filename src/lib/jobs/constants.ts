@@ -25,7 +25,6 @@ SCORE: "score",
 
   MISSING_PRICES: "missing_prices",
 
-  SAMPLE_MOVIE: "sample_movie",
 } as const;
 
 export type JobName =

@@ -101,7 +101,10 @@ for (
 
 await updateWork(
   product.productId,
-  item
+  item,
+  undefined,
+  undefined,
+  { captureSampleMovie: saved },
 );
 
 if (saved) {

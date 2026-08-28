@@ -20,7 +20,6 @@ const TASKS = {
   ranking: { label: "ランキング更新", path: "/api/dmm-ranking" },
   score: { label: "スコア更新", path: "/api/score-update" },
   "missing-prices": { label: "価格補完", path: "/api/update-missing-prices" },
-  "sample-movie": { label: "サンプル動画補完", path: "/api/admin/fill-sample-movie" },
 };
 
 const ALL_TASKS = [
@@ -40,7 +39,7 @@ const TASK_GROUPS = {
   "daily-0030": ["reserve", "new", "old", "sale", "ended-sale", "ranking", "score"],
   "daily-1030": ["sale", "ended-sale", "ranking", "score"],
   "tue-fri-1800": ["review", "semi-new"],
-  "sunday-1800": ["missing-prices", "sample-movie"],
+  "sunday-1800": ["missing-prices"],
 };
 
 async function revalidateProduction(tasks) {
@@ -107,7 +106,7 @@ async function revalidateProduction(tasks) {
 function usage() {
   console.log("使い方: npm run update:local -- <task>");
   console.log(`task: all | ${Object.keys(TASK_GROUPS).join(" | ")} | ${Object.keys(TASKS).join(" | ")}`);
-  console.log("価格補完と動画補完は長時間処理のため all には含まれません。");
+  console.log("価格補完は長時間処理のため all には含まれません。");
 }
 
 const requestedTask = process.argv[2]?.trim().toLowerCase();

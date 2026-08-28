@@ -38,7 +38,6 @@ export interface ParsedData {
 
   sampleImages: string[];
 
-sampleMovieUrl?: string;
 
 saleEndAt: Date | null;
 }

@@ -2,26 +2,13 @@ import Link from "next/link";
 import type { DailyDiscoveryWork } from "@/lib/getDailyDiscovery";
 import type { HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 import WorkImage from "../WorkImage";
+import MiniPriceHistoryChart from "../MiniPriceHistoryChart";
 import { workDetailHref } from "@/lib/affiliateTracking";
 
 const formatPrice = (value: number | null | undefined) =>
   value && value > 0 ? `¥${value.toLocaleString("ja-JP")}` : "価格未取得";
 
 function HeroPricePanel({ priceInsight }: { priceInsight: HomePriceInsightWork }) {
-  const values = priceInsight.sparkline;
-  const width = 150;
-  const height = 42;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = Math.max(1, max - min);
-  const points = values
-    .map((value, index) => {
-      const x = values.length === 1 ? width : (index / (values.length - 1)) * width;
-      const y = height - ((value - min) / range) * (height - 8) - 4;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-
   return (
     <div className="mt-5 max-w-md rounded-xl border border-white/20 bg-white/95 p-3 text-slate-950 shadow-lg backdrop-blur sm:mt-6">
       <div className="flex items-start justify-between gap-3">
@@ -31,9 +18,16 @@ function HeroPricePanel({ priceInsight }: { priceInsight: HomePriceInsightWork }
         </div>
         <span className="rounded-full bg-pink-100 px-2 py-1 text-[11px] font-black text-pink-700">{priceInsight.badge}</span>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="mt-1 h-11 w-full" aria-label="価格推移" role="img">
-        <polyline points={points} fill="none" stroke="#f472b6" strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" />
-      </svg>
+      <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1">
+        <MiniPriceHistoryChart
+          points={priceInsight.priceHistory}
+          windowStartAt={priceInsight.priceWindowStartAt}
+          windowEndAt={priceInsight.priceWindowEndAt}
+          lowPrice={priceInsight.low90Price}
+          currentPrice={priceInsight.currentPrice}
+          variant="hero"
+        />
+      </div>
       <p className="text-xs font-bold text-slate-500">
         {priceInsight.previousPrice && priceInsight.dropAmount > 0
           ? `${formatPrice(priceInsight.previousPrice)}から${priceInsight.dropRate}%OFF`

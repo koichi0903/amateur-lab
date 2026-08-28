@@ -87,17 +87,28 @@ export async function syncReserveWorks() {
         continue;
       }
 
-            await saveDmmItem(
-  dmmItem,
-  undefined,
-  "RESERVED"
-);
+      const saved = await saveDmmItem(
+        dmmItem,
+        undefined,
+        "RESERVED"
+      );
+
+      if (!saved) {
+        current++;
+        await updateJob(
+          JOBS.RESERVE,
+          current,
+          item.productId
+        );
+        continue;
+      }
 
       await updatePlaywrightItem(
         item.productId,
         undefined,
         browser,
-        item.listPrice
+        item.listPrice,
+        { captureSampleMovie: true },
       );
 
       current++;

@@ -2,32 +2,12 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowDownRight, ArrowRight, BadgePercent, Crown, Search, Trophy } from "lucide-react";
 import WorkImage from "@/components/home/WorkImage";
+import MiniPriceHistoryChart from "@/components/home/MiniPriceHistoryChart";
 import { workDetailHref } from "@/lib/affiliateTracking";
 import type { HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 
 const formatPrice = (value: number | null | undefined) =>
   value && value > 0 ? `¥${value.toLocaleString("ja-JP")}` : "価格確認中";
-
-function MiniChart({ values, color = "#ec4899" }: { values: number[]; color?: string }) {
-  const width = 240;
-  const height = 56;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = Math.max(1, max - min);
-  const points = values.map((value, index) => {
-    const x = (index / Math.max(1, values.length - 1)) * width;
-    const y = height - ((value - min) / range) * (height - 12) - 6;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-14 w-full" aria-label="価格推移" role="img">
-      <path d={`M 0 ${height - 8} H ${width}`} stroke="#e2e8f0" strokeDasharray="3 4" />
-      <polyline points={points} fill="none" stroke={color} strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
-      <circle cx={width} cy={Number(points.split(" ").at(-1)?.split(",")[1] ?? height / 2)} r="4" fill={color} stroke="white" strokeWidth="2" />
-    </svg>
-  );
-}
 
 function MainBuyCard({ work, rank }: { work: HomePriceInsightWork; rank: number }) {
   const previous = work.previousPrice ?? work.list_price ?? work.price;
@@ -50,7 +30,16 @@ function MainBuyCard({ work, rank }: { work: HomePriceInsightWork; rank: number 
           <span className="rounded-md bg-pink-50 px-1.5 py-1 text-[11px] font-black text-pink-700">商品 {productDiscountRate}%OFF</span>
         </div>
       </div>
-      <div className="col-span-2 rounded-lg bg-slate-50 px-2 py-1"><MiniChart values={work.sparkline} color={rank === 1 ? "#ec4899" : "#60a5fa"} /></div>
+      <div className="col-span-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1">
+        <MiniPriceHistoryChart
+          points={work.priceHistory}
+          windowStartAt={work.priceWindowStartAt}
+          windowEndAt={work.priceWindowEndAt}
+          lowPrice={work.low90Price}
+          currentPrice={work.currentPrice}
+          variant="main"
+        />
+      </div>
     </Link>
   );
 }
@@ -62,7 +51,16 @@ function CompactCard({ work, color }: { work: HomePriceInsightWork; color: "blue
         <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md bg-slate-100"><WorkImage src={work.image_url} alt={work.title} className="object-cover" sizes="56px" /></div>
         <div className="min-w-0"><h3 className="line-clamp-2 text-xs font-black leading-4">{work.title}</h3><p className={`mt-1 text-sm font-black ${color === "green" ? "text-emerald-600" : "text-blue-600"}`}>{formatPrice(work.currentPrice)}</p></div>
       </div>
-      <div className="mt-2"><MiniChart values={work.sparkline} color={color === "green" ? "#34d399" : "#3b82f6"} /></div>
+      <div className="mt-2 rounded-md border border-slate-100 bg-slate-50 px-1.5 py-1">
+        <MiniPriceHistoryChart
+          points={work.priceHistory}
+          windowStartAt={work.priceWindowStartAt}
+          windowEndAt={work.priceWindowEndAt}
+          lowPrice={work.low90Price}
+          currentPrice={work.currentPrice}
+          variant="compact"
+        />
+      </div>
       <span className={`inline-flex rounded-md px-1.5 py-1 text-[10px] font-black ${color === "green" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>{work.badge}</span>
     </Link>
   );

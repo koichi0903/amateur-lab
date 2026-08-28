@@ -6,10 +6,11 @@ export async function POST(request: Request) {
   try {
     const item = await request.json();
 
-    await registerWork(item);
+    const registered = await registerWork(item);
 
     return NextResponse.json({
-      success: true,
+      success: registered,
+      message: registered ? "作品を登録しました" : "作品は登録済みです",
     });
   } catch (error) {
     console.error(error);

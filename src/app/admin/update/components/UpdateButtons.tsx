@@ -21,8 +21,6 @@ onUpdateReview?: () => void;
 
 onUpdateMissingPrices?: () => void;
 
-onFillSampleMovie?: () => void;
-
 onUpdateReserve?: () => void;
 
   isUpdating?: boolean;
@@ -52,8 +50,6 @@ onUpdateScore,
 onUpdateReview,
 
 onUpdateMissingPrices,
-
-onFillSampleMovie,
 
 onUpdateReserve,
 
@@ -129,15 +125,6 @@ onStop,
   label: "💵 価格補完",
   onClick: onUpdateMissingPrices,
   color: "bg-lime-600 hover:bg-lime-500",
-},
-{
-  jobName: "sample_movie",
-  label: "🎬 サンプル動画補完",
-  onClick: () => {
-    alert("ボタンが押されました");
-    onFillSampleMovie?.();
-  },
-  color: "bg-fuchsia-600 hover:bg-fuchsia-500",
 },
   {
   jobName: "reserve",

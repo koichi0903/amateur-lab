@@ -292,11 +292,17 @@ export async function updateRanking() {
       realtimeListings.map((listing) => [listing.productId, listing]),
     );
     const worksByProductId = await loadRankingWorkSnapshots(productIds);
+    const newlyRegisteredIds = new Set(
+      missingItems.map((item) => item.content_id),
+    );
     const playwrightTargets = selectRankingPlaywrightTargets(
       rankingTargets,
       worksByProductId,
       listingByProductId,
-    );
+    ).map((target) => ({
+      ...target,
+      captureSampleMovie: newlyRegisteredIds.has(target.item.content_id),
+    }));
     const skippedCount = rankingTargets.length - playwrightTargets.length;
 
     console.log(
