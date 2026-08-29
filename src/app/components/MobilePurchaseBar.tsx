@@ -71,12 +71,12 @@ export default function MobilePurchaseBar({
             variantChildren={{
               "price-focus": isXVisitor
                 ? "サンプルと価格を確認"
-                : "FANZAで最安価格を確認",
+                : "FANZAで確認",
             }}
             ariaLabel="FANZA公式で価格とサンプルを確認する（新しいタブで開きます）"
             className="flex h-12 min-w-40 shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-pink-600 to-fuchsia-600 px-4 text-center text-xs font-black leading-4 text-white shadow-sm transition active:scale-[0.98]"
           >
-            {isXVisitor ? <>サンプルと価格を<br />確認</> : <>FANZAで価格・<br />サンプル確認</>}
+            {isXVisitor ? <>サンプルと価格を<br />確認</> : <>FANZAで<br />確認</>}
           </AffiliateLink>
         ) : (
           <span className="flex h-12 min-w-36 shrink-0 items-center justify-center rounded-xl bg-zinc-200 px-4 text-xs font-bold text-zinc-500">

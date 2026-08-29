@@ -187,13 +187,13 @@ export default function PurchaseCard({
             experiment
             variantChildren={{
               "price-focus": isXVisitor
-                ? "サンプルと価格をFANZAで確認"
+                ? "サンプルと価格を確認"
                 : "FANZA公式で最安価格を確認",
             }}
             ariaLabel="FANZA公式で価格とサンプルを確認する（新しいタブで開きます）"
             className="mt-6 block w-full rounded-xl bg-gradient-to-r from-pink-600 to-fuchsia-600 px-4 py-4 text-center text-base font-black text-white shadow-md transition hover:scale-[1.02] hover:shadow-lg"
           >
-            {isXVisitor ? "サンプルと価格を確認する" : "FANZA公式で価格・サンプルを確認"}
+            {isXVisitor ? "サンプルと価格を確認" : "FANZA公式で確認"}
           </AffiliateLink>
         ) : (
           <div className="mt-6 rounded-xl bg-zinc-200 px-4 py-4 text-center text-sm font-bold text-zinc-500">
@@ -212,7 +212,7 @@ export default function PurchaseCard({
 
         <FavoriteButton
           workId={work.id}
-          addLabel="お気に入りに追加"
+          addLabel="お気に入り"
           className="mt-4 w-full rounded-xl border py-3 font-semibold hover:bg-zinc-50"
         />
         <CompareButton

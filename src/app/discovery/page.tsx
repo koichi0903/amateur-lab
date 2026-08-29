@@ -11,9 +11,9 @@ import { pageMetadata, SITE_URL } from "@/lib/seo";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = pageMetadata({
-  title: "今日の発掘作品 | 発掘LAB",
+  title: "今日の発掘作品 | 評価と価格で見つける候補 | 発掘LAB",
   description:
-    "ランキング上位の定番作ではなく、評価、レビュー件数、価格条件、買い時が強い埋もれた作品を発掘指数でランキングします。",
+    "ランキング上位の定番作だけでなく、評価、レビュー件数、価格条件、買うタイミングに強みがある作品を独自指数で紹介します。",
   canonical: "/discovery",
 });
 
@@ -23,6 +23,10 @@ function formatPrice(value: number | null) {
 
 function formatRanking(value: number | null | undefined) {
   return value && value > 0 && value < 9999 ? `${value}位` : "圏外/未取得";
+}
+
+function compactReasons(reasons: string[]) {
+  return reasons.slice(0, 3);
 }
 
 export default async function DiscoveryPage() {
@@ -39,7 +43,7 @@ export default async function DiscoveryPage() {
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
         <CollectionPageJsonLd
           title="今日の発掘作品"
-          description="ランキングでは埋もれている高評価・好条件作品の発掘ランキングです。"
+          description="ランキングだけでは見落としやすい高評価・好条件作品の一覧です。"
           url={`${SITE_URL}/discovery`}
           items={structuredItems}
         />
@@ -61,7 +65,7 @@ export default async function DiscoveryPage() {
                   今日の発掘作品
                 </h1>
                 <p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">
-                  FANZAランキング上位の定番作だけに寄せず、ランキングでは埋もれているのに評価・レビュー件数・価格条件・買い時が強い作品を発掘します。
+                  FANZAランキング上位の定番作だけに寄せず、評価・レビュー件数・価格条件に強みがある作品を拾います。迷ったら上から数本を比較してください。
                 </p>
               </div>
             </div>
@@ -69,7 +73,7 @@ export default async function DiscoveryPage() {
             <div className="mt-8 grid gap-3 border-y border-emerald-100 bg-emerald-50/40 p-5 text-sm font-bold leading-6 text-slate-600 sm:grid-cols-3">
               <p className="flex gap-2">
                 <SearchCheck className="shrink-0 text-emerald-600" size={20} />
-                低めのランキング帯を加点
+                定番以外も候補化
               </p>
               <p className="flex gap-2">
                 <Star className="shrink-0 text-amber-500" size={20} />
@@ -77,7 +81,7 @@ export default async function DiscoveryPage() {
               </p>
               <p className="flex gap-2">
                 <ShieldCheck className="shrink-0 text-sky-600" size={20} />
-                少ないPVのCTR暴れを抑制
+                少ないPVのCTRを補正
               </p>
             </div>
           </div>
@@ -117,10 +121,10 @@ export default async function DiscoveryPage() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
-                          発掘指数 {work.discovery.score}/100
+                          独自指数 {work.discovery.score}/100
                         </span>
                         <span className="rounded-full bg-pink-50 px-3 py-1 text-xs font-black text-pink-700">
-                          買い時 {work.buyTiming.score}/100
+                          判断 {work.buyTiming.score}/100
                         </span>
                         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
                           {work.discovery.label}
@@ -157,7 +161,7 @@ export default async function DiscoveryPage() {
                       </div>
 
                       <div className="mt-4 flex flex-wrap gap-1.5">
-                        {work.discovery.reasons.map((reason) => (
+                        {compactReasons(work.discovery.reasons).map((reason) => (
                           <span
                             key={reason}
                             className="rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800"
@@ -171,7 +175,7 @@ export default async function DiscoveryPage() {
                     <div className="flex flex-col justify-between border-t border-slate-100 pt-4 lg:w-56 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
                       <div className="space-y-2 text-[11px] font-bold leading-5 text-slate-500">
                         <p>既存発掘スコア {Math.round(work.score ?? 0)}</p>
-                        <p>埋もれ加点 {work.discovery.hiddenRankBonus}</p>
+                        <p>定番外の加点 {work.discovery.hiddenRankBonus}</p>
                         <p>
                           直近30日 PV {work.buyTiming.funnel.pageViews} / 送客 {work.buyTiming.funnel.fanzaClicks} / 補正CTR {work.buyTiming.funnel.adjustedCtr}%
                         </p>

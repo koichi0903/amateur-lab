@@ -11,14 +11,18 @@ import { pageMetadata, SITE_URL } from "@/lib/seo";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = pageMetadata({
-  title: "今日の買い時ランキング | 発掘LAB",
+  title: "今日の買い時ランキング | 価格とレビューで選ぶ | 発掘LAB",
   description:
-    "FANZA作品の価格、割引、過去最安値、レビュー、ランキング、発掘スコア、直近30日のCTRをもとに、今日買う価値が高い作品をランキングで紹介します。",
+    "FANZA作品の現在価格、割引、過去最安、レビュー、ランキング、直近30日の送客傾向をもとに、今チェックする理由がある作品を紹介します。",
   canonical: "/price-insights",
 });
 
 function formatPrice(value: number | null) {
   return value && value > 0 ? `¥${value.toLocaleString("ja-JP")}` : "確認中";
+}
+
+function primaryReasons(reasons: string[]) {
+  return reasons.slice(0, 2);
 }
 
 export default async function PriceInsightsPage() {
@@ -57,7 +61,7 @@ export default async function PriceInsightsPage() {
                   今日の買い時ランキング
                 </h1>
                 <p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">
-                  価格の安さだけでなく、過去最安値、レビュー、ランキング、発掘スコア、直近30日のFANZAクリック傾向まで見て、今買う価値が高い作品を並べています。
+                  値下げ幅、過去最安との近さ、レビューの安定感、直近30日の送客傾向を合わせて、今日チェックする理由がある作品を並べています。
                 </p>
               </div>
             </div>
@@ -69,11 +73,11 @@ export default async function PriceInsightsPage() {
               </p>
               <p className="flex gap-2">
                 <Sparkles className="shrink-0 text-pink-600" size={20} />
-                発掘スコアは変更せず別判定
+                発掘指数とは別に判定
               </p>
               <p className="flex gap-2">
                 <TrendingUp className="shrink-0 text-indigo-600" size={20} />
-                詳細ページと同じ買い時ロジック
+                詳細ページと同じ基準
               </p>
             </div>
           </div>
@@ -116,7 +120,7 @@ export default async function PriceInsightsPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="rounded-full bg-pink-50 px-3 py-1 text-xs font-black text-pink-700">
-                            買い時 {decision.score}/100
+                            判断 {decision.score}/100
                           </span>
                           <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
                             {decision.label}
@@ -150,7 +154,7 @@ export default async function PriceInsightsPage() {
                         </p>
 
                         <div className="mt-3 flex flex-wrap gap-1.5">
-                          {decision.reasons.slice(0, 3).map((reason) => (
+                          {primaryReasons(decision.reasons).map((reason) => (
                             <span
                               key={reason}
                               className="rounded-md bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-700"
@@ -170,7 +174,7 @@ export default async function PriceInsightsPage() {
                         href={workDetailHref(work.id, "deals")}
                         className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-pink-600 px-4 text-sm font-black text-white transition hover:bg-pink-700"
                       >
-                        詳細で価格を見る <ArrowRight size={16} />
+                        価格と理由を見る <ArrowRight size={16} />
                       </Link>
                     </div>
                   </article>

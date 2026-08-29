@@ -61,18 +61,18 @@ export default function Hero({
             AIが毎日名作を発掘
           </h1>
           <p className="mt-4 text-base font-bold leading-8 text-slate-200 sm:text-xl">
-            あなたがまだ知らない、本当におすすめの作品がここに。
-            <span className="block text-sm text-pink-100 sm:text-base">価格推移から「今が買い時」かも一緒に確認できます。</span>
+            ランキングだけでは見つけにくい作品を、価格推移とレビューから毎日整理。
+            <span className="block text-sm text-pink-100 sm:text-base">迷ったら、まず今日の候補と価格で選べます。</span>
           </p>
           <div className="mt-6 flex flex-wrap gap-3 sm:mt-7">
             <Link
               href="#daily-discovery"
               className="rounded-full bg-pink-600 px-7 py-3.5 text-sm font-black text-white transition hover:bg-pink-500"
             >
-              今日のAI発掘を見る
+              今日の候補を見る
             </Link>
-            <Link href="/features" className="rounded-full border border-white/25 px-6 py-3.5 text-sm font-black text-white transition hover:border-white/60 hover:bg-white/10">特集から探す</Link>
-            <Link href="/deals" className="rounded-full border border-white/25 px-6 py-3.5 text-sm font-black text-white transition hover:border-white/60 hover:bg-white/10">お得に探す</Link>
+            <Link href="/price-insights" className="rounded-full border border-white/25 px-6 py-3.5 text-sm font-black text-white transition hover:border-white/60 hover:bg-white/10">価格で選ぶ</Link>
+            <Link href="/features" className="rounded-full border border-white/25 px-6 py-3.5 text-sm font-black text-white transition hover:border-white/60 hover:bg-white/10">特集を見る</Link>
           </div>
           {priceInsight && <HeroPricePanel priceInsight={priceInsight} />}
         </div>

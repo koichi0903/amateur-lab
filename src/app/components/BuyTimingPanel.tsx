@@ -83,9 +83,9 @@ export default function BuyTimingPanel({
 
           {decision.reasons.length > 0 && (
             <div className="mt-4">
-              <p className="text-xs font-black text-zinc-500">今買う理由</p>
+              <p className="text-xs font-black text-zinc-500">判断材料</p>
               <ul className="mt-2 grid gap-2 text-sm font-bold text-zinc-700 sm:grid-cols-2">
-                {decision.reasons.map((reason) => (
+                {decision.reasons.slice(0, 4).map((reason) => (
                   <li key={reason} className="flex gap-2">
                     <span className="text-emerald-600" aria-hidden="true">✓</span>
                     <span>{reason}</span>
@@ -110,7 +110,7 @@ export default function BuyTimingPanel({
               ariaLabel="FANZA公式で現在価格とサンプルを確認する（新しいタブで開きます）"
               className="flex min-h-14 w-full items-center justify-center rounded-2xl bg-gradient-to-r from-pink-600 to-fuchsia-600 px-5 py-4 text-center text-base font-black text-white shadow-md transition hover:scale-[1.01] hover:shadow-lg lg:h-full"
             >
-              FANZAで今の価格を見る
+              価格・サンプルを確認
             </AffiliateLink>
           ) : (
             <div className="flex min-h-14 w-full items-center justify-center rounded-2xl bg-zinc-200 px-5 py-4 text-center text-sm font-bold text-zinc-500 lg:h-full">
