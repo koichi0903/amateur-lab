@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
   const results: Array<{
     productId: string;
     success: boolean;
-    status: "updated" | "unavailable" | "failed";
+    status: "updated" | "unavailable" | "sample_movie_missing" | "failed";
     message?: string;
   }> = [];
 
@@ -106,6 +106,8 @@ export async function POST(request: NextRequest) {
               message:
                 status === "unavailable"
                   ? "FANZA側でページまたは価格を確認できませんでした。"
+                  : status === "sample_movie_missing"
+                    ? "サンプル動画を確認できませんでした。"
                   : undefined,
             } as const;
           } catch (updateError) {
@@ -133,7 +135,8 @@ export async function POST(request: NextRequest) {
       (result) => result.status === "updated",
     ).length;
     const unavailable = results.filter(
-      (result) => result.status === "unavailable",
+      (result) =>
+        result.status === "unavailable" || result.status === "sample_movie_missing",
     ).length;
     const failed = results.filter(
       (result) => result.status === "failed",

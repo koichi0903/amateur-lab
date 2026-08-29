@@ -63,6 +63,7 @@ export const AFFILIATE_PLACEMENT_LABELS: Record<string, string> = {
   "detail-sidebar": "PC・詳細サイド",
   "mobile-sticky": "スマホ固定バー",
   "compare-card": "比較カード",
+  "sample-movie-fallback": "公式サンプル誘導",
 };
 
 type WorkSummary = {

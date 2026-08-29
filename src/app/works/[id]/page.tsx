@@ -65,7 +65,7 @@ const WORK_DETAIL_COLUMNS = [
   "list_price", "discount_rate", "review_count", "review_average",
   "release_date", "image_url", "affiliate_url", "stage", "is_on_sale", "sale_end_at",
   "duration", "lowest_price", "previous_realtime_rank", "realtime_rank",
-  "sample_movie_url", "long_hit_rank",
+  "sample_movie_url", "long_hit_rank", "url",
 ].join(",");
 
 // Work data changes at most a few times per day. Reusing the rendered page keeps
@@ -455,6 +455,7 @@ const purchaseDecision = analyzePurchaseDecision({
   sampleImages={sampleImages ?? []}
   sampleMovieUrl={work.sample_movie_url}
   officialSampleEmbedUrl={getOfficialSampleEmbedUrl(work)}
+  sourcePage={sourcePage}
 />
       </section>
 

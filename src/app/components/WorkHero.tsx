@@ -7,6 +7,10 @@ import type { Work } from "@/types/work";
 import ImageViewer from "./ImageViewer";
 import ActressTags from "./ActressTags";
 import FavoriteButton from "@/components/favorites/FavoriteButton";
+import { ExternalLink, ImageIcon, PlayCircle } from "lucide-react";
+import AffiliateLink from "./AffiliateLink";
+import type { AffiliateSource } from "@/lib/affiliateTracking";
+import { getSampleMovieFallbackCopy } from "@/lib/sampleMovieFallback";
 
 type Props = {
   work: Work;
@@ -16,6 +20,7 @@ type Props = {
   }[];
   sampleMovieUrl?: string | null;
   officialSampleEmbedUrl?: string | null;
+  sourcePage: AffiliateSource;
 };
 
 export default function WorkHero({
@@ -23,6 +28,7 @@ export default function WorkHero({
   sampleImages,
   sampleMovieUrl,
   officialSampleEmbedUrl,
+  sourcePage,
 }: Props) {
 
 // eslint-disable-next-line react-hooks/purity
@@ -32,6 +38,12 @@ const genres = work.genre
   ?.split(/\s*\/\s*/)
   .map((name) => name.trim())
   .filter(Boolean) ?? [];
+
+const officialWorkUrl = work.affiliate_url ?? work.url;
+const sampleFallback = getSampleMovieFallbackCopy(work);
+const hasSampleDestination = Boolean(
+  sampleMovieUrl || officialSampleEmbedUrl || officialWorkUrl
+);
 
 const hasValidRanking =
   typeof work.ranking === "number" &&
@@ -252,44 +264,64 @@ useEffect(() => {
       type="video/mp4"
     />
   </video>
-) : (
-
-  <div
-  onClick={() => setViewerOpen(true)}
-  className="relative cursor-zoom-in"
->
+) : selected === "movie" ? (
+  <div className="relative overflow-hidden rounded-2xl border bg-zinc-950 shadow-lg">
   <Image
-  key={
-    selected === "movie"
-      ? "movie"
-      : sampleImages[selected].image_url
-  }
-  src={
-    selected === "movie"
-      ? (work.image_url ?? "")
-      : sampleImages[selected].image_url
-  }
+  key="movie-fallback"
+  src={work.image_url ?? ""}
   alt={work.title}
   width={280}
   height={395}
   className="
     w-full
-    rounded-2xl
-    border
     bg-white
     object-cover
-    shadow-lg
     transition-opacity
     duration-300
   "
 />
-  <div className="absolute bottom-3 right-3 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
-  {selected === "movie"
-    ? "動画"
-    : `${selected + 1} / ${sampleImages.length}`}
-</div>
-
+  {officialWorkUrl ? (
+    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/65 via-black/15 to-transparent p-4">
+      <AffiliateLink
+        href={officialWorkUrl}
+        workId={work.id}
+        placement="sample-movie-fallback"
+        sourcePage={sourcePage}
+        deliveryMode={sampleFallback.deliveryMode}
+        ariaLabel={`${work.title}のサンプルをFANZA公式で確認する`}
+        className="pointer-events-auto mt-auto flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-white px-3 py-3 text-center text-sm font-black text-zinc-900 shadow-lg transition hover:bg-pink-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pink-500"
+      >
+        <PlayCircle aria-hidden="true" size={20} className="shrink-0 text-pink-600" />
+        <span>{sampleFallback.label}</span>
+        <ExternalLink aria-hidden="true" size={15} className="shrink-0 text-zinc-500" />
+      </AffiliateLink>
+    </div>
+  ) : (
+    <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
+      <ImageIcon aria-hidden="true" size={13} />
+      作品画像
+    </div>
+  )}
   </div>
+) : (
+  <button
+    type="button"
+    onClick={() => setViewerOpen(true)}
+    className="relative block w-full cursor-zoom-in"
+    aria-label={`${work.title}のサンプル画像${selected + 1}を拡大する`}
+  >
+    <Image
+      key={sampleImages[selected].image_url}
+      src={sampleImages[selected].image_url}
+      alt={work.title}
+      width={280}
+      height={395}
+      className="w-full rounded-2xl border bg-white object-cover shadow-lg transition-opacity duration-300"
+    />
+    <div className="absolute bottom-3 right-3 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
+      {selected + 1} / {sampleImages.length}
+    </div>
+  </button>
 )}
 
   </div>
@@ -297,7 +329,9 @@ useEffect(() => {
   <div className="mt-4 flex gap-2 overflow-x-auto">
 
   <button
+  type="button"
   onClick={() => setSelected("movie")}
+  aria-label={hasSampleDestination ? "サンプル確認を表示" : "作品画像を表示"}
   className={`
     relative
     h-16
@@ -323,15 +357,13 @@ useEffect(() => {
     className="object-cover"
   />
 
-  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+  {hasSampleDestination && <div className="absolute inset-0 flex items-center justify-center bg-black/30">
 
-    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-sm font-black text-black">
-
-      ▶
-
+    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-black">
+      <PlayCircle aria-hidden="true" size={21} />
     </div>
 
-  </div>
+  </div>}
 
 </button>
 
@@ -362,6 +394,12 @@ useEffect(() => {
   ))}
 
 </div>
+
+  {selected === "movie" && !sampleMovieUrl && !officialSampleEmbedUrl && officialWorkUrl && (
+    <p className="mt-2 text-center text-[11px] font-medium leading-5 text-zinc-500">
+      {sampleFallback.note}
+    </p>
+  )}
 
   <FavoriteButton
     workId={work.id}

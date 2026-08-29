@@ -14,13 +14,16 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 import { parsePage } from "./parser";
 import { saveWork } from "./save";
+import { watchSampleMovie } from "./sampleMovie";
 
 export type PlaywrightUpdateResult =
   | "updated"
-  | "unavailable";
+  | "unavailable"
+  | "sample_movie_missing";
 
 export type PlaywrightUpdateOptions = {
   captureSampleMovie?: boolean;
+  sampleMovieOnly?: boolean;
 };
 
 const UNAVAILABLE_STATUS_PATTERN =
@@ -110,7 +113,8 @@ export async function updatePlaywrightItem(
   options: PlaywrightUpdateOptions = {},
 ): Promise<PlaywrightUpdateResult>
 {
-  const captureSampleMovie = options.captureSampleMovie === true;
+  const sampleMovieOnly = options.sampleMovieOnly === true;
+  const captureSampleMovie = options.captureSampleMovie === true || sampleMovieOnly;
   let workUrl: string | undefined =
   url ?? undefined;
 
@@ -160,15 +164,18 @@ if (!workUrl) {
 
   // Routine updates never need video traffic. Initial registration explicitly
   // opts in so the sample URL can be captured once and then kept unchanged.
-  if (process.env.VERCEL || !captureSampleMovie) {
+  if (process.env.VERCEL || !captureSampleMovie || sampleMovieOnly) {
     await page.route("**/*", async (route) => {
       const resourceType = route.request().resourceType();
       const requestUrl = route.request().url();
 
       if (
-        (process.env.VERCEL && (resourceType === "image" || resourceType === "font")) ||
+        ((process.env.VERCEL || sampleMovieOnly) &&
+          (resourceType === "image" ||
+            resourceType === "font" ||
+            (sampleMovieOnly && resourceType === "stylesheet"))) ||
         (!captureSampleMovie &&
-          (resourceType === "media" || /\.mp4(?:$|\?)/i.test(requestUrl)))
+          (resourceType === "media" || /\.mp4(?:$|[?#])/i.test(requestUrl)))
       ) {
         await route.abort();
         return;
@@ -178,25 +185,7 @@ if (!workUrl) {
     });
   }
 
-  let sampleMovieUrl: string | null = null;
-  let resolveSampleMovie: ((url: string) => void) | null = null;
-  const sampleMovieDetected = captureSampleMovie
-    ? new Promise<string>((resolve) => {
-        resolveSampleMovie = resolve;
-      })
-    : null;
-
-  if (captureSampleMovie) {
-    page.on("response", (response) => {
-      const responseUrl = response.url();
-
-      if (/\.mp4(?:$|\?)/i.test(responseUrl) && sampleMovieUrl === null) {
-        sampleMovieUrl = responseUrl;
-        resolveSampleMovie?.(responseUrl);
-        console.log(`[MP4_INITIAL] ${productId} ${sampleMovieUrl}`);
-      }
-    });
-  }
+  const sampleMovieWatcher = captureSampleMovie ? watchSampleMovie(page) : null;
 
   try {
 
@@ -250,69 +239,66 @@ if (!workUrl) {
       console.log(`[INFO] ${productId} 年齢認証Cookieを確認`);
     }
 
-    // The product page hydrates after DOMContentLoaded. Waiting for its pricing
-    // controls also gives an initial sample player time to attach.
-    await page
-      .locator("label")
-      .first()
-      .waitFor({ state: "attached", timeout: 15_000 })
-      .catch(() => undefined);
+    if (!sampleMovieOnly) {
+      // Price parsing still waits for the hydrated controls. Movie-only repair
+      // skips this unrelated delay and starts inspecting the player immediately.
+      await page
+        .locator("label")
+        .first()
+        .waitFor({ state: "attached", timeout: 15_000 })
+        .catch(() => undefined);
+    }
 
-    if (captureSampleMovie && !sampleMovieUrl) {
-      const video = page.locator("video").first();
-      const hasVideo = await video
-        .waitFor({ state: "attached", timeout: 2_500 })
+    if (captureSampleMovie && sampleMovieWatcher) {
+      const hasOfficialPlayer = await page
+        .locator('iframe[src*="/html5_player/"]')
+        .first()
+        .waitFor({
+          state: "attached",
+          timeout: sampleMovieOnly ? 8_000 : 5_000,
+        })
         .then(() => true)
         .catch(() => false);
 
-      const directMovieUrl = await page
-        .evaluate(() => {
-          const candidates = [
-            ...Array.from(document.querySelectorAll("video"), (node) =>
-              node.getAttribute("src"),
-            ),
-            ...Array.from(document.querySelectorAll("video source"), (node) =>
-              node.getAttribute("src"),
-            ),
-          ];
-          return (
-            candidates.find(
-              (value): value is string =>
-                Boolean(value && /^https?:/i.test(value) && /\.mp4(?:$|\?)/i.test(value)),
-            ) ?? null
-          );
-        })
-        .catch(() => null);
-
-      if (directMovieUrl) {
-        sampleMovieUrl = directMovieUrl;
-        console.log(`[MP4_INITIAL_DOM] ${productId} ${directMovieUrl}`);
-      } else if (hasVideo) {
-        await video
-          .evaluate((element) => (element as HTMLVideoElement).play())
-          .catch(() => undefined);
-      }
-
-      if (!sampleMovieUrl && sampleMovieDetected) {
-        await Promise.race([
-          sampleMovieDetected,
-          new Promise<null>((resolve) =>
-            setTimeout(() => resolve(null), hasVideo ? 5_000 : 2_000),
-          ),
-        ]);
-      }
-
+      const sampleMovieUrl = await sampleMovieWatcher.waitForUrl(
+        sampleMovieOnly
+          ? hasOfficialPlayer
+            ? 7_000
+            : 1_000
+          : 15_000,
+      );
+      const checkedAt = new Date().toISOString();
       if (sampleMovieUrl) {
-        const { error: sampleMovieError } = await supabase
+        const { data: savedMovie, error: sampleMovieError } = await supabase
           .from("works")
-          .update({ sample_movie_url: sampleMovieUrl })
+          .update({
+            sample_movie_url: sampleMovieUrl,
+            sample_movie_checked_at: checkedAt,
+          })
           .eq("product_id", productId)
-          .is("sample_movie_url", null);
+          .is("sample_movie_url", null)
+          .select("product_id")
+          .maybeSingle();
         if (sampleMovieError) throw sampleMovieError;
 
-        console.log(`[SAMPLE_MOVIE_INITIAL_SAVED] ${productId}`);
+        console.log(
+          savedMovie
+            ? `[SAMPLE_MOVIE_INITIAL_SAVED] ${productId} ${sampleMovieUrl}`
+            : `[SAMPLE_MOVIE_INITIAL_PRESERVED] ${productId}`,
+        );
       } else {
+        const { error: checkedAtError } = await supabase
+          .from("works")
+          .update({ sample_movie_checked_at: checkedAt })
+          .eq("product_id", productId)
+          .is("sample_movie_url", null);
+        if (checkedAtError) throw checkedAtError;
+
         console.log(`[SAMPLE_MOVIE_INITIAL_MISSING] ${productId}`);
+      }
+
+      if (sampleMovieOnly) {
+        return sampleMovieUrl ? "updated" : "sample_movie_missing";
       }
     }
 
@@ -398,6 +384,7 @@ console.log(
 );
 return "updated";
   } finally {
+  sampleMovieWatcher?.stop();
   try {
     await page.close();
   } catch (e) {

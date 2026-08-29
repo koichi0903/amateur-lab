@@ -8,8 +8,13 @@ import {
 } from "@/lib/ctaExperiment";
 import { readExternalAttribution } from "./Analytics";
 import { isOperatorLandingPath } from "@/lib/externalAttribution";
+import type { SampleMovieDeliveryMode } from "@/lib/sampleMovieFallback";
 
-export type AffiliatePlacement = "detail-sidebar" | "mobile-sticky" | "compare-card";
+export type AffiliatePlacement =
+  | "detail-sidebar"
+  | "mobile-sticky"
+  | "compare-card"
+  | "sample-movie-fallback";
 
 type Props = {
   href: string;
@@ -21,6 +26,7 @@ type Props = {
   children: ReactNode;
   variantChildren?: Partial<Record<CtaVariant, ReactNode>>;
   experiment?: boolean;
+  deliveryMode?: SampleMovieDeliveryMode;
 };
 
 const STORAGE_PREFIX = "hakkutsu-lab:cta-variant:v1";
@@ -50,6 +56,7 @@ export default function AffiliateLink({
   children,
   variantChildren,
   experiment = false,
+  deliveryMode,
 }: Props) {
   const [ctaVariant, setCtaVariant] = useState<CtaVariant | null>(null);
   const linkRef = useRef<HTMLAnchorElement>(null);
@@ -121,6 +128,7 @@ export default function AffiliateLink({
       landing_path: externalAttribution?.landingPath ?? "unknown",
       page_path: `${window.location.pathname}${window.location.search}`,
       link_url: href,
+      delivery_mode: deliveryMode,
       transport_type: "beacon",
     });
 
@@ -134,6 +142,7 @@ export default function AffiliateLink({
         placement,
         sourcePage,
         ctaVariant: activeVariant,
+        deliveryMode,
         externalAttribution,
       }),
       keepalive: true,

@@ -12,6 +12,7 @@ const placements = new Set<AffiliatePlacement>([
   "detail-sidebar",
   "mobile-sticky",
   "compare-card",
+  "sample-movie-fallback",
 ]);
 
 function isMissingCtaVariant(error: { code?: string; message?: string }) {

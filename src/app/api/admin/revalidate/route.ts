@@ -16,6 +16,7 @@ const KNOWN_TASKS = new Set([
   "ranking",
   "score",
   "missing-prices",
+  "sample-movie",
 ]);
 
 const ENTITY_PATHS = ["/actress", "/genre", "/maker", "/series"];

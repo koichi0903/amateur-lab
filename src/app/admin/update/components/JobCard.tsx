@@ -1,7 +1,10 @@
 import Link from "next/link";
 
 const PHASE_LABELS: Record<string, string> = {
-  ranking_api: "DMMランキング上位10,000件を取得",
+  reserve_listing: "予約作品一覧を取得",
+  reserve_register: "未登録の予約作品を初回登録",
+  reserve_update: "予約作品の価格・発売日を更新",
+  ranking_api: "DMMランキング対象作品を取得",
   ranking_register: "未登録作品を初回登録",
   ranking_save: "作品順位を保存",
   ranking_price_scan: "FANZA人気順一覧の価格を照合",
@@ -51,6 +54,10 @@ export default function JobCard({
   startedAt,
   finishedAt,
 }: JobCardProps) {
+  const readableErrorMessage =
+    errorMessage === "[object Object]" || errorMessage === "{}"
+      ? "データベースとの通信が一時的に切断されました。再実行すると保存済みの位置から再開します。"
+      : errorMessage;
   const percent =
     total > 0
       ? Math.min(Math.max(Math.round((processed / total) * 100), 0), 100)
@@ -117,9 +124,9 @@ const eta =
       </div>
     )}
 
-    {status === "failed" && errorMessage && (
+    {status === "failed" && readableErrorMessage && (
       <div className="mt-3 whitespace-pre-wrap break-words rounded-lg border border-red-900 bg-red-950/60 px-3 py-2 text-sm text-red-200">
-        {errorMessage}
+        {readableErrorMessage}
       </div>
     )}
 
@@ -208,7 +215,13 @@ const eta =
       </> 
     )}
 
-    {total === 0 && (
+    {total === 0 && status === "running" && (
+      <div className="mt-6 text-center text-amber-300">
+        処理対象を確認しています
+      </div>
+    )}
+
+    {total === 0 && status !== "running" && (
       <div className="mt-6 text-center text-zinc-500">
         更新対象はありません
       </div>

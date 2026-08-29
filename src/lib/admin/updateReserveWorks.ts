@@ -7,7 +7,7 @@ import {
   failJob,
   finishJob,
   JOBS,
-  updateJob,
+  updateJobProgress,
 } from "@/lib/jobs";
 import {
   closeBrowser,
@@ -77,6 +77,11 @@ async function loadReservedWorks(): Promise<ReservedWork[]> {
 async function registerMissingReservedWorks(
   products: ReserveProduct[],
   browser: Browser,
+  onProgress?: (
+    processed: number,
+    total: number,
+    productId?: string,
+  ) => Promise<void>,
 ): Promise<void> {
   const existingIds = await loadAllProductIds();
   const missingProducts = products.filter(
@@ -85,6 +90,7 @@ async function registerMissingReservedWorks(
 
   if (missingProducts.length === 0) {
     console.log("[RESERVE_REGISTER] 未登録作品はありません");
+    await onProgress?.(0, 0);
     return;
   }
 
@@ -129,33 +135,74 @@ async function registerMissingReservedWorks(
         }
       }),
     );
+
+    const processed = Math.min(i + batch.length, missingProducts.length);
+    await onProgress?.(
+      processed,
+      missingProducts.length,
+      batch.at(-1)?.productId,
+    );
   }
 }
 
 export async function updateReserveWorks() {
-  const { products, totalPages } = await getReserveItems();
-
-  // An empty scrape must never demote every RESERVED row to NEW.
-  if (products.length === 0) {
-    throw new Error(
-      `予約作品一覧を取得できませんでした（検出ページ数: ${totalPages}）`,
-    );
-  }
-
-  const productMap = new Map(
-    products.map((product) => [product.productId, product]),
-  );
-
-  let browser = await createBrowser();
+  let browser: Browser | null = null;
   let jobStarted = false;
 
   try {
+    const job = await beginJob(JOBS.RESERVE, 0);
+    jobStarted = true;
+    const resumeProcessedCount = job.processed_count ?? 0;
+    await updateJobProgress(JOBS.RESERVE, {
+      processedCount: resumeProcessedCount,
+      totalCount: job.total_count ?? 0,
+      detail: { phase: "reserve_listing" },
+    });
+
+    const { products, totalPages } = await getReserveItems();
+
+    // An empty scrape must never demote every RESERVED row to NEW.
+    if (products.length === 0) {
+      throw new Error(
+        `予約作品一覧を取得できませんでした（検出ページ数: ${totalPages}）`,
+      );
+    }
+
+    const productMap = new Map(
+      products.map((product) => [product.productId, product]),
+    );
+
+    browser = await createBrowser();
     await restoreDiscontinuedWorks(
       products.map((product) => product.productId),
       "RESERVED",
     );
 
-    await registerMissingReservedWorks(products, browser);
+    await updateJobProgress(JOBS.RESERVE, {
+      processedCount: resumeProcessedCount,
+      totalCount: products.length,
+      detail: {
+        phase: "reserve_register",
+        current: 0,
+        total: products.length,
+      },
+    });
+    await registerMissingReservedWorks(
+      products,
+      browser,
+      async (processed, total, productId) => {
+        await updateJobProgress(JOBS.RESERVE, {
+          processedCount: resumeProcessedCount,
+          totalCount: products.length,
+          detail: {
+            phase: "reserve_register",
+            current: processed,
+            total,
+            productId,
+          },
+        });
+      },
+    );
 
     // Registration and the regular pass use separate browser lifetimes.
     await closeBrowser(browser);
@@ -164,15 +211,23 @@ export async function updateReserveWorks() {
     const works = await loadReservedWorks();
     if (works.length === 0) {
       console.log("更新対象の予約作品はありません");
+      await finishJob(JOBS.RESERVE);
       return;
     }
 
-    const job = await beginJob(JOBS.RESERVE, works.length);
-    jobStarted = true;
-
-    const processedCount = job.processed_count ?? 0;
+    const processedCount = Math.min(resumeProcessedCount, works.length);
     const targets = works.slice(processedCount);
     let current = processedCount;
+
+    await updateJobProgress(JOBS.RESERVE, {
+      processedCount,
+      totalCount: works.length,
+      detail: {
+        phase: "reserve_update",
+        current: processedCount,
+        total: works.length,
+      },
+    });
 
     console.log(
       `予約作品更新開始 (${processedCount}/${works.length}から再開)`,
@@ -180,6 +235,8 @@ export async function updateReserveWorks() {
 
     for (let i = 0; i < targets.length; i += UPDATE_CONFIG.parallel) {
       const batch = targets.slice(i, i + UPDATE_CONFIG.parallel);
+      const batchBrowser = browser;
+      if (!batchBrowser) throw new Error("予約作品更新ブラウザが利用できません");
 
       await Promise.all(
         batch.map(async (work) => {
@@ -191,7 +248,7 @@ export async function updateReserveWorks() {
             await updateWork(
               work.product_id,
               null,
-              browser,
+              batchBrowser,
               latest?.listPrice ?? null,
             );
 
@@ -222,7 +279,16 @@ export async function updateReserveWorks() {
       }
 
       const lastWork = batch[batch.length - 1];
-      await updateJob(JOBS.RESERVE, current, lastWork.product_id);
+      await updateJobProgress(JOBS.RESERVE, {
+        processedCount: current,
+        totalCount: works.length,
+        detail: {
+          phase: "reserve_update",
+          current,
+          total: works.length,
+          productId: lastWork.product_id,
+        },
+      });
       console.log(`${current}/${works.length}`);
     }
 
@@ -240,6 +306,6 @@ export async function updateReserveWorks() {
 
     throw error;
   } finally {
-    await closeBrowser(browser);
+    if (browser) await closeBrowser(browser);
   }
 }

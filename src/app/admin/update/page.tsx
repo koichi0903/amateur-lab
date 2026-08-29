@@ -77,6 +77,7 @@ const [showIdleJobs, setShowIdleJobs] = useState(false);
       "/api/dmm-ranking": "ranking",
       "/api/score-update": "score",
       "/api/update-missing-prices": "missing-prices",
+      "/api/admin/fill-sample-movie": "sample-movie",
     };
 
     const task = taskByPath[url.pathname];
@@ -110,7 +111,7 @@ const [showIdleJobs, setShowIdleJobs] = useState(false);
     url: string,
     label: string,
   ): Promise<UpdateResponse> {
-    const MAX_REQUESTS = 200;
+    const MAX_REQUESTS = 2_000;
 
     for (let attempt = 0; attempt < MAX_REQUESTS; attempt++) {
       const res = await runManualRequest(url, {
@@ -136,6 +137,10 @@ const [showIdleJobs, setShowIdleJobs] = useState(false);
       if (data.completed !== false) {
         return data;
       }
+
+      // Give the database connection pool a short recovery window between
+      // long-running chunks instead of immediately starting the next browser batch.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
 
     throw new Error(`${label}の分割更新が上限回数を超えました。`);
@@ -399,6 +404,23 @@ async function handleUpdateMissingPrices() {
   }
 }
 
+async function handleFillSampleMovies() {
+  try {
+    const data = await runUpdateUntilCompleted(
+      "/api/admin/fill-sample-movie",
+      "サンプル動画補完",
+    );
+
+    alert(data.message ?? "サンプル動画補完が完了しました");
+    await loadJobs();
+  } catch (e) {
+    console.error(e);
+    alert(e instanceof Error ? e.message : "サンプル動画補完に失敗しました");
+  } finally {
+    setLoading(false);
+  }
+}
+
 async function handleUpdateReserve() {
 
   try {
@@ -482,7 +504,7 @@ async function handleUpdateStage() {
       if (cancelled || document.visibilityState !== "visible") return;
 
       const hasRunningJob = latestJobs.some((job) => job.status === "running");
-      scheduleNext(hasRunningJob ? 5_000 : 60_000);
+      scheduleNext(hasRunningJob ? 5_000 : 15_000);
     };
 
     const handleVisibilityChange = () => {
@@ -607,6 +629,7 @@ const idleJobCount = displayedJobs.filter(
   onUpdateScore={handleUpdateScore}
 onUpdateReview={handleUpdateReview}
 onUpdateMissingPrices={handleUpdateMissingPrices}
+onFillSampleMovies={handleFillSampleMovies}
 onUpdateReserve={handleUpdateReserve}
   isUpdating={isUpdating}
   runningJobs={[
