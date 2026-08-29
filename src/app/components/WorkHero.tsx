@@ -57,8 +57,6 @@ const [selected, setSelected] = useState<
 const [viewerOpen, setViewerOpen] =
   useState(false);
 
-const [preferNativeSamplePlayer, setPreferNativeSamplePlayer] = useState(false);
-
 const officialPlayerRef = useRef<HTMLDivElement>(null);
 const [officialPlayerSize, setOfficialPlayerSize] = useState({
   width: 260,
@@ -67,21 +65,6 @@ const [officialPlayerSize, setOfficialPlayerSize] = useState({
 const compactOfficialSampleEmbedUrl = officialSampleEmbedUrl
   ?.replace(/width=\d+/, `width=${officialPlayerSize.width}`)
   .replace(/height=\d+/, `height=${officialPlayerSize.height}`);
-
-useEffect(() => {
-  const updatePlayerPreference = () => {
-    setPreferNativeSamplePlayer(
-      window.matchMedia("(pointer: coarse)").matches ||
-        window.matchMedia("(max-width: 767px)").matches ||
-        navigator.maxTouchPoints > 0
-    );
-  };
-
-  updatePlayerPreference();
-  window.addEventListener("resize", updatePlayerPreference);
-
-  return () => window.removeEventListener("resize", updatePlayerPreference);
-}, []);
 
 const titleRef = useRef<HTMLHeadingElement>(null);
 const [titleExpanded, setTitleExpanded] = useState(false);
@@ -210,20 +193,7 @@ useEffect(() => {
       </div>
     )}
 
-    {selected === "movie" && preferNativeSamplePlayer && sampleMovieUrl ? (
-      <video
-        key="mobile-sample-movie"
-        controls
-        autoPlay
-        muted
-        playsInline
-        preload="metadata"
-        poster={work.image_url ?? undefined}
-        className="aspect-video w-full rounded-2xl border bg-black object-contain shadow-lg"
-      >
-        <source src={sampleMovieUrl} type="video/mp4" />
-      </video>
-    ) : selected === "movie" && compactOfficialSampleEmbedUrl ? (
+    {selected === "movie" && compactOfficialSampleEmbedUrl ? (
     <div>
       <div
         ref={officialPlayerRef}
@@ -242,14 +212,6 @@ useEffect(() => {
           referrerPolicy="strict-origin-when-cross-origin"
         />
       </div>
-      <a
-        href={officialSampleEmbedUrl ?? compactOfficialSampleEmbedUrl}
-        target="_blank"
-        rel="noopener noreferrer nofollow"
-        className="mt-2 block text-center text-[11px] font-medium text-zinc-500 underline decoration-zinc-300 underline-offset-2 transition hover:text-pink-600"
-      >
-        再生できない方はこちら
-      </a>
     </div>
 ) : selected === "movie" && sampleMovieUrl ? (
   <video
@@ -257,6 +219,7 @@ useEffect(() => {
   controls
   playsInline
   preload="metadata"
+  poster={work.image_url ?? undefined}
   className="w-full rounded-2xl border bg-black shadow-lg"
 >
     <source
