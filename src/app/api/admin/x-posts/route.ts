@@ -4,14 +4,32 @@ import {
   saveXPostLog,
   type XPostLogInput,
 } from "@/lib/xPostLogs";
-import type { XPostCandidate } from "@/lib/xPostCandidates";
+import type { XPostCandidate } from "@/lib/xPostPlanner";
 
 const categories = new Set<XPostCandidate["category"]>([
   "sales",
   "deal",
+  "hidden_gem",
   "score",
   "new",
+  "today_buy",
+  "today_discovery",
+  "actress_best",
+  "genre_best",
+  "maker_best",
+  "series_best",
 ]);
+const hookTypes = new Set<XPostCandidate["hookType"]>([
+  "price_anomaly",
+  "rating_anomaly",
+  "ranking_anomaly",
+  "review_proof",
+  "discovery_anomaly",
+  "buy_timing",
+]);
+const imageStrategies = new Set<XPostCandidate["imageStrategy"]>(["original_work_image", "branded_data_card"]);
+const linkStrategies = new Set<XPostCandidate["linkStrategy"]>(["body_link", "reply_link"]);
+const ctaStrategies = new Set<XPostCandidate["ctaStrategy"]>(["price_cta", "reason_cta"]);
 
 function isValidPostDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -27,6 +45,19 @@ function parsePayload(payload: unknown): XPostLogInput | null {
   const title = typeof candidate.title === "string" ? candidate.title : "";
   const postText = typeof candidate.postText === "string" ? candidate.postText : "";
   const postDate = typeof candidate.postDate === "string" ? candidate.postDate : "";
+  const creativeVariantId = typeof candidate.creativeVariantId === "string" ? candidate.creativeVariantId : null;
+  const hookType = typeof candidate.hookType === "string" && hookTypes.has(candidate.hookType as XPostCandidate["hookType"])
+    ? candidate.hookType as XPostCandidate["hookType"]
+    : null;
+  const imageStrategy = typeof candidate.imageStrategy === "string" && imageStrategies.has(candidate.imageStrategy as XPostCandidate["imageStrategy"])
+    ? candidate.imageStrategy as XPostCandidate["imageStrategy"]
+    : null;
+  const linkStrategy = typeof candidate.linkStrategy === "string" && linkStrategies.has(candidate.linkStrategy as XPostCandidate["linkStrategy"])
+    ? candidate.linkStrategy as XPostCandidate["linkStrategy"]
+    : null;
+  const ctaStrategy = typeof candidate.ctaStrategy === "string" && ctaStrategies.has(candidate.ctaStrategy as XPostCandidate["ctaStrategy"])
+    ? candidate.ctaStrategy as XPostCandidate["ctaStrategy"]
+    : null;
 
   if (
     !postKey ||
@@ -47,6 +78,11 @@ function parsePayload(payload: unknown): XPostLogInput | null {
     title: title.slice(0, 300),
     postText: postText.slice(0, 1000),
     postDate,
+    creativeVariantId: creativeVariantId?.slice(0, 160) ?? null,
+    hookType,
+    imageStrategy,
+    linkStrategy,
+    ctaStrategy,
   };
 }
 

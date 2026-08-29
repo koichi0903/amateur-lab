@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { supabase } from "@/lib/supabase";
+import { sortByRevenuePotential } from "@/lib/revenueWeightedWorks";
 
 export type AiDiscovery = {
   id: number;
@@ -58,8 +59,9 @@ async function fetchAiDiscoveries() {
   ).values()]
     .sort((a, b) => b.score - a.score || a.id - b.id)
     .slice(0, 80);
+  const revenueWeightedWorks = await sortByRevenuePotential(works, { limit: 80 });
   const used = new Set<string>();
-  return works.map((work) => ({ ...work, ...reason(work as AiDiscovery, used) })) as AiDiscovery[];
+  return revenueWeightedWorks.map((work) => ({ ...work, ...reason(work as AiDiscovery, used) })) as AiDiscovery[];
 }
 
-export const getAiDiscoveries = unstable_cache(fetchAiDiscoveries, ["ai-discoveries-v2"], { revalidate: 3600, tags: ["ai-discoveries", "home-daily-discovery"] });
+export const getAiDiscoveries = unstable_cache(fetchAiDiscoveries, ["ai-discoveries-v3-revenue-weighted"], { revalidate: 3600, tags: ["ai-discoveries", "home-daily-discovery"] });

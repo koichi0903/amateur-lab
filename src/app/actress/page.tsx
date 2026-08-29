@@ -86,6 +86,11 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
                     <div className="flex flex-1 flex-col px-1 pb-1 pt-3">
                       <p className="text-[10px] font-black tracking-wider text-pink-600">登録作品数 {rank}位</p>
                       <h2 className="mt-1 truncate text-base font-black sm:text-lg">{item.name}</h2>
+                      <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] font-black">
+                        <span className="rounded-full bg-slate-950 px-2 py-1 text-white">おすすめを見る</span>
+                        <span className="rounded-full bg-rose-50 px-2 py-1 text-rose-700">今買うべき作品</span>
+                        <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-700">埋もれ名作</span>
+                      </div>
                       <div className="mt-3 flex items-end justify-between gap-2 border-t border-slate-100 pt-3">
                         <div><p className="text-[10px] font-bold text-slate-400">登録作品数</p><p className="text-xl font-black text-pink-600">{item.count}<span className="ml-0.5 text-xs">作品</span></p></div>
                         <ArrowRight size={17} className="mb-1 text-pink-600" />

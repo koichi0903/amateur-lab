@@ -49,11 +49,12 @@ function siteUrl() {
 
 function buildPostText(
   workId: number,
+  xPostKey: string,
   title: string,
   lead: string,
   detail: string,
 ) {
-  const url = `${siteUrl()}/works/${workId}?from=x`;
+  const url = `${siteUrl()}/works/${workId}?from=x&x_post=${encodeURIComponent(xPostKey)}`;
   return [
     lead,
     `「${truncate(title, 72)}」`,
@@ -88,6 +89,7 @@ function makeWorkCandidate(
       reason: `${discount}%OFF${price ? `・¥${price.toLocaleString("ja-JP")}` : ""}`,
       postText: buildPostText(
         work.id,
+        `deal-${work.id}`,
         work.title,
         `【${discount}%OFFの注目セール】`,
         `${priceText}終了前に価格と内容をチェック。`,
@@ -105,6 +107,7 @@ function makeWorkCandidate(
       reason: work.release_date ? `発売日 ${work.release_date.slice(0, 10)}` : "新作登録",
       postText: buildPostText(
         work.id,
+        `new-${work.id}`,
         work.title,
         "【新作を発掘】",
         "新着作品から注目作をピックアップしました。",
@@ -124,6 +127,7 @@ function makeWorkCandidate(
     reason: `発掘スコア${work.score ?? 0}点${review ? `・${review}` : ""}`,
     postText: buildPostText(
       work.id,
+      `score-${work.id}`,
       work.title,
       `【発掘スコア${work.score ?? 0}点】`,
       review ? `${review}の注目作です。` : "価格・評価・人気推移から選んだ注目作です。",
@@ -141,6 +145,7 @@ function makeSalesCandidate(row: AffiliatePerformanceRow): XPostCandidate {
     reason: `${row.salesCount}件販売・報酬¥${row.commissionAmount.toLocaleString("ja-JP")}`,
     postText: buildPostText(
       row.workId,
+      `sales-${row.workId}`,
       row.title,
       "【実際に選ばれている注目作】",
       "発掘LAB経由で販売実績を確認。迷っている人向けに見どころを整理しました。",

@@ -91,9 +91,9 @@ function buildSvg(candidate: XPostCandidate) {
   const dropAmount = hasDrop ? candidate.previousPrice! - candidate.currentPrice! : 0;
   const dropRate = hasDrop ? Math.round((dropAmount / candidate.previousPrice!) * 100) : 0;
   const isLongWindow = observationDays(candidate) >= 80;
-  const accent = hasDrop ? "#ec4899" : candidate.category === "new" ? "#0891b2" : "#7c3aed";
-  const paleAccent = hasDrop ? "#fce7f3" : candidate.category === "new" ? "#cffafe" : "#ede9fe";
-  const eyebrow = hasDrop ? "PRICE DROP" : candidate.category === "new" ? "NEW DISCOVERY" : "AI DISCOVERY";
+  const accent = hasDrop ? "#ec4899" : candidate.category === "hidden_gem" ? "#059669" : candidate.category === "new" ? "#0891b2" : "#7c3aed";
+  const paleAccent = hasDrop ? "#fce7f3" : candidate.category === "hidden_gem" ? "#d1fae5" : candidate.category === "new" ? "#cffafe" : "#ede9fe";
+  const eyebrow = hasDrop ? "PRICE DROP" : candidate.category === "hidden_gem" ? "HIDDEN GEM" : candidate.category === "new" ? "NEW DISCOVERY" : "AI DISCOVERY";
   const headline = hasDrop ? "価格が動いた。今チェックしたい一作" : "AIが見つけた、今日の比較候補";
   const status = hasDrop
     ? candidate.isNinetyDayLow ? (isLongWindow ? "過去90日最安" : "取得期間内の最安") : "値下げを確認"

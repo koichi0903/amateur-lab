@@ -18,6 +18,8 @@ import { createChartData } from "@/lib/createChartData";
 import ReviewTab from "@/app/components/ReviewTab";
 import SampleImageCarousel from "@/app/components/SampleImageCarousel";
 import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
+import WorkPageViewTracker from "@/app/components/WorkPageViewTracker";
+import BuyTimingPanel from "@/app/components/BuyTimingPanel";
 import DealWorkCard, { type DealWork } from "@/components/deals/DealWorkCard";
 import CompareTray from "@/components/comparison/CompareTray";
 import PriceTypes from "@/app/components/PriceTypes";
@@ -30,6 +32,7 @@ import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
 import { normalizeAffiliateSource } from "@/lib/affiliateTracking";
+import { calculateBuyTimingScore, getBuyTimingFunnelStats } from "@/lib/buyTiming";
 
 import {
   analyzeWork,
@@ -314,11 +317,13 @@ export default async function WorkDetailPage(
     searchParams,
   }: {
     params: Promise<{ id: string }>;
-    searchParams: Promise<{ from?: string | string[] }>;
+    searchParams: Promise<{ from?: string | string[]; x_post?: string | string[] }>;
   }
 ) {
   const { id } = await params;
-  const sourcePage = normalizeAffiliateSource((await searchParams).from);
+  const query = await searchParams;
+  const sourcePage = normalizeAffiliateSource(query.from);
+  const xPostKey = Array.isArray(query.x_post) ? query.x_post[0] : query.x_post;
 
   const work = await getWork(id);
 
@@ -427,9 +432,24 @@ const purchaseDecision = analyzePurchaseDecision({
   mainGenre,
   mainSeries,
 });
+const buyTimingFunnel = await getBuyTimingFunnelStats(work.id, 30);
+const buyTiming = calculateBuyTimingScore({
+  work,
+  priceHistory: priceHistory ?? [],
+  funnel: buyTimingFunnel,
+});
 
   return (
   <main className="min-h-screen bg-gray-100 py-8 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-8">
+    <WorkPageViewTracker
+      workId={work.id}
+      sourcePage={sourcePage}
+      price={mobileDisplayPrice ?? null}
+      discountRate={mobileDisplayDiscountRate ?? null}
+      discoveryScore={typeof work.score === "number" ? work.score : null}
+      ranking={typeof work.ranking === "number" ? work.ranking : null}
+      xPostKey={xPostKey ?? null}
+    />
     <div className="mx-auto max-w-7xl px-4 sm:px-6">
 
       <Breadcrumb
@@ -458,6 +478,13 @@ const purchaseDecision = analyzePurchaseDecision({
   sourcePage={sourcePage}
 />
       </section>
+
+      <BuyTimingPanel
+        decision={buyTiming}
+        workId={work.id}
+        affiliateUrl={work.affiliate_url}
+        sourcePage={sourcePage}
+      />
 
       {/* タイムライン */}
       {visibleInsights.length > 0 && (

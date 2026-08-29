@@ -28,6 +28,10 @@ function isMissingAttribution(error: { code?: string; message?: string }) {
   );
 }
 
+function isMissingXPostKey(error: { code?: string; message?: string }) {
+  return error.code === "PGRST204" || error.message?.includes("x_post_key");
+}
+
 export async function POST(request: Request) {
   let payload: unknown;
 
@@ -62,6 +66,14 @@ export async function POST(request: Request) {
       ? payload.externalAttribution
       : null,
   );
+  const xPostKey =
+    typeof payload === "object" &&
+    payload !== null &&
+    "xPostKey" in payload &&
+    typeof payload.xPostKey === "string" &&
+    payload.xPostKey.trim()
+      ? payload.xPostKey.trim().slice(0, 120)
+      : null;
 
   if (
     !Number.isSafeInteger(workId) ||
@@ -81,12 +93,26 @@ export async function POST(request: Request) {
     placement,
     source_page: sourcePage,
     cta_variant: ctaVariant,
+    x_post_key: xPostKey,
     external_channel: externalAttribution?.channel,
     external_source: externalAttribution?.source,
     landing_path: externalAttribution?.landingPath,
   };
 
   let { error } = await supabaseAdmin.from("affiliate_clicks").insert(clickEvent);
+
+  if (error && isMissingXPostKey(error)) {
+    const fallback = await supabaseAdmin.from("affiliate_clicks").insert({
+      work_id: workId,
+      placement,
+      source_page: sourcePage,
+      cta_variant: ctaVariant,
+      external_channel: externalAttribution?.channel,
+      external_source: externalAttribution?.source,
+      landing_path: externalAttribution?.landingPath,
+    });
+    error = fallback.error;
+  }
 
   if (error && isMissingAttribution(error)) {
     const fallback = await supabaseAdmin.from("affiliate_clicks").insert({

@@ -27,8 +27,15 @@ import XCreativeAsset from "./XCreativeAsset";
 const CATEGORY_STYLES: Record<XPostCandidate["category"], string> = {
   sales: "border-emerald-800 bg-emerald-950/30 text-emerald-300",
   deal: "border-rose-800 bg-rose-950/30 text-rose-300",
+  hidden_gem: "border-amber-800 bg-amber-950/30 text-amber-300",
   score: "border-violet-800 bg-violet-950/30 text-violet-300",
   new: "border-cyan-800 bg-cyan-950/30 text-cyan-300",
+  today_buy: "border-rose-800 bg-rose-950/30 text-rose-300",
+  today_discovery: "border-amber-800 bg-amber-950/30 text-amber-300",
+  actress_best: "border-fuchsia-800 bg-fuchsia-950/30 text-fuchsia-300",
+  genre_best: "border-blue-800 bg-blue-950/30 text-blue-300",
+  maker_best: "border-teal-800 bg-teal-950/30 text-teal-300",
+  series_best: "border-emerald-800 bg-emerald-950/30 text-emerald-300",
 };
 
 type DailyPost = {
@@ -98,21 +105,39 @@ const DAILY_POSTS: DailyPost[] = [
     slot: "1本目",
     title: "価格推移アラート",
     detail: "同じ販売形式・利用期間の実履歴で、値下げを確認できた作品。",
-    preferred: ["deal"],
+    preferred: ["today_buy", "deal"],
   },
   {
     slot: "2本目",
-    title: "AI発掘",
-    detail: "評価・レビュー・発掘スコアから、見る理由を一つに絞った投稿。",
-    preferred: ["score", "sales"],
+    title: "値下げ×埋もれ名作",
+    detail: "ランキングでは埋もれているが、評価・レビュー・価格条件が揃った投稿。",
+    preferred: ["today_discovery", "hidden_gem", "score", "sales"],
   },
   {
     slot: "3本目",
-    title: "日替わり発掘",
-    detail: "新作と販売実績を日替わりで混ぜ、投稿全体を一種類に偏らせない枠。",
-    preferred: ["new", "sales"],
+    title: "属性別おすすめ",
+    detail: "女優別・ジャンル別を中心に、BEST10ページへの検索意図も拾う枠。",
+    preferred: ["actress_best", "genre_best", "maker_best", "series_best", "new", "sales"],
   },
 ];
+
+const hookLabels: Record<XPostCandidate["hookType"], string> = {
+  price_anomaly: "価格異常",
+  rating_anomaly: "評価異常",
+  ranking_anomaly: "ランキング異常",
+  review_proof: "レビュー証明",
+  discovery_anomaly: "発掘指数",
+  buy_timing: "買い時",
+};
+
+const strategyLabels = {
+  original_work_image: "作品画像",
+  branded_data_card: "データカード",
+  body_link: "本文リンク",
+  reply_link: "自己リプリンク",
+  price_cta: "価格CTA",
+  reason_cta: "理由を見るCTA",
+} as const;
 
 function todayKey() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -258,6 +283,13 @@ function followUpRepliesFor(candidate: XPostCandidate): string[] {
     ];
   }
 
+  if (candidate.category === "hidden_gem") {
+    return [
+      "ランキング上位だけで選ばない人向け。評価数と価格条件が揃っているので、サンプルが合えばかなり候補に入れやすいです。",
+      "埋もれ気味だけどレビューと買い時が強い枠。まずサンプルで雰囲気だけ確認しておくと判断しやすいです。",
+    ];
+  }
+
   if (candidate.category === "new") {
     return [
       "新作はレビュー待ちでもいいけど、サンプルの時点で雰囲気が合うなら早めに見る価値ありそう。",
@@ -288,8 +320,15 @@ function buildPatternStats(outcomes: XPostOutcome[]): XPatternStat[] {
   const labels: Record<XPostCandidate["category"], string> = {
     sales: "売れてる訴求",
     deal: "セール訴求",
+    hidden_gem: "埋もれ名作訴求",
     score: "スコア訴求",
     new: "新作訴求",
+    today_buy: "今日の買い時",
+    today_discovery: "今日の発掘",
+    actress_best: "女優別おすすめ",
+    genre_best: "ジャンル別おすすめ",
+    maker_best: "メーカー別おすすめ",
+    series_best: "シリーズ別おすすめ",
   };
 
   return (Object.keys(labels) as XPostCandidate["category"][]).map((key) => {
@@ -310,11 +349,13 @@ function buildZeroClickReasons(outcomes: XPostOutcome[]): XZeroClickReason[] {
     .map((outcome) => {
       const reason = outcome.category === "deal"
         ? "安さだけでは弱い可能性あり。サンプルの雰囲気や見どころを足す。"
-        : outcome.category === "score"
-          ? "点数だけでは伝わっていない可能性あり。誰向けかを具体化する。"
-          : outcome.category === "new"
-            ? "新作というだけでは弱い可能性あり。今見る理由を足す。"
-            : "売れてる理由が伝わっていない可能性あり。選ばれている理由を足す。";
+        : outcome.category === "hidden_gem"
+          ? "埋もれている理由だけでは弱い可能性あり。評価数と価格条件を前に出す。"
+          : outcome.category === "score"
+            ? "点数だけでは伝わっていない可能性あり。誰向けかを具体化する。"
+            : outcome.category === "new"
+              ? "新作というだけでは弱い可能性あり。今見る理由を足す。"
+              : "売れてる理由が伝わっていない可能性あり。選ばれている理由を足す。";
 
       return { key: `zero-${outcome.id}`, title: outcome.title, reason };
     });
@@ -436,7 +477,7 @@ function buildComparisonPosts(candidates: XPostCandidate[]): XComparisonPost[] {
       key: "score-compare",
       title: "高評価比較投稿",
       heading: "外しにくさ重視なら、まずこの3本を比べるのが早いです。",
-      items: candidates.filter((candidate) => candidate.category === "score" || candidate.category === "sales").slice(0, 3),
+      items: candidates.filter((candidate) => candidate.category === "score" || candidate.category === "hidden_gem" || candidate.category === "sales").slice(0, 3),
     },
     {
       key: "new-compare",
@@ -473,6 +514,11 @@ function rewritePlanFor(outcome: XPostOutcome): XRewritePlan {
       next: "サンプル・雰囲気訴求",
       reason: "安さだけではクリックされなかった可能性があります。",
     },
+    hidden_gem: {
+      previous: "埋もれ名作訴求",
+      next: "評価数・価格条件訴求",
+      reason: "埋もれている事実より、買う判断材料を前に出す必要があります。",
+    },
     score: {
       previous: "スコア訴求",
       next: "誰向けか訴求",
@@ -488,6 +534,36 @@ function rewritePlanFor(outcome: XPostOutcome): XRewritePlan {
       next: "外しにくさ訴求",
       reason: "売れている事実より、なぜ候補に入るかを見せる必要があります。",
     },
+    today_buy: {
+      previous: "今日の買い時訴求",
+      next: "価格と判断材料訴求",
+      reason: "買い時だけでは弱い場合、価格・割引・サンプル確認まで具体化します。",
+    },
+    today_discovery: {
+      previous: "今日の発掘訴求",
+      next: "評価数・埋もれ理由訴求",
+      reason: "発掘感だけでなく、なぜ見る価値があるかを前に出します。",
+    },
+    actress_best: {
+      previous: "女優別おすすめ訴求",
+      next: "女優名検索意図訴求",
+      reason: "女優名で探す人に、候補へ入れる理由を明確にします。",
+    },
+    genre_best: {
+      previous: "ジャンル別おすすめ訴求",
+      next: "ジャンル比較訴求",
+      reason: "ジャンルで迷う人向けに、評価と価格の判断材料を足します。",
+    },
+    maker_best: {
+      previous: "メーカー別おすすめ訴求",
+      next: "メーカー内比較訴求",
+      reason: "メーカー名だけでなく、今見る理由を補強します。",
+    },
+    series_best: {
+      previous: "シリーズ別おすすめ訴求",
+      next: "シリーズ内比較訴求",
+      reason: "シリーズの入口から作品詳細へ進む理由を補強します。",
+    },
   };
   const plan = plans[outcome.category];
   const postText = [
@@ -495,11 +571,15 @@ function rewritePlanFor(outcome: XPostOutcome): XRewritePlan {
     outcome.title,
     outcome.category === "deal"
       ? "安いから買う、というよりサンプルの雰囲気が合う人にはかなり見やすそう。"
+      : outcome.category === "hidden_gem" || outcome.category === "today_discovery"
+        ? "ランキング順位より、評価数・割引・買い時まで揃っているかで見ると判断しやすい作品です。"
       : outcome.category === "score"
         ? "評価だけで決めず、レビュー数とサンプルまで見ると判断しやすい作品です。"
-        : outcome.category === "new"
-          ? "新作で情報は少なめだけど、サンプルの時点で雰囲気が合うなら早めに候補入り。"
-          : "実際に選ばれている作品なので、迷ったときの外しにくい候補として見やすいです。",
+      : outcome.category === "new"
+        ? "新作で情報は少なめだけど、サンプルの時点で雰囲気が合うなら早めに候補入り。"
+      : outcome.category === "today_buy"
+        ? "価格条件が強いので、サンプルと公式価格を合わせて見ると判断しやすいです。"
+        : "実際に選ばれている作品なので、迷ったときの外しにくい候補として見やすいです。",
     `https://hakkutsu-lab.com/works/${outcome.work_id}?from=x`,
     "#PR #FANZA",
   ].join("\n");
@@ -541,7 +621,7 @@ function TwoStepPostKit({
   copiedKey: string | null;
   onCopy: (key: string, text: string) => Promise<void>;
 }) {
-  const replyText = naturalFollowUpRepliesFor(candidate)[0];
+  const replyText = candidate.replyText ?? naturalFollowUpRepliesFor(candidate)[0];
   const replyLength = getXWeightedLength(replyText);
   const mainKey = `main-${candidate.key}`;
   const replyKey = `reply-${candidate.key}`;
@@ -559,6 +639,31 @@ function TwoStepPostKit({
           <span className={`text-[11px] font-bold ${candidate.weightedLength > 280 ? "text-red-400" : "text-zinc-500"}`}>
             X換算 {candidate.weightedLength}/280文字
           </span>
+        </div>
+        <div className="mt-3 grid gap-2 text-[11px] leading-5 text-zinc-400 md:grid-cols-3">
+          <p className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+            <b className="text-white">選択フック</b><br />
+            {hookLabels[candidate.hookType]} {candidate.hookScore.bestHook.score}/100
+          </p>
+          <p className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+            <b className="text-white">画像/リンク</b><br />
+            {strategyLabels[candidate.imageStrategy]} / {strategyLabels[candidate.linkStrategy]}
+          </p>
+          <p className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+            <b className="text-white">CTA</b><br />
+            {strategyLabels[candidate.ctaStrategy]}
+          </p>
+        </div>
+        <div className="mt-3 grid gap-2 text-[11px] leading-5 text-zinc-500 sm:grid-cols-2 lg:grid-cols-3">
+          {Object.values(candidate.hookScore.axes).map((axis) => (
+            <div key={axis.type} className="rounded-lg bg-zinc-950 p-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-black text-zinc-200">{axis.label}</span>
+                <span className="font-black text-sky-300">{axis.score}</span>
+              </div>
+              <p className="mt-1 line-clamp-2">{axis.evidence}</p>
+            </div>
+          ))}
         </div>
         <textarea
           readOnly
@@ -586,6 +691,31 @@ function TwoStepPostKit({
         </div>
       </section>
 
+      <section className="rounded-xl border border-violet-900 bg-violet-950/20 p-3">
+        <div className="flex items-center gap-2">
+          <Shuffle className="text-violet-300" size={15} />
+          <p className="text-xs font-black text-violet-200">A/B代替案</p>
+        </div>
+        <div className="mt-3 grid gap-2 lg:grid-cols-3">
+          {candidate.creativeVariants.map((variant, index) => (
+            <div key={variant.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+              <p className="text-[11px] font-black text-zinc-200">
+                {String.fromCharCode(65 + index)}: {hookLabels[variant.hookType]} / {strategyLabels[variant.linkStrategy]}
+              </p>
+              <p className="mt-1 text-[11px] leading-5 text-zinc-500">{variant.rationale}</p>
+              <button
+                type="button"
+                onClick={() => onCopy(`variant-${variant.id}`, [variant.bodyText, variant.replyText ? `\n自己リプ:\n${variant.replyText}` : ""].join(""))}
+                className="mt-2 inline-flex h-8 items-center gap-2 rounded-lg border border-zinc-700 px-2 text-[11px] font-black transition hover:border-violet-400 hover:text-violet-200"
+              >
+                {copiedKey === `variant-${variant.id}` ? <Check size={13} /> : <Copy size={13} />}
+                {copiedKey === `variant-${variant.id}` ? "コピー済み" : "文面コピー"}
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section className="rounded-xl border border-amber-900 bg-amber-950/20 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -593,7 +723,7 @@ function TwoStepPostKit({
               <MessageCircle size={14} /> 2. 投稿した本文へ返信
             </p>
             <p className="mt-1 text-[11px] leading-5 text-zinc-500">
-              補足文を貼り、下の価格推移画像を1枚添付します。
+              {candidate.linkStrategy === "reply_link" ? "本文投稿後、この返信に計測URLを貼ります。" : "補足文を貼り、必要なら下の画像を1枚添付します。"}
             </p>
           </div>
           <span className={`text-[11px] font-bold ${replyLength > 280 ? "text-red-400" : "text-zinc-500"}`}>
@@ -730,6 +860,11 @@ export default function XPostCandidatePanel({
       title: candidate.title,
       postText: candidate.postText,
       postDate: dateKey,
+      creativeVariantId: candidate.creativeVariantId,
+      hookType: candidate.hookType,
+      imageStrategy: candidate.imageStrategy,
+      linkStrategy: candidate.linkStrategy,
+      ctaStrategy: candidate.ctaStrategy,
     });
 
     try {
@@ -1423,6 +1558,14 @@ export default function XPostCandidatePanel({
               <span className="text-xs font-bold text-zinc-500">
                 {candidate.reason}
               </span>
+              <span className="rounded-full border border-emerald-800 bg-emerald-950/30 px-2.5 py-1 text-[11px] font-black text-emerald-300">
+                ファネル点 {candidate.funnelScore}
+              </span>
+              {candidate.xPageViews > 0 && (
+                <span className="rounded-full border border-sky-800 bg-sky-950/30 px-2.5 py-1 text-[11px] font-black text-sky-300">
+                  X {candidate.xPageViews}PV / {candidate.xFanzaClicks}送客 / CTR {candidate.xCtr}%
+                </span>
+              )}
               {postedKeys.has(candidate.key) && (
                 <span className="rounded-full border border-emerald-800 bg-emerald-950/40 px-2.5 py-1 text-[11px] font-black text-emerald-300">
                   投稿済み

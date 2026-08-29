@@ -12,6 +12,7 @@ import type { SampleMovieDeliveryMode } from "@/lib/sampleMovieFallback";
 
 export type AffiliatePlacement =
   | "detail-sidebar"
+  | "buy-timing-panel"
   | "mobile-sticky"
   | "compare-card"
   | "sample-movie-fallback";
@@ -142,6 +143,7 @@ export default function AffiliateLink({
         placement,
         sourcePage,
         ctaVariant: activeVariant,
+        xPostKey: new URLSearchParams(window.location.search).get("x_post"),
         deliveryMode,
         externalAttribution,
       }),

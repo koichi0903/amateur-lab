@@ -3,6 +3,7 @@ import type { Work } from "@/types/work";
 import { unstable_cache } from "next/cache";
 import { normalizeDisplayName } from "@/lib/createChartData";
 import { getAiDiscoveries } from "@/lib/getAiDiscoveries";
+import { sortByRevenuePotential } from "@/lib/revenueWeightedWorks";
 
 const HOME_PRICE_REVALIDATE_SECONDS = 1800;
 const HOME_PRICE_HISTORY_LIMIT = 2000;
@@ -454,9 +455,10 @@ async function fetchPriceDrops(since: string) {
     if (data.length < HOME_PRICE_WORK_PAGE_SIZE) break;
   }
 
-  return matches
+  const sorted = matches
     .sort((a, b) => b.dropAmount - a.dropAmount || b.dropRate - a.dropRate)
     .slice(0, 5);
+  return sortByRevenuePotential(sorted, { limit: 5 });
 }
 
 async function fetchLowestUpdates(since: string) {
@@ -487,9 +489,10 @@ async function fetchLowestUpdates(since: string) {
     if (data.length < HOME_PRICE_WORK_PAGE_SIZE) break;
   }
 
-  return matches
+  const sorted = matches
     .sort((a, b) => b.score - a.score || a.id - b.id)
     .slice(0, HOME_LOWEST_UPDATE_LIMIT);
+  return sortByRevenuePotential(sorted, { limit: HOME_LOWEST_UPDATE_LIMIT });
 }
 
 async function fetchHomePriceInsightsSeparated() {
@@ -497,7 +500,9 @@ async function fetchHomePriceInsightsSeparated() {
   const [priceDrops, lowestUpdates, buyTiming] = await Promise.all([
     fetchPriceDrops(since),
     fetchLowestUpdates(since),
-    fetchBuyTiming(since),
+    fetchBuyTiming(since).then((works) =>
+      sortByRevenuePotential(works, { limit: HOME_BUY_TIMING_LIMIT }),
+    ),
   ]);
 
   if (!priceDrops.length && !lowestUpdates.length && !buyTiming.length) {
@@ -512,7 +517,7 @@ async function fetchHomePriceInsightsSeparated() {
 
 export const getHomePriceInsights = unstable_cache(
   fetchHomePriceInsightsSeparated,
-  ["home-price-insights-v27"],
+  ["home-price-insights-v28-revenue-weighted"],
   {
     revalidate: HOME_PRICE_REVALIDATE_SECONDS,
     tags: ["home-price-insights"],

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import {
+  ArrowRight,
   BookOpen,
+  BadgePercent,
   Building2,
   Crown,
   Sparkles,
@@ -112,6 +114,36 @@ export function CategorySection() {
           <Link key={href} href={href} className="flex min-h-28 flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-4 font-black shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg">
             <Icon className={color} size={30} strokeWidth={2.4} />
             <span className="mt-3">{label}</span>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function RevenuePathSection() {
+  const paths = [
+    ["今日の買い時", "/price-insights", BadgePercent, "買い時スコアと価格推移で、今チェックする理由がある作品へ。", "text-rose-600"],
+    ["今日の発掘", "/discovery", Sparkles, "埋もれ名作や値下げ候補から、まだ見つかっていない一本へ。", "text-amber-600"],
+    ["女優別おすすめ", "/actress", UserRound, "女優名からおすすめ作品・セール・埋もれ名作BEST10へ。", "text-fuchsia-600"],
+    ["ジャンル別おすすめ", "/genre", Tags, "ジャンルごとのBEST10から、好みに近い作品へ進めます。", "text-blue-600"],
+  ] as const;
+
+  return (
+    <section className="mx-auto mt-16 max-w-[1500px] px-4 sm:px-6 lg:px-8">
+      <div className="mb-6 flex items-end justify-between gap-4">
+        <div>
+          <p className="text-sm font-black text-pink-700">BUYING PATHS</p>
+          <h2 className="mt-2 text-2xl font-black sm:text-3xl">目的別に今見る作品へ</h2>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {paths.map(([label, href, Icon, detail, color]) => (
+          <Link key={href} href={href} className="group flex min-h-36 flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg">
+            <Icon className={color} size={26} strokeWidth={2.4} />
+            <h3 className="mt-4 text-base font-black">{label}</h3>
+            <p className="mt-2 flex-1 text-xs leading-5 text-slate-500">{detail}</p>
+            <span className="mt-3 inline-flex items-center gap-1 text-xs font-black text-pink-700">見る <ArrowRight size={14} /></span>
           </Link>
         ))}
       </div>

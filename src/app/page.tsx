@@ -4,6 +4,7 @@ import InsightFeed from "@/components/home/insight/InsightFeed";
 import RankingSection from "@/components/home/ranking/RankingSection";
 import {
   CategorySection,
+  RevenuePathSection,
   SaleSection,
   StatStrip,
 } from "@/components/home/HomeSections";
@@ -96,6 +97,7 @@ export default async function Home() {
           lowestUpdates={priceInsights.lowestUpdates}
           buyTiming={priceInsights.buyTiming}
         />
+        <RevenuePathSection />
         <RankingSection works={rankingResult as Work[]} />
         <SaleSection works={(saleResult.data ?? []) as Work[]} />
         <CategorySection />
