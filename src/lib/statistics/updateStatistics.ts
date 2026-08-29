@@ -1,8 +1,41 @@
 import { supabaseAdmin as supabase } from "../supabaseAdmin";
-import { getAllWorks } from "../getAllWorks";
+
+const PAGE_SIZE = 1000;
+
+async function getStatisticsWorks() {
+  const works: Array<{
+    id: number;
+    actress: string | null;
+    maker: string | null;
+    series: string | null;
+    genre: string | null;
+  }> = [];
+  let lastId = 0;
+
+  // This runs at the end of the large score job. Use the service client and
+  // keyset pagination so the summary pass does not hit the public query
+  // timeout or become slower as the catalogue grows.
+  while (true) {
+    const { data, error } = await supabase
+      .from("works")
+      .select("id,actress,maker,series,genre")
+      .gt("id", lastId)
+      .order("id", { ascending: true })
+      .limit(PAGE_SIZE);
+
+    if (error) throw error;
+    if (!data?.length) break;
+
+    works.push(...data);
+    lastId = data[data.length - 1].id;
+    if (data.length < PAGE_SIZE) break;
+  }
+
+  return works;
+}
 
 export async function updateStatistics() {
-  const works = await getAllWorks();
+  const works = await getStatisticsWorks();
 
   const actressSet = new Set<string>();
   const makerSet = new Set<string>();
@@ -25,7 +58,7 @@ export async function updateStatistics() {
       .forEach((genre) => genreSet.add(genre));
   });
 
-  await supabase
+  const { error } = await supabase
   .from("site_statistics")
   .update({
     total_works: works.length,
@@ -37,5 +70,7 @@ export async function updateStatistics() {
     updated_at: new Date().toISOString(),
   })
   .eq("id", 1);
+
+  if (error) throw error;
 
 }

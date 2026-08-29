@@ -75,12 +75,14 @@ function resolveBatchLimit(): number {
 
 async function countTargets(afterProductId?: string | null): Promise<number> {
   return retryDatabaseOperation("動画補完対象件数の取得", async () => {
+    const retryBefore = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     let query = supabase
       .from("works")
       .select("product_id", { count: "exact", head: true })
       .is("sample_movie_url", null)
       .not("url", "is", null)
-      .neq("stage", "DISCONTINUED");
+      .neq("stage", "DISCONTINUED")
+      .or(`sample_movie_checked_at.is.null,sample_movie_checked_at.lt.${retryBefore}`);
     if (afterProductId) query = query.gt("product_id", afterProductId);
 
     const { count, error } = await query;
@@ -145,12 +147,14 @@ async function loadTargets(
   limit: number,
 ): Promise<SampleMovieTarget[]> {
   return retryDatabaseOperation("動画補完対象の取得", async () => {
+    const retryBefore = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     let query = supabase
       .from("works")
       .select("product_id,url")
       .is("sample_movie_url", null)
       .not("url", "is", null)
       .neq("stage", "DISCONTINUED")
+      .or(`sample_movie_checked_at.is.null,sample_movie_checked_at.lt.${retryBefore}`)
       .order("product_id", { ascending: true })
       .limit(limit);
 
