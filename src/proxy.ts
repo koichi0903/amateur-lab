@@ -6,6 +6,7 @@ const PUBLIC_API_PATHS = new Set([
   "/api/compare",
   "/api/contact",
   "/api/favorites",
+  "/api/work-page-view",
 ]);
 const LOCAL_UPDATE_API_PATHS = new Set([
   "/api/admin/browser-health",
