@@ -48,7 +48,7 @@ export async function POST(request: Request) {
       ? event.xPostKey.trim().slice(0, 120)
       : null;
 
-  const { error } = await supabaseAdmin.from("work_page_views").insert({
+  const eventRow = {
     work_id: workId,
     source_page: sourcePage,
     price: readNumber(event, "price"),
@@ -59,7 +59,36 @@ export async function POST(request: Request) {
     external_channel: externalAttribution?.channel,
     external_source: externalAttribution?.source,
     landing_path: externalAttribution?.landingPath,
-  });
+  };
+
+  let { error } = await supabaseAdmin.from("work_page_views").insert(eventRow);
+
+  // Keep analytics best-effort while migrations/schema cache propagate. The
+  // page view endpoint must never affect the customer-facing page.
+  if (error?.code === "PGRST204") {
+    const fallback = await supabaseAdmin.from("work_page_views").insert({
+      work_id: workId,
+      source_page: sourcePage,
+      price: eventRow.price,
+      discount_rate: eventRow.discount_rate,
+      discovery_score: eventRow.discovery_score,
+      ranking: eventRow.ranking,
+      x_post_key: eventRow.x_post_key,
+    });
+    error = fallback.error;
+  }
+
+  if (error?.code === "PGRST204") {
+    const fallback = await supabaseAdmin.from("work_page_views").insert({
+      work_id: workId,
+      source_page: sourcePage,
+      price: eventRow.price,
+      discount_rate: eventRow.discount_rate,
+      discovery_score: eventRow.discovery_score,
+      ranking: eventRow.ranking,
+    });
+    error = fallback.error;
+  }
 
   if (error) {
     console.error("[work-page-view] failed to record page view", {

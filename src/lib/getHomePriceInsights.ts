@@ -497,13 +497,14 @@ async function fetchLowestUpdates(since: string) {
 
 async function fetchHomePriceInsightsSeparated() {
   const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-  const [priceDrops, lowestUpdates, buyTiming] = await Promise.all([
-    fetchPriceDrops(since),
-    fetchLowestUpdates(since),
-    fetchBuyTiming(since).then((works) =>
-      sortByRevenuePotential(works, { limit: HOME_BUY_TIMING_LIMIT }),
-    ),
-  ]);
+  // These scans each read price history. Keep them sequential so a cache
+  // revalidation does not create three large Supabase queries at once.
+  const priceDrops = await fetchPriceDrops(since);
+  const lowestUpdates = await fetchLowestUpdates(since);
+  const buyTiming = await sortByRevenuePotential(
+    await fetchBuyTiming(since),
+    { limit: HOME_BUY_TIMING_LIMIT },
+  );
 
   if (!priceDrops.length && !lowestUpdates.length && !buyTiming.length) {
     throw new Error("Home price insight refresh returned no eligible works");

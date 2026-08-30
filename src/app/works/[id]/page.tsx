@@ -84,7 +84,7 @@ const getWork = cache(
         .from("works")
         .select(WORK_DETAIL_COLUMNS)
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         console.error("[work-detail] failed to load work", { id, error });
