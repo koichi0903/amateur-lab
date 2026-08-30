@@ -41,12 +41,14 @@ function japanDateKey(date = new Date()): string {
   return `${value("year")}${value("month")}${value("day")}`;
 }
 
-async function recordUnavailable(productId: string): Promise<void> {
+async function recordUnavailable(productId: string): Promise<boolean> {
   const dmmItem = await getDmmItem(productId);
   if (dmmItem) {
-    throw new Error(
-      `FANZA page returned no prices while DMM API still has ${productId}`,
-    );
+    // DMM and FANZA can temporarily disagree while a product is being
+    // published or its storefront is changing. Treat this as a deferred
+    // check instead of failing the whole scheduled batch.
+    console.warn(`[DEFERRED] FANZA価格未取得、次回再確認: ${productId}`);
+    return false;
   }
 
   const { data: work, error } = await supabase
@@ -69,7 +71,7 @@ async function recordUnavailable(productId: string): Promise<void> {
       .update({ updated_at: new Date().toISOString() })
       .eq("product_id", productId);
     if (touchError) throw touchError;
-    return;
+    return true;
   }
 
   const previousCount = Number(match?.[1] ?? 0);
@@ -103,6 +105,7 @@ async function recordUnavailable(productId: string): Promise<void> {
       ? `[DISCONTINUED] ${productId} confirmed on 3 separate days`
       : `[UNAVAILABLE] ${productId} confirmation ${nextCount}/3`,
   );
+  return true;
 }
 
 export async function updatePlaywrightItem(

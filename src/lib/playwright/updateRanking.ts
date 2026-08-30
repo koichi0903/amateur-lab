@@ -134,41 +134,45 @@ if (resetError) {
   throw resetError;
 }
 
-for (let index = 0; index < allWorks.length; index += 1) {
-  const work = allWorks[index];
-
-  const dailyRank = dailyMap.get(work.product_id);
-  const realtimeRank = realtimeMap.get(work.product_id);
-  const rankingUpdate = buildRankingUpdate({
-    existingRealtimeRank: work.realtime_rank,
-    realtimeRank,
-    dailyRank,
-    weeklyRank: weeklyMap.get(work.product_id),
-    monthlyRank: monthlyMap.get(work.product_id),
-    realtimeComplete,
+for (let index = 0; index < allWorks.length; index += 100) {
+  const batch = allWorks.slice(index, index + 100);
+  const updates = batch.map((work) => {
+    const dailyRank = dailyMap.get(work.product_id);
+    const realtimeRank = realtimeMap.get(work.product_id);
+    return {
+      id: work.id,
+      ...buildRankingUpdate({
+        existingRealtimeRank: work.realtime_rank,
+        realtimeRank,
+        dailyRank,
+        weeklyRank: weeklyMap.get(work.product_id),
+        monthlyRank: monthlyMap.get(work.product_id),
+        realtimeComplete,
+      }),
+    };
   });
 
-  const { error: updateError } = await supabase
-    .from("works")
-    .update(rankingUpdate)
-    .eq("id", work.id);
+  const { error: updateError } = await supabase.from("works").upsert(updates);
 
   if (updateError) {
     throw updateError;
   }
 
-  if (realtimeRank != null) {
-    await generateAndSaveTrendingInsight({
-      workId: work.id,
-      title: work.title,
-      previousRealtimeRank: work.realtime_rank,
-      realtimeRank,
-    });
+  for (const work of batch) {
+    const realtimeRank = realtimeMap.get(work.product_id);
+    if (realtimeRank != null) {
+      await generateAndSaveTrendingInsight({
+        workId: work.id,
+        title: work.title,
+        previousRealtimeRank: work.realtime_rank,
+        realtimeRank,
+      });
+    }
   }
 
-  const processed = index + 1;
+  const processed = Math.min(index + batch.length, allWorks.length);
   if (processed % 10 === 0 || processed === allWorks.length) {
-    await onProgress?.(processed, allWorks.length, work.product_id);
+    await onProgress?.(processed, allWorks.length, batch[batch.length - 1].product_id);
   }
 }
 

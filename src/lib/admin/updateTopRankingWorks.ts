@@ -81,8 +81,8 @@ export async function updateTopRankingWorks(
       }
 
       if (failedTargets.length > 0) {
-        throw new Error(
-          `Playwright更新に失敗しました: ${failedTargets
+        console.error(
+          `[ranking-playwright] ${failedTargets.length}件を保留し、後続処理を継続します: ${failedTargets
             .map(({ item }) => item.content_id)
             .join(", ")}`,
         );
