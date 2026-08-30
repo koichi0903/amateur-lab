@@ -1,4 +1,5 @@
 type UpdateButtonsProps = {
+  onRunSchedule?: (schedule: "daily-0030" | "daily-1030" | "tue-fri-1800" | "sunday-1800") => void;
   onUpdateStage?: () => void;
 
   onUpdateNew?: () => void;
@@ -31,6 +32,7 @@ onUpdateReserve?: () => void;
 };
 
 export default function UpdateButtons({
+  onRunSchedule,
   onUpdateStage,
 
   onUpdateNew,
@@ -147,6 +149,30 @@ onStop,
 
   return (
   <div className="space-y-8">
+
+    <section>
+      <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-400">
+        定時更新を手動実行
+      </h3>
+      <div className="grid gap-4 md:grid-cols-2">
+        {([
+          ["daily-0030", "🌙 0:30更新", "セール・予約・新作・ランキング・スコア"],
+          ["daily-1030", "☀️ 10:30更新", "セール・ランキング・スコア"],
+          ["tue-fri-1800", "📝 火〜金18:00更新", "レビュー・準新作"],
+          ["sunday-1800", "🎬 日曜18:00更新", "価格補完"],
+        ] as const).map(([schedule, label, description]) => (
+          <button
+            key={schedule}
+            onClick={() => onRunSchedule?.(schedule)}
+            disabled={isUpdating}
+            className="flex min-h-16 flex-col items-start justify-center rounded-xl border border-zinc-700 bg-zinc-900 px-5 text-left transition hover:border-pink-400 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="font-bold text-white">{label}</span>
+            <span className="mt-1 text-xs text-zinc-400">{description}</span>
+          </button>
+        ))}
+      </div>
+    </section>
 
     {/* データ同期 */}
     <section>

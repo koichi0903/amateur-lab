@@ -421,6 +421,56 @@ async function handleFillSampleMovies() {
   }
 }
 
+async function handleRunSchedule(
+  schedule: "daily-0030" | "daily-1030" | "tue-fri-1800" | "sunday-1800",
+) {
+    const schedules = {
+      "daily-0030": {
+        label: "0:30更新",
+        tasks: [
+          ["/api/update-reserve", "予約作品更新"],
+          ["/api/update-new", "新作更新"],
+          ["/api/update-old", "旧作更新"],
+          ["/api/update-sale", "セール更新"],
+          ["/api/update-ended-sale", "終了セール更新"],
+          ["/api/dmm-ranking", "ランキング更新"],
+          ["/api/score-update", "スコア更新"],
+        ],
+      },
+      "daily-1030": {
+        label: "10:30更新",
+        tasks: [
+          ["/api/update-sale", "セール更新"],
+          ["/api/update-ended-sale", "終了セール更新"],
+          ["/api/dmm-ranking", "ランキング更新"],
+          ["/api/score-update", "スコア更新"],
+        ],
+      },
+      "tue-fri-1800": {
+        label: "火〜金18:00更新",
+        tasks: [["/api/update-semi-new", "準新作更新"], ["/api/review-update", "レビュー更新"]],
+      },
+      "sunday-1800": {
+        label: "日曜18:00更新",
+        tasks: [["/api/update-missing-prices", "価格補完"]],
+      },
+    } as const;
+    const selected = schedules[schedule];
+    setRunningAll(true);
+    try {
+      for (const [url, label] of selected.tasks) {
+        await runUpdateUntilCompleted(url, label);
+      }
+      alert(`${selected.label}が完了しました。`);
+      await loadJobs();
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? `${selected.label}を中断しました。\n${error.message}` : `${selected.label}に失敗しました。`);
+    } finally {
+      setRunningAll(false);
+    }
+}
+
 async function handleUpdateReserve() {
 
   try {
@@ -617,7 +667,8 @@ const idleJobCount = displayedJobs.filter(
   
 
         <div className="mt-10">
-  <UpdateButtons
+        <UpdateButtons
+  onRunSchedule={handleRunSchedule}
   onUpdateStage={handleUpdateStage}
   onUpdateNew={handleUpdateNew}
   onUpdateSemiNew={handleUpdateSemiNew}
