@@ -284,10 +284,12 @@ async function run(taskName) {
       }
     }
 
-    if (failedTasks.length === 0) {
+    // Successful stages are still valid even when a later stage fails. Keep
+    // their public data fresh and report the failed stage separately.
+    if (succeededTasks.length > 0) {
       await revalidateProduction(succeededTasks);
-    } else {
-      console.warn("[revalidate] 更新失敗があるため、キャッシュは維持します");
+    } else if (failedTasks.length > 0) {
+      console.warn("[revalidate] 成功工程がないためキャッシュ更新をスキップします");
     }
 
     if (!interrupted) {
