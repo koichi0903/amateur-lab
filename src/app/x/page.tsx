@@ -6,8 +6,7 @@ import { getXGrowthHubData, type XHubWork } from "@/lib/xGrowthHub";
 import { workDetailHref } from "@/lib/affiliateTracking";
 import { pageMetadata } from "@/lib/seo";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 1800;
 
 export const metadata = pageMetadata({
   title: "Xから来た人向けのFANZA作品メモ | 発掘LAB",

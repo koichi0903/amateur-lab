@@ -2,11 +2,13 @@
 
 import { Clock3 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { parseDatabaseDate } from "@/lib/dateTime";
 
 const MINUTE_MS = 60 * 1000;
 
 function remainingLabel(saleEndAt: string, now: number) {
-  const remaining = Date.parse(saleEndAt) - now;
+  const saleEndTime = parseDatabaseDate(saleEndAt)?.getTime() ?? Number.NaN;
+  const remaining = saleEndTime - now;
   if (!Number.isFinite(remaining) || remaining <= 0) return null;
 
   const totalMinutes = Math.ceil(remaining / MINUTE_MS);

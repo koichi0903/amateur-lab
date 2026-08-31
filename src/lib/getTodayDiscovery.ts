@@ -2,6 +2,7 @@ import { calculateAdjustedCtr, calculateBuyTimingScore, type BuyTimingResult } f
 import { calculateDiscoveryScore, type DiscoveryScoreResult } from "@/lib/discoveryScore";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { Work } from "@/types/work";
+import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
 
 type TodayDiscoveryWork = Pick<
   Work,
@@ -9,6 +10,7 @@ type TodayDiscoveryWork = Pick<
   | "product_id"
   | "title"
   | "image_url"
+  | "genre"
   | "score"
   | "price"
   | "sale_price"
@@ -86,6 +88,7 @@ export async function getTodayDiscovery(limit = 30) {
       "product_id",
       "title",
       "image_url",
+      "genre",
       "score",
       "price",
       "sale_price",
@@ -100,6 +103,8 @@ export async function getTodayDiscovery(limit = 30) {
     ].join(","))
     .not("affiliate_url", "is", null)
     .not("product_id", "is", null)
+    .or(NON_VR_GENRE_OR_FILTER)
+    .not("title", "ilike", "%VR%")
     .gt("review_count", 0)
     .or("price.gt.0,sale_price.gt.0")
     .order("score", { ascending: false, nullsFirst: false })
@@ -112,6 +117,7 @@ export async function getTodayDiscovery(limit = 30) {
   }
 
   const works = ((data ?? []) as unknown as TodayDiscoveryWork[])
+    .filter(isNonVrWork)
     .filter((work) => (work.price > 0 || work.sale_price > 0) && work.review_count >= 8);
   const productIds = [...new Set(works.map((work) => work.product_id).filter(Boolean))];
   const workIds = works.map((work) => work.id);

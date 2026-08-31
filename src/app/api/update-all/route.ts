@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 
 export const maxDuration = 300;
 
@@ -52,6 +53,9 @@ function isUpdateStep(value: string | null): value is UpdateStep {
 }
 
 export async function POST(request: NextRequest) {
+  const blocked = blockVercelAdminUpdate();
+  if (blocked) return blocked;
+
   const step = request.nextUrl.searchParams.get("step");
 
   if (!isUpdateStep(step)) {

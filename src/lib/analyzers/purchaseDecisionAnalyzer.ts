@@ -1,7 +1,6 @@
 import type { PriceRecord } from "./recommendAnalyzer";
 
 type PurchaseDecisionWork = {
-  score: number | null;
   review_average: number | null;
   review_count: number | null;
   discount_rate: number | null;
@@ -121,14 +120,6 @@ export function analyzePurchaseDecision(input: PurchaseDecisionInput): PurchaseD
       detail: reviewCount >= 10 ? `${reviewCount}件のレビューを集計` : `レビュー${reviewCount}件のため参考値`,
     });
   }
-  if ((input.work.score ?? 0) > 0) {
-    evidence.push({
-      label: "発掘スコア",
-      value: `${input.work.score}点`,
-      detail: "価格・評価・人気などのサイト内指標",
-    });
-  }
-
   const suitedFor: string[] = [];
   if (input.mainActress) suitedFor.push(`${input.mainActress}の出演作を探している人`);
   if (input.mainGenre) suitedFor.push(`${input.mainGenre}ジャンルを比較して選びたい人`);

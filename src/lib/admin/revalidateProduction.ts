@@ -7,6 +7,7 @@ const FALLBACK_SITE_URLS = [
 
 export async function revalidateProduction(tasks: string[]): Promise<void> {
   if (tasks.length === 0) return;
+  if (process.env.ENABLE_PRODUCTION_REVALIDATE !== "true") return;
 
   const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "");
   const siteUrls = configuredSiteUrl ? [configuredSiteUrl] : FALLBACK_SITE_URLS;

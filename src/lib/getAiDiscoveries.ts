@@ -1,11 +1,13 @@
 import { unstable_cache } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { sortByRevenuePotential } from "@/lib/revenueWeightedWorks";
+import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
 
 export type AiDiscovery = {
   id: number;
   product_id: string;
   title: string;
+  genre: string | null;
   image_url: string | null;
   price: number;
   sale_price: number;
@@ -24,7 +26,7 @@ export type AiDiscovery = {
   reasonType: "price" | "rank" | "review" | "score" | "hidden";
 };
 
-const columns = "id,product_id,title,image_url,price,sale_price,list_price,lowest_price,is_bottom_price,discount_rate,review_average,review_count,score,ranking,realtime_rank,previous_realtime_rank,sale_end_at";
+const columns = "id,product_id,title,genre,image_url,price,sale_price,list_price,lowest_price,is_bottom_price,discount_rate,review_average,review_count,score,ranking,realtime_rank,previous_realtime_rank,sale_end_at";
 
 function price(work: AiDiscovery) { return work.sale_price > 0 ? work.sale_price : work.price; }
 
@@ -45,7 +47,9 @@ function reason(work: AiDiscovery, used: Set<string>) {
 
 async function fetchAiDiscoveries() {
   const base = () => supabase.from("works").select(columns)
-    .not("image_url", "is", null).neq("image_url", "");
+    .not("image_url", "is", null).neq("image_url", "")
+    .or(NON_VR_GENRE_OR_FILTER)
+    .not("title", "ilike", "%VR%");
   const results = [];
   for (const query of [
     base().lte("ranking", 2000).order("score", { ascending: false, nullsFirst: false }).limit(80),
@@ -60,6 +64,7 @@ async function fetchAiDiscoveries() {
   const works = [...new Map(
     results.flatMap((result) => result.data ?? []).map((work) => [work.id, work]),
   ).values()]
+    .filter(isNonVrWork)
     .sort((a, b) => b.score - a.score || a.id - b.id)
     .slice(0, 80);
   const revenueWeightedWorks = await sortByRevenuePotential(works, { limit: 80 });
@@ -67,4 +72,4 @@ async function fetchAiDiscoveries() {
   return revenueWeightedWorks.map((work) => ({ ...work, ...reason(work as AiDiscovery, used) })) as AiDiscovery[];
 }
 
-export const getAiDiscoveries = unstable_cache(fetchAiDiscoveries, ["ai-discoveries-v3-revenue-weighted"], { revalidate: 3600, tags: ["ai-discoveries", "home-daily-discovery"] });
+export const getAiDiscoveries = unstable_cache(fetchAiDiscoveries, ["ai-discoveries-v4-non-vr-revenue-weighted"], { revalidate: 3600, tags: ["ai-discoveries", "home-daily-discovery"] });

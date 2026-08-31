@@ -1,4 +1,5 @@
 import { updateScore } from "@/lib/admin/updateScore";
+import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { revalidatePath, revalidateTag } from "next/cache";
 
 const SCORE_CACHE_TAGS = [
@@ -13,6 +14,13 @@ const SCORE_CACHE_TAGS = [
 ] as const;
 
 function revalidateScorePages() {
+  if (process.env.ENABLE_BROAD_SCORE_REVALIDATE !== "true") {
+    revalidatePath("/");
+    revalidatePath("/ranking");
+    revalidateTag("home-ranking", "max");
+    return;
+  }
+
   for (const path of [
     "/",
     "/ranking",
@@ -56,6 +64,9 @@ function errorMessage(error: unknown) {
 }
 
 export async function POST() {
+  const blocked = blockVercelAdminUpdate();
+  if (blocked) return blocked;
+
   try {
     const result = await updateScore();
     // A standalone score run must refresh public pages too. The local runner

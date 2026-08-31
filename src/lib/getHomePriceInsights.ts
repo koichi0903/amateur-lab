@@ -2,8 +2,10 @@ import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { unstable_cache } from "next/cache";
 import { normalizeDisplayName } from "@/lib/createChartData";
+import { parseDatabaseDate } from "@/lib/dateTime";
 import { getAiDiscoveries } from "@/lib/getAiDiscoveries";
 import { sortByRevenuePotential } from "@/lib/revenueWeightedWorks";
+import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
 
 const HOME_PRICE_REVALIDATE_SECONDS = 1800;
 const HOME_PRICE_HISTORY_LIMIT = 2000;
@@ -15,7 +17,7 @@ const HOME_PRICE_DROP_CANDIDATE_LIMIT = 25;
 const HOME_LOWEST_UPDATE_LIMIT = 5;
 
 const HOME_PRICE_WORK_COLUMNS =
-  "id,product_id,title,image_url,price,sale_price,list_price,discount_rate,lowest_price,is_bottom_price,sale_end_at,ranking,realtime_rank,review_average,review_count,score";
+  "id,product_id,title,image_url,genre,price,sale_price,list_price,discount_rate,lowest_price,is_bottom_price,sale_end_at,ranking,realtime_rank,review_average,review_count,score";
 
 type PriceHistoryRow = {
   product_id: string;
@@ -74,9 +76,11 @@ const effectivePrice = (row: PriceHistoryRow) =>
       : null;
 
 const currentWorkPrice = (work: Pick<Work, "price" | "sale_price" | "sale_end_at">) =>
-  work.sale_price && work.sale_price > 0 && work.sale_end_at && new Date(work.sale_end_at).getTime() > Date.now()
+  work.sale_price && work.sale_price > 0 && work.sale_end_at && (parseDatabaseDate(work.sale_end_at)?.getTime() ?? 0) > Date.now()
     ? work.sale_price
     : work.price;
+
+const databaseDateTime = (value: string) => parseDatabaseDate(value)?.getTime() ?? Number.NaN;
 
 type PriceObservation = {
   value: number;
@@ -101,10 +105,10 @@ function buildPriceHistory(
   const end = Date.parse(windowEndAt);
   const points: HomePricePoint[] = rows
     .filter((row) => {
-      const changedAt = Date.parse(row.changed_at);
+      const changedAt = databaseDateTime(row.changed_at);
       return Number.isFinite(changedAt) && changedAt >= start && changedAt <= end;
     })
-    .sort((a, b) => Date.parse(a.changed_at) - Date.parse(b.changed_at))
+    .sort((a, b) => databaseDateTime(a.changed_at) - databaseDateTime(b.changed_at))
     .map((row) => ({
       price: row.value,
       changedAt: row.changed_at,
@@ -155,7 +159,7 @@ function buildHeroInsight(
   const sorted = rows
     .map((row) => ({ ...row, value: effectivePrice(row) }))
     .filter((row): row is PriceHistoryRow & { value: number } => row.value !== null)
-    .sort((a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime());
+    .sort((a, b) => databaseDateTime(b.changed_at) - databaseDateTime(a.changed_at));
 
   if (!sorted.length) return null;
 
@@ -182,7 +186,7 @@ function buildHeroInsight(
   const previous = chartHistory.find(
     (row) =>
       row.value !== currentPrice &&
-      new Date(row.changed_at).getTime() < new Date(chartRows[0].changed_at).getTime(),
+      databaseDateTime(row.changed_at) < databaseDateTime(chartRows[0].changed_at),
   );
   const historicalPrices = chartHistory.map((row) => row.value);
   const low90Price = Math.min(...historicalPrices, currentPrice);
@@ -238,7 +242,7 @@ function buildInsight(
   const displayedRows = rows
     .map((row) => ({ ...row, value: effectivePrice(row) }))
     .filter((row): row is PriceHistoryRow & { value: number } => Boolean(row.value && row.value > 0))
-    .sort((a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime());
+    .sort((a, b) => databaseDateTime(b.changed_at) - databaseDateTime(a.changed_at));
   if (!displayedRows.length || !currentPrice || currentPrice <= 0) return null;
 
   const seriesLatest = displayedRows.find((row) => row.value === currentPrice) ?? displayedRows[0];
@@ -248,7 +252,7 @@ function buildInsight(
       (row.period ?? null) === (seriesLatest.period ?? null),
   );
   const observations = allPriceObservations(priceRows).sort(
-    (a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime(),
+    (a, b) => databaseDateTime(b.changed_at) - databaseDateTime(a.changed_at),
   );
   if (!observations.some((row) => row.value === currentPrice)) return null;
 
@@ -412,13 +416,15 @@ async function fetchBuyTiming(since: string) {
       .from("works")
       .select(HOME_PRICE_WORK_COLUMNS)
       .gt("price", 0)
+      .or(NON_VR_GENRE_OR_FILTER)
+      .not("title", "ilike", "%VR%")
       .order("score", { ascending: false, nullsFirst: false })
       .order("id", { ascending: true })
       .range(offset, offset + HOME_PRICE_WORK_PAGE_SIZE - 1);
     if (error) throw error;
     if (!data?.length) break;
 
-    const insights = await buildInsightsForWorks(data as HomePriceInsightWork[], since);
+    const insights = await buildInsightsForWorks((data as unknown as HomePriceInsightWork[]).filter(isNonVrWork), since);
     matches.push(...insights.filter(isBuyTimingWork));
     if (data.length < HOME_PRICE_WORK_PAGE_SIZE) break;
   }
@@ -437,19 +443,21 @@ async function fetchPriceDrops(since: string) {
       .select(HOME_PRICE_WORK_COLUMNS)
       .eq("is_on_sale", true)
       .gt("sale_price", 0)
+      .or(NON_VR_GENRE_OR_FILTER)
+      .not("title", "ilike", "%VR%")
       .order("discount_rate", { ascending: false, nullsFirst: false })
       .order("id", { ascending: true })
       .range(offset, offset + HOME_PRICE_WORK_PAGE_SIZE - 1);
     if (error) throw error;
     if (!data?.length) break;
 
-    const insights = await buildInsightsForWorks(data as HomePriceInsightWork[], since);
+    const insights = await buildInsightsForWorks((data as unknown as HomePriceInsightWork[]).filter(isNonVrWork), since);
     matches.push(
       ...insights.filter(
         (work) =>
           work.dropAmount > 0 &&
           work.sale_price > 0 &&
-          (!work.sale_end_at || new Date(work.sale_end_at).getTime() > Date.now()),
+          (!work.sale_end_at || (parseDatabaseDate(work.sale_end_at)?.getTime() ?? 0) > Date.now()),
       ),
     );
     if (data.length < HOME_PRICE_WORK_PAGE_SIZE) break;
@@ -471,13 +479,15 @@ async function fetchLowestUpdates(since: string) {
       .eq("is_bottom_price", true)
       .gt("lowest_price", 0)
       .gt("price", 0)
+      .or(NON_VR_GENRE_OR_FILTER)
+      .not("title", "ilike", "%VR%")
       .order("score", { ascending: false, nullsFirst: false })
       .order("id", { ascending: true })
       .range(offset, offset + HOME_PRICE_WORK_PAGE_SIZE - 1);
     if (error) throw error;
     if (!data?.length) break;
 
-    const insights = await buildInsightsForWorks(data as HomePriceInsightWork[], since);
+    const insights = await buildInsightsForWorks((data as unknown as HomePriceInsightWork[]).filter(isNonVrWork), since);
     matches.push(
       ...insights.filter(
         (work) =>
@@ -518,7 +528,7 @@ async function fetchHomePriceInsightsSeparated() {
 
 export const getHomePriceInsights = unstable_cache(
   fetchHomePriceInsightsSeparated,
-  ["home-price-insights-v28-revenue-weighted"],
+  ["home-price-insights-v29-non-vr-revenue-weighted"],
   {
     revalidate: HOME_PRICE_REVALIDATE_SECONDS,
     tags: ["home-price-insights"],

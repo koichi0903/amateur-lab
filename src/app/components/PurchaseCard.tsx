@@ -3,6 +3,7 @@ import CompareButton from "@/components/comparison/CompareButton";
 import type { RecommendReason } from "@/lib/analyzers/recommendAnalyzer";
 import AffiliateLink from "./AffiliateLink";
 import type { AffiliateSource } from "@/lib/affiliateTracking";
+import { formatJapanDateTime, parseDatabaseDate } from "@/lib/dateTime";
 
 type PriceOffer = {
   display_name: string | null;
@@ -41,19 +42,6 @@ const effectivePrice = (offer: PriceOffer) =>
       ? offer.normal_price
       : null;
 
-const formatDateTime = (value: string | null | undefined) => {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat("ja-JP", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Tokyo",
-  }).format(date);
-};
-
 export default function PurchaseCard({
   work,
   offers = [],
@@ -74,7 +62,7 @@ export default function PurchaseCard({
     .sort((a, b) => a.effectivePrice - b.effectivePrice);
   // The server render must compare against the current time to hide expired sales.
   // eslint-disable-next-line react-hooks/purity
-  const saleActive = !work.sale_end_at || new Date(work.sale_end_at).getTime() > Date.now();
+  const saleActive = !work.sale_end_at || (parseDatabaseDate(work.sale_end_at)?.getTime() ?? 0) > Date.now();
   const representativePrice = saleActive && work.sale_price && work.sale_price > 0 ? work.sale_price : work.price;
   const bestOffer = sortedOffers.find((offer) => offer.effectivePrice === representativePrice) ?? null;
   const currentPrice = representativePrice ?? sortedOffers[0]?.effectivePrice ?? null;
@@ -93,8 +81,8 @@ export default function PurchaseCard({
   const discountRate = Math.max(work.discount_rate ?? 0, calculatedDiscount);
   const isLowestPrice =
     !!currentPrice && !!work.lowest_price && currentPrice <= work.lowest_price;
-  const saleEnd = work.is_on_sale ? formatDateTime(work.sale_end_at) : null;
-  const checkedLabel = formatDateTime(checkedAt);
+  const saleEnd = work.is_on_sale ? formatJapanDateTime(work.sale_end_at) : null;
+  const checkedLabel = formatJapanDateTime(checkedAt);
   const affiliateUrl = work.affiliate_url?.trim() || null;
   const isXVisitor = sourcePage === "x";
   const decisionFacts = [

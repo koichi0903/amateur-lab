@@ -14,6 +14,18 @@ type Props = {
   xPostKey?: string | null;
 };
 
+const PAGE_VIEW_STORAGE_PREFIX = "hakkutsu-lab:work-page-view:v1";
+
+function shouldRecordPageView(key: string) {
+  try {
+    if (window.sessionStorage.getItem(key)) return false;
+    window.sessionStorage.setItem(key, "1");
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 export default function WorkPageViewTracker({
   workId,
   sourcePage,
@@ -28,6 +40,8 @@ export default function WorkPageViewTracker({
   useEffect(() => {
     if (sentRef.current) return;
     sentRef.current = true;
+    const storageKey = `${PAGE_VIEW_STORAGE_PREFIX}:${workId}:${sourcePage}:${xPostKey ?? ""}`;
+    if (!shouldRecordPageView(storageKey)) return;
 
     void fetch("/api/work-page-view", {
       method: "POST",

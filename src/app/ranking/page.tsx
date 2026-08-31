@@ -8,6 +8,7 @@ import { getDiscoveryEntityRankings, type DiscoveryEntityKind, type DiscoveryEnt
 import type { Work } from "@/types/work";
 import { pageMetadata } from "@/lib/seo";
 import { workDetailHref } from "@/lib/affiliateTracking";
+import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
 
 export const revalidate = 86400;
 
@@ -100,12 +101,12 @@ export default async function RankingPage({ searchParams }: { searchParams: Prom
   let totalItems = 0;
 
   if (type === "overall") {
-    let rankingQuery = supabase.from("works").select("id,title,image_url,score,price,sale_price,discount_rate,sample_movie_url", { count: "exact" }).gt("score", 0);
+    let rankingQuery = supabase.from("works").select("id,title,image_url,genre,score,price,sale_price,discount_rate,sample_movie_url", { count: "exact" }).gt("score", 0).or(NON_VR_GENRE_OR_FILTER).not("title", "ilike", "%VR%");
     if (saleOnly) rankingQuery = rankingQuery.gt("sale_price", 0);
     if (sampleOnly) rankingQuery = rankingQuery.not("sample_movie_url", "is", null).neq("sample_movie_url", "");
     if (maxPrice) rankingQuery = rankingQuery.or(`and(sale_price.gt.0,sale_price.lte.${maxPrice}),and(sale_price.eq.0,price.lte.${maxPrice})`);
     const result = await rankingQuery.order("score", { ascending: false, nullsFirst: false }).range(offset, offset + pageSize - 1);
-    works = (result.data ?? []) as unknown as Work[];
+    works = ((result.data ?? []) as unknown as Work[]).filter(isNonVrWork);
     totalItems = result.count ?? works.length;
     errorMessage = result.error?.message ?? null;
   } else {

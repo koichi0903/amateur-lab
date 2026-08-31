@@ -15,6 +15,7 @@ import { getHeroPriceDrop, getHomePriceInsights } from "@/lib/getHomePriceInsigh
 import { getLatestDailyUpdate } from "@/lib/getLatestDailyUpdate";
 import { getHomeRanking } from "@/lib/getHomeRanking";
 import { getAiDiscoveries } from "@/lib/getAiDiscoveries";
+import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
 
 export const revalidate = 1800;
 
@@ -59,16 +60,19 @@ export default async function Home() {
       supabase
         .from("works")
         .select("id", { count: "exact", head: true })
-        .eq("is_on_sale", true),
+        .eq("is_on_sale", true)
+        .or(NON_VR_GENRE_OR_FILTER),
       supabase.from("insights").select("id", { count: "exact", head: true }),
       recoverHomeData("latest daily update", getLatestDailyUpdate(), null),
       recoverHomeData("ranking", getHomeRanking(), []),
       supabase
         .from("works")
-        .select("id,title,image_url,price,sale_price,list_price,discount_rate,sale_end_at")
+        .select("id,title,image_url,genre,price,sale_price,list_price,discount_rate,sale_end_at")
         .eq("is_on_sale", true)
+        .or(NON_VR_GENRE_OR_FILTER)
+        .not("title", "ilike", "%VR%")
         .order("discount_rate", { ascending: false })
-        .limit(5),
+        .limit(20),
       recoverHomeData("price insights", getHomePriceInsights(), EMPTY_PRICE_INSIGHTS),
       recoverHomeData("AI discoveries", getAiDiscoveries(), []),
       recoverHomeData("hero price drop", getHeroPriceDrop(), null),
@@ -99,7 +103,7 @@ export default async function Home() {
         />
         <RevenuePathSection />
         <RankingSection works={rankingResult as Work[]} />
-        <SaleSection works={(saleResult.data ?? []) as Work[]} />
+        <SaleSection works={((saleResult.data ?? []) as Work[]).filter(isNonVrWork).slice(0, 5)} />
         <CategorySection />
       </main>
     </>

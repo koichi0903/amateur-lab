@@ -3,12 +3,14 @@ import { ArrowRight, Clock3, PlayCircle, Star } from "lucide-react";
 import WorkImage from "@/components/home/WorkImage";
 import CompareButton from "@/components/comparison/CompareButton";
 import { workDetailHref, type AffiliateSource } from "@/lib/affiliateTracking";
+import { formatJapanDateTime, parseDatabaseDate } from "@/lib/dateTime";
 import type { Work } from "@/types/work";
 
 export type DealWork = Pick<
   Work,
   | "id"
   | "title"
+  | "genre"
   | "image_url"
   | "price"
   | "sale_price"
@@ -23,14 +25,9 @@ export type DealWork = Pick<
 > & { sample_movie_url?: string | null };
 
 function formatSaleEnd(value: string | null) {
-  if (!value || Date.parse(value) <= Date.now()) return null;
-  return new Intl.DateTimeFormat("ja-JP", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Tokyo",
-  }).format(new Date(value));
+  const date = parseDatabaseDate(value);
+  if (!date || date.getTime() <= Date.now()) return null;
+  return formatJapanDateTime(value);
 }
 
 export default function DealWorkCard({

@@ -31,6 +31,7 @@ type Props = {
 };
 
 const STORAGE_PREFIX = "hakkutsu-lab:cta-variant:v1";
+const IMPRESSION_STORAGE_PREFIX = "hakkutsu-lab:cta-impression:v1";
 
 function getStoredVariant(placement: AffiliatePlacement): CtaVariant {
   if (typeof window === "undefined") return "control";
@@ -44,6 +45,16 @@ function getStoredVariant(placement: AffiliatePlacement): CtaVariant {
     return variant;
   } catch {
     return Math.random() < 0.5 ? "control" : "price-focus";
+  }
+}
+
+function shouldRecordImpression(key: string) {
+  try {
+    if (window.sessionStorage.getItem(key)) return false;
+    window.sessionStorage.setItem(key, "1");
+    return true;
+  } catch {
+    return true;
   }
 }
 
@@ -80,6 +91,11 @@ export default function AffiliateLink({
 
     const recordImpression = () => {
       if (impressionRecordedRef.current) return;
+      const storageKey = `${IMPRESSION_STORAGE_PREFIX}:${workId}:${placement}:${sourcePage}:${ctaVariant}`;
+      if (!shouldRecordImpression(storageKey)) {
+        impressionRecordedRef.current = true;
+        return;
+      }
       impressionRecordedRef.current = true;
       void fetch("/api/affiliate-impression", {
         method: "POST",

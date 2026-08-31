@@ -100,7 +100,7 @@ function WorkCard({ work }: { work: Work }) {
       </Link>
       <div className="flex min-w-0 flex-col">
         <div className="flex items-baseline gap-1.5 text-pink-600">
-          <span className="text-[10px] font-black tracking-wider">SCORE</span>
+          <span className="text-[10px] font-black tracking-wider">発掘スコア</span>
           <strong className="text-2xl leading-none">{work.score > 0 ? work.score : "—"}</strong>
         </div>
         <Link href={workDetailHref(work.id, "search")} className="mt-2 line-clamp-2 break-all text-sm font-black leading-5 text-slate-900 hover:text-pink-600 sm:text-base sm:leading-6">

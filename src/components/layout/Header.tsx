@@ -17,6 +17,7 @@ const primaryMenus = [
 const moreMenus = [
   { href: "/discovery", label: "今日の発掘" },
   { href: "/price-insights", label: "今日の買い時" },
+  { href: "/vr", label: "VR作品" },
   { href: "/compare", label: "作品比較" },
   { href: "/deals", label: "お得に探す" },
   { href: "/reports", label: "データ" },

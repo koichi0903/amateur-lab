@@ -8,12 +8,12 @@ import { workDetailHref } from "@/lib/affiliateTracking";
 import { getTodayDiscovery } from "@/lib/getTodayDiscovery";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 1800;
 
 export const metadata: Metadata = pageMetadata({
   title: "今日の発掘作品 | 評価と価格で見つける候補 | 発掘LAB",
   description:
-    "ランキング上位の定番作だけでなく、評価、レビュー件数、価格条件、買うタイミングに強みがある作品を独自指数で紹介します。",
+    "ランキング上位の定番作だけでなく、評価、レビュー件数、価格条件、買うタイミングに強みがある作品を埋もれ度で紹介します。",
   canonical: "/discovery",
 });
 
@@ -121,7 +121,7 @@ export default async function DiscoveryPage() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
-                          独自指数 {work.discovery.score}/100
+                          埋もれ度 {work.discovery.score}/100
                         </span>
                         <span className="rounded-full bg-pink-50 px-3 py-1 text-xs font-black text-pink-700">
                           判断 {work.buyTiming.score}/100

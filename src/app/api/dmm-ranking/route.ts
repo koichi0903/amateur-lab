@@ -1,3 +1,4 @@
+import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { updateRanking } from "@/lib/admin/updateRanking";
 
 function errorMessage(error: unknown) {
@@ -14,6 +15,9 @@ function errorMessage(error: unknown) {
 }
 
 export async function POST() {
+  const blocked = blockVercelAdminUpdate();
+  if (blocked) return blocked;
+
   try {
     const ranking = await updateRanking();
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { fillSampleMovieUrls } from "@/lib/admin/fillSampleMovieUrls";
 import { formatUnknownError } from "@/lib/errorMessage";
 
@@ -7,6 +8,9 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST() {
+  const blocked = blockVercelAdminUpdate();
+  if (blocked) return blocked;
+
   try {
     const result = await fillSampleMovieUrls();
 

@@ -8,7 +8,7 @@ import { workDetailHref } from "@/lib/affiliateTracking";
 import { getTodayBuyTiming } from "@/lib/getTodayBuyTiming";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 1800;
 
 export const metadata: Metadata = pageMetadata({
   title: "今日の買い時ランキング | 価格とレビューで選ぶ | 発掘LAB",

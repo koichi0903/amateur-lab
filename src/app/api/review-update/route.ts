@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { updateReviewWorks } from "@/lib/admin/updateReviewWorks";
 import { describeReviewUpdateError } from "@/lib/admin/reviewUpdateSupport";
 
@@ -9,6 +10,9 @@ const REVIEW_BATCH_SIZE = 250;
 const REVIEW_TIME_BUDGET_MS = 240_000;
 
 export async function POST() {
+  const blocked = blockVercelAdminUpdate();
+  if (blocked) return blocked;
+
   try {
     const result = await updateReviewWorks({
       maxItems: REVIEW_BATCH_SIZE,

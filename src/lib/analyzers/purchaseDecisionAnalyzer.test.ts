@@ -14,7 +14,6 @@ const currentPrice = {
 test("marks a well-reviewed historical low as easy to consider", () => {
   const decision = analyzePurchaseDecision({
     work: {
-      score: 86,
       review_average: 4.5,
       review_count: 24,
       discount_rate: 50,
@@ -41,7 +40,6 @@ test("marks a well-reviewed historical low as easy to consider", () => {
 test("states the exact gap when the current price is above the historical low", () => {
   const decision = analyzePurchaseDecision({
     work: {
-      score: 40,
       review_average: 3.8,
       review_count: 4,
       discount_rate: 0,
@@ -65,7 +63,6 @@ test("states the exact gap when the current price is above the historical low", 
 test("does not claim a historical low when comparable history is unavailable", () => {
   const decision = analyzePurchaseDecision({
     work: {
-      score: 0,
       review_average: 0,
       review_count: 0,
       discount_rate: 50,
@@ -86,7 +83,6 @@ test("does not claim a historical low when comparable history is unavailable", (
 test("falls back to the normal price when sale price is zero", () => {
   const decision = analyzePurchaseDecision({
     work: {
-      score: 50,
       review_average: 4.5,
       review_count: 12,
       discount_rate: 0,

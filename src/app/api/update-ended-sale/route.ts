@@ -1,6 +1,10 @@
+import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { updateEndedSaleWorks } from "@/lib/admin/updateEndedSaleWorks";
 
 export async function POST() {
+  const blocked = blockVercelAdminUpdate();
+  if (blocked) return blocked;
+
   try {
     await updateEndedSaleWorks();
 

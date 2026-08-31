@@ -1,9 +1,8 @@
 import type { PriceHistoryItem } from "@/types/price";
+import { parseDatabaseDate } from "@/lib/dateTime";
 
 export function parsePriceHistoryDate(value: string) {
-  const hasTimeZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
-
-  return new Date(hasTimeZone ? value : `${value}Z`);
+  return parseDatabaseDate(value) ?? new Date(value);
 }
 
 export function normalizeDisplayName(name: string) {

@@ -44,6 +44,12 @@ const TASK_GROUPS = {
 
 async function revalidateProduction(tasks) {
   if (tasks.length === 0) return;
+  if (process.env.ENABLE_PRODUCTION_REVALIDATE !== "true") {
+    console.log(
+      "[再検証] 本番キャッシュ更新はスキップしました。必要な時だけ ENABLE_PRODUCTION_REVALIDATE=true で実行してください。",
+    );
+    return;
+  }
 
   const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "");
   const siteUrls = configuredSiteUrl

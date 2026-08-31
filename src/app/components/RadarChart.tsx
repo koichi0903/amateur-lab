@@ -1,42 +1,38 @@
 "use client";
 
 type Props = {
-  actress: number;
-  review: number;
-  popularity: number;
-  maker: number;
-  genre: number;
-  series: number;
+  quality: number;
+  trust: number;
+  discovery: number;
+  timing: number;
+  decision: number;
 };
 
 export default function RadarChart({
-  actress,
-  review,
-  popularity,
-  maker,
-  genre,
-  series,
+  quality,
+  trust,
+  discovery,
+  timing,
+  decision,
 }: Props) {
 
   const values = [
-    actress,
-    review,
-    popularity,
-    maker,
-    genre,
-    series,
+    quality,
+    trust,
+    discovery,
+    timing,
+    decision,
   ];
 
   const labels = [
-    "👩 女優",
-    "⭐ レビュー",
-    "🔥 人気",
-    "🏭 メーカー",
-    "🎭 ジャンル",
-    "📚 シリーズ",
+    "⭐ 品質",
+    "💬 信頼",
+    "🔎 発掘余地",
+    "💸 今見る理由",
+    "🎬 判断材料",
   ];
 
-  const maxValues = [20, 25, 25, 10, 10, 10];
+  const maxValues = [43, 12, 25, 15, 5];
 
 const size = 360;
 const center = size / 2;
@@ -49,7 +45,7 @@ const getPoint = (
   scale = 1
 ) => {
   const angle =
-    (Math.PI * 2 * index) / 6 -
+    (Math.PI * 2 * index) / labels.length -
     Math.PI / 2;
 
   const r =
@@ -92,7 +88,7 @@ const points = values
   className="h-auto w-full max-w-[360px]"
   viewBox="0 0 360 360"
   role="img"
-  aria-label="発掘スコアの6項目レーダーチャート"
+  aria-label="発掘LAB評価の5項目レーダーチャート"
 >
 
        {[0.2, 0.4, 0.6, 0.8, 1].map((scale, index) => {

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { HomePricePoint } from "@/lib/getHomePriceInsights";
+import { parseDatabaseDate } from "@/lib/dateTime";
 import { buildMiniPriceChartGeometry } from "@/lib/miniPriceChart";
 
 type ChartVariant = "hero" | "main" | "compact";
@@ -37,14 +38,18 @@ const pointColor = (point: {
   return "#64748b";
 };
 
-const formatDate = (value: string) =>
-  new Intl.DateTimeFormat("ja-JP", {
+const formatDate = (value: string) => {
+  const date = parseDatabaseDate(value);
+  if (!date) return value;
+
+  return new Intl.DateTimeFormat("ja-JP", {
     timeZone: "Asia/Tokyo",
     month: "numeric",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(value));
+  }).format(date);
+};
 
 export default function MiniPriceHistoryChart({
   points,

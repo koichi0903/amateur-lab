@@ -10,6 +10,7 @@ import FavoriteButton from "@/components/favorites/FavoriteButton";
 import { ExternalLink, ImageIcon, PlayCircle } from "lucide-react";
 import AffiliateLink from "./AffiliateLink";
 import type { AffiliateSource } from "@/lib/affiliateTracking";
+import { parseDatabaseDate } from "@/lib/dateTime";
 import { getSampleMovieFallbackCopy } from "@/lib/sampleMovieFallback";
 
 type Props = {
@@ -32,7 +33,7 @@ export default function WorkHero({
 }: Props) {
 
 // eslint-disable-next-line react-hooks/purity
-const saleActive = !work.sale_end_at || new Date(work.sale_end_at).getTime() > Date.now();
+const saleActive = !work.sale_end_at || (parseDatabaseDate(work.sale_end_at)?.getTime() ?? 0) > Date.now();
 
 const genres = work.genre
   ?.split(/\s*\/\s*/)
@@ -438,57 +439,8 @@ useEffect(() => {
 
 </div>
 
-        <div className="mt-8 grid grid-cols-2 gap-2.5 md:gap-4 lg:grid-cols-[180px_180px_minmax(0,1fr)]">
-  {/* 発掘スコア */}
-  <div className="flex min-h-36 min-w-0 flex-col justify-center rounded-2xl border bg-white p-3 text-center md:h-[210px] md:rounded-3xl md:p-6">
-
-    <div className="text-xs font-bold text-zinc-500 md:text-sm md:font-normal">
-      発掘スコア
-    </div>
-
-    <div className="mt-2 text-5xl font-black leading-none text-pink-600 md:mt-3 md:text-6xl">
-      {work.score}
-    </div>
-
-    <div className="mt-2 text-sm text-zinc-400">
-      /100
-    </div>
-
-    <div className="mt-3 text-base text-yellow-500 md:mt-4 md:text-xl">
-      ★★★★★
-    </div>
-
-  </div>
-
-  {/* 総合おすすめ */}
-  <div className="flex min-h-36 min-w-0 flex-col justify-center rounded-2xl border bg-white p-3 text-center md:h-[210px] md:rounded-3xl md:p-6">
-
-    <div className="text-xs font-bold text-zinc-500 md:text-sm md:font-normal">
-      総合おすすめ度
-    </div>
-
-    <div className="mt-3 flex justify-center md:mt-5">
-
-      <div className="flex h-24 w-24 items-center justify-center rounded-full border-8 border-pink-500 md:h-32 md:w-32 md:border-[10px]">
-
-        <div>
-          <div className="text-3xl font-black leading-none text-pink-600 md:text-4xl">
-            {work.score}%
-          </div>
-
-          <div className="mt-1 text-[10px] text-zinc-500 md:text-sm">
-            今買う価値
-          </div>
-        </div>
-
-      </div>
-
-    </div>
-
-  </div>
-
-  {/* 情報カード */}
-  <div className="col-span-2 min-h-[210px] rounded-3xl border bg-white p-4 md:p-6 lg:col-span-1 lg:h-[210px]">
+        <div className="mt-8">
+  <div className="rounded-3xl border bg-white p-4 md:p-6">
 
     <div className="grid grid-cols-2 gap-y-5">
 
@@ -554,9 +506,9 @@ useEffect(() => {
 
     </div>
 
-  </div>
 
 </div>
+  </div>
       </div>
 {viewerOpen &&
  selected !== "movie" && (

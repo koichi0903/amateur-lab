@@ -30,7 +30,7 @@ const CACHE_CONTROL = "public, s-maxage=3600, stale-while-revalidate=86400";
 
 const staticEntries: SitemapEntry[] = [
   { url: SITE_URL, changeFrequency: "daily", priority: 1 },
-  ...["ranking", "new", "sale", "deals", "discover", "price-insights"].map((path) => ({
+  ...["ranking", "new", "sale", "deals", "discover", "price-insights", "vr"].map((path) => ({
     url: `${SITE_URL}/${path}`,
     changeFrequency: "daily" as const,
     priority: 0.9,

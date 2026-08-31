@@ -5,6 +5,7 @@ import {
   type BuyTimingResult,
 } from "@/lib/buyTiming";
 import type { Work } from "@/types/work";
+import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
 
 type TodayBuyTimingWork = Pick<
   Work,
@@ -12,6 +13,7 @@ type TodayBuyTimingWork = Pick<
   | "product_id"
   | "title"
   | "image_url"
+  | "genre"
   | "score"
   | "price"
   | "sale_price"
@@ -94,6 +96,7 @@ export async function getTodayBuyTiming(limit = 30) {
       "product_id",
       "title",
       "image_url",
+      "genre",
       "score",
       "price",
       "sale_price",
@@ -109,6 +112,8 @@ export async function getTodayBuyTiming(limit = 30) {
       "affiliate_url",
     ].join(","))
     .not("affiliate_url", "is", null)
+    .or(NON_VR_GENRE_OR_FILTER)
+    .not("title", "ilike", "%VR%")
     .or("price.gt.0,sale_price.gt.0")
     .order("discount_rate", { ascending: false, nullsFirst: false })
     .order("score", { ascending: false, nullsFirst: false })
@@ -120,6 +125,7 @@ export async function getTodayBuyTiming(limit = 30) {
   }
 
   const works = ((data ?? []) as unknown as TodayBuyTimingWork[])
+    .filter(isNonVrWork)
     .filter((work) => getCurrentPrice(work) > 0);
   const productIds = [...new Set(works.map((work) => work.product_id).filter(Boolean))];
   const workIds = works.map((work) => work.id);

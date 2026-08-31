@@ -1,6 +1,7 @@
 import type { AffiliatePerformanceRow } from "@/lib/affiliateSalesAnalytics";
 import { calculateAdjustedCtr, calculateBuyTimingScore } from "@/lib/buyTiming";
 import { normalizeDisplayName } from "@/lib/createChartData";
+import { parseDatabaseDate } from "@/lib/dateTime";
 import { calculateDiscoveryScore } from "@/lib/discoveryScore";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
@@ -85,6 +86,7 @@ const DAY_MS = 86_400_000;
 const HISTORY_BATCH_SIZE = 20;
 const HISTORY_PAGE_SIZE = 1000;
 const ABSOLUTE_COOLDOWN_DAYS = 3;
+const databaseDateTime = (value: string) => parseDatabaseDate(value)?.getTime() ?? Number.NaN;
 
 type FunnelStat = {
   pageViews: number;
@@ -124,7 +126,7 @@ function fitPost(lines: string[], title: string) {
 function activeSale(work: CandidateWork) {
   return Boolean(
     work.is_on_sale && work.sale_price && work.sale_price > 0 &&
-    (!work.sale_end_at || new Date(work.sale_end_at).getTime() > Date.now()),
+    (!work.sale_end_at || (parseDatabaseDate(work.sale_end_at)?.getTime() ?? 0) > Date.now()),
   );
 }
 
@@ -145,14 +147,14 @@ function chartForWork(work: CandidateWork, rows: PriceHistoryRow[]) {
   const sorted = rows
     .map((row) => ({ ...row, value: effectivePrice(row) }))
     .filter((row): row is PriceHistoryRow & { value: number } => row.value !== null)
-    .sort((a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime());
+    .sort((a, b) => databaseDateTime(b.changed_at) - databaseDateTime(a.changed_at));
   const latestMatching = sorted.find((row) => row.value === livePrice);
   if (!latestMatching) return null;
   const seriesName = normalizeDisplayName(latestMatching.display_name);
   const seriesPeriod = latestMatching.period ?? null;
   const series = sorted
     .filter((row) => normalizeDisplayName(row.display_name) === seriesName && (row.period ?? null) === seriesPeriod)
-    .sort((a, b) => new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime());
+    .sort((a, b) => databaseDateTime(a.changed_at) - databaseDateTime(b.changed_at));
   if (!series.length || series.at(-1)?.value !== livePrice) return null;
 
   const previousPrice = [...series].reverse().find((row) => row.value !== livePrice)?.value ?? null;

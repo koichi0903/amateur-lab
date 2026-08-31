@@ -26,6 +26,11 @@ type ScoreUpdateWork = {
   review_average: number | null;
   review_count: number | null;
   discount_rate: number | null;
+  price: number | null;
+  sale_price: number | null;
+  lowest_price: number | null;
+  sample_movie_url: string | null;
+  image_url: string | null;
   release_date: string | null;
   realtime_rank: number | null;
   daily_rank: number | null;
@@ -44,6 +49,11 @@ const SELECT_COLUMNS = `
   review_average,
   review_count,
   discount_rate,
+  price,
+  sale_price,
+  lowest_price,
+  sample_movie_url,
+  image_url,
   release_date,
   realtime_rank,
   daily_rank,
@@ -51,8 +61,15 @@ const SELECT_COLUMNS = `
   monthly_rank,
   long_hit_rank
 `;
-const PAGE_SIZE = 1000;
-const UPDATE_BATCH_SIZE = 500;
+const PAGE_SIZE = 500;
+const UPDATE_BATCH_SIZE = Number.parseInt(
+  process.env.SCORE_UPDATE_BATCH_SIZE ?? "50",
+  10,
+);
+const UPDATE_BATCH_DELAY_MS = Number.parseInt(
+  process.env.SCORE_UPDATE_BATCH_DELAY_MS ?? "500",
+  10,
+);
 
 function errorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
@@ -83,6 +100,10 @@ function bestPoint(
     (best, name) => Math.max(best, toPoint(rankMap.get(name) ?? null)),
     0,
   );
+}
+
+function sleep(ms: number) {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
 }
 
 async function loadWorks(productIds?: string[]) {
@@ -201,6 +222,10 @@ export async function updateScore(productIds?: string[]) {
         reviewAverage: work.review_average ?? 0,
         reviewCount: work.review_count ?? 0,
         maxDiscountRate: work.discount_rate ?? 0,
+        currentPrice: work.sale_price && work.sale_price > 0 ? work.sale_price : work.price,
+        lowestPrice: work.lowest_price,
+        hasSampleMovie: Boolean(work.sample_movie_url),
+        hasImage: Boolean(work.image_url),
         actressPoint,
         genrePoint,
         makerPoint,
@@ -234,15 +259,8 @@ export async function updateScore(productIds?: string[]) {
 
       if (updates.length === UPDATE_BATCH_SIZE || index === targets.length - 1) {
         const batchSize = updates.length;
-        const batchWorkIds = updates.map(({ id }) => id);
         const { error } = await supabase.from("works").upsert(updates);
         if (error) throw error;
-
-        const { error: entityScoreError } = await supabase.rpc(
-          "sync_catalog_entity_scores",
-          { p_work_ids: batchWorkIds },
-        );
-        if (entityScoreError) throw entityScoreError;
 
         completed += batchSize;
         await updateJobProgress(JOBS.SCORE, {
@@ -257,6 +275,9 @@ export async function updateScore(productIds?: string[]) {
         });
         console.log(`[score] ${completed}/${total}`);
         updates = [];
+        if (index < targets.length - 1) {
+          await sleep(UPDATE_BATCH_DELAY_MS);
+        }
       }
     }
 
@@ -273,4 +294,19 @@ export async function updateScore(productIds?: string[]) {
     await failJob(JOBS.SCORE, errorMessage(error));
     throw error;
   }
+}
+
+const isDirectExecution = process.argv[1]
+  ?.replace(/\\/g, "/")
+  .endsWith("/src/lib/admin/updateScore.ts");
+
+if (isDirectExecution) {
+  updateScore()
+    .then((result) => {
+      console.log(JSON.stringify(result));
+    })
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
 }

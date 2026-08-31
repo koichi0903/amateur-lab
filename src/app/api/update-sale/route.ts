@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 
+import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { updateSaleWorks } from "@/lib/admin/updateSaleWorks";
 import { updateStatistics } from "@/lib/statistics/updateStatistics";
 
 export async function POST() {
+  const blocked = blockVercelAdminUpdate();
+  if (blocked) return blocked;
+
   try {
     console.log("===== セール更新開始 =====");
 

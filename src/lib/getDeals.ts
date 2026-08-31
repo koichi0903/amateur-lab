@@ -2,17 +2,20 @@ import { supabase } from "@/lib/supabase";
 import type { DealWork } from "@/components/deals/DealWorkCard";
 import type { DealCategory } from "@/lib/deals";
 import { unstable_cache } from "next/cache";
+import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
 
 export const DEAL_COLUMNS = [
   "id", "title", "image_url", "price", "sale_price", "list_price",
-  "discount_rate", "score", "review_average", "review_count",
+  "genre", "discount_rate", "score", "review_average", "review_count",
   "sale_end_at", "lowest_price", "is_bottom_price", "sample_movie_url",
 ].join(",");
 
 async function fetchDeals(category: DealCategory, from: number, to: number) {
   let query = supabase
     .from("works")
-    .select(DEAL_COLUMNS, { count: "exact" });
+    .select(DEAL_COLUMNS, { count: "exact" })
+    .or(NON_VR_GENRE_OR_FILTER)
+    .not("title", "ilike", "%VR%");
 
   switch (category) {
     case "ending-soon":
@@ -59,7 +62,7 @@ async function fetchDeals(category: DealCategory, from: number, to: number) {
 
   const response = await query.range(from, to);
   return {
-    works: (response.data ?? []) as unknown as DealWork[],
+    works: ((response.data ?? []) as unknown as DealWork[]).filter(isNonVrWork),
     count: response.count ?? 0,
     error: response.error,
   };
@@ -68,7 +71,7 @@ async function fetchDeals(category: DealCategory, from: number, to: number) {
 export async function getDeals(category: DealCategory, from = 0, to = 23) {
   const cachedFetch = unstable_cache(
     () => fetchDeals(category, from, to),
-    ["deals", category, String(from), String(to)],
+    ["deals-non-vr", category, String(from), String(to)],
     { revalidate: 900, tags: ["deals"] },
   );
   return cachedFetch();

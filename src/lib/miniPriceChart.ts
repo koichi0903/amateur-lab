@@ -1,3 +1,5 @@
+import { parseDatabaseDate } from "@/lib/dateTime";
+
 export type MiniPriceChartPoint = {
   price: number;
   changedAt: string;
@@ -22,7 +24,7 @@ export type MiniPriceChartGeometry = {
 };
 
 const finiteTime = (value: string) => {
-  const time = Date.parse(value);
+  const time = parseDatabaseDate(value)?.getTime() ?? Number.NaN;
   return Number.isFinite(time) ? time : null;
 };
 

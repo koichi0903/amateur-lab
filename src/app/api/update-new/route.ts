@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 
+import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { updateNewWorks } from "@/lib/admin/updateNewWorks";
 
 export async function POST() {
+  const blocked = blockVercelAdminUpdate();
+  if (blocked) return blocked;
+
   try {
     await updateNewWorks();
 

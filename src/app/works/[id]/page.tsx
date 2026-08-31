@@ -10,7 +10,6 @@ import Breadcrumb from "@/app/components/Breadcrumb";
 import BreadcrumbJsonLd from "@/app/components/BreadcrumbJsonLd";
 import Link from "next/link";
 import ProductJsonLd from "@/app/components/ProductJsonLd";
-import InsightTimeline from "@/app/components/InsightTimeline";
 import WorkTabs from "@/app/components/WorkTabs";
 import PurchaseCard from "@/app/components/PurchaseCard";
 import PurchaseDecisionGuide from "@/app/components/PurchaseDecisionGuide";
@@ -25,7 +24,6 @@ import CompareTray from "@/components/comparison/CompareTray";
 import PriceTypes from "@/app/components/PriceTypes";
 import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
 import { analyzePurchaseDecision } from "@/lib/analyzers/purchaseDecisionAnalyzer";
-import { isInsightVisible } from "@/lib/insights/visibility";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 import { isWorkIndexable } from "@/lib/seoQuality";
 import { cache } from "react";
@@ -98,8 +96,8 @@ const getWork = cache(
 );
 
 const getWorkDetailData = unstable_cache(
-  async (productId: string, workId: number) => {
-    const [sampleImages, priceHistory, workPrices, insights] = await Promise.all([
+  async (productId: string) => {
+    const [sampleImages, priceHistory, workPrices] = await Promise.all([
       supabase
         .from("work_sample_images")
         .select("image_url, sort_order")
@@ -116,18 +114,12 @@ const getWorkDetailData = unstable_cache(
         .select("display_name,type,period,price_kind,normal_price,sale_price")
         .eq("product_id", productId)
         .order("display_name"),
-      supabase
-        .from("insights")
-        .select("id,type,title,description,created_at,updated_at")
-        .eq("work_id", workId)
-        .order("priority", { ascending: false }),
     ]);
 
     return {
       sampleImages: sampleImages.data ?? [],
       priceHistory: priceHistory.data ?? [],
       workPrices: workPrices.data ?? [],
-      insights: insights.data ?? [],
     };
   },
   // Versioned after adding period-aware price history. This prevents the old
@@ -329,8 +321,8 @@ export default async function WorkDetailPage(
 
   if (!work) notFound();
 
-  const { sampleImages, priceHistory, workPrices, insights } =
-    await getWorkDetailData(work.product_id, work.id);
+  const { sampleImages, priceHistory, workPrices } =
+    await getWorkDetailData(work.product_id);
   const latestOffers = new Map<string, (typeof priceHistory)[number]>();
   for (const offer of priceHistory ?? []) {
     const key = `${offer.display_name ?? offer.type ?? ""}\u0000${offer.period ?? ""}`;
@@ -341,10 +333,6 @@ export default async function WorkDetailPage(
   const currentOffers = workPrices?.length
     ? workPrices
     : [...latestOffers.values()];
-
-  const visibleInsights = (insights ?? []).filter((insight) =>
-    isInsightVisible(insight, work)
-  );
 
   const splitEntities = (value: string | null) => value?.split(/\s*\/\s*|\s*／\s*|\s*,\s*|\s*、\s*/).filter(Boolean) ?? [];
   const actresses = splitEntities(work.actress);
@@ -481,17 +469,11 @@ const buyTiming = calculateBuyTimingScore({
 
       <BuyTimingPanel
         decision={buyTiming}
+        discoveryScore={typeof work.score === "number" ? work.score : null}
         workId={work.id}
         affiliateUrl={work.affiliate_url}
         sourcePage={sourcePage}
       />
-
-      {/* タイムライン */}
-      {visibleInsights.length > 0 && (
-        <section className="mt-8 hidden md:block">
-          <InsightTimeline insights={visibleInsights} />
-        </section>
-      )}
 
       <PurchaseDecisionGuide
         decision={purchaseDecision}

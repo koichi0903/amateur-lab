@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { pageMetadata } from "@/lib/seo";
 import { workDetailHref } from "@/lib/affiliateTracking";
+import { formatJapanDateTime, parseDatabaseDate } from "@/lib/dateTime";
 
 const PAGE_SIZE = 20;
 export const revalidate = 86400;
@@ -60,14 +61,9 @@ function saleDetails(work: Work) {
 }
 
 function formatSaleEnd(value: string | null) {
-  if (!value || Date.parse(value) <= Date.now()) return null;
-  return new Intl.DateTimeFormat("ja-JP", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Tokyo",
-  }).format(new Date(value));
+  const date = parseDatabaseDate(value);
+  if (!date || date.getTime() <= Date.now()) return null;
+  return formatJapanDateTime(value);
 }
 
 function SaleCard({ work }: { work: Work }) {

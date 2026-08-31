@@ -1,6 +1,7 @@
 import AffiliateLink from "./AffiliateLink";
 import CompareButton from "@/components/comparison/CompareButton";
 import type { AffiliateSource } from "@/lib/affiliateTracking";
+import { parseDatabaseDate } from "@/lib/dateTime";
 
 type Props = {
   work: {
@@ -23,7 +24,7 @@ export default function MobilePurchaseBar({
   sourcePage,
 }: Props) {
   // eslint-disable-next-line react-hooks/purity
-  const saleActive = !work.sale_end_at || new Date(work.sale_end_at).getTime() > Date.now();
+  const saleActive = !work.sale_end_at || (parseDatabaseDate(work.sale_end_at)?.getTime() ?? 0) > Date.now();
   const currentPrice =
     displayPrice && displayPrice > 0
       ? displayPrice
