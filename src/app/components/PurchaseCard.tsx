@@ -63,19 +63,21 @@ export default function PurchaseCard({
   // The server render must compare against the current time to hide expired sales.
   // eslint-disable-next-line react-hooks/purity
   const saleActive = !work.sale_end_at || (parseDatabaseDate(work.sale_end_at)?.getTime() ?? 0) > Date.now();
-  const representativePrice = saleActive && work.sale_price && work.sale_price > 0 ? work.sale_price : work.price;
+  const hasSaleEvidence = saleActive && (work.is_on_sale || (work.sale_price != null && work.sale_price > 0) || (work.discount_rate != null && work.discount_rate > 0));
+  const representativePrice = hasSaleEvidence && work.sale_price && work.sale_price > 0 ? work.sale_price : work.price;
   const bestOffer = sortedOffers.find((offer) => offer.effectivePrice === representativePrice) ?? null;
   const currentPrice = representativePrice ?? sortedOffers[0]?.effectivePrice ?? null;
-  const regularPrice =
-    bestOffer?.normal_price && currentPrice && bestOffer.normal_price > currentPrice
+  const regularPrice = hasSaleEvidence
+    ? bestOffer?.normal_price && currentPrice && bestOffer.normal_price > currentPrice
       ? bestOffer.normal_price
       : work.list_price && currentPrice && work.list_price > currentPrice
         ? work.list_price
         : work.price && currentPrice && work.price > currentPrice
           ? work.price
-          : null;
+          : null
+    : null;
   const calculatedDiscount =
-    regularPrice && currentPrice
+    hasSaleEvidence && work.sale_price && work.sale_price > 0 && regularPrice && currentPrice
       ? Math.round((1 - currentPrice / regularPrice) * 100)
       : 0;
   const discountRate = Math.max(work.discount_rate ?? 0, calculatedDiscount);

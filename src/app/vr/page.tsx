@@ -30,6 +30,7 @@ const VR_COLUMNS = [
   "sale_end_at",
   "lowest_price",
   "is_bottom_price",
+  "is_on_sale",
   "sample_movie_url",
 ].join(",");
 

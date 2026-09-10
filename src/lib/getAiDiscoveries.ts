@@ -14,6 +14,7 @@ export type AiDiscovery = {
   list_price: number | null;
   lowest_price: number | null;
   is_bottom_price: boolean;
+  is_on_sale: boolean;
   discount_rate: number;
   review_average: number;
   review_count: number;
@@ -26,7 +27,7 @@ export type AiDiscovery = {
   reasonType: "price" | "rank" | "review" | "score" | "hidden";
 };
 
-const columns = "id,product_id,title,genre,image_url,price,sale_price,list_price,lowest_price,is_bottom_price,discount_rate,review_average,review_count,score,ranking,realtime_rank,previous_realtime_rank,sale_end_at";
+const columns = "id,product_id,title,genre,image_url,price,sale_price,list_price,lowest_price,is_bottom_price,is_on_sale,discount_rate,review_average,review_count,score,ranking,realtime_rank,previous_realtime_rank,sale_end_at";
 
 function price(work: AiDiscovery) { return work.sale_price > 0 ? work.sale_price : work.price; }
 

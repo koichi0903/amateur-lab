@@ -7,7 +7,7 @@ import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
 export const DEAL_COLUMNS = [
   "id", "title", "image_url", "price", "sale_price", "list_price",
   "genre", "discount_rate", "score", "review_average", "review_count",
-  "sale_end_at", "lowest_price", "is_bottom_price", "sample_movie_url",
+  "sale_end_at", "lowest_price", "is_bottom_price", "is_on_sale", "sample_movie_url",
 ].join(",");
 
 async function fetchDeals(category: DealCategory, from: number, to: number) {
