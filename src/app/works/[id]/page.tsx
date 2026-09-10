@@ -345,26 +345,32 @@ export default async function WorkDetailPage(
     const ranks = values.filter((value): value is number => typeof value === "number" && value > 0);
     return ranks.length ? Math.min(...ranks) : null;
   };
-  const representativePrice = work.sale_price > 0 ? work.sale_price : work.price;
+  const saleActive = !work.sale_end_at || Date.parse(work.sale_end_at) > Date.now();
+  const hasSaleEvidence =
+    saleActive &&
+    (work.is_on_sale || (work.sale_price != null && work.sale_price > 0) || (work.discount_rate != null && work.discount_rate > 0));
+  const representativePrice = hasSaleEvidence && work.sale_price > 0 ? work.sale_price : work.price;
   const currentPrice = currentOffers.find((offer) =>
     (offer.sale_price ?? offer.normal_price ?? 0) === representativePrice
   ) ?? {
     display_name: "代表価格",
     type: null,
     period: null,
-    normal_price: work.list_price ?? work.price,
-    sale_price: work.sale_price || null,
+    normal_price: work.price,
+    sale_price: hasSaleEvidence ? work.sale_price || null : null,
   };
   const mobileDisplayPrice =
-    currentPrice.sale_price && currentPrice.sale_price > 0
+    hasSaleEvidence && currentPrice.sale_price && currentPrice.sale_price > 0
       ? currentPrice.sale_price
       : currentPrice.normal_price;
   const mobileDisplayDiscountRate =
+    hasSaleEvidence &&
+    currentPrice.sale_price &&
     currentPrice.normal_price &&
     mobileDisplayPrice &&
     currentPrice.normal_price > mobileDisplayPrice
       ? Math.round((1 - mobileDisplayPrice / currentPrice.normal_price) * 100)
-      : work.discount_rate;
+      : hasSaleEvidence ? work.discount_rate : 0;
   const recommendationReasons = analyzeRecommendation({
     work,
     currentPrice,

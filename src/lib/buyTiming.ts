@@ -18,6 +18,8 @@ export type BuyTimingWork = {
   sale_price?: number | null;
   list_price?: number | null;
   discount_rate?: number | null;
+  is_on_sale?: boolean | null;
+  sale_end_at?: string | null;
   lowest_price?: number | null;
   review_average?: number | null;
   review_count?: number | null;
@@ -114,18 +116,23 @@ export function calculateBuyTimingScore({
   priceHistory: BuyTimingPriceHistoryItem[];
   funnel: BuyTimingFunnelStats;
 }): BuyTimingResult {
-  const salePrice = validPrice(work.sale_price);
+  const saleActive = !work.sale_end_at || Date.parse(work.sale_end_at) > Date.now();
+  const hasSaleEvidence =
+    saleActive &&
+    (work.is_on_sale || validPrice(work.sale_price) !== null || validPrice(work.discount_rate) !== null);
+  const salePrice = hasSaleEvidence ? validPrice(work.sale_price) : null;
   const basePrice = validPrice(work.price);
   const currentPrice = salePrice ?? basePrice;
-  const regularPrice =
-    validPrice(work.list_price) ??
-    (salePrice && basePrice && basePrice > salePrice ? basePrice : null);
+  const regularPrice = hasSaleEvidence
+    ? validPrice(work.list_price) ??
+      (salePrice && basePrice && basePrice > salePrice ? basePrice : null)
+    : null;
   const calculatedDiscount =
-    currentPrice && regularPrice && regularPrice > currentPrice
+    hasSaleEvidence && salePrice && currentPrice && regularPrice && regularPrice > currentPrice
       ? Math.round((1 - currentPrice / regularPrice) * 100)
       : 0;
   const discountRate = clamp(
-    Math.max(work.discount_rate ?? 0, calculatedDiscount),
+    hasSaleEvidence ? Math.max(work.discount_rate ?? 0, calculatedDiscount) : 0,
     0,
     95,
   );
