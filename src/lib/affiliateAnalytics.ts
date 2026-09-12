@@ -412,6 +412,11 @@ async function fetchXPostLogMap(days: number) {
 const X_CATEGORY_LABELS: Record<XPostCategoryRevenueRow["category"], string> = {
   today_buy: "今日の買い時",
   today_discovery: "今日の発掘",
+  market_scan: "市場メモ",
+  comparison_pick: "比較メモ",
+  judgment_pick: "見送り判断",
+  review_gap: "レビューギャップ",
+  discovery_gap: "発掘ギャップ",
   hidden_gem: "埋もれ名作",
   actress_best: "女優別おすすめ",
   genre_best: "ジャンル別おすすめ",

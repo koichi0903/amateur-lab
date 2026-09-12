@@ -17,9 +17,19 @@ const menus = [
     href: "/admin/update",
   },
   {
+    title: "X Growth OS",
+    description: "@hakkutsu_labの今日の作戦・投稿候補・学習",
+    href: "/admin/x-growth",
+  },
+  {
     title: "📈 FANZA送客分析",
     description: "クリック流入元・上位作品を確認",
     href: "/admin/revenue",
+  },
+  {
+    title: "𝕏 myfans X運用",
+    description: "@lumi_reviwのDaily Growth Command Centerを開く",
+    href: "/admin/myfans?media=1",
   },
 ];
 

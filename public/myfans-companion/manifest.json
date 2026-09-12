@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Myfans Companion for amateur-lab",
+  "version": "0.1.5",
+  "description": "Send the currently viewed myfans affiliate/product page to amateur-lab.",
+  "permissions": ["activeTab", "scripting", "tabs", "storage"],
+  "host_permissions": ["https://*.myfans.jp/*", "https://*.affiliate.myfans.jp/*", "https://x.com/*", "https://twitter.com/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

@@ -5,6 +5,7 @@ import {
   type XPostLogInput,
 } from "@/lib/xPostLogs";
 import type { XPostCandidate } from "@/lib/xPostPlanner";
+import type { XPostLogIntent } from "@/lib/xPostLogs";
 
 const categories = new Set<XPostCandidate["category"]>([
   "sales",
@@ -30,6 +31,7 @@ const hookTypes = new Set<XPostCandidate["hookType"]>([
 const imageStrategies = new Set<XPostCandidate["imageStrategy"]>(["original_work_image", "branded_data_card"]);
 const linkStrategies = new Set<XPostCandidate["linkStrategy"]>(["body_link", "reply_link"]);
 const ctaStrategies = new Set<XPostCandidate["ctaStrategy"]>(["price_cta", "reason_cta"]);
+const postIntents = new Set<XPostLogIntent>(["work_link", "reply", "quote", "profile", "repost", "normal"]);
 
 function isValidPostDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -58,6 +60,12 @@ function parsePayload(payload: unknown): XPostLogInput | null {
   const ctaStrategy = typeof candidate.ctaStrategy === "string" && ctaStrategies.has(candidate.ctaStrategy as XPostCandidate["ctaStrategy"])
     ? candidate.ctaStrategy as XPostCandidate["ctaStrategy"]
     : null;
+  const accountHandle = typeof candidate.accountHandle === "string" ? candidate.accountHandle.trim().replace(/^@/, "") : "hakkutsu_lab";
+  const postIntent = typeof candidate.postIntent === "string" && postIntents.has(candidate.postIntent as XPostLogIntent)
+    ? candidate.postIntent as XPostLogIntent
+    : "work_link";
+  const scheduledSlot = typeof candidate.scheduledSlot === "string" ? candidate.scheduledSlot.trim() : null;
+  const plannedAt = typeof candidate.plannedAt === "string" ? candidate.plannedAt.trim() : null;
 
   if (
     !postKey ||
@@ -83,6 +91,10 @@ function parsePayload(payload: unknown): XPostLogInput | null {
     imageStrategy,
     linkStrategy,
     ctaStrategy,
+    accountHandle: accountHandle === "hakkutsu_lab" ? "hakkutsu_lab" : "hakkutsu_lab",
+    postIntent,
+    scheduledSlot: scheduledSlot ? scheduledSlot.slice(0, 40) : null,
+    plannedAt: plannedAt || null,
   };
 }
 

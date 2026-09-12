@@ -38,6 +38,7 @@ yarn-error.log*
 /work/
 /work-npm-cache/
 /.npm-cache/
+/.myfans-affiliate-browser/
 /actress-ranking.png
 /daily-ranking.png
 /ranking.html

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Myfans Companion</title>
+    <style>
+      body { width: 340px; margin: 0; padding: 14px; font-family: system-ui, sans-serif; color: #f4f4f5; background: #09090b; }
+      label { display: grid; gap: 6px; margin-top: 10px; font-size: 12px; color: #a1a1aa; font-weight: 700; }
+      input { height: 36px; border: 1px solid #3f3f46; border-radius: 8px; background: #18181b; color: white; padding: 0 10px; }
+      button { width: 100%; height: 40px; margin-top: 12px; border: 0; border-radius: 8px; background: #059669; color: white; font-weight: 800; cursor: pointer; }
+      button.secondary { background: #6d28d9; }
+      button.warning { background: #a16207; }
+      button.danger { background: #b91c1c; }
+      p { line-height: 1.5; font-size: 12px; color: #a1a1aa; }
+      .diagnostics { margin-top: 12px; border-top: 1px solid #27272a; padding-top: 12px; }
+      .diagnostics dl { display: grid; grid-template-columns: 140px 1fr; gap: 6px 8px; margin: 0; font-size: 11px; }
+      .diagnostics dt { color: #a1a1aa; font-weight: 800; }
+      .diagnostics dd { margin: 0; color: #e4e4e7; overflow-wrap: anywhere; }
+      #status { color: #6ee7b7; font-weight: 700; }
+      #batchStatus { white-space: pre-wrap; color: #ddd6fe; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <strong>Myfans Companion</strong>
+    <p id="version"></p>
+    <p>閲覧中ページの表示情報だけをamateur-labへ送ります。ログイン情報は保存しません。</p>
+    <label>amateur-lab URL<input id="baseUrl" value="http://localhost:3000" /></label>
+    <label>承認済みメディア<input id="mediaName" value="@lumi_reviw" /></label>
+    <label>承認済みメディアID<input id="mediaId" inputmode="numeric" placeholder="任意" /></label>
+    <button id="send">このページを候補登録</button>
+    <button id="quoteScan" class="secondary">引用候補を収集</button>
+    <label>一括更新件数<input id="batchSize" type="number" min="1" max="50" value="5" /></label>
+    <button id="bulkQuoteScan" class="secondary">Daily Pageに接続して一括更新開始</button>
+    <button id="pauseBulk" class="warning">一括更新を一時停止</button>
+    <button id="cancelBulk" class="danger">一括更新を中止</button>
+    <section class="diagnostics">
+      <strong>Daily Page診断</strong>
+      <dl>
+        <dt>Extension version</dt><dd id="diagExtensionVersion">-</dd>
+        <dt>Current tab URL</dt><dd id="diagTabUrl">-</dd>
+        <dt>Daily Page detected</dt><dd id="diagDetected">-</dd>
+        <dt>executeScript probe</dt><dd id="diagProbe">-</dd>
+        <dt>HTML marker</dt><dd id="diagProbeMarker">-</dd>
+        <dt>Bridge injected</dt><dd id="diagInjected">-</dd>
+        <dt>Background worker</dt><dd id="diagBackground">-</dd>
+        <dt>Daily Page connection</dt><dd id="diagConnection">-</dd>
+        <dt>Worker version</dt><dd id="diagWorkerVersion">-</dd>
+        <dt>Last bridge ack</dt><dd id="diagLastAck">-</dd>
+      </dl>
+      <button id="connectBridge" class="warning">Daily Pageにbridgeを接続</button>
+    </section>
+    <p id="status"></p>
+    <p id="batchStatus"></p>
+    <script src="popup.js"></script>
+  </body>
+</html>

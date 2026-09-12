@@ -15,13 +15,9 @@ import {
 } from "@/lib/affiliateAnalytics";
 import { getAffiliateSalesAnalytics } from "@/lib/affiliateSalesAnalytics";
 import { AFFILIATE_SOURCE_LABELS } from "@/lib/affiliateTracking";
-import { getXPostCandidates } from "@/lib/xPostPlanner";
-import { getRecentXPostLogs, getXCreativeLearning, getXPostOutcomes } from "@/lib/xPostLogs";
 import RevenueImportForm from "./RevenueImportForm";
 import RevenuePerformanceTable from "./RevenuePerformanceTable";
-import SalesRecommendationPanel from "./SalesRecommendationPanel";
 import TrafficImprovementPanel from "./TrafficImprovementPanel";
-import XPostCandidatePanel from "./XPostCandidatePanel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -56,7 +52,6 @@ function MetricCard({
 
 type XTraffic = Awaited<ReturnType<typeof getAffiliateAnalytics>>["xTraffic"];
 type XPostCategoryRevenue = Awaited<ReturnType<typeof getAffiliateAnalytics>>["xPostCategoryRevenue"];
-type XCreativeLearning = Awaited<ReturnType<typeof getXCreativeLearning>>["rows"];
 
 function XTrafficPanel({ xTraffic }: { xTraffic: XTraffic }) {
   return (
@@ -112,66 +107,6 @@ function XTrafficPanel({ xTraffic }: { xTraffic: XTraffic }) {
             )) : <p className="py-5 text-sm text-zinc-500">X経由のクリックはまだありません。</p>}
           </div>
         </div>
-      </div>
-    </section>
-  );
-}
-
-function XCreativeLearningPanel({
-  rows,
-  error,
-}: {
-  rows: XCreativeLearning;
-  error: string | null;
-}) {
-  const grouped = rows.reduce<Record<string, XCreativeLearning>>((acc, row) => {
-    acc[row.dimension] = [...(acc[row.dimension] ?? []), row];
-    return acc;
-  }, {});
-  const dimensionLabels: Record<string, string> = {
-    hook_type: "Hook Type",
-    image_strategy: "Image Strategy",
-    link_strategy: "Link Strategy",
-    cta_strategy: "CTA Strategy",
-  };
-
-  return (
-    <section className="mt-6 rounded-2xl border border-cyan-800/80 bg-cyan-950/20 p-5 sm:p-6">
-      <p className="text-xs font-black tracking-[0.18em] text-cyan-300">X CREATIVE LEARNING</p>
-      <h2 className="mt-2 text-xl font-black">勝ちクリエイティブ学習</h2>
-      <p className="mt-2 text-sm leading-6 text-zinc-400">
-        投稿ログのバリアント情報と <code className="rounded bg-black/30 px-1.5 py-0.5">x_post</code> を接続し、少サンプル補正後のCTRで比較します。
-      </p>
-      {error && <p className="mt-3 rounded-xl border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-200">{error}</p>}
-      <div className="mt-5 grid gap-4 lg:grid-cols-4">
-        {Object.entries(dimensionLabels).map(([dimension, label]) => (
-          <div key={dimension} className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
-            <h3 className="text-sm font-black text-zinc-100">{label}</h3>
-            <div className="mt-3 space-y-2">
-              {(grouped[dimension] ?? []).slice(0, 4).map((row) => (
-                <div key={`${row.dimension}-${row.value}`} className="rounded-lg bg-zinc-900 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-black text-zinc-100">{row.label}</p>
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${
-                      row.confidence === "high"
-                        ? "border-emerald-800 bg-emerald-950/40 text-emerald-300"
-                        : row.confidence === "medium"
-                          ? "border-sky-800 bg-sky-950/40 text-sky-300"
-                          : "border-zinc-700 bg-zinc-950 text-zinc-400"
-                    }`}>
-                      {row.confidence === "high" ? "信頼高" : row.confidence === "medium" ? "信頼中" : "様子見"}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-[11px] leading-5 text-zinc-500">
-                    {row.posts}投稿 / {row.xPageViews}PV / {row.xFanzaClicks}送客 / 補正CTR {row.adjustedCtr}%
-                  </p>
-                  <p className="mt-1 text-[11px] font-bold text-cyan-200">{row.recommendation}</p>
-                </div>
-              ))}
-              {!(grouped[dimension] ?? []).length && <p className="py-3 text-xs text-zinc-600">まだ比較できる投稿ログがありません。</p>}
-            </div>
-          </div>
-        ))}
       </div>
     </section>
   );
@@ -275,15 +210,6 @@ export default async function RevenueDashboardPage({
     getAffiliateAnalytics(xCategoryDays),
     getAffiliateSalesAnalytics(),
   ]);
-  const [xPostLogs, xPostOutcomes, xCreativeLearning] = await Promise.all([
-    getRecentXPostLogs(),
-    getXPostOutcomes(),
-    getXCreativeLearning(xCategoryDays),
-  ]);
-  const xPostCandidates = await getXPostCandidates(
-    salesAnalytics.performance,
-    xPostLogs.logs,
-  );
   const maxDaily = Math.max(...analytics.daily.map((item) => item.count), 1);
   const thirtyDayTotal = analytics.totals.thirtyDays;
   const mobileClicks = analytics.placements.find(
@@ -528,17 +454,15 @@ export default async function RevenueDashboardPage({
           rows={analytics.xPostCategoryRevenue}
         />
 
-        <XCreativeLearningPanel
-          rows={xCreativeLearning.rows}
-          error={xCreativeLearning.error}
-        />
-
-        <SalesRecommendationPanel
-          days={analytics.categoryDays}
-          categories={analytics.xPostCategoryRevenue}
-          workFunnels={analytics.workFunnels}
-          creativeLearning={xCreativeLearning.rows}
-        />
+        <section className="mt-6 rounded-2xl border border-emerald-800/80 bg-emerald-950/20 p-5 sm:p-6">
+          <h2 className="text-xl font-black">X運用はGrowth OSへ移動しました</h2>
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
+            この画面はFANZA送客と収益分析に集中します。投稿候補、Daily Mission、Creative Learning、媒体権利確認は新しい司令塔で管理します。
+          </p>
+          <Link href="/admin/x-growth" className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-emerald-500 px-4 text-sm font-black text-black">
+            X Growth OSを開く
+          </Link>
+        </section>
 
         <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">
           <div className="flex items-center gap-3">
@@ -586,15 +510,6 @@ export default async function RevenueDashboardPage({
             {!analytics.workFunnels.length && <p className="py-5 text-sm text-zinc-500">作品詳細ページビューはまだありません。</p>}
           </div>
         </section>
-
-        <div id="x-post-candidates">
-          <XPostCandidatePanel
-            candidates={xPostCandidates.candidates}
-            error={[xPostCandidates.error, xPostLogs.error, xPostOutcomes.error].filter(Boolean).join(" / ") || null}
-            logs={xPostLogs.logs}
-            outcomes={xPostOutcomes.outcomes}
-          />
-        </div>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">

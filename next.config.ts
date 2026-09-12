@@ -11,6 +11,7 @@ const shouldBundleServerlessChromium =
 
 const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next",
+  staticPageGenerationTimeout: 180,
   async redirects() {
     return [
       {

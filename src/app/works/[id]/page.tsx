@@ -36,6 +36,10 @@ import {
   analyzeWork,
 } from "@/lib/analyzers/analysisAnalyzer";
 
+function currentTimeMs() {
+  return Date.now();
+}
+
 type WorkDetail = Work & {
   sample_movie_url: string | null;
   long_hit_rank: number | null;
@@ -345,7 +349,7 @@ export default async function WorkDetailPage(
     const ranks = values.filter((value): value is number => typeof value === "number" && value > 0);
     return ranks.length ? Math.min(...ranks) : null;
   };
-  const saleActive = !work.sale_end_at || Date.parse(work.sale_end_at) > Date.now();
+  const saleActive = !work.sale_end_at || Date.parse(work.sale_end_at) > currentTimeMs();
   const hasSaleEvidence =
     saleActive &&
     (work.is_on_sale || (work.sale_price != null && work.sale_price > 0) || (work.discount_rate != null && work.discount_rate > 0));

@@ -15,7 +15,26 @@ export type XPostLog = {
   image_strategy?: XPostCandidate["imageStrategy"] | null;
   link_strategy?: XPostCandidate["linkStrategy"] | null;
   cta_strategy?: XPostCandidate["ctaStrategy"] | null;
+  account_handle?: string;
+  post_intent?: XPostLogIntent;
+  scheduled_slot?: string | null;
+  planned_at?: string | null;
+  reply_posted_at?: string | null;
+  evaluation_due_at?: string | null;
+  impressions_24h?: number;
+  engagements_24h?: number;
+  profile_visits_24h?: number;
+  follows_24h?: number;
+  reposts_24h?: number;
+  replies_24h?: number;
+  learning_note?: string;
+  x_post_id?: string | null;
+  opportunity_id?: number | null;
+  media_asset_id?: number | null;
+  creative_genome?: Record<string, unknown> | null;
 };
+
+export type XPostLogIntent = "work_link" | "reply" | "quote" | "profile" | "repost" | "normal";
 
 export type XPostLogInput = {
   postKey: string;
@@ -29,11 +48,23 @@ export type XPostLogInput = {
   imageStrategy?: XPostCandidate["imageStrategy"] | null;
   linkStrategy?: XPostCandidate["linkStrategy"] | null;
   ctaStrategy?: XPostCandidate["ctaStrategy"] | null;
+  accountHandle?: string;
+  postIntent?: XPostLogIntent;
+  scheduledSlot?: string | null;
+  plannedAt?: string | null;
+  xPostId?: string | null;
+  opportunityId?: number | null;
+  mediaAssetId?: number | null;
+  creativeGenome?: Record<string, unknown> | null;
 };
 
 export type XPostOutcomeStatus = "winner" | "testing" | "replace";
 
 export type XPostOutcome = XPostLog & {
+  impressions24h: number;
+  profileVisits24h: number;
+  follows24h: number;
+  clicks24h: number;
   clicksSevenDays: number;
   daysSincePost: number;
   status: XPostOutcomeStatus;
@@ -57,6 +88,7 @@ export type XCreativeLearningRow = {
 type XClickRow = {
   work_id: number;
   clicked_at: string;
+  x_post_key: string | null;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -67,12 +99,13 @@ export async function getRecentXPostLogs(): Promise<{
 }> {
   const query = supabaseAdmin
     .from("x_post_logs")
-    .select("id,post_key,work_id,category,title,post_text,post_date,posted_at,creative_variant_id,hook_type,image_strategy,link_strategy,cta_strategy")
+    .select("id,post_key,work_id,category,title,post_text,post_date,posted_at,creative_variant_id,hook_type,image_strategy,link_strategy,cta_strategy,account_handle,post_intent,scheduled_slot,planned_at,reply_posted_at,evaluation_due_at,impressions_24h,engagements_24h,profile_visits_24h,follows_24h,reposts_24h,replies_24h,learning_note,x_post_id,opportunity_id,media_asset_id,creative_genome")
+    .eq("account_handle", "hakkutsu_lab")
     .order("posted_at", { ascending: false })
     .limit(200);
   let { data, error }: { data: unknown[] | null; error: { code?: string; message?: string } | null } = await query;
 
-  if (error && (error.code === "PGRST204" || error.message?.includes("creative_variant_id"))) {
+  if (error && (error.code === "PGRST204" || error.message?.includes("creative_variant_id") || error.message?.includes("account_handle"))) {
     const fallback = await supabaseAdmin
       .from("x_post_logs")
       .select("id,post_key,work_id,category,title,post_text,post_date,posted_at")
@@ -90,29 +123,48 @@ export async function getRecentXPostLogs(): Promise<{
 }
 
 export async function saveXPostLog(input: XPostLogInput) {
+  const postedAt = new Date();
   const row = {
+    account_handle: input.accountHandle ?? "hakkutsu_lab",
     post_key: input.postKey,
     work_id: input.workId,
     category: input.category,
     title: input.title,
     post_text: input.postText,
     post_date: input.postDate,
-    posted_at: new Date().toISOString(),
+    posted_at: postedAt.toISOString(),
+    post_intent: input.postIntent ?? "work_link",
+    scheduled_slot: input.scheduledSlot,
+    planned_at: input.plannedAt,
+    evaluation_due_at: new Date(postedAt.getTime() + DAY_MS).toISOString(),
     creative_variant_id: input.creativeVariantId,
     hook_type: input.hookType,
     image_strategy: input.imageStrategy,
     link_strategy: input.linkStrategy,
     cta_strategy: input.ctaStrategy,
+    x_post_id: input.xPostId,
+    opportunity_id: input.opportunityId,
+    media_asset_id: input.mediaAssetId,
+    creative_genome: input.creativeGenome,
   };
   const result = await supabaseAdmin.from("x_post_logs").upsert(row, { onConflict: "post_key,post_date" });
 
-  if (result.error && (result.error.code === "PGRST204" || result.error.message?.includes("creative_variant_id"))) {
-    const { creative_variant_id, hook_type, image_strategy, link_strategy, cta_strategy, ...fallback } = row;
+  if (result.error && (result.error.code === "PGRST204" || result.error.message?.includes("creative_variant_id") || result.error.message?.includes("account_handle") || result.error.message?.includes("post_intent") || result.error.message?.includes("x_post_id"))) {
+    const { account_handle, post_intent, scheduled_slot, planned_at, evaluation_due_at, creative_variant_id, hook_type, image_strategy, link_strategy, cta_strategy, x_post_id, opportunity_id, media_asset_id, creative_genome, ...fallback } = row;
+    void account_handle;
+    void post_intent;
+    void scheduled_slot;
+    void planned_at;
+    void evaluation_due_at;
     void creative_variant_id;
     void hook_type;
     void image_strategy;
     void link_strategy;
     void cta_strategy;
+    void x_post_id;
+    void opportunity_id;
+    void media_asset_id;
+    void creative_genome;
     return supabaseAdmin.from("x_post_logs").upsert(fallback, { onConflict: "post_key,post_date" });
   }
 
@@ -246,7 +298,7 @@ export async function getXPostOutcomes(): Promise<{
   const clickCutoff = new Date(oldestPostTime).toISOString();
   const { data, error: clickError } = await supabaseAdmin
     .from("affiliate_clicks")
-    .select("work_id,clicked_at")
+    .select("work_id,clicked_at,x_post_key")
     .eq("source_page", "x")
     .in("work_id", workIds)
     .gte("clicked_at", clickCutoff);
@@ -263,9 +315,17 @@ export async function getXPostOutcomes(): Promise<{
     const clicksSevenDays = clicks.filter((click) => {
       const clickedAt = new Date(click.clicked_at).getTime();
       return (
-        click.work_id === log.work_id &&
+        (click.x_post_key ? click.x_post_key === log.post_key : click.work_id === log.work_id) &&
         clickedAt >= postedAt &&
         clickedAt <= windowEnd
+      );
+    }).length;
+    const clicks24h = clicks.filter((click) => {
+      const clickedAt = new Date(click.clicked_at).getTime();
+      return (
+        (click.x_post_key ? click.x_post_key === log.post_key : click.work_id === log.work_id) &&
+        clickedAt >= postedAt &&
+        clickedAt <= postedAt + DAY_MS
       );
     }).length;
     const daysSincePost = Math.max(0, Math.floor((now - postedAt) / DAY_MS));
@@ -282,6 +342,10 @@ export async function getXPostOutcomes(): Promise<{
 
     return {
       ...log,
+      impressions24h: log.impressions_24h ?? 0,
+      profileVisits24h: log.profile_visits_24h ?? 0,
+      follows24h: log.follows_24h ?? 0,
+      clicks24h,
       clicksSevenDays,
       daysSincePost,
       status,

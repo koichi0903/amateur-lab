@@ -18,12 +18,15 @@
     "update:ranking": "tsx scripts/update-ranking.ts",
     "update:longhit": "tsx scripts/update-longhit.ts",
     "update:score": "tsx -r dotenv/config src/lib/admin/updateScore.ts dotenv_config_path=.env.local",
+    "probe:amateur": "tsx -r dotenv/config scripts/probe-amateur-floor.ts dotenv_config_path=.env.local",
     "backfill:actresses": "tsx scripts/backfill-work-actresses.ts",
     "repair:price-periods": "tsx scripts/repair-price-periods.ts",
     "repair:all-price-periods": "tsx scripts/repair-price-periods.ts --all",
     "repair:invalid-prices": "tsx scripts/repair-invalid-price-data.ts"
   },
   "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
     "@sentry/nextjs": "^10.70.0",
     "@sparticuz/chromium": "^149.0.0",
     "@supabase/supabase-js": "^2.108.2",
