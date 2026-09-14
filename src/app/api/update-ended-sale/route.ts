@@ -1,3 +1,4 @@
+import { revalidatePublicCacheForTasks } from "@/lib/admin/revalidatePublicCache";
 import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { updateEndedSaleWorks } from "@/lib/admin/updateEndedSaleWorks";
 
@@ -7,6 +8,7 @@ export async function POST() {
 
   try {
     await updateEndedSaleWorks();
+    revalidatePublicCacheForTasks(["ended-sale"]);
 
 return Response.json({
   success: true,

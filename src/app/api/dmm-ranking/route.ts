@@ -1,4 +1,5 @@
 import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
+import { revalidatePublicCacheForTasks } from "@/lib/admin/revalidatePublicCache";
 import { updateRanking } from "@/lib/admin/updateRanking";
 
 function errorMessage(error: unknown) {
@@ -20,6 +21,7 @@ export async function POST() {
 
   try {
     const ranking = await updateRanking();
+    revalidatePublicCacheForTasks(["ranking"]);
 
     return Response.json({
       ...ranking,

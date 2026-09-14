@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { revalidatePublicCacheForTasks } from "@/lib/admin/revalidatePublicCache";
 import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { updateReviewWorks } from "@/lib/admin/updateReviewWorks";
 import { describeReviewUpdateError } from "@/lib/admin/reviewUpdateSupport";
@@ -20,6 +21,7 @@ export async function POST() {
     });
 
     const { success: successCount, ...reviewResult } = result;
+    revalidatePublicCacheForTasks(["review"]);
 
     return NextResponse.json({
       success: true,

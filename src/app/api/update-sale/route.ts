@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { revalidatePublicCacheForTasks } from "@/lib/admin/revalidatePublicCache";
 import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { updateSaleWorks } from "@/lib/admin/updateSaleWorks";
 import { updateStatistics } from "@/lib/statistics/updateStatistics";
@@ -14,6 +15,7 @@ export async function POST() {
     await updateSaleWorks();
 
     await updateStatistics();
+    revalidatePublicCacheForTasks(["sale"]);
 
     console.log("===== セール更新完了 =====");
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePublicCacheForTasks } from "@/lib/admin/revalidatePublicCache";
 import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 
 export const maxDuration = 300;
@@ -48,6 +49,18 @@ const UPDATE_STEPS = {
 
 type UpdateStep = keyof typeof UPDATE_STEPS;
 
+const REVALIDATE_TASK_BY_STEP: Record<UpdateStep, string> = {
+  reserve: "reserve",
+  new: "new",
+  semiNew: "semi-new",
+  old: "old",
+  sale: "sale",
+  endedSale: "ended-sale",
+  review: "review",
+  ranking: "ranking",
+  score: "score",
+};
+
 function isUpdateStep(value: string | null): value is UpdateStep {
   return value !== null && value in UPDATE_STEPS;
 }
@@ -76,6 +89,7 @@ export async function POST(request: NextRequest) {
       });
 
       const { success: successCount, ...reviewResult } = result;
+      revalidatePublicCacheForTasks([REVALIDATE_TASK_BY_STEP[step]]);
 
       return NextResponse.json({
         success: true,
@@ -90,6 +104,7 @@ export async function POST(request: NextRequest) {
 
     const run = await update.load();
     await run();
+    revalidatePublicCacheForTasks([REVALIDATE_TASK_BY_STEP[step]]);
 
     return NextResponse.json({
       success: true,

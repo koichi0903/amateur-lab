@@ -1,3 +1,4 @@
+import { revalidatePublicCacheForTasks } from "@/lib/admin/revalidatePublicCache";
 import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { updateMissingPrices } from "@/lib/admin/updateMissingPrices";
 
@@ -7,6 +8,7 @@ export async function POST() {
 
   try {
     const result = await updateMissingPrices();
+    revalidatePublicCacheForTasks(["missing-prices"]);
 
     return Response.json({
       success: true,

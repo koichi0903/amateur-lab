@@ -1,39 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { revalidatePath, revalidateTag } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 
+import { PUBLIC_CACHE_TASKS, revalidatePublicCacheForTasks } from "@/lib/admin/revalidatePublicCache";
+
 export const dynamic = "force-dynamic";
-
-const KNOWN_TASKS = new Set([
-  "reserve",
-  "new",
-  "semi-new",
-  "old",
-  "sale",
-  "ended-sale",
-  "stage",
-  "review",
-  "ranking",
-  "score",
-  "missing-prices",
-  "sample-movie",
-]);
-
-const ENTITY_PATHS = ["/actress", "/genre", "/maker", "/series"];
-const CATALOG_TASKS = new Set(["reserve", "new", "semi-new", "old", "stage"]);
-const PRICE_TASKS = new Set(["sale", "ended-sale", "missing-prices"]);
-const DISCOVERY_TASKS = new Set(["review", "ranking", "score"]);
-const WORK_DETAIL_CACHE_TAG = "work-detail";
-const HOME_CACHE_TAGS = [
-  "home-daily-discovery",
-  "hero-price-drop",
-  "home-price-insights",
-  "ai-discoveries",
-  "latest-daily-update",
-  "home-ranking",
-  "home-catalog",
-  "deals",
-];
 
 function isAuthorized(request: NextRequest, body: string): boolean {
   const secret = process.env.CRON_SECRET;
@@ -72,7 +42,7 @@ export async function POST(request: NextRequest) {
   }
   const tasks = Array.isArray(payload?.tasks)
     ? payload.tasks.filter(
-        (task): task is string => typeof task === "string" && KNOWN_TASKS.has(task),
+        (task): task is string => typeof task === "string" && PUBLIC_CACHE_TASKS.has(task),
       )
     : [];
 
@@ -83,31 +53,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const paths = new Set(["/"]);
-  if (tasks.some((task) => CATALOG_TASKS.has(task))) {
-    for (const path of ["/new", "/ranking", "/features", ...ENTITY_PATHS, "/sitemap.xml"]) {
-      paths.add(path);
-    }
-  }
-  if (tasks.some((task) => PRICE_TASKS.has(task))) {
-    for (const path of ["/sale", "/deals", "/ranking"]) paths.add(path);
-  }
-  if (tasks.some((task) => DISCOVERY_TASKS.has(task))) {
-    for (const path of ["/ranking", "/features", ...ENTITY_PATHS]) paths.add(path);
-  }
-  for (const path of paths) revalidatePath(path);
-
-  revalidateTag(WORK_DETAIL_CACHE_TAG, "max");
-  for (const tag of HOME_CACHE_TAGS) {
-    revalidateTag(tag, tag === "home-price-insights" ? "max" : { expire: 0 });
-  }
-  revalidatePath("/works/[id]", "page");
-  for (const path of ["/actress/[name]", "/genre/[name]", "/maker/[name]", "/series/[name]"]) {
-    revalidatePath(path, "page");
-  }
+  const result = revalidatePublicCacheForTasks(tasks);
 
   return NextResponse.json(
-    { success: true, tasks, paths: [...paths] },
+    { success: true, ...result },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

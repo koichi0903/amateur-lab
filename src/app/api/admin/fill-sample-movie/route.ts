@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { revalidatePublicCacheForTasks } from "@/lib/admin/revalidatePublicCache";
 import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { fillSampleMovieUrls } from "@/lib/admin/fillSampleMovieUrls";
 import { formatUnknownError } from "@/lib/errorMessage";
@@ -13,6 +14,7 @@ export async function POST() {
 
   try {
     const result = await fillSampleMovieUrls();
+    revalidatePublicCacheForTasks(["sample-movie"]);
 
     return NextResponse.json({
       success: true,

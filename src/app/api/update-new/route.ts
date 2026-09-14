@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { revalidatePublicCacheForTasks } from "@/lib/admin/revalidatePublicCache";
 import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { updateNewWorks } from "@/lib/admin/updateNewWorks";
 
@@ -9,6 +10,7 @@ export async function POST() {
 
   try {
     await updateNewWorks();
+    revalidatePublicCacheForTasks(["new"]);
 
     return NextResponse.json({
       success: true,
