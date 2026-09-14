@@ -13,9 +13,6 @@ function bundledBinary(kind: "ffmpeg" | "ffprobe") {
     : join(process.cwd(), "node_modules", "@ffprobe-installer", "win32-x64", "ffprobe.exe");
 }
 
-const ffmpegPath = bundledBinary("ffmpeg");
-const ffprobePath = bundledBinary("ffprobe");
-
 export type TrimVideoForXResult = {
   file: string;
   dir: string;
@@ -53,6 +50,7 @@ async function downloadSource(url: string, file: string) {
 }
 
 export async function probeVideoFile(file: string) {
+  const ffprobePath = bundledBinary("ffprobe");
   const { stdout } = await runBinary(ffprobePath, [
     "-v", "error",
     "-print_format", "json",
@@ -84,6 +82,7 @@ export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds
     const sourceProbe = await probeVideoFile(sourceFile);
     const validation = validateTrimStartSeconds(input.trimStartSeconds, sourceProbe.durationSeconds);
     if (!validation.ok) throw new Error(validation.error);
+    const ffmpegPath = bundledBinary("ffmpeg");
     await runBinary(ffmpegPath, [
       "-y",
       "-ss", validation.value.toFixed(1),
