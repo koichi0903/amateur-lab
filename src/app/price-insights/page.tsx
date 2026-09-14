@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight, BadgeJapaneseYen, ShieldCheck, Sparkles, TrendingUp } from "lucide-react";
 import CollectionPageJsonLd from "@/app/components/CollectionPageJsonLd";
 import Header from "@/components/layout/Header";
+import MiniPriceHistoryChart from "@/components/home/MiniPriceHistoryChart";
 import WorkImage from "@/components/home/WorkImage";
 import { workDetailHref } from "@/lib/affiliateTracking";
 import { getTodayBuyTiming } from "@/lib/getTodayBuyTiming";
@@ -23,6 +24,13 @@ function formatPrice(value: number | null) {
 
 function primaryReasons(reasons: string[]) {
   return reasons.slice(0, 2);
+}
+
+function insightBadgeTone(badge: string) {
+  if (badge === "急落") return "bg-blue-50 text-blue-700";
+  if (badge === "過去最安" || badge === "90日安値") return "bg-emerald-50 text-emerald-700";
+  if (badge === "価格上昇") return "bg-amber-50 text-amber-700";
+  return "bg-pink-50 text-pink-700";
 }
 
 export default async function PriceInsightsPage() {
@@ -95,6 +103,7 @@ export default async function PriceInsightsPage() {
             <div className="grid gap-4 lg:grid-cols-2">
               {buyTiming.map((work, index) => {
                 const decision = work.buyTiming;
+                const insight = work.priceInsight;
 
                 return (
                   <article
@@ -125,6 +134,11 @@ export default async function PriceInsightsPage() {
                           <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
                             {decision.label}
                           </span>
+                          {insight && (
+                            <span className={`rounded-full px-3 py-1 text-xs font-black ${insightBadgeTone(insight.badge)}`}>
+                              {insight.badge}
+                            </span>
+                          )}
                         </div>
 
                         <h2 className="mt-3 line-clamp-2 break-all text-base font-black leading-6 sm:text-lg">
@@ -149,9 +163,14 @@ export default async function PriceInsightsPage() {
                           )}
                         </div>
 
-                        <p className="mt-2 text-xs font-bold leading-5 text-amber-700">
-                          {decision.lowestPriceText}
-                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold leading-5">
+                          <span className="text-amber-700">{decision.lowestPriceText}</span>
+                          {insight && (
+                            <span className="text-emerald-700">
+                              90日最安 {formatPrice(insight.low90Price)}
+                            </span>
+                          )}
+                        </div>
 
                         <div className="mt-3 flex flex-wrap gap-1.5">
                           {primaryReasons(decision.reasons).map((reason) => (
@@ -165,6 +184,19 @@ export default async function PriceInsightsPage() {
                         </div>
                       </div>
                     </div>
+
+                    {insight && insight.priceHistory.length >= 2 && (
+                      <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 px-2 py-1.5 sm:px-3">
+                        <MiniPriceHistoryChart
+                          points={insight.priceHistory}
+                          windowStartAt={insight.priceWindowStartAt}
+                          windowEndAt={insight.priceWindowEndAt}
+                          lowPrice={insight.low90Price}
+                          currentPrice={insight.currentPrice}
+                          variant="main"
+                        />
+                      </div>
+                    )}
 
                     <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-[11px] font-bold leading-5 text-slate-500">

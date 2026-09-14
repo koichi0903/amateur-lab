@@ -19,7 +19,7 @@ const HOME_LOWEST_UPDATE_LIMIT = 5;
 const HOME_PRICE_WORK_COLUMNS =
   "id,product_id,title,image_url,genre,price,sale_price,list_price,discount_rate,lowest_price,is_bottom_price,sale_end_at,ranking,realtime_rank,review_average,review_count,score";
 
-type PriceHistoryRow = {
+export type PriceHistoryRow = {
   product_id: string;
   changed_at: string;
   display_name: string;
@@ -232,7 +232,7 @@ function buildHeroInsight(
   };
 }
 
-function buildInsight(
+export function buildPriceInsightFromRows(
   work: HomePriceInsightWork,
   rows: PriceHistoryRow[],
   windowStartAt: string,
@@ -308,7 +308,7 @@ export async function getPriceInsightForWork(work: HomePriceInsightWork) {
     .order("changed_at", { ascending: false })
     .limit(HOME_PRICE_HISTORY_LIMIT);
   if (error || !data?.length) return null;
-  return buildInsight(work, data as PriceHistoryRow[], since, windowEndAt);
+  return buildPriceInsightFromRows(work, data as PriceHistoryRow[], since, windowEndAt);
 }
 
 function stableHash(value: string) {
@@ -380,7 +380,7 @@ async function fetchPriceHistory(productIds: string[], since: string) {
   return history;
 }
 
-async function buildInsightsForWorks(works: HomePriceInsightWork[], since: string) {
+export async function buildInsightsForWorks(works: HomePriceInsightWork[], since: string) {
   const productIds = [...new Set(works.map((work) => work.product_id).filter(Boolean))];
   if (!productIds.length) return [];
 
@@ -395,7 +395,7 @@ async function buildInsightsForWorks(works: HomePriceInsightWork[], since: strin
   const windowEndAt = new Date().toISOString();
   return works
     .map((work) =>
-      buildInsight(
+      buildPriceInsightFromRows(
         work,
         rowsByProduct.get(work.product_id) ?? [],
         since,

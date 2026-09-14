@@ -6,6 +6,11 @@ import {
 } from "@/lib/buyTiming";
 import type { Work } from "@/types/work";
 import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
+import {
+  buildPriceInsightFromRows,
+  type HomePriceInsightWork,
+  type PriceHistoryRow,
+} from "@/lib/getHomePriceInsights";
 
 type TodayBuyTimingWork = Pick<
   Work,
@@ -26,14 +31,10 @@ type TodayBuyTimingWork = Pick<
   | "release_date"
   | "sale_end_at"
   | "is_on_sale"
+  | "is_bottom_price"
+  | "realtime_rank"
   | "affiliate_url"
 >;
-
-type PriceHistoryRow = {
-  product_id: string;
-  normal_price: number | null;
-  sale_price: number | null;
-};
 
 type FunnelCount = {
   pageViews: number;
@@ -42,6 +43,7 @@ type FunnelCount = {
 
 export type TodayBuyTimingItem = TodayBuyTimingWork & {
   buyTiming: BuyTimingResult;
+  priceInsight: HomePriceInsightWork | null;
 };
 
 const DAY_MS = 86_400_000;
@@ -109,6 +111,8 @@ export async function getTodayBuyTiming(limit = 30) {
       "release_date",
       "sale_end_at",
       "is_on_sale",
+      "is_bottom_price",
+      "realtime_rank",
       "affiliate_url",
     ].join(","))
     .not("affiliate_url", "is", null)
@@ -129,13 +133,19 @@ export async function getTodayBuyTiming(limit = 30) {
     .filter((work) => getCurrentPrice(work) > 0);
   const productIds = [...new Set(works.map((work) => work.product_id).filter(Boolean))];
   const workIds = works.map((work) => work.id);
+  const windowEndAt = new Date().toISOString();
+  const windowStartAt = new Date(Date.parse(windowEndAt) - 90 * DAY_MS).toISOString();
 
   const [historyResult, funnelCounts] = await Promise.all([
     productIds.length
       ? supabaseAdmin
           .from("price_history")
-          .select("product_id,normal_price,sale_price")
+          .select("product_id,changed_at,display_name,period,price_kind,normal_price,sale_price")
           .in("product_id", productIds)
+          .gte("changed_at", windowStartAt)
+          .order("product_id", { ascending: true })
+          .order("display_name", { ascending: true })
+          .order("period", { ascending: true, nullsFirst: true })
           .order("changed_at", { ascending: false })
           .limit(20_000)
       : Promise.resolve({ data: [] as PriceHistoryRow[], error: null }),
@@ -164,8 +174,14 @@ export async function getTodayBuyTiming(limit = 30) {
           ...ctr,
         },
       });
+      const priceInsight = buildPriceInsightFromRows(
+        work as unknown as HomePriceInsightWork,
+        histories.get(work.product_id) ?? [],
+        windowStartAt,
+        windowEndAt,
+      );
 
-      return { ...work, buyTiming };
+      return { ...work, buyTiming, priceInsight };
     })
     .sort((a, b) =>
       b.buyTiming.score - a.buyTiming.score ||
