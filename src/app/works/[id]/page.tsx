@@ -29,7 +29,6 @@ import { isWorkIndexable } from "@/lib/seoQuality";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
-import { normalizeAffiliateSource } from "@/lib/affiliateTracking";
 import { calculateBuyTimingScore, getBuyTimingFunnelStats } from "@/lib/buyTiming";
 
 import {
@@ -76,6 +75,10 @@ const WORK_DETAIL_COLUMNS = [
 // Work data changes at most a few times per day. Reusing the rendered page keeps
 // crawler traffic from issuing the same group of Supabase queries on every hit.
 export const revalidate = 86400;
+
+export async function generateStaticParams() {
+  return [];
+}
 
 // generateMetadata and the page render both need the same row. React cache
 // deduplicates that lookup within a single server render.
@@ -310,16 +313,11 @@ export async function generateMetadata(
 export default async function WorkDetailPage(
   {
     params,
-    searchParams,
   }: {
     params: Promise<{ id: string }>;
-    searchParams: Promise<{ from?: string | string[]; x_post?: string | string[] }>;
   }
 ) {
   const { id } = await params;
-  const query = await searchParams;
-  const sourcePage = normalizeAffiliateSource(query.from);
-  const xPostKey = Array.isArray(query.x_post) ? query.x_post[0] : query.x_post;
 
   const work = await getWork(id);
 
@@ -441,12 +439,10 @@ const buyTiming = calculateBuyTimingScore({
   <main className="min-h-screen bg-gray-100 py-8 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-8">
     <WorkPageViewTracker
       workId={work.id}
-      sourcePage={sourcePage}
       price={mobileDisplayPrice ?? null}
       discountRate={mobileDisplayDiscountRate ?? null}
       discoveryScore={typeof work.score === "number" ? work.score : null}
       ranking={typeof work.ranking === "number" ? work.ranking : null}
-      xPostKey={xPostKey ?? null}
     />
     <div className="mx-auto max-w-7xl px-4 sm:px-6">
 
@@ -473,7 +469,6 @@ const buyTiming = calculateBuyTimingScore({
   sampleImages={sampleImages ?? []}
   sampleMovieUrl={work.sample_movie_url}
   officialSampleEmbedUrl={getOfficialSampleEmbedUrl(work)}
-  sourcePage={sourcePage}
 />
       </section>
 
@@ -482,7 +477,6 @@ const buyTiming = calculateBuyTimingScore({
         discoveryScore={typeof work.score === "number" ? work.score : null}
         workId={work.id}
         affiliateUrl={work.affiliate_url}
-        sourcePage={sourcePage}
       />
 
       <PurchaseDecisionGuide
@@ -526,7 +520,6 @@ const buyTiming = calculateBuyTimingScore({
             checkedAt={priceHistory[0]?.changed_at ?? null}
             sampleMovieAvailable={!!work.sample_movie_url}
             recommendationReasons={recommendationReasons}
-            sourcePage={sourcePage}
           />
         </div>
       </section>
@@ -609,7 +602,6 @@ const buyTiming = calculateBuyTimingScore({
       work={work}
       displayPrice={mobileDisplayPrice}
       displayDiscountRate={mobileDisplayDiscountRate}
-      sourcePage={sourcePage}
     />
     <CompareTray />
   </main>

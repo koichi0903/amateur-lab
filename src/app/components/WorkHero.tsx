@@ -21,7 +21,7 @@ type Props = {
   }[];
   sampleMovieUrl?: string | null;
   officialSampleEmbedUrl?: string | null;
-  sourcePage: AffiliateSource;
+  sourcePage?: AffiliateSource;
 };
 
 export default function WorkHero({

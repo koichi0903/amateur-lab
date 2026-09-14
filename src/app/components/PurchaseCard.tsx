@@ -2,7 +2,6 @@ import FavoriteButton from "@/components/favorites/FavoriteButton";
 import CompareButton from "@/components/comparison/CompareButton";
 import type { RecommendReason } from "@/lib/analyzers/recommendAnalyzer";
 import AffiliateLink from "./AffiliateLink";
-import type { AffiliateSource } from "@/lib/affiliateTracking";
 import { formatJapanDateTime, parseDatabaseDate } from "@/lib/dateTime";
 
 type PriceOffer = {
@@ -32,7 +31,6 @@ type Props = {
   checkedAt?: string | null;
   sampleMovieAvailable?: boolean;
   recommendationReasons?: RecommendReason[];
-  sourcePage: AffiliateSource;
 };
 
 const effectivePrice = (offer: PriceOffer) =>
@@ -48,7 +46,6 @@ export default function PurchaseCard({
   checkedAt,
   sampleMovieAvailable = false,
   recommendationReasons = [],
-  sourcePage,
 }: Props) {
   const hasValidRanking =
     typeof work.ranking === "number" &&
@@ -86,7 +83,6 @@ export default function PurchaseCard({
   const saleEnd = work.is_on_sale ? formatJapanDateTime(work.sale_end_at) : null;
   const checkedLabel = formatJapanDateTime(checkedAt);
   const affiliateUrl = work.affiliate_url?.trim() || null;
-  const isXVisitor = sourcePage === "x";
   const decisionFacts = [
     isLowestPrice ? "登録以降の最安価格" : null,
     sampleMovieAvailable ? "無料サンプル動画あり" : null,
@@ -173,17 +169,14 @@ export default function PurchaseCard({
             href={affiliateUrl}
             workId={work.id}
             placement="detail-sidebar"
-            sourcePage={sourcePage}
             experiment
             variantChildren={{
-              "price-focus": isXVisitor
-                ? "サンプルと価格を確認"
-                : "FANZA公式で最安価格を確認",
+              "price-focus": "FANZA公式で最安価格を確認",
             }}
             ariaLabel="FANZA公式で価格とサンプルを確認する（新しいタブで開きます）"
             className="mt-6 block w-full rounded-xl bg-gradient-to-r from-pink-600 to-fuchsia-600 px-4 py-4 text-center text-base font-black text-white shadow-md transition hover:scale-[1.02] hover:shadow-lg"
           >
-            {isXVisitor ? "サンプルと価格を確認" : "FANZA公式で確認"}
+            FANZA公式で確認
           </AffiliateLink>
         ) : (
           <div className="mt-6 rounded-xl bg-zinc-200 px-4 py-4 text-center text-sm font-bold text-zinc-500">

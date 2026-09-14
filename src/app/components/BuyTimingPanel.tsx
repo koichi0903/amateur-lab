@@ -7,7 +7,7 @@ type Props = {
   discoveryScore: number | null;
   workId: number;
   affiliateUrl: string | null;
-  sourcePage: AffiliateSource;
+  sourcePage?: AffiliateSource;
 };
 
 const evaluationToneClasses = {

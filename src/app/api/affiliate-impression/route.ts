@@ -9,6 +9,20 @@ const experimentPlacements = new Set<AffiliatePlacement>([
   "mobile-sticky",
 ]);
 
+function isMissingXPostKey(error: { code?: string; message?: string }) {
+  return error.code === "PGRST204" || error.message?.includes("x_post_key");
+}
+
+function optionalString(payload: unknown, key: string) {
+  if (typeof payload !== "object" || payload === null || !(key in payload)) {
+    return null;
+  }
+  const value = (payload as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim()
+    ? value.trim().slice(0, 120)
+    : null;
+}
+
 export async function POST(request: Request) {
   let payload: unknown;
   try {
@@ -33,6 +47,7 @@ export async function POST(request: Request) {
       ? payload.ctaVariant
       : null,
   );
+  const xPostKey = optionalString(payload, "xPostKey");
 
   if (
     !Number.isSafeInteger(workId) ||
@@ -43,12 +58,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid event" }, { status: 400 });
   }
 
-  const { error } = await supabaseAdmin.from("affiliate_cta_impressions").insert({
+  let { error } = await supabaseAdmin.from("affiliate_cta_impressions").insert({
     work_id: workId,
     placement,
     source_page: sourcePage,
     cta_variant: ctaVariant,
+    x_post_key: xPostKey,
   });
+
+  if (error && isMissingXPostKey(error)) {
+    const fallback = await supabaseAdmin.from("affiliate_cta_impressions").insert({
+      work_id: workId,
+      placement,
+      source_page: sourcePage,
+      cta_variant: ctaVariant,
+    });
+    error = fallback.error;
+  }
 
   if (error) {
     console.error("[affiliate-impression] failed to record impression", {
@@ -56,6 +82,7 @@ export async function POST(request: Request) {
       placement,
       sourcePage,
       ctaVariant,
+      xPostKey,
       code: error.code,
     });
   }

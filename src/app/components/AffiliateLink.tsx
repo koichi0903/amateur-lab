@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { AffiliateSource } from "@/lib/affiliateTracking";
+import {
+  normalizeAffiliateSource,
+  type AffiliateSource,
+} from "@/lib/affiliateTracking";
 import {
   normalizeCtaVariant,
   type CtaVariant,
@@ -21,7 +24,7 @@ type Props = {
   href: string;
   workId: number;
   placement: AffiliatePlacement;
-  sourcePage: AffiliateSource;
+  sourcePage?: AffiliateSource;
   className?: string;
   ariaLabel?: string;
   children: ReactNode;
@@ -32,6 +35,7 @@ type Props = {
 
 const STORAGE_PREFIX = "hakkutsu-lab:cta-variant:v1";
 const IMPRESSION_STORAGE_PREFIX = "hakkutsu-lab:cta-impression:v1";
+const MAX_X_POST_KEY_LENGTH = 120;
 
 function getStoredVariant(placement: AffiliatePlacement): CtaVariant {
   if (typeof window === "undefined") return "control";
@@ -56,6 +60,24 @@ function shouldRecordImpression(key: string) {
   } catch {
     return true;
   }
+}
+
+function readUrlAttribution(fallbackSourcePage?: AffiliateSource) {
+  if (typeof window === "undefined") {
+    return {
+      sourcePage: fallbackSourcePage ?? "direct",
+      xPostKey: null,
+    };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const xPostKey =
+    params.get("x_post")?.trim().slice(0, MAX_X_POST_KEY_LENGTH) || null;
+
+  return {
+    sourcePage: normalizeAffiliateSource(params.get("from") ?? fallbackSourcePage),
+    xPostKey,
+  };
 }
 
 export default function AffiliateLink({
@@ -91,7 +113,8 @@ export default function AffiliateLink({
 
     const recordImpression = () => {
       if (impressionRecordedRef.current) return;
-      const storageKey = `${IMPRESSION_STORAGE_PREFIX}:${workId}:${placement}:${sourcePage}:${ctaVariant}`;
+      const attribution = readUrlAttribution(sourcePage);
+      const storageKey = `${IMPRESSION_STORAGE_PREFIX}:${workId}:${placement}:${attribution.sourcePage}:${attribution.xPostKey ?? ""}:${ctaVariant}`;
       if (!shouldRecordImpression(storageKey)) {
         impressionRecordedRef.current = true;
         return;
@@ -100,7 +123,7 @@ export default function AffiliateLink({
       void fetch("/api/affiliate-impression", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workId, placement, sourcePage, ctaVariant }),
+        body: JSON.stringify({ workId, placement, ...attribution, ctaVariant }),
         keepalive: true,
       }).catch(() => undefined);
     };
@@ -127,6 +150,7 @@ export default function AffiliateLink({
 
   const recordClick = () => {
     const externalAttribution = readExternalAttribution();
+    const attribution = readUrlAttribution(sourcePage);
 
     if (
       isOperatorLandingPath(window.location.pathname) ||
@@ -138,7 +162,7 @@ export default function AffiliateLink({
     window.gtag?.("event", "affiliate_click", {
       work_id: String(workId),
       placement,
-      source_page: sourcePage,
+      source_page: attribution.sourcePage,
       cta_variant: activeVariant,
       external_channel: externalAttribution?.channel ?? "unknown",
       external_source: externalAttribution?.source ?? "unknown",
@@ -157,9 +181,8 @@ export default function AffiliateLink({
       body: JSON.stringify({
         workId,
         placement,
-        sourcePage,
+        ...attribution,
         ctaVariant: activeVariant,
-        xPostKey: new URLSearchParams(window.location.search).get("x_post"),
         deliveryMode,
         externalAttribution,
       }),
