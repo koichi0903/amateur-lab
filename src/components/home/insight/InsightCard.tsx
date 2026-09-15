@@ -1,12 +1,15 @@
 import Link from "next/link";
 import WorkImage from "../WorkImage";
+import MiniPriceHistoryChart from "../MiniPriceHistoryChart";
 import { workDetailHref } from "@/lib/affiliateTracking";
+import type { HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 
 type Insight = {
   type?: string | null;
   title?: string | null;
   description?: string | null;
   works?: Record<string, unknown> | Record<string, unknown>[] | null;
+  priceInsight?: HomePriceInsightWork | null;
 };
 
 const configurations: Record<string, { label: string; accent: string; badge: string }> = {
@@ -31,6 +34,7 @@ export default function InsightCard({ insight }: { insight: Insight }) {
   const imageUrl = typeof work.image_url === "string" ? work.image_url : null;
   const score = Number(work.score ?? 0);
   const config = configurations[insight.type ?? ""] ?? configurations.RECOMMEND;
+  const priceInsight = insight.priceInsight;
   const content = (
     <>
       <div className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${config.badge}`}>{config.label}</div>
@@ -39,6 +43,18 @@ export default function InsightCard({ insight }: { insight: Insight }) {
         <WorkImage src={imageUrl} alt={title} className="object-cover transition duration-300 group-hover:scale-105" sizes="260px" />
       </div>
       <h3 className="mt-3 line-clamp-2 h-10 text-sm font-black leading-5">{title}</h3>
+      {priceInsight && (
+        <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1">
+          <MiniPriceHistoryChart
+            points={priceInsight.priceHistory}
+            windowStartAt={priceInsight.priceWindowStartAt}
+            windowEndAt={priceInsight.priceWindowEndAt}
+            lowPrice={priceInsight.low90Price}
+            currentPrice={priceInsight.currentPrice}
+            variant="compact"
+          />
+        </div>
+      )}
       <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-500">
         <span>発掘スコア <strong className={`text-base ${config.accent}`}>{score > 0 ? score : "-"}</strong></span>
         <span>レビュー {String(work.review_average ?? "-")}</span>
@@ -49,3 +65,4 @@ export default function InsightCard({ insight }: { insight: Insight }) {
   const className = "group block w-[82vw] max-w-[320px] shrink-0 snap-start rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-lg sm:w-[320px] lg:w-auto lg:max-w-none";
   return workId ? <Link href={workDetailHref(workId, "home")} className={className}>{content}</Link> : <article className={className}>{content}</article>;
 }
+
