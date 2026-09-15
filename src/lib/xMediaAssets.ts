@@ -82,6 +82,18 @@ export function sourceKindFor(url: string) {
   return "unknown_external";
 }
 
+export function isOfficialFanzaDmmSampleUrl(url: string | null | undefined) {
+  if (!url) return false;
+  const domain = sourceDomain(url);
+  return domain.endsWith("dmm.co.jp") || domain.endsWith("fanza.co.jp");
+}
+
+export function isOfficialSampleMovieAsset(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null) {
+  const url = asset?.source_url ?? sampleMovieUrl;
+  if (!isOfficialFanzaDmmSampleUrl(url)) return false;
+  return asset?.source_kind === "official_sample" || sourceKindFor(url as string) === "official_sample";
+}
+
 export function isUsableXMediaAsset(asset: Partial<XMediaAsset> | null | undefined): XMediaUsability {
   const reasons: string[] = [];
   if (!asset) reasons.push("rights未確認");
@@ -99,6 +111,19 @@ export function isUsableXMediaAsset(asset: Partial<XMediaAsset> | null | undefin
   return { usable: reasons.length === 0, reasons: [...new Set(reasons)], reachSuitable, quality };
 }
 
+export function isPostableOfficialSampleMovie(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null): XMediaUsability {
+  const reasons: string[] = [];
+  const sourceUrl = asset?.source_url ?? sampleMovieUrl;
+  if (!isOfficialSampleMovieAsset(asset, sampleMovieUrl)) reasons.push("公式sample_movie_urlではない");
+  if (asset?.fetch_status && blockedFetchStatuses.has(asset.fetch_status)) reasons.push(`URL ${asset.fetch_status}`);
+  const quality = asset?.media_quality ?? "unreviewed";
+  const tags = asset?.manual_tags ?? [];
+  const reachSuitable = !tags.includes("too_explicit_for_reach") && quality !== "weak";
+  if (!reachSuitable) reasons.push(tags.includes("too_explicit_for_reach") ? "reach不向き" : "weak video");
+  if (!sourceUrl) reasons.push("sample_movie_urlなし");
+  return { usable: reasons.length === 0, reasons: [...new Set(reasons)], reachSuitable, quality };
+}
+
 export function validateTrimStartSeconds(value: unknown, durationSeconds?: number | null) {
   const seconds = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(seconds)) return { ok: false as const, error: "開始秒が不正です。" };
@@ -112,6 +137,13 @@ export function validateTrimStartSeconds(value: unknown, durationSeconds?: numbe
 
 export function canTrimXMediaAsset(asset: Partial<XMediaAsset> | null | undefined) {
   const usability = isUsableXMediaAsset(asset);
+  const reasons = [...usability.reasons];
+  if (asset?.can_modify !== true && asset?.trim_modify_confirmed !== true) reasons.push("can_modifyまたは冒頭カット許可が未確認");
+  return { usable: usability.usable && (asset?.can_modify === true || asset?.trim_modify_confirmed === true), reasons: [...new Set(reasons)] };
+}
+
+export function canTrimOfficialSampleMovie(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null) {
+  const usability = isPostableOfficialSampleMovie(asset, sampleMovieUrl);
   const reasons = [...usability.reasons];
   if (asset?.can_modify !== true && asset?.trim_modify_confirmed !== true) reasons.push("can_modifyまたは冒頭カット許可が未確認");
   return { usable: usability.usable && (asset?.can_modify === true || asset?.trim_modify_confirmed === true), reasons: [...new Set(reasons)] };

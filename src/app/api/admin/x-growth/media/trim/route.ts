@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
     trimStartSeconds: Number(body.trimStartSeconds ?? 0),
     trimNote: body.trimNote,
     trimModifyConfirmed: body.trimModifyConfirmed,
+    reviewSource: "user_confirmed",
   });
   if (result.error) return NextResponse.json({ error: result.error }, { status: 400 });
   return NextResponse.json({ ok: true, trimStartSeconds: result.trimStartSeconds });

@@ -7,8 +7,8 @@ import { getFanzaXAccountGrowth } from "@/lib/fanzaXAccountGrowth";
 import { buildXGrowthOS, getRightsCheckedMediaCount, type XDailyTopPick, type XGrowthIntent, type XGrowthOpportunity } from "@/lib/xGrowthOS";
 import { getPersistedTodayTopPicks, type PersistedXDailyPlan } from "@/lib/xGrowthOperations";
 import { getXCreativeLearning, getXPostOutcomes, getRecentXPostLogs } from "@/lib/xPostLogs";
-import { ManualPostActions, MediaPipelineActions, MetricSyncActions, OpportunityActions, RegenerateTopPicksAction, RightsReviewActions, TempFolderStatus, TrimReviewActions } from "./XGrowthActions";
 import { getRightsReviewQueue } from "@/lib/xMediaAssets";
+import { CandidateSelectAction, DeferredXGrowthSections, MediaPipelineActions, MetricSyncActions, OpportunityActions, RegenerateTopPicksAction, RightsReviewActions, TempFolderStatus, TopPickVideoActions, TrimReviewActions } from "./XGrowthActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -68,6 +68,11 @@ function mediaName(item: Pick<XGrowthOpportunity, "mediaType">) {
   return "テキストのみ";
 }
 
+function sampleMoviePreviewUrl(workId: number | null | undefined, assetId?: number | null) {
+  if (!workId) return "";
+  return `/api/admin/x-growth/media/download?workId=${encodeURIComponent(String(workId))}&mediaType=sample_movie${assetId ? `&assetId=${encodeURIComponent(String(assetId))}` : ""}&preview=1`;
+}
+
 function videoHookReason(item: Pick<XGrowthOpportunity, "mediaType" | "mediaAsset">) {
   if (item.mediaType !== "sample_movie") return null;
   const tags = item.mediaAsset?.manual_tags ?? [];
@@ -87,16 +92,113 @@ function editorialVerdict(item: XGrowthOpportunity) {
   return { label: "投稿しない", className: "border-rose-700 bg-rose-950/40 text-rose-200" };
 }
 
+type LinkStrategyView = {
+  plan: "none" | "body" | "self_reply";
+  label: "リンク: なし" | "リンク: 本文内" | "リンク: 自己リプ";
+  affiliateUrl: string | null;
+  reason: string;
+  cta: string;
+  instruction: string;
+};
+
+function ctaLabel(value?: string | null) {
+  if (value === "price_cta") return "価格・サンプル確認へ送る";
+  if (value === "reason_cta") return "見る理由だけを残す";
+  return "投稿意図に合わせて控えめに誘導";
+}
+
+function linkStrategyFor(item: {
+  role: XGrowthIntent;
+  intent?: XGrowthIntent;
+  url?: string;
+  postText: string;
+  replyText: string | null;
+  ctaStrategy?: string | null;
+  selectedVariant?: PersistedTopPick["selectedVariant"] | XDailyTopPick["creativeVariants"][number] | null;
+  creativeVariants?: XDailyTopPick["creativeVariants"];
+  creativeVariantId?: string;
+}) {
+  const role = item.role ?? item.intent;
+  const selected = "selectedVariant" in item
+    ? item.selectedVariant
+    : item.creativeVariants?.find((variant) => variant.id === item.creativeVariantId) ?? item.creativeVariants?.[0] ?? null;
+  const explicitPlan = selected?.linkPlan;
+  const affiliateUrl = item.url ?? selected?.url ?? null;
+  if (role !== "MONEY") {
+    return {
+      plan: "none",
+      label: "リンク: なし",
+      affiliateUrl: null,
+      reason: "REACH / FOLLOW / AUTHORITY / CONVERSATIONは、リンクを貼らず認知・保存・フォロー導線を優先します。",
+      cta: ctaLabel(item.ctaStrategy ?? selected?.ctaStrategy),
+      instruction: "この投稿にはリンクを入れない",
+    } satisfies LinkStrategyView;
+  }
+  if (explicitPlan === "reply_link") {
+    return {
+      plan: "self_reply",
+      label: "リンク: 自己リプ",
+      affiliateUrl,
+      reason: "A/Bテストで自己リプvariantが明示されたため、本投稿からリンクを外して投稿後の自己リプに入れます。",
+      cta: ctaLabel(item.ctaStrategy ?? selected?.ctaStrategy),
+      instruction: "投稿後、この自己リプを付ける",
+    } satisfies LinkStrategyView;
+  }
+  return {
+    plan: "body",
+    label: "リンク: 本文内",
+    affiliateUrl,
+    reason: "MONEY投稿のデフォルトです。本文末にリンクを入れ、クリック導線を投稿内で完結させます。",
+    cta: ctaLabel(item.ctaStrategy ?? selected?.ctaStrategy),
+    instruction: "この投稿の本文にリンクを入れる",
+  } satisfies LinkStrategyView;
+}
+
+function LinkStrategyPanel({ strategy, replyText }: { strategy: LinkStrategyView; replyText: string | null }) {
+  const isMoney = strategy.plan !== "none";
+  return (
+    <div className={`mt-3 rounded-lg border p-3 ${strategy.plan === "none" ? "border-sky-800 bg-sky-950/20" : "border-emerald-700 bg-emerald-950/25"}`}>
+      <p className={`text-2xl font-black ${strategy.plan === "none" ? "text-sky-100" : "text-emerald-100"}`}>{strategy.label}</p>
+      <p className="mt-1 text-sm font-black text-white">{strategy.instruction}</p>
+      {isMoney && (
+        <div className="mt-3 space-y-2 text-xs leading-5 text-emerald-50/80">
+          <p>affiliate URL: <span className="break-all font-bold text-emerald-100">{strategy.affiliateUrl ?? "未取得"}</span></p>
+          <p>link strategy理由: {strategy.reason}</p>
+          <p>CTA strategy: {strategy.cta}</p>
+          {strategy.plan === "self_reply" && <p>自己リプ文: <span className="text-emerald-100">{replyText ?? "未生成"}</span></p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function stripPostUrls(text: string) {
+  return text.split("\n").filter((line) => !/^https?:\/\//.test(line.trim())).join("\n").trim();
+}
+
+function postTextForLinkStrategy(postText: string, strategy: LinkStrategyView) {
+  const clean = stripPostUrls(postText);
+  if (strategy.plan !== "body" || !strategy.affiliateUrl) return clean;
+  return clean.includes(strategy.affiliateUrl) ? clean : `${clean}\n${strategy.affiliateUrl}`;
+}
+
+function replyTextForLinkStrategy(replyText: string | null, strategy: LinkStrategyView) {
+  if (strategy.plan !== "self_reply") return null;
+  if (replyText?.includes(strategy.affiliateUrl ?? "")) return replyText;
+  return strategy.affiliateUrl ? `#PR\n必要な時だけ確認用です。\n${strategy.affiliateUrl}` : replyText;
+}
+
 function TopPickCard({ item }: { item: XDailyTopPick }) {
   const mediaOk = item.mediaUsage === "allowed";
   const hasImagePreview = mediaOk && (item.mediaType === "data_card" || Boolean(item.recommendedMediaUrl && item.mediaType === "existing_link_image"));
-  const hasVideoPreview = mediaOk && item.recommendedMediaUrl && item.mediaType === "sample_movie" && item.canNativeVideo;
   const previewUrl = item.mediaType === "data_card"
     ? `/api/admin/x-growth/media/download?workId=${encodeURIComponent(String(item.workId))}&mediaType=data_card`
     : item.recommendedMediaUrl ?? "";
-  const linkStrategy = item.intent === "MONEY" ? "作品リンクあり" : "リンクなし戦略: 認知/フォロー優先";
   const verdict = editorialVerdict(item);
   const selectedVariant = item.creativeVariants.find((creative) => creative.id === item.creativeVariantId) ?? item.creativeVariants[0];
+  const linkStrategy = linkStrategyFor({ ...item, selectedVariant });
+  const displayPostText = postTextForLinkStrategy(item.postText, linkStrategy);
+  const displayReplyText = replyTextForLinkStrategy(item.replyText, linkStrategy);
   const hookReason = videoHookReason(item);
   const trimStartSeconds = Number(item.mediaAsset?.trim_start_seconds ?? 0);
   return (
@@ -114,10 +216,11 @@ function TopPickCard({ item }: { item: XDailyTopPick }) {
         </div>
         <div className="grid gap-2 text-[11px] font-black sm:grid-cols-2">
           <p className={`rounded-lg border px-3 py-2 ${mediaOk ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-rose-800 bg-rose-950/30 text-rose-200"}`}>使用素材: {mediaName(item)} / {mediaOk ? "使用可" : "不可"}</p>
-          <p className={`rounded-lg border px-3 py-2 ${item.intent === "MONEY" ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-sky-800 bg-sky-950/30 text-sky-200"}`}>リンク戦略: {linkStrategy}</p>
+          <p className={`rounded-lg border px-3 py-2 ${item.intent === "MONEY" ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-sky-800 bg-sky-950/30 text-sky-200"}`}>{linkStrategy.label}</p>
           {hookReason && <p className="rounded-lg border border-cyan-800 bg-cyan-950/30 px-3 py-2 text-cyan-100">動画Hook根拠: {hookReason}</p>}
           {item.mediaType === "sample_movie" && trimStartSeconds > 0 && <p className="rounded-lg border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-emerald-100">冒頭トリム: {trimStartSeconds.toFixed(1)}秒</p>}
         </div>
+        <LinkStrategyPanel strategy={linkStrategy} replyText={displayReplyText} />
         <div className="rounded-lg border border-emerald-800 bg-emerald-950/20 p-3">
           <p className="text-[11px] font-black text-emerald-300">伸びる可能性</p>
           <p className="mt-1 text-sm leading-6 text-emerald-50">{item.whyBuzz}</p>
@@ -125,31 +228,35 @@ function TopPickCard({ item }: { item: XDailyTopPick }) {
       </div>
 
       <h3 className="mt-4 text-sm font-black text-zinc-300">この完成文を投稿</h3>
-      <textarea suppressHydrationWarning readOnly value={item.postText} className="mt-2 h-44 w-full resize-none rounded-lg border border-emerald-800 bg-black p-3 text-sm leading-6 text-zinc-100 outline-none" />
-      {item.replyText && <p className="mt-2 rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-[11px] leading-5 text-zinc-400">必要な時だけ補足リプ: {item.replyText}</p>}
+      <textarea suppressHydrationWarning readOnly value={displayPostText} className="mt-2 h-44 w-full resize-none rounded-lg border border-emerald-800 bg-black p-3 text-sm leading-6 text-zinc-100 outline-none" />
+      {displayReplyText && <p className="mt-2 rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-[11px] leading-5 text-zinc-400">投稿後、この自己リプを付ける: {displayReplyText}</p>}
 
-      {(hasImagePreview || hasVideoPreview) && (
+      {hasImagePreview && (
         <div className="mt-4 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900">
-          {hasImagePreview && (
-            <div className="relative h-48 w-full bg-black">
-              <Image src={previewUrl} alt={item.title} fill sizes="(max-width: 1280px) 90vw, 390px" unoptimized className="object-contain" />
-            </div>
-          )}
-          {hasVideoPreview && <video src={item.recommendedMediaUrl ?? ""} controls preload="metadata" className="h-48 w-full bg-black" />}
+          <div className="relative h-48 w-full bg-black">
+            <Image src={previewUrl} alt={item.title} fill sizes="(max-width: 1280px) 90vw, 390px" unoptimized className="object-contain" />
+          </div>
         </div>
       )}
 
-      <ManualPostActions
-        postText={item.postText}
+      <TopPickVideoActions
+        postText={displayPostText}
         mediaUrl={item.recommendedMediaUrl}
         mediaType={item.mediaType}
         quoteUrl={item.mediaType === "quote" ? item.recommendedMediaUrl : null}
         workId={item.workId}
-        mediaAssetId={item.mediaAsset?.id ?? null}
+        mediaAsset={item.mediaAsset?.id ? {
+          id: item.mediaAsset.id,
+          can_modify: item.mediaAsset.can_modify,
+          trim_modify_confirmed: item.mediaAsset.trim_modify_confirmed,
+          trim_start_seconds: item.mediaAsset.trim_start_seconds,
+          trim_note: item.mediaAsset.trim_note,
+        } : null}
         intent={item.intent}
         pickOrder={item.pickOrder}
-        trimStartSeconds={trimStartSeconds}
-        canModify={item.mediaAsset?.can_modify === true || item.mediaAsset?.trim_modify_confirmed === true}
+        linkPlan={linkStrategy.plan}
+        affiliateUrl={linkStrategy.affiliateUrl}
+        replyText={displayReplyText}
       />
 
       <details className="mt-4 rounded-lg border border-zinc-800 bg-zinc-900 p-3">
@@ -189,48 +296,60 @@ function PersistedTopPickCard({ item }: { item: PersistedTopPick }) {
   const hookReason = videoHookReason({ mediaType: item.mediaType, mediaAsset: item.mediaAsset });
   const verdict = item.selectedVariant?.quality.lastMile.verdict ?? "post_ok";
   const verdictClass = verdict === "post_ok" ? "border-emerald-700 bg-emerald-950/40 text-emerald-200" : verdict === "revise" ? "border-amber-700 bg-amber-950/40 text-amber-200" : "border-rose-700 bg-rose-950/40 text-rose-200";
+  const linkStrategy = linkStrategyFor(item);
+  const displayPostText = postTextForLinkStrategy(item.postText, linkStrategy);
+  const displayReplyText = replyTextForLinkStrategy(item.replyText, linkStrategy);
   const trimStartSeconds = Number(item.mediaAsset?.trim_start_seconds ?? 0);
   return (
-    <article className="rounded-lg border border-emerald-800 bg-zinc-950 p-4">
+    <article className={`rounded-lg border bg-zinc-950 p-4 ${item.isSelected === false ? "border-zinc-800 opacity-80" : "border-emerald-800"}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-400 text-lg font-black text-black">{item.pickOrder}</span>
+        <span className={`inline-flex h-10 w-10 items-center justify-center rounded-lg text-lg font-black ${item.isSelected === false ? "bg-zinc-700 text-zinc-100" : "bg-emerald-400 text-black"}`}>{item.candidateRank ?? item.pickOrder}</span>
         <div>
-          <p className="text-[11px] font-black text-zinc-500">投稿順 / 推奨時刻</p>
-          <p className="text-sm font-black text-white">{item.pickOrder}件目・{item.recommendedTimeLabel}</p>
+          <p className="text-[11px] font-black text-zinc-500">候補順位 / 推奨時刻</p>
+          <p className="text-sm font-black text-white">{item.candidateRank ? `候補${item.candidateRank}` : `${item.pickOrder}件目`}・{item.recommendedTimeLabel}</p>
         </div>
+        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${item.isSelected === false ? "border-zinc-700 text-zinc-400" : "border-emerald-700 bg-emerald-950/40 text-emerald-200"}`}>{item.isSelected === false ? "比較候補" : "選択中"}</span>
         <span className={`ml-auto rounded-full border px-2.5 py-1 text-[11px] font-black ${intentStyle[item.role]}`}>{item.role}</span>
         <span className="rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] font-black text-zinc-300">{item.sourceType}</span>
         <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${verdictClass}`}>{verdict === "post_ok" ? "投稿OK" : verdict === "revise" ? "要改善" : "投稿しない"}</span>
       </div>
       <div className="mt-3 grid gap-2 text-[11px] font-black sm:grid-cols-2">
         <p className={`rounded-lg border px-3 py-2 ${mediaOk ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-rose-800 bg-rose-950/30 text-rose-200"}`}>使用素材: {mediaName({ mediaType: item.mediaType })} / {mediaOk ? "使用可" : "不可"}</p>
-        <p className={`rounded-lg border px-3 py-2 ${item.role === "MONEY" ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-sky-800 bg-sky-950/30 text-sky-200"}`}>リンク戦略: {item.role === "MONEY" ? "作品リンクあり" : "リンクなし戦略: 認知/フォロー優先"}</p>
+        <p className={`rounded-lg border px-3 py-2 ${item.role === "MONEY" ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-sky-800 bg-sky-950/30 text-sky-200"}`}>{linkStrategy.label}</p>
         {hookReason && <p className="rounded-lg border border-cyan-800 bg-cyan-950/30 px-3 py-2 text-cyan-100">動画Hook根拠: {hookReason}</p>}
         {item.mediaType === "sample_movie" && trimStartSeconds > 0 && <p className="rounded-lg border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-emerald-100">冒頭トリム: {trimStartSeconds.toFixed(1)}秒</p>}
       </div>
+      <LinkStrategyPanel strategy={linkStrategy} replyText={displayReplyText} />
       <div className="mt-4 rounded-lg border border-emerald-800 bg-emerald-950/20 p-3">
-        <p className="text-[11px] font-black text-emerald-300">伸びる可能性</p>
+        <p className="text-[11px] font-black text-emerald-300">{item.candidateRank === "A" ? "推奨理由" : "残す理由 / 注意点"}</p>
         <p className="mt-1 text-sm leading-6 text-emerald-50">{item.whyBuzz}</p>
+        {item.alternativeReason && <p className="mt-2 text-xs leading-5 text-emerald-100/70">{item.alternativeReason}</p>}
       </div>
+      <CandidateSelectAction slotId={item.slotId} candidateId={item.candidateId} selected={item.isSelected !== false} />
       <h3 className="mt-4 text-sm font-black text-zinc-300">この完成文を投稿</h3>
-      <textarea suppressHydrationWarning readOnly value={item.postText} className="mt-2 h-44 w-full resize-none rounded-lg border border-emerald-800 bg-black p-3 text-sm leading-6 text-zinc-100 outline-none" />
-      {item.replyText && <p className="mt-2 rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-[11px] leading-5 text-zinc-400">必要な時だけ補足リプ: {item.replyText}</p>}
-      {item.mediaType === "sample_movie" && item.recommendedMediaUrl && item.canNativeVideo && (
-        <div className="mt-4 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900">
-          <video src={item.recommendedMediaUrl} controls preload="metadata" className="h-48 w-full bg-black" />
-        </div>
+      <textarea suppressHydrationWarning readOnly value={displayPostText} className="mt-2 h-44 w-full resize-none rounded-lg border border-emerald-800 bg-black p-3 text-sm leading-6 text-zinc-100 outline-none" />
+      {displayReplyText && <p className="mt-2 rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-[11px] leading-5 text-zinc-400">投稿後、この自己リプを付ける: {displayReplyText}</p>}
+      {item.isSelected === false && (
+        <p className="mt-4 rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs font-bold text-zinc-400">この候補を投稿に使う場合は先に選択してください。動画の確認と冒頭カット位置の保存はこのまま使えます。</p>
       )}
-      <ManualPostActions
-        postText={item.postText}
+      <TopPickVideoActions
+        postText={displayPostText}
         mediaUrl={item.recommendedMediaUrl}
         mediaType={item.mediaType}
         quoteUrl={item.mediaType === "quote" ? item.recommendedMediaUrl : null}
         workId={item.workId}
-        mediaAssetId={item.mediaAsset?.id ?? null}
+        mediaAsset={item.mediaAsset?.id ? {
+          id: item.mediaAsset.id,
+          can_modify: item.mediaAsset.can_modify,
+          trim_modify_confirmed: item.mediaAsset.trim_modify_confirmed,
+          trim_start_seconds: item.mediaAsset.trim_start_seconds,
+          trim_note: item.mediaAsset.trim_note,
+        } : null}
         intent={item.role}
         pickOrder={item.pickOrder}
-        trimStartSeconds={trimStartSeconds}
-        canModify={item.mediaAsset?.can_modify === true || item.mediaAsset?.trim_modify_confirmed === true}
+        linkPlan={linkStrategy.plan}
+        affiliateUrl={linkStrategy.affiliateUrl}
+        replyText={displayReplyText}
       />
       <details className="mt-4 rounded-lg border border-zinc-800 bg-zinc-900 p-3">
         <summary className="cursor-pointer text-xs font-black text-zinc-300">詳細</summary>
@@ -245,6 +364,24 @@ function PersistedTopPickCard({ item }: { item: PersistedTopPick }) {
         </div>
       </details>
     </article>
+  );
+}
+
+function PersistedSlotGroup({ label, items }: { label: string; items: PersistedTopPick[] }) {
+  const selected = items.find((item) => item.isSelected !== false) ?? items[0];
+  return (
+    <section className="rounded-lg border border-emerald-800/70 bg-zinc-900 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-lg font-black text-white">{label}</h3>
+          <p className="mt-1 text-xs leading-5 text-zinc-400">候補 {items.length}/3 / 選択中 {selected?.candidateRank ?? "A"}</p>
+        </div>
+        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${intentStyle[selected?.role ?? "REACH"]}`}>{selected?.role ?? "候補なし"}</span>
+      </div>
+      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+        {items.map((item) => <PersistedTopPickCard key={`${item.slotId}-${item.candidateId}-${item.key}`} item={item} />)}
+      </div>
+    </section>
   );
 }
 
@@ -368,7 +505,7 @@ function TopPicksSkeleton() {
         <Panel className="mt-8 border-emerald-700 bg-emerald-950/10">
           <div className="flex items-center gap-2"><Sparkles className="text-emerald-300" size={20} /><h2 className="text-2xl font-black">今日の投稿</h2></div>
           <p className="mt-2 text-sm leading-6 text-emerald-100/80">Top Picksを先に読み込んでいます。重い管理情報は後追いで表示します。</p>
-          <div className="mt-5 grid gap-4 xl:grid-cols-3">
+          <div className="mt-5 grid gap-4 xl:grid-cols-2">
             {[1, 2, 3].map((item) => (
               <div key={item} className="h-72 animate-pulse rounded-lg border border-emerald-900 bg-zinc-950" />
             ))}
@@ -396,6 +533,13 @@ async function XGrowthPageContent() {
     };
     const native = plan.native_x_learning as { overusedPatterns?: string[]; winningPatterns?: string[]; avoidConstructions?: string[] };
     const mediaReview = await getRightsReviewQueue(12);
+    const slotGroups = [
+      { id: "slot_1", label: "投稿枠1: REACH中心", items: plan.top_picks.filter((item) => item.slotId === "slot_1") },
+      { id: "slot_2", label: "投稿枠2: FOLLOW / AUTHORITY中心", items: plan.top_picks.filter((item) => item.slotId === "slot_2") },
+      { id: "slot_3", label: "投稿枠3: MONEY または別REACH中心", items: plan.top_picks.filter((item) => item.slotId === "slot_3") },
+    ].filter((slot) => slot.items.length > 0);
+    const legacyTopPicks = slotGroups.length ? [] : plan.top_picks;
+    const postableSlots = slotGroups.length ? slotGroups.length : plan.top_picks.length;
     return (
       <main className="min-h-screen bg-zinc-950 text-white">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -445,11 +589,11 @@ async function XGrowthPageContent() {
               <RegenerateTopPicksAction />
             </div>
               <div className="rounded-lg border border-emerald-800 bg-zinc-950 px-4 py-3 text-sm font-black text-emerald-200">
-                {supply.target ?? `${plan.top_picks.length}件`} / Gate OK {plan.top_picks.length}件
+                本日の投稿可能枠: {postableSlots}/3 / 候補総数: {plan.top_picks.length}
               </div>
             </div>
             <div className="mt-3 grid gap-2 text-xs leading-5 text-emerald-100/70 md:grid-cols-2">
-              <p>供給方針: REACH 1件 / AUTHORITY or FOLLOW 1件 / MONEY 0〜1件。</p>
+              <p>供給方針: 3投稿枠 × 各最大3候補。Hard Gate通過候補だけをA/B/Cに残します。</p>
               <p>REACH供給: 生成 {supply.reachGenerated ?? "-"}件 / Gate OK {supply.reachGateOk ?? "-"}件</p>
               <p>{supply.shortages?.length ? `不足: ${supply.shortages.join(" / ")}` : "供給不足ログ: 主要レーンにGate OK候補あり"}</p>
               <p>保存済み読込: OK / stale {plan.stale_reason ?? "なし"}</p>
@@ -477,16 +621,15 @@ async function XGrowthPageContent() {
                 </div>
               </div>
             </details>
-            <div className="mt-5 grid gap-4 xl:grid-cols-3">
-              {plan.top_picks.map((item) => <PersistedTopPickCard key={`${item.key}-${item.role}`} item={item} />)}
-            </div>
-          </Panel>
-
-          <Panel className="mt-6">
-            <div className="flex items-center gap-2"><ClipboardList className="text-violet-300" size={20} /><h2 className="text-lg font-black">後読み詳細</h2></div>
-            <p className="mt-3 text-sm leading-6 text-zinc-400">
-              Rights Review、Conversation Radar、Learning Lab、Opportunity一覧は初期表示では待ちません。必要な時だけ「今日のTop Picksを再生成」または各操作パネルから更新します。
-            </p>
+            {slotGroups.length ? (
+              <div className="mt-5 space-y-5">
+                {slotGroups.map((slot) => <PersistedSlotGroup key={slot.id} label={slot.label} items={slot.items} />)}
+              </div>
+            ) : (
+              <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                {legacyTopPicks.map((item) => <PersistedTopPickCard key={`${item.key}-${item.role}`} item={item} />)}
+              </div>
+            )}
           </Panel>
 
           <Panel className="mt-6">
@@ -502,12 +645,12 @@ async function XGrowthPageContent() {
                   <p className="mt-2 line-clamp-2 text-xs font-black text-zinc-200">{String(asset.works?.title ?? `work ${asset.work_id}`)}</p>
                   <p className="mt-1 break-all text-[11px] leading-5 text-zinc-500">{asset.source_domain} / {asset.source_url}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <a href={asset.source_url} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center justify-center rounded-lg border border-cyan-700 px-2 text-[11px] font-black text-cyan-100">動画を開く</a>
+                    <a href={sampleMoviePreviewUrl(asset.work_id, asset.id)} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center justify-center rounded-lg border border-cyan-700 px-2 text-[11px] font-black text-cyan-100">動画を開く</a>
                     <a href={`/works/${asset.work_id}`} className="inline-flex h-8 items-center justify-center rounded-lg border border-zinc-700 px-2 text-[11px] font-black text-zinc-100">作品</a>
                   </div>
                   <TrimReviewActions
                     assetId={asset.id}
-                    sourceUrl={asset.source_url}
+                    sourceUrl={sampleMoviePreviewUrl(asset.work_id, asset.id)}
                     initialTrimStartSeconds={asset.trim_start_seconds}
                     initialTrimNote={asset.trim_note}
                     canModify={asset.can_modify}
@@ -520,19 +663,20 @@ async function XGrowthPageContent() {
               {mediaReview.error && <p className="text-sm font-bold text-rose-200">{mediaReview.error}</p>}
             </div>
           </Panel>
+
+          <DeferredXGrowthSections />
         </div>
       </main>
     );
   }
 
-  const [growth, salesAnalytics, logs, outcomes, creativeLearning, rightsMedia, mediaReview] = await Promise.all([
+  const [growth, salesAnalytics, logs, outcomes, creativeLearning, rightsMedia] = await Promise.all([
     getFanzaXAccountGrowth(),
     getAffiliateSalesAnalytics(),
     getRecentXPostLogs(),
     getXPostOutcomes(),
     getXCreativeLearning(30),
     getRightsCheckedMediaCount(),
-    getRightsReviewQueue(12),
   ]);
   const os = await buildXGrowthOS({
     growth,
@@ -576,7 +720,7 @@ async function XGrowthPageContent() {
           <p className="mt-2 text-sm leading-6 text-cyan-100/80">
             mp4候補 {os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / synced {os.mediaSupply.synced.toLocaleString("ja-JP")} / rights確認待ち {(os.mediaSupply.unknown + os.mediaSupply.review).toLocaleString("ja-JP")} / 使用可 {os.mediaSupply.allowed.toLocaleString("ja-JP")} / blocked {os.mediaSupply.blocked.toLocaleString("ja-JP")} / URL失効 {os.mediaSupply.dead.toLocaleString("ja-JP")}
           </p>
-          <p className="mt-1 text-xs leading-5 text-cyan-100/60">sample_movie_url は候補です。根拠つきでallowedにした素材だけ、Top Picksと手動動画投稿に出します。</p>
+          <p className="mt-1 text-xs leading-5 text-cyan-100/60">FANZA/DMM公式 sample_movie_url は無加工投稿用の候補です。冒頭トリムだけ個別の編集許可を確認します。</p>
           {os.mediaSupply.error && <p className="mt-2 text-xs font-bold text-rose-200">{os.mediaSupply.error}</p>}
           <MediaPipelineActions />
         </Panel>
@@ -694,7 +838,7 @@ async function XGrowthPageContent() {
             </div>
           </details>
           {os.dailyTopPicks.length ? (
-            <div className="mt-5 grid gap-4 xl:grid-cols-3">
+            <div className="mt-5 grid gap-4 xl:grid-cols-2">
               {os.dailyTopPicks.map((item) => <TopPickCard key={`${item.key}-${item.role}`} item={item} />)}
             </div>
           ) : (
@@ -724,16 +868,16 @@ async function XGrowthPageContent() {
               <div className="flex items-center gap-2"><Film className="text-amber-300" size={20} /><h2 className="text-lg font-black">Media Intelligence</h2></div>
               <div className="mt-4 space-y-3 text-sm leading-6 text-zinc-400">
                 <p><ShieldCheck className="mr-1 inline text-emerald-300" size={15} />既存リンク画像はMONEYレーンで継続使用。</p>
-                <p>REACH/FOLLOW/AUTHORITYは、権利OK動画、作品画像、データカード、テキストのみを投稿意図ごとに選びます。ジャケ写固定にはしません。</p>
-                <p>sample_movie_url は技術可否と利用許諾を分離。権利未確認は投稿不可。</p>
-                <p>画像はコピー優先。動画は許可済みmp4だけ開く/保存して手動添付します。</p>
+                <p>REACH/FOLLOW/AUTHORITYは、公式サンプル動画、作品画像、データカード、テキストのみを投稿意図ごとに選びます。ジャケ写固定にはしません。</p>
+                <p>sample_movie_url は無加工投稿と冒頭トリムを分離。トリムは編集許可確認済みだけ使います。</p>
+                <p>画像はコピー優先。動画はFANZA/DMM公式mp4だけ開く/保存して手動添付します。</p>
               </div>
             </Panel>
 
             <Panel>
               <div className="flex items-center gap-2"><ShieldCheck className="text-emerald-300" size={20} /><h2 className="text-lg font-black">Media Rights Review</h2></div>
               <div className="mt-4 space-y-3">
-                {mediaReview.rows.map((asset) => (
+                {os.rightsReviewQueue.map((asset) => (
                   <div key={asset.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="rounded-full border border-amber-700 px-2 py-1 text-[10px] font-black text-amber-200">{asset.rights_status}</span>
@@ -743,12 +887,12 @@ async function XGrowthPageContent() {
                     <p className="mt-2 line-clamp-2 text-xs font-black text-zinc-200">{String(asset.works?.title ?? `work ${asset.work_id}`)}</p>
                     <p className="mt-1 break-all text-[11px] leading-5 text-zinc-500">{asset.source_domain} / {asset.source_url}</p>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <a href={asset.source_url} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center justify-center rounded-lg border border-cyan-700 px-2 text-[11px] font-black text-cyan-100">動画を開く</a>
+                      <a href={sampleMoviePreviewUrl(asset.work_id, asset.id)} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center justify-center rounded-lg border border-cyan-700 px-2 text-[11px] font-black text-cyan-100">動画を開く</a>
                       <a href={`/works/${asset.work_id}`} className="inline-flex h-8 items-center justify-center rounded-lg border border-zinc-700 px-2 text-[11px] font-black text-zinc-100">作品</a>
                     </div>
                     <TrimReviewActions
                       assetId={asset.id}
-                      sourceUrl={asset.source_url}
+                      sourceUrl={sampleMoviePreviewUrl(asset.work_id, asset.id)}
                       initialTrimStartSeconds={asset.trim_start_seconds}
                       initialTrimNote={asset.trim_note}
                       canModify={asset.can_modify}
@@ -757,8 +901,7 @@ async function XGrowthPageContent() {
                     <RightsReviewActions assetId={asset.id} />
                   </div>
                 ))}
-                {!mediaReview.rows.length && <p className="text-sm text-zinc-500">レビュー対象の動画候補はまだ同期されていません。</p>}
-                {mediaReview.error && <p className="text-sm font-bold text-rose-200">{mediaReview.error}</p>}
+                {!os.rightsReviewQueue.length && <p className="text-sm text-zinc-500">rights確認待ちの動画候補はまだ同期されていません。</p>}
               </div>
             </Panel>
 

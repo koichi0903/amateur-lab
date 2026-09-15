@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { canTrimXMediaAsset, isUsableXMediaAsset, validateTrimStartSeconds, type XMediaAsset, type XMediaManualTag } from "./xMediaAssets";
+import { canTrimOfficialSampleMovie, isPostableOfficialSampleMovie, isUsableXMediaAsset, type XMediaAsset, type XMediaManualTag } from "./xMediaAssets";
 
 const base: Partial<XMediaAsset> = {
   rights_status: "allowed",
@@ -10,7 +10,6 @@ const base: Partial<XMediaAsset> = {
   fetch_status: "ok",
   media_quality: "normal",
   manual_tags: [] as XMediaManualTag[],
-  can_modify: false,
 };
 
 assert.equal(isUsableXMediaAsset({ ...base, rights_status: "unknown" }).usable, false);
@@ -19,11 +18,23 @@ assert.equal(isUsableXMediaAsset({ ...base, can_reupload: false }).usable, false
 assert.equal(isUsableXMediaAsset({ ...base, quote_only: true }).usable, false);
 assert.equal(isUsableXMediaAsset({ ...base, fetch_status: "dead" }).usable, false);
 assert.equal(isUsableXMediaAsset(base).usable, true);
-assert.equal(canTrimXMediaAsset(base).usable, false);
-assert.equal(canTrimXMediaAsset({ ...base, can_modify: true }).usable, true);
-assert.deepEqual(validateTrimStartSeconds(0), { ok: true, value: 0 });
-assert.deepEqual(validateTrimStartSeconds(5.34), { ok: true, value: 5.3 });
-assert.equal(validateTrimStartSeconds(-0.1).ok, false);
-assert.equal(validateTrimStartSeconds(Number.NaN).ok, false);
-assert.equal(validateTrimStartSeconds(10, 10).ok, false);
-assert.equal(validateTrimStartSeconds(9.9, 10).ok, true);
+
+const officialSample: Partial<XMediaAsset> = {
+  ...base,
+  source_url: "https://cc3001.dmm.co.jp/litevideo/freepv/example/example_dmb_w.mp4",
+  source_kind: "official_sample",
+  rights_status: "unknown",
+  x_usage_allowed: false,
+  can_reupload: false,
+  quote_only: true,
+  commercial_use_allowed: false,
+  can_modify: false,
+  trim_modify_confirmed: false,
+};
+
+assert.equal(isUsableXMediaAsset(officialSample).usable, false);
+assert.equal(isPostableOfficialSampleMovie(officialSample).usable, true);
+assert.equal(isPostableOfficialSampleMovie({ ...officialSample, fetch_status: "dead" }).usable, false);
+assert.equal(isPostableOfficialSampleMovie({ ...officialSample, media_quality: "weak" }).usable, false);
+assert.equal(canTrimOfficialSampleMovie(officialSample).usable, false);
+assert.equal(canTrimOfficialSampleMovie({ ...officialSample, trim_modify_confirmed: true }).usable, true);

@@ -22,7 +22,7 @@ import {
   upsertDailyPlan,
   type XGrowthSystemStatus,
 } from "@/lib/xGrowthOperations";
-import { getXMediaSupplyStatus, getRightsReviewQueue, isUsableXMediaAsset, type XMediaAsset } from "@/lib/xMediaAssets";
+import { getXMediaSupplyStatus, getRightsReviewQueue, isPostableOfficialSampleMovie, type XMediaAsset } from "@/lib/xMediaAssets";
 
 export type XGrowthIntent = "REACH" | "AUTHORITY" | "FOLLOW" | "CONVERSATION" | "MONEY";
 export type XOpportunityEvent =
@@ -100,6 +100,12 @@ export type XGrowthOpportunity = XPostCandidate & {
 
 export type XDailyTopPick = XGrowthOpportunity & {
   pickOrder: number;
+  slotId?: "slot_1" | "slot_2" | "slot_3";
+  slotRole?: "REACH" | "FOLLOW_OR_AUTHORITY" | "MONEY_OR_REACH";
+  slotLabel?: string;
+  candidateRank?: "A" | "B" | "C";
+  candidateId?: string;
+  isSelected?: boolean;
   role: XGrowthIntent;
   dailyScore: number;
   recommendedTimeLabel: string;
@@ -181,6 +187,12 @@ export type XGrowthOS = {
 
 const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 const DAY_MS = 86_400_000;
+const POSTED_WORK_COOLDOWN_DAYS = 14;
+const DAILY_PICK_COOLDOWN_DAYS = 1;
+
+function tokyoDate(daysOffset = 0) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(Date.now() + daysOffset * DAY_MS));
+}
 
 function daysSince(value: string | null) {
   if (!value) return Infinity;
@@ -485,7 +497,7 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
     ?? variants.find((variant) => variant.quality.passed)
     ?? variants[0];
   const mediaType = recommended?.mediaType ?? item.mediaType;
-  const nativeVideoAllowed = mediaType === "sample_movie" && item.canNativeVideo && isUsableXMediaAsset(item.mediaAsset).usable;
+  const nativeVideoAllowed = mediaType === "sample_movie" && item.canNativeVideo && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable;
   const resolvedMediaType = mediaType === "sample_movie" && !nativeVideoAllowed
     ? item.imageUrl ? "existing_link_image" as const : "text" as const
     : mediaType;
@@ -512,7 +524,7 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
     mediaUsage: resolvedMediaType === "sample_movie" ? "allowed" : recommendedMediaUrl || resolvedMediaType === "text" || resolvedMediaType === "quote" ? "allowed" : "not_available",
     recommendedMediaUrl,
     mediaDecision: resolvedMediaType === "sample_movie"
-      ? "権利確認済みのsample_movie_urlをネイティブ動画として使用可"
+      ? "公式FANZA/DMM sample_movie_urlを無加工投稿用のネイティブ動画として使用可"
       : resolvedMediaType === "existing_link_image"
         ? item.intent === "MONEY" ? "MONEY投稿は現在Xで使っている作品リンク画像を維持" : "作品画像を優先。本文は画像説明ではなく見る理由に絞る"
         : resolvedMediaType === "data_card"
@@ -538,15 +550,6 @@ function applyRankingHistory(opportunities: XGrowthOpportunity[], histories: Map
       },
     };
   });
-}
-
-function intentPriority(mission: XDailyMission) {
-  const weighted = (Object.entries(mission.mix) as Array<[XGrowthIntent, number]>)
-    .filter(([, count]) => count > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([intent]) => intent);
-  const defaults: XGrowthIntent[] = ["REACH", "FOLLOW", "AUTHORITY", "MONEY", "CONVERSATION"];
-  return [...new Set([...weighted, ...defaults])];
 }
 
 function roleScore(item: XGrowthOpportunity, intent: XGrowthIntent) {
@@ -787,292 +790,274 @@ function diversityConflicts(
   return { ok: reasons.length === 0, signature, reasons };
 }
 
-function selectDiverseVariant(item: XGrowthOpportunity, role: XGrowthIntent, picked: XDailyTopPick[], logs: XPostLog[]) {
+function selectCandidateVariant(item: XGrowthOpportunity, role: XGrowthIntent, picked: XDailyTopPick[], logs: XPostLog[]) {
   const variants = item.creativeVariants
     .filter((variant) => variant.intent === role && variant.quality.passed)
-    .filter((variant) => variant.quality.total >= (role === "REACH" ? 70 : 72) && (variant.buzzPotential.total ?? 0) >= 60 && variant.quality.dimensions.adSmell <= (role === "MONEY" ? 48 : 30))
+    .filter((variant) => variant.quality.dimensions.adSmell <= (role === "MONEY" ? 48 : 30))
     .map((variant) => {
       const audit = diversityConflicts(item, role, variant, picked, logs);
-      const mediaBonus = picked.some((pick) => pick.mediaType !== audit.signature.mediaType) ? 4 : 0;
-      const roleBonus = picked.some((pick) => pick.role !== role) ? 5 : 0;
-      return { variant, audit, score: clamp((variant.buzzPotential.total ?? 0) * 0.45 + variant.quality.total * 0.25 + item.freshness.total * 0.3 + mediaBonus + roleBonus - audit.reasons.length * 18) };
+      const score = clamp((variant.buzzPotential.total ?? 0) * 0.42 + variant.quality.total * 0.26 + item.freshness.total * 0.2 - audit.reasons.length * 10);
+      return { variant, audit, score };
     })
     .sort((a, b) => Number(b.audit.ok) - Number(a.audit.ok) || b.score - a.score);
-  return variants.find((entry) => entry.audit.ok) ?? null;
+  return variants[0] ?? null;
 }
 
-function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDailyMission, logs: XPostLog[]) {
-  const missionRoles = intentPriority(mission);
-  const roles: XGrowthIntent[] = [
-    "REACH",
-    mission.bottleneck === "Follow不足" ? "FOLLOW" : "AUTHORITY",
-    ...(mission.bottleneck === "Reach不足" ? ["REACH" as const] : []),
-    ...(mission.bottleneck === "Profile Visit不足" || mission.bottleneck === "Follow不足" ? ["FOLLOW" as const, "AUTHORITY" as const] : []),
-    ...(mission.bottleneck === "収益導線不足" && mission.mix.MONEY <= 1 ? ["MONEY" as const] : []),
-    ...missionRoles,
-  ];
-  const pool = opportunities.filter((item) => item.freshness.status !== "expired" && item.mediaUsage !== "not_available");
+function buildTopPickCandidate(input: {
+  item: XGrowthOpportunity;
+  role: XGrowthIntent;
+  variant: XCreativeVariant;
+  audit: ReturnType<typeof diversityConflicts>;
+  score: number;
+  pickOrder: number;
+  slotId: XDailyTopPick["slotId"];
+  slotRole: NonNullable<XDailyTopPick["slotRole"]>;
+  slotLabel: string;
+  candidateRank: NonNullable<XDailyTopPick["candidateRank"]>;
+  reason: string;
+}): XDailyTopPick {
+  const pickMediaType = input.variant.mediaType === "sample_movie" && !isPostableOfficialSampleMovie(input.item.mediaAsset, input.item.sampleMovieUrl).usable
+    ? input.item.imageUrl ? "existing_link_image" as const : "text" as const
+    : input.variant.mediaType;
+  const pickMediaUrl = pickMediaType === "sample_movie"
+    ? input.item.mediaAsset?.source_url ?? input.item.sampleMovieUrl
+    : pickMediaType === "existing_link_image" || pickMediaType === "data_card"
+      ? pickMediaType === "data_card" ? `/api/admin/x-growth/media/download?workId=${input.item.workId}&mediaType=data_card` : input.item.imageUrl
+      : null;
+  return applyTopPickLinkPolicy({
+    ...input.item,
+    intent: input.role,
+    postText: input.variant.bodyText,
+    replyText: input.variant.replyText,
+    creativeVariantId: input.variant.id,
+    mediaType: pickMediaType,
+    mediaUsage: pickMediaType === "sample_movie" ? "allowed" : pickMediaUrl || pickMediaType === "text" || pickMediaType === "quote" ? "allowed" : "not_available",
+    recommendedMediaUrl: pickMediaUrl,
+    mediaDecision: pickMediaType === "sample_movie"
+      ? "公式FANZA/DMM sample_movie_urlを無加工投稿用のネイティブ動画として使用可"
+      : pickMediaType === "existing_link_image"
+        ? input.role === "MONEY" ? "MONEY投稿は現在Xで使っている作品リンク画像を維持" : "作品画像を優先。本文は画像説明ではなく見る理由に絞る"
+        : pickMediaType === "data_card"
+          ? "比較自体が面白い場合だけデータカードを使用"
+          : pickMediaType === "quote" ? "外部投稿確認後の引用候補。自動引用はしない" : "利用可能な画像/動画がないためテキストのみ",
+    pickOrder: input.pickOrder,
+    slotId: input.slotId,
+    slotRole: input.slotRole,
+    slotLabel: input.slotLabel,
+    candidateRank: input.candidateRank,
+    candidateId: `${input.slotId}-${input.candidateRank}-${input.item.key}-${input.variant.id}`.slice(0, 180),
+    isSelected: input.candidateRank === "A",
+    role: input.role,
+    dailyScore: input.score,
+    recommendedTimeLabel: recommendedTimeLabel(input.item.recommendedSlot),
+    whyToday: whyToday(input.item, input.role),
+    whyBuzz: buzzReason(input.item, input.role),
+    notPostReason: null,
+    alternativeReason: input.reason,
+    setDiversity: {
+      status: input.audit.ok ? "OK" : "NG",
+      roleLabel: sourceRoleLabel(input.item.sourceType),
+      signature: input.audit.signature,
+      reasons: input.audit.reasons,
+    },
+  });
+}
+
+function recentPostedWorkIds(logs: XPostLog[]) {
+  const cutoff = Date.now() - POSTED_WORK_COOLDOWN_DAYS * DAY_MS;
+  return new Set(logs
+    .filter((log) => Number.isSafeInteger(log.work_id) && new Date(log.posted_at).getTime() >= cutoff)
+    .map((log) => log.work_id));
+}
+
+async function fetchRecentDailyPickWorkIds(days = DAILY_PICK_COOLDOWN_DAYS) {
+  const since = tokyoDate(-days);
+  const today = tokyoDate();
+  const { data, error } = await supabaseAdmin
+    .from("x_growth_opportunities")
+    .select("work_id,opportunity_date,opportunity_key,creative_genome")
+    .eq("account_handle", "hakkutsu_lab")
+    .gte("opportunity_date", since)
+    .lt("opportunity_date", today)
+    .like("opportunity_key", "daily-pick-%")
+    .limit(100);
+  if (error) return new Set<number>();
+  return new Set((data ?? [])
+    .filter((row) => {
+      const pick = ((row as { creative_genome?: Record<string, unknown> | null }).creative_genome?.persisted_top_pick ?? null) as { isSelected?: boolean } | null;
+      return pick?.isSelected !== false;
+    })
+    .map((row) => Number((row as { work_id?: unknown }).work_id))
+    .filter((workId) => Number.isSafeInteger(workId) && workId > 0));
+}
+
+function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDailyMission, logs: XPostLog[], recentDailyPickWorkIds = new Set<number>()) {
+  const postedWorkIds = recentPostedWorkIds(logs);
+  const pool = opportunities.filter((item) => (
+    item.freshness.status !== "expired"
+    && item.mediaUsage !== "not_available"
+    && !postedWorkIds.has(item.workId)
+    && !recentDailyPickWorkIds.has(item.workId)
+  ));
   const picked: XDailyTopPick[] = [];
+  const usedWorkIds = new Set<number>();
+  const usedMediaIds = new Set<number>();
   const reachVideoTier = (item: XGrowthOpportunity) => {
     const asset = item.mediaAsset;
     const tags = asset?.manual_tags ?? [];
-    if (!item.canNativeVideo || !isUsableXMediaAsset(asset).usable) return { tier: "除外", score: -100, reason: "rights unusable" };
+    if (!item.canNativeVideo || !isPostableOfficialSampleMovie(asset, item.sampleMovieUrl).usable) return { tier: "除外", score: -100, reason: "sample movie unusable" };
     if (tags.includes("too_explicit_for_reach") || tags.includes("weak_visual") || asset?.media_quality === "weak") return { tier: "除外", score: -90, reason: "REACH不向き/weak" };
     if (asset?.media_quality === "strong" && tags.includes("first_seconds_strong")) return { tier: "A", score: 58, reason: "冒頭1〜3秒が強い strong 動画" };
     if (asset?.media_quality === "strong" && (tags.includes("actress_fit") || tags.includes("scene_surprise") || tags.includes("visual_mismatch"))) return { tier: "B", score: 44, reason: "strong 動画に作品固有Hookあり" };
     if (asset?.media_quality === "normal" && (tags.includes("first_seconds_strong") || tags.includes("visual_mismatch") || tags.includes("actress_fit"))) return { tier: "C", score: 32, reason: "normal 動画に使えるHookあり" };
     return { tier: "C", score: 18, reason: "manual review済み動画" };
   };
-  const videoReach = opportunities
-    .filter((item) => item.freshness.status !== "expired" || [8345, 266].includes(Number(item.mediaAsset?.id)))
-    .filter((item) => item.mediaUsage !== "not_available")
-    .filter((item) => item.canNativeVideo && isUsableXMediaAsset(item.mediaAsset).usable)
-    .filter((item) => item.mediaAsset?.review_source === "manual_video_reviewed")
-    .filter((item) => item.mediaAsset?.media_quality === "strong" || item.mediaAsset?.media_quality === "normal")
-    .flatMap((item) => item.creativeVariants
-      .filter((variant) => variant.intent === "REACH" && variant.mediaType === "sample_movie" && variant.quality.passed)
-      .map((variant) => {
-        const tier = reachVideoTier(item);
-        const repetitionPenalty = hasDiversityConflict(item, picked, logs) ? 22 : 0;
-        const score = clamp(tier.score + (variant.buzzPotential.scrollStop ?? 0) * 0.24 + (variant.buzzPotential.mediaFit ?? 0) * 0.18 + variant.quality.total * 0.14 + Math.min(item.freshness.total, 80) * 0.08 - repetitionPenalty);
-        return { item, variant, score, tier };
-      }))
-    .filter(({ variant, score }) => score >= 60 && variant.quality.total >= 70 && (variant.buzzPotential.total ?? 0) >= 60 && variant.quality.dimensions.adSmell <= 30)
-    .sort((a, b) => b.tier.score - a.tier.score || b.score - a.score)[0];
-  if (videoReach) {
-    const diverse = selectDiverseVariant(videoReach.item, "REACH", picked, logs);
-    if (diverse && diverse.variant.mediaType === "sample_movie") {
-      picked.push({
-        ...videoReach.item,
-        intent: "REACH",
-        postText: diverse.variant.bodyText,
-        replyText: diverse.variant.replyText,
-        creativeVariantId: diverse.variant.id,
-        mediaType: "sample_movie",
-        mediaUsage: "allowed",
-        recommendedMediaUrl: videoReach.item.mediaAsset?.source_url ?? videoReach.item.sampleMovieUrl,
-        mediaDecision: "manual tags確認済みのsample_movie_urlをREACH動画として使用可",
-        pickOrder: 1,
-        role: "REACH",
-        dailyScore: diverse.score,
-        recommendedTimeLabel: recommendedTimeLabel(videoReach.item.recommendedSlot),
-        whyToday: whyToday(videoReach.item, "REACH"),
-        whyBuzz: buzzReason(videoReach.item, "REACH"),
-        notPostReason: null,
-        alternativeReason: `${videoReach.tier.tier} tier: ${videoReach.tier.reason}。価格/評価/比較より冒頭力を優先`,
-        setDiversity: {
-          status: "OK",
-          roleLabel: sourceRoleLabel(videoReach.item.sourceType),
-          signature: diverse.audit.signature,
-          reasons: diverse.audit.reasons,
-        },
-      });
-    }
-  }
-  for (const role of roles) {
-    if (picked.length >= 3) break;
-    const sourcePriority: XOpportunitySourceType[] = role === "MONEY"
-      ? ["MONEY", "PRICE_EVENT", "WORK", "HIDDEN_GEM", "MARKET", "COMPARISON", "JUDGMENT", "FOLLOW_UP", "ACTRESS_TREND", "GENRE_TREND", "MAKER_TREND"]
-      : role === "REACH"
-        ? ["MARKET", "COMPARISON", "JUDGMENT", "HIDDEN_GEM", "PRICE_EVENT", "WORK", "FOLLOW_UP", "ACTRESS_TREND", "GENRE_TREND", "MAKER_TREND", "MONEY"]
-        : ["FOLLOW_UP", "HIDDEN_GEM", "PRICE_EVENT", "ACTRESS_TREND", "GENRE_TREND", "MAKER_TREND", "WORK", "MARKET", "COMPARISON", "JUDGMENT", "MONEY"];
-    const best = pool
-      .filter((item) => !hasDiversityConflict(item, picked, logs))
-      .filter(() => !picked.some((pick) => pick.role === role) || picked.some((pick) => pick.role !== role))
-      .filter((item) => passesLinklessQualityGate(item, role))
-      .filter((item) => hasRealConversationSource(item, role))
-      .map((item) => ({ item, score: roleScore(item, role) + Math.max(0, 12 - sourcePriority.indexOf(item.sourceType)) }))
-      .filter(({ item, score }) => {
-        const variant = item.creativeVariants.find((creative) => creative.intent === role);
-        const minScore = role === "REACH" ? 60 : 70;
-        const minQuality = role === "REACH" ? 70 : 74;
-        const minBuzz = role === "REACH" ? 60 : 64;
-        return score >= minScore && Boolean(variant?.quality.passed) && (variant?.quality.total ?? 0) >= minQuality && (variant?.buzzPotential.total ?? 0) >= minBuzz && (variant?.quality.dimensions.adSmell ?? 100) <= (role === "MONEY" ? 48 : 30);
-      })
-      .sort((a, b) => b.score - a.score)[0];
-    if (!best) continue;
-    const diverse = selectDiverseVariant(best.item, role, picked, logs);
-    if (!diverse) continue;
-    const variant = diverse.variant;
-    const variantMedia = variant?.mediaType ?? best.item.mediaType;
-    const pickMediaType = variantMedia === "sample_movie" && !isUsableXMediaAsset(best.item.mediaAsset).usable
-      ? best.item.imageUrl ? "existing_link_image" as const : "text" as const
-      : variantMedia;
-    const pickMediaUrl = pickMediaType === "sample_movie"
-      ? best.item.mediaAsset?.source_url ?? best.item.sampleMovieUrl
-    : pickMediaType === "existing_link_image" || pickMediaType === "data_card"
-        ? pickMediaType === "data_card" ? `/api/admin/x-growth/media/download?workId=${best.item.workId}&mediaType=data_card` : best.item.imageUrl
-        : null;
-    picked.push({
-      ...best.item,
-      intent: role,
-      postText: variant?.bodyText ?? best.item.postText,
-      replyText: variant?.replyText ?? best.item.replyText,
-      creativeVariantId: variant?.id ?? best.item.creativeVariantId,
-      mediaType: pickMediaType,
-      mediaUsage: pickMediaType === "sample_movie" ? "allowed" : pickMediaUrl || pickMediaType === "text" || pickMediaType === "quote" ? "allowed" : "not_available",
-      recommendedMediaUrl: pickMediaUrl,
-      mediaDecision: pickMediaType === "sample_movie"
-        ? "権利確認済みのsample_movie_urlをネイティブ動画として使用可"
-        : pickMediaType === "existing_link_image"
-          ? role === "MONEY" ? "MONEY投稿は現在Xで使っている作品リンク画像を維持" : "作品画像を優先。本文は画像説明ではなく見る理由に絞る"
-          : pickMediaType === "data_card"
-            ? "比較自体が面白い場合だけデータカードを使用"
-            : pickMediaType === "quote" ? "外部投稿確認後の引用候補。自動引用はしない" : "利用可能な画像/動画がないためテキストのみ",
-      pickOrder: picked.length + 1,
-      role,
-      dailyScore: diverse.score,
-      recommendedTimeLabel: recommendedTimeLabel(best.item.recommendedSlot),
-      whyToday: whyToday(best.item, role),
-      whyBuzz: buzzReason(best.item, role),
-      notPostReason: null,
-      alternativeReason: picked.length
-        ? diverse.variant.id !== best.item.creativeVariantId
-          ? `2件目を別Hookへ再生成: ${diverse.audit.signature.openingPattern} / ${diverse.audit.signature.subjectStructure}`
-          : "役割と作品/女優/ジャンルの重複を避けた次点採用"
-        : null,
-      setDiversity: {
-        status: "OK",
-        roleLabel: sourceRoleLabel(best.item.sourceType),
-        signature: diverse.audit.signature,
-        reasons: diverse.audit.reasons,
-      },
-    });
-  }
-  if (picked.length >= 2 && !picked.some((pick) => pick.role === "REACH")) {
-    const replacement = pool
-      .filter((item) => !picked.some((pick) => pick.workId === item.workId || pick.sourceType === item.sourceType))
-      .flatMap((item) => item.creativeVariants
-        .filter((variant) => variant.intent === "REACH" && variant.quality.passed)
-        .map((variant) => ({ item, variant, score: clamp((variant.buzzPotential.total ?? 0) * 0.38 + variant.quality.total * 0.34 + item.freshness.total * 0.2 + (["MARKET", "COMPARISON", "JUDGMENT"].includes(item.sourceType) ? 8 : 0)) })))
-      .filter(({ variant, score }) => score >= 60 && variant.quality.total >= 70 && (variant.buzzPotential.total ?? 0) >= 60 && variant.quality.dimensions.adSmell <= 30)
-      .sort((a, b) => b.score - a.score)[0];
-    if (replacement) {
-      const weakestIndex = picked
-        .map((pick, index) => ({ index, score: pick.dailyScore, role: pick.role }))
-        .filter((pick) => pick.role !== "MONEY")
-        .sort((a, b) => a.score - b.score)[0]?.index;
-      if (weakestIndex !== undefined) {
-        const diverse = selectDiverseVariant(replacement.item, "REACH", picked.filter((_, index) => index !== weakestIndex), logs);
-        if (diverse) {
-          const pickMediaType = diverse.variant.mediaType === "sample_movie" && !isUsableXMediaAsset(replacement.item.mediaAsset).usable
-            ? replacement.item.imageUrl ? "existing_link_image" as const : "text" as const
-            : diverse.variant.mediaType;
-          const pickMediaUrl = pickMediaType === "sample_movie"
-            ? replacement.item.mediaAsset?.source_url ?? replacement.item.sampleMovieUrl
-            : pickMediaType === "existing_link_image" || pickMediaType === "data_card"
-              ? pickMediaType === "data_card" ? `/api/admin/x-growth/media/download?workId=${replacement.item.workId}&mediaType=data_card` : replacement.item.imageUrl
-              : null;
-          picked.splice(weakestIndex, 1, {
-            ...replacement.item,
-            intent: "REACH",
-            postText: diverse.variant.bodyText,
-            replyText: diverse.variant.replyText,
-            creativeVariantId: diverse.variant.id,
-            mediaType: pickMediaType,
-            mediaUsage: pickMediaType === "sample_movie" ? "allowed" : pickMediaUrl || pickMediaType === "text" || pickMediaType === "quote" ? "allowed" : "not_available",
-            recommendedMediaUrl: pickMediaUrl,
-            mediaDecision: pickMediaType === "sample_movie"
-              ? "権利確認済みのsample_movie_urlをネイティブ動画として使用可"
-              : pickMediaType === "data_card"
-                ? "比較自体が面白い場合だけデータカードを使用"
-                : "利用可能な画像/動画がないためテキストのみ",
-            pickOrder: weakestIndex + 1,
-            role: "REACH",
-            dailyScore: diverse.score,
-            recommendedTimeLabel: recommendedTimeLabel(replacement.item.recommendedSlot),
-            whyToday: whyToday(replacement.item, "REACH"),
-            whyBuzz: buzzReason(replacement.item, "REACH"),
-            notPostReason: null,
-            alternativeReason: "role diversity優先でREACHを差し替え採用",
-            setDiversity: {
-              status: "OK",
-              roleLabel: sourceRoleLabel(replacement.item.sourceType),
-              signature: diverse.audit.signature,
-              reasons: diverse.audit.reasons,
-            },
-          });
+  const slots = [
+    { slotId: "slot_1" as const, slotRole: "REACH" as const, slotLabel: "投稿枠1: REACH中心", roles: ["REACH" as const] },
+    { slotId: "slot_2" as const, slotRole: "FOLLOW_OR_AUTHORITY" as const, slotLabel: "投稿枠2: FOLLOW / AUTHORITY中心", roles: [mission.bottleneck === "Follow不足" ? "FOLLOW" as const : "AUTHORITY" as const, "FOLLOW" as const, "AUTHORITY" as const, "REACH" as const] },
+    { slotId: "slot_3" as const, slotRole: "MONEY_OR_REACH" as const, slotLabel: "投稿枠3: MONEY または別REACH中心", roles: ["MONEY" as const, "REACH" as const, "FOLLOW" as const, "AUTHORITY" as const] },
+  ];
+  const rankLabels = ["A", "B", "C"] as const;
+  for (const slot of slots) {
+    const slotPicked: XDailyTopPick[] = [];
+    for (const role of slot.roles) {
+      const sourcePriority: XOpportunitySourceType[] = role === "MONEY"
+        ? ["MONEY", "PRICE_EVENT", "WORK", "HIDDEN_GEM", "MARKET", "COMPARISON", "JUDGMENT", "FOLLOW_UP", "ACTRESS_TREND", "GENRE_TREND", "MAKER_TREND"]
+        : role === "REACH"
+          ? ["MARKET", "COMPARISON", "JUDGMENT", "HIDDEN_GEM", "PRICE_EVENT", "WORK", "FOLLOW_UP", "ACTRESS_TREND", "GENRE_TREND", "MAKER_TREND"]
+          : ["FOLLOW_UP", "HIDDEN_GEM", "ACTRESS_TREND", "GENRE_TREND", "MAKER_TREND", "WORK", "MARKET", "COMPARISON", "JUDGMENT", "PRICE_EVENT"];
+      const candidateEntries = () => pool
+        .filter((item) => !usedWorkIds.has(item.workId))
+        .filter((item) => !slotPicked.some((pick) => pick.workId === item.workId || pick.productId === item.productId))
+        .filter((item) => !slotPicked.some((pick) => pick.key === item.key && pick.role === role))
+        .filter((item) => {
+          const mediaId = Number(item.mediaAsset?.id);
+          return !Number.isSafeInteger(mediaId) || (!usedMediaIds.has(mediaId) && !slotPicked.some((pick) => Number(pick.mediaAsset?.id) === mediaId));
+        })
+        .filter((item) => role === "MONEY" || item.sourceType !== "MONEY")
+        .filter((item) => passesLinklessQualityGate(item, role))
+        .filter((item) => hasRealConversationSource(item, role))
+        .map((item) => {
+          const selected = selectCandidateVariant(item, role, [...picked, ...slotPicked], logs);
+          const tier = role === "REACH" && selected?.variant.mediaType === "sample_movie" ? reachVideoTier(item) : null;
+          const sourceIndex = sourcePriority.indexOf(item.sourceType);
+          const sourceBonus = sourceIndex >= 0 ? Math.max(0, 12 - sourceIndex) : 0;
+          const repetitionPenalty = hasDiversityConflict(item, [...picked, ...slotPicked], logs) ? 10 : 0;
+          const score = selected ? roleScore(item, role) + selected.score * 0.2 + sourceBonus + (tier?.score ?? 0) * 0.18 - repetitionPenalty : -1;
+          return { item, selected, tier, score };
+        })
+        .filter((entry): entry is typeof entry & { selected: NonNullable<typeof entry.selected> } => Boolean(entry.selected))
+        .filter(({ item, selected }) => {
+          if (role === "MONEY") return Boolean(selected.variant.url);
+          if (selected.variant.mediaType !== "sample_movie") return true;
+          const tags = item.mediaAsset?.manual_tags ?? [];
+          return item.canNativeVideo && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable && !tags.includes("too_explicit_for_reach") && item.mediaAsset?.media_quality !== "weak";
+        })
+        .sort((a, b) => b.score - a.score);
+      const addCandidates = () => {
+        for (const entry of candidateEntries()) {
+          if (slotPicked.length >= 3) break;
+          if (slotPicked.some((pick) => pick.workId === entry.item.workId || pick.productId === entry.item.productId)) continue;
+        const mediaId = Number(entry.item.mediaAsset?.id);
+        if (Number.isSafeInteger(mediaId) && slotPicked.some((pick) => Number(pick.mediaAsset?.id) === mediaId)) continue;
+        const rank = rankLabels[slotPicked.length];
+        const reason = rank === "A"
+          ? "システム推奨1位。Hard Gate通過候補の中でこの枠の狙いに最も近い"
+          : entry.selected.audit.ok
+            ? "安全に投稿可能な次点候補。スコア/tier差だけで落とさず比較用に残す"
+            : `安全Gateは通過。${entry.selected.audit.reasons.slice(0, 2).join(" / ") || "同日セット内の新鮮味はやや弱い"}`;
+        const pick = buildTopPickCandidate({
+          item: entry.item,
+          role,
+          variant: entry.selected.variant,
+          audit: entry.selected.audit,
+          score: clamp(entry.score),
+          pickOrder: slots.indexOf(slot) + 1,
+          slotId: slot.slotId,
+          slotRole: slot.slotRole,
+          slotLabel: slot.slotLabel,
+          candidateRank: rank,
+          reason,
+        });
+        slotPicked.push(pick);
         }
-      }
+      };
+      addCandidates();
+      if (slotPicked.length >= 3) break;
     }
-    picked.forEach((pick, index) => {
-      pick.pickOrder = index + 1;
-    });
-  }
-  if (picked.length < 2) {
-    const missingRoles: XGrowthIntent[] = [
-      ...(picked.some((pick) => pick.role === "REACH") ? [] : ["REACH" as const]),
-      ...(picked.some((pick) => pick.role === "AUTHORITY" || pick.role === "FOLLOW") ? [] : [mission.bottleneck === "Follow不足" ? "FOLLOW" as const : "AUTHORITY" as const]),
-      ...(picked.length >= 2 || picked.some((pick) => pick.role === "MONEY") ? [] : ["MONEY" as const]),
-      "AUTHORITY",
-      "FOLLOW",
-      "REACH",
-    ];
-    for (const desiredRole of missingRoles) {
-      if (picked.length >= 3) break;
-      const orderedSources = desiredRole === "MONEY"
-        ? ["MONEY", "PRICE_EVENT", "HIDDEN_GEM", "WORK", "MARKET", "COMPARISON", "JUDGMENT", "FOLLOW_UP", "ACTRESS_TREND", "GENRE_TREND", "MAKER_TREND"] as XOpportunitySourceType[]
-        : desiredRole === "REACH"
-          ? ["MARKET", "HIDDEN_GEM", "PRICE_EVENT", "WORK", "COMPARISON", "JUDGMENT", "FOLLOW_UP", "ACTRESS_TREND", "GENRE_TREND", "MAKER_TREND", "MONEY"] as XOpportunitySourceType[]
-          : ["FOLLOW_UP", "HIDDEN_GEM", "PRICE_EVENT", "ACTRESS_TREND", "GENRE_TREND", "MAKER_TREND", "WORK", "COMPARISON", "JUDGMENT", "MARKET", "MONEY"] as XOpportunitySourceType[];
-      for (const sourceType of orderedSources) {
-      if (picked.length >= 3) break;
-      const best = pool
-        .filter((item) => item.sourceType === sourceType)
-        .filter((item) => !hasDiversityConflict(item, picked, logs))
-        .flatMap((item) => item.creativeVariants
-          .filter((variant) => variant.intent === desiredRole && variant.quality.passed)
-          .map((variant) => ({ item, variant, score: clamp((variant.buzzPotential.total ?? 0) * 0.45 + variant.quality.total * 0.25 + item.freshness.total * 0.3) })))
-        .filter(({ variant, score }) => score >= (desiredRole === "REACH" ? 60 : 70) && variant.quality.total >= (desiredRole === "REACH" ? 70 : 72) && (variant.buzzPotential.total ?? 0) >= 60 && variant.quality.dimensions.adSmell <= (variant.intent === "MONEY" ? 48 : 30))
-        .sort((a, b) => b.score - a.score)[0];
-      if (!best) continue;
-      const diverse = selectDiverseVariant(best.item, best.variant.intent, picked, logs);
-      if (!diverse) continue;
-      const pickMediaType = diverse.variant.mediaType === "sample_movie" && !isUsableXMediaAsset(best.item.mediaAsset).usable
-        ? best.item.imageUrl ? "existing_link_image" as const : "text" as const
-        : diverse.variant.mediaType;
-      const pickMediaUrl = pickMediaType === "sample_movie"
-        ? best.item.mediaAsset?.source_url ?? best.item.sampleMovieUrl
-        : pickMediaType === "existing_link_image" || pickMediaType === "data_card"
-          ? pickMediaType === "data_card" ? `/api/admin/x-growth/media/download?workId=${best.item.workId}&mediaType=data_card` : best.item.imageUrl
-          : null;
-      picked.push({
-        ...best.item,
-        intent: diverse.variant.intent,
-        postText: diverse.variant.bodyText,
-        replyText: diverse.variant.replyText,
-        creativeVariantId: diverse.variant.id,
-        mediaType: pickMediaType,
-        mediaUsage: pickMediaType === "sample_movie" ? "allowed" : pickMediaUrl || pickMediaType === "text" || pickMediaType === "quote" ? "allowed" : "not_available",
-        recommendedMediaUrl: pickMediaUrl,
-        mediaDecision: pickMediaType === "sample_movie"
-          ? "権利確認済みのsample_movie_urlをネイティブ動画として使用可"
-          : pickMediaType === "existing_link_image"
-            ? diverse.variant.intent === "MONEY" ? "MONEY投稿は現在Xで使っている作品リンク画像を維持" : "作品画像を優先。本文は画像説明ではなく見る理由に絞る"
-            : pickMediaType === "data_card"
-              ? "比較自体が面白い場合だけデータカードを使用"
-              : "利用可能な画像/動画がないためテキストのみ",
-        pickOrder: picked.length + 1,
-        role: diverse.variant.intent,
-        dailyScore: diverse.score,
-        recommendedTimeLabel: recommendedTimeLabel(best.item.recommendedSlot),
-        whyToday: whyToday(best.item, diverse.variant.intent),
-        whyBuzz: buzzReason(best.item, diverse.variant.intent),
-        notPostReason: null,
-        alternativeReason: diverse.variant.id !== best.variant.id ? "供給不足時の補完。2件目を別Hookへ再生成" : "供給不足時の補完。Gate OK候補だけを採用",
-        setDiversity: {
-          status: "OK",
-          roleLabel: sourceRoleLabel(best.item.sourceType),
-          signature: diverse.audit.signature,
-          reasons: diverse.audit.reasons,
-        },
-      });
-      break;
-      }
+    for (const pick of slotPicked) {
+      picked.push(pick);
+      usedWorkIds.add(pick.workId);
+      const mediaId = Number(pick.mediaAsset?.id);
+      if (Number.isSafeInteger(mediaId)) usedMediaIds.add(mediaId);
     }
   }
   const reason = picked.length ? null : "今日の候補は鮮度、Creative Gate、素材可否、直近投稿との重複のいずれかで基準未達です。投稿しない判断が安全です。";
   return { picks: picked, reason };
+}
+
+function stripUrls(text: string) {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => !/^https?:\/\//.test(line))
+    .join("\n")
+    .trim();
+}
+
+function appendUrlIfMissing(text: string, url: string) {
+  const clean = text.trim();
+  return clean.includes(url) ? clean : `${clean}\n${url}`;
+}
+
+function selfReplyText(url: string) {
+  return `#PR\n必要な時だけ確認用です。\n${url}`;
+}
+
+function applyTopPickLinkPolicy(item: XDailyTopPick): XDailyTopPick {
+  const selectedVariant = item.creativeVariants.find((variant) => variant.id === item.creativeVariantId) ?? item.creativeVariants[0];
+  if (item.role !== "MONEY") {
+    return {
+      ...item,
+      postText: stripUrls(item.postText),
+      replyText: null,
+      setDiversity: {
+        ...item.setDiversity,
+        signature: {
+          ...item.setDiversity.signature,
+          linkStrategy: "no_link",
+        },
+      },
+    };
+  }
+  const url = selectedVariant?.url ?? item.creativeVariants[0]?.url ?? `/works/${item.workId}`;
+  const linkPlan = selectedVariant?.linkPlan === "reply_link" ? "reply_link" : "body_link";
+  if (linkPlan === "reply_link") {
+    return {
+      ...item,
+      postText: stripUrls(item.postText),
+      replyText: selfReplyText(url),
+      setDiversity: {
+        ...item.setDiversity,
+        signature: {
+          ...item.setDiversity.signature,
+          linkStrategy: "reply_link",
+        },
+      },
+    };
+  }
+  return {
+    ...item,
+    postText: appendUrlIfMissing(stripUrls(item.postText), url),
+    replyText: null,
+    setDiversity: {
+      ...item.setDiversity,
+      signature: {
+        ...item.setDiversity.signature,
+        linkStrategy: "body_link",
+      },
+    },
+  };
 }
 
 function buildSupplyDiagnostics(opportunities: XGrowthOpportunity[], picks: XDailyTopPick[]) {
@@ -1226,7 +1211,8 @@ export async function buildXGrowthOS({
   const opportunities = applyRankingHistory(applyMediaRights(scored, media.assets), rankingHistories.histories).map((item) => withCreativeQuality(item, logs));
   timings.creative_quality_ms = Date.now() - qualityStarted;
   const mission = buildStrategicMission(growth, logs, creativeLearning);
-  const dailySelection = selectDailyTopPicks(opportunities, mission, logs);
+  const recentDailyPickWorkIds = await mark("recent_daily_pick_cooldown_ms", fetchRecentDailyPickWorkIds());
+  const dailySelection = selectDailyTopPicks(opportunities, mission, logs, recentDailyPickWorkIds);
   const supplyDiagnostics = buildSupplyDiagnostics(opportunities, dailySelection.picks);
   const nativeXLearning = buildNativeXLearning(logs, outcomes);
   const persistedTopPicks = await mark("persisted_top_picks_ms", persistDailyTopPicks({

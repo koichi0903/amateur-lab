@@ -50,8 +50,7 @@ async function downloadSource(url: string, file: string) {
 }
 
 export async function probeVideoFile(file: string) {
-  const ffprobePath = bundledBinary("ffprobe");
-  const { stdout } = await runBinary(ffprobePath, [
+  const { stdout } = await runBinary(bundledBinary("ffprobe"), [
     "-v", "error",
     "-print_format", "json",
     "-show_format",
@@ -82,8 +81,7 @@ export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds
     const sourceProbe = await probeVideoFile(sourceFile);
     const validation = validateTrimStartSeconds(input.trimStartSeconds, sourceProbe.durationSeconds);
     if (!validation.ok) throw new Error(validation.error);
-    const ffmpegPath = bundledBinary("ffmpeg");
-    await runBinary(ffmpegPath, [
+    await runBinary(bundledBinary("ffmpeg"), [
       "-y",
       "-ss", validation.value.toFixed(1),
       "-i", sourceFile,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auditXGrowth } from "@/lib/xGrowthOperations";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { canTrimXMediaAsset, isUsableXMediaAsset } from "@/lib/xMediaAssets";
+import { canTrimOfficialSampleMovie, isPostableOfficialSampleMovie, sourceDomain, sourceKindFor } from "@/lib/xMediaAssets";
 import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
 
 export const dynamic = "force-dynamic";
@@ -84,20 +84,55 @@ function dataCardSvg(work: {
 </svg>`;
 }
 
-async function resolveMedia(workId: number, mediaType: string, assetId: number | null) {
+function isPreviewableOfficialSampleMovie(asset: Partial<{ source_url: string; source_kind: string | null; fetch_status: string | null }>, sampleMovieUrl?: string | null) {
+  const sourceUrl = asset.source_url ?? sampleMovieUrl;
+  const official = Boolean(sourceUrl) && (asset.source_kind === "official_sample" || sourceKindFor(sourceUrl as string) === "official_sample");
+  const reachable = asset.fetch_status !== "dead" && asset.fetch_status !== "forbidden";
+  return official && reachable;
+}
+
+async function resolveMedia(workId: number, mediaType: string, assetId: number | null, preview: boolean) {
   if (mediaType === "sample_movie") {
-    if (!assetId) return { error: "動画保存にはmedia assetが必要です。", status: 400 as const };
-    const { data, error } = await supabaseAdmin
-      .from("x_media_assets")
-      .select("*")
-      .eq("account_handle", ACCOUNT)
-      .eq("id", assetId)
-      .single();
-    const asset = data as { id: number; work_id: number | null; source_url: string; media_type: string } | null;
-    if (error || !asset) return { error: error?.message ?? "動画素材が見つかりません。", status: 404 as const };
-    const allowed = (asset.media_type === "sample_movie" || asset.media_type === "video") && asset.work_id === workId && isUsableXMediaAsset(data).usable;
+    let data: Record<string, unknown> | null = null;
+    if (assetId) {
+      const result = await supabaseAdmin
+        .from("x_media_assets")
+        .select("*")
+        .eq("account_handle", ACCOUNT)
+        .eq("id", assetId)
+        .single();
+      if (result.error || !result.data) return { error: result.error?.message ?? "動画素材が見つかりません。", status: 404 as const };
+      data = result.data as Record<string, unknown>;
+    } else {
+      const result = await supabaseAdmin
+        .from("works")
+        .select("id,product_id,sample_movie_url")
+        .eq("id", workId)
+        .single();
+      const work = result.data as { id: number; product_id: string | null; sample_movie_url: string | null } | null;
+      if (result.error || !work?.sample_movie_url) return { error: result.error?.message ?? "動画素材が見つかりません。", status: 404 as const };
+      data = {
+        id: undefined,
+        work_id: work.id,
+        product_id: work.product_id,
+        media_type: "sample_movie",
+        source_url: work.sample_movie_url,
+        source_domain: sourceDomain(work.sample_movie_url),
+        source_kind: sourceKindFor(work.sample_movie_url),
+        fetch_status: null,
+        media_quality: "unreviewed",
+        manual_tags: [],
+        can_modify: false,
+        trim_start_seconds: 0,
+        trim_modify_confirmed: false,
+      };
+    }
+    const asset = data as { id?: number; work_id: number | null; source_url: string; media_type: string };
+    const allowed = (asset.media_type === "sample_movie" || asset.media_type === "video") && asset.work_id === workId && (
+      preview ? isPreviewableOfficialSampleMovie(data, asset.source_url) : isPostableOfficialSampleMovie(data).usable
+    );
     if (!allowed) {
-      await auditXGrowth("media_download_blocked", { workId, mediaType, assetId, reasons: isUsableXMediaAsset(data).reasons });
+      await auditXGrowth("media_download_blocked", { workId, mediaType, assetId, reasons: isPostableOfficialSampleMovie(data).reasons });
       return { error: "このmp4はX投稿用に保存できません。", status: 403 as const };
     }
     return { url: asset.source_url, basename: `hakkutsu-${workId}-sample`, fallbackExt: "mp4", asset: data as Record<string, unknown> };
@@ -133,11 +168,13 @@ export async function GET(request: NextRequest) {
   const assetIdParam = request.nextUrl.searchParams.get("assetId");
   const assetId = assetIdParam ? Number(assetIdParam) : null;
   const mediaType = request.nextUrl.searchParams.get("mediaType") ?? "";
+  const preview = request.nextUrl.searchParams.get("preview") === "1";
+  const range = request.headers.get("range");
   if (!Number.isSafeInteger(workId) || workId <= 0) {
     return NextResponse.json({ error: "workIdが不正です。" }, { status: 400 });
   }
 
-  const resolved = await resolveMedia(workId, mediaType, assetId && Number.isSafeInteger(assetId) ? assetId : null);
+  const resolved = await resolveMedia(workId, mediaType, assetId && Number.isSafeInteger(assetId) ? assetId : null, preview);
   if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: resolved.status });
   if ("body" in resolved) {
     const contentType = resolved.contentType ?? "image/svg+xml; charset=utf-8";
@@ -153,8 +190,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const trimStartSeconds = "asset" in resolved ? Number((resolved.asset as { trim_start_seconds?: unknown }).trim_start_seconds ?? 0) : 0;
-    if (mediaType === "sample_movie" && trimStartSeconds > 0) {
-      const trimVerdict = canTrimXMediaAsset(resolved.asset);
+    if (mediaType === "sample_movie" && trimStartSeconds > 0 && !preview) {
+      const trimVerdict = canTrimOfficialSampleMovie(resolved.asset, resolved.url);
       if (!trimVerdict.usable) {
         await auditXGrowth("media_trim_download_blocked", { workId, mediaType, assetId, reasons: trimVerdict.reasons });
         return NextResponse.json({ error: `トリムに失敗しました: ${trimVerdict.reasons.join(" / ")}` }, { status: 403 });
@@ -184,20 +221,29 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const upstream = await fetch(resolved.url, { cache: "no-store" });
+    const upstream = await fetch(resolved.url, {
+      cache: "no-store",
+      headers: range && mediaType === "sample_movie" ? { Range: range } : undefined,
+    });
     if (!upstream.ok || !upstream.body) {
       await auditXGrowth("media_download_failed", { workId, mediaType, assetId, status: upstream.status });
       return NextResponse.json({ error: "素材を取得できませんでした。" }, { status: 502 });
     }
     const contentType = upstream.headers.get("content-type") ?? "application/octet-stream";
     const ext = extFromContentType(contentType, resolved.fallbackExt);
+    const headers = new Headers({
+      "Content-Type": contentType,
+      "Content-Disposition": `${mediaType === "sample_movie" ? "inline" : "attachment"}; filename="${safeFilename(resolved.basename)}.${ext}"`,
+      "Cache-Control": "private, no-store",
+    });
+    for (const header of ["content-length", "accept-ranges", "content-range"] as const) {
+      const value = upstream.headers.get(header);
+      if (value) headers.set(header, value);
+    }
     await auditXGrowth("media_download_allowed", { workId, mediaType, assetId, contentType });
     return new NextResponse(upstream.body, {
-      headers: {
-        "Content-Type": contentType,
-        "Content-Disposition": `attachment; filename="${safeFilename(resolved.basename)}.${ext}"`,
-        "Cache-Control": "private, no-store",
-      },
+      status: upstream.status === 206 ? 206 : 200,
+      headers,
     });
   } catch (error) {
     await auditXGrowth("media_download_failed", { workId, mediaType, assetId, error: error instanceof Error ? error.message : String(error) });

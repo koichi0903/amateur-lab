@@ -596,6 +596,7 @@ function lastMileGate(input: XCreativeInput, variant: { intent: XGrowthIntent; m
   const digitCount = (variant.text.match(/\d/g) ?? []).length;
   const titleTooForced = input.title.length > 42 && variant.text.includes(input.title);
   const hasConcreteEntry = Boolean(primaryActress(input) || input.genre || input.imageUrl || input.reviewAverage || input.ranking || input.isNinetyDayLow);
+  const hasUrl = /https?:\/\//.test(variant.text);
   const reachApprovalFailures = variant.intent === "REACH" ? [
     !hasConcreteEntry || first.length < 14 ? "REACH Approval: 1行目が具体的ではない" : "",
     /市場|傾向|分析|データ|報告/.test(variant.text) && !/見る|迷|止ま|外|差|カード|サンプル/.test(variant.text) ? "REACH Approval: 抽象的な市場説明で終わっている" : "",
@@ -616,8 +617,9 @@ function lastMileGate(input: XCreativeInput, variant: { intent: XGrowthIntent; m
     slashFacts >= 2 || digitCount >= 14 ? "数字羅列に見える" : "",
     !hasConcreteEntry ? "作品を知らない人の入口が弱い" : "",
     titleTooForced || variant.text.includes("…") ? "長い作品名の機械的処理が残っている" : "",
-    variant.intent === "MONEY" && variant.linkPlan !== "body_link" ? "MONEYなのにリンクがない" : "",
-    variant.intent !== "MONEY" && variant.linkPlan === "body_link" ? "認知投稿に直リンクが強すぎる" : "",
+    variant.intent === "MONEY" && variant.linkPlan === "body_link" && !hasUrl ? "MONEYなのに本文リンクがない" : "",
+    variant.intent === "MONEY" && variant.linkPlan !== "body_link" ? "MONEYの自己リプリンクはA/Bテスト明示時だけ使う" : "",
+    variant.intent !== "MONEY" && (variant.linkPlan === "body_link" || hasUrl) ? "認知投稿に直リンクが強すぎる" : "",
     mediaWeak ? "テキストのみのHookが弱い" : "",
     ...reachApprovalFailures,
     ...humanVoice.reasons.map((reason) => `Human Voice Gate: ${reason}`),

@@ -45,6 +45,16 @@ const MANUAL_TAGS = [
   ["weak_visual", "映像が弱い"],
 ] as const;
 
+type XGrowthMediaType = "existing_link_image" | "sample_movie" | "data_card" | "text" | "quote";
+
+type TrimControlAsset = {
+  id: number;
+  can_modify?: boolean | null;
+  trim_modify_confirmed?: boolean | null;
+  trim_start_seconds?: number | null;
+  trim_note?: string | null;
+};
+
 async function postJson(url: string, body: Record<string, unknown>) {
   const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const data = await response.json().catch(() => ({}));
@@ -154,6 +164,11 @@ function fallbackDownload(url: string, filename: string) {
   link.remove();
 }
 
+function xGrowthMediaUrl(input: { workId: number; mediaType: XGrowthMediaType; mediaAssetId?: number | null }) {
+  if (input.mediaType !== "sample_movie" && input.mediaType !== "existing_link_image" && input.mediaType !== "data_card") return null;
+  return `/api/admin/x-growth/media/download?workId=${encodeURIComponent(String(input.workId))}&mediaType=${encodeURIComponent(input.mediaType)}${input.mediaAssetId ? `&assetId=${encodeURIComponent(String(input.mediaAssetId))}` : ""}`;
+}
+
 export function TempFolderStatus() {
   const [supported, setSupported] = useState(false);
   const [configured, setConfigured] = useState(false);
@@ -250,6 +265,9 @@ export function OpportunityActions({ id, canNativeVideo }: { id: number | null; 
 
 export function ManualPostActions({
   postText,
+  replyText,
+  linkPlan = "none",
+  affiliateUrl,
   mediaUrl,
   mediaType,
   quoteUrl,
@@ -261,6 +279,9 @@ export function ManualPostActions({
   canModify = false,
 }: {
   postText: string;
+  replyText?: string | null;
+  linkPlan?: "none" | "body" | "self_reply";
+  affiliateUrl?: string | null;
   mediaUrl: string | null;
   mediaType: "existing_link_image" | "sample_movie" | "data_card" | "text" | "quote";
   quoteUrl?: string | null;
@@ -274,9 +295,7 @@ export function ManualPostActions({
   const [message, setMessage] = useState("");
   const encodedText = encodeURIComponent(postText);
   const xComposeUrl = `https://twitter.com/intent/tweet?text=${encodedText}`;
-  const downloadUrl = mediaType === "sample_movie" || mediaType === "existing_link_image" || mediaType === "data_card"
-    ? `/api/admin/x-growth/media/download?workId=${encodeURIComponent(String(workId))}&mediaType=${encodeURIComponent(mediaType)}${mediaAssetId ? `&assetId=${encodeURIComponent(String(mediaAssetId))}` : ""}`
-    : null;
+  const downloadUrl = xGrowthMediaUrl({ workId, mediaType, mediaAssetId });
   const tempFilename = useMemo(() => buildTempFilename({
     workId,
     intent,
@@ -284,14 +303,17 @@ export function ManualPostActions({
     extension: mediaType === "sample_movie" ? "mp4" : "png",
     trimStartSeconds,
   }), [intent, mediaType, pickOrder, trimStartSeconds, workId]);
-  const copy = async () => {
+  const copyText = async (value: string, successMessage: string) => {
     try {
-      await navigator.clipboard.writeText(postText);
-      setMessage("完成文をコピーしました。");
+      await navigator.clipboard.writeText(value);
+      setMessage(successMessage);
     } catch {
       setMessage("コピーできませんでした。本文を選択してコピーしてください。");
     }
   };
+  const copy = () => copyText(postText, linkPlan === "self_reply" ? "本投稿をコピーしました。" : "完成文をコピーしました。");
+  const copyReply = () => replyText ? copyText(replyText, "自己リプをコピーしました。") : setMessage("自己リプ文がありません。");
+  const copyLink = () => affiliateUrl ? copyText(affiliateUrl, "リンクをコピーしました。") : setMessage("リンクがありません。");
   const copyImage = async () => {
     if (!downloadUrl || !(mediaType === "existing_link_image" || mediaType === "data_card")) return;
     try {
@@ -357,7 +379,13 @@ export function ManualPostActions({
   return (
     <div className="mt-4">
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={copy} className="h-10 rounded-lg bg-emerald-500 px-3 text-xs font-black text-black">完成文をコピー</button>
+        <button type="button" onClick={copy} className="h-10 rounded-lg bg-emerald-500 px-3 text-xs font-black text-black">{linkPlan === "self_reply" ? "本投稿をコピー" : "完成文をコピー"}</button>
+        {linkPlan === "body" && affiliateUrl && (
+          <button type="button" onClick={copyLink} className="h-10 rounded-lg border border-emerald-700 bg-emerald-950/40 px-3 text-xs font-black text-emerald-100">リンクをコピー</button>
+        )}
+        {linkPlan === "self_reply" && (
+          <button type="button" onClick={copyReply} className="h-10 rounded-lg border border-emerald-700 bg-emerald-950/40 px-3 text-xs font-black text-emerald-100">自己リプをコピー</button>
+        )}
         {mediaUrl && downloadUrl && (mediaType === "existing_link_image" || mediaType === "data_card") && (
           <button type="button" onClick={copyImage} className="h-10 rounded-lg bg-cyan-400 px-3 text-xs font-black text-black">画像をコピー</button>
         )}
@@ -377,19 +405,23 @@ export function ManualPostActions({
           <button type="button" onClick={deleteTempFile} className="h-10 rounded-lg border border-rose-700 bg-rose-950/30 px-3 text-xs font-black text-rose-100">投稿済み・一時ファイル削除</button>
         )}
       </div>
-      <p className="mt-2 text-[11px] leading-5 text-zinc-500">画像はコピー優先です。動画は一時フォルダへ保存してXで手動添付します。投稿完了はブラウザだけでは検知できないため、投稿後に削除ボタンを押します。</p>
+      <p className="mt-2 text-[11px] leading-5 text-zinc-500">
+        {linkPlan === "self_reply" ? "順序: 本投稿を投稿 → 投稿後に自己リプを付ける。画像はコピー優先です。動画は一時フォルダへ保存してXで手動添付します。" : linkPlan === "body" ? "この投稿の本文にリンクを入れる。完成文コピーにはURLも含まれます。画像はコピー優先です。動画は一時フォルダへ保存してXで手動添付します。" : "この投稿にはリンクを入れない。画像はコピー優先です。動画は一時フォルダへ保存してXで手動添付します。"}
+      </p>
       {message && <p className="mt-2 text-[11px] font-bold text-emerald-200">{message}</p>}
     </div>
   );
 }
 
-export function TrimReviewActions({
+export function XVideoTrimControls({
   assetId,
   sourceUrl,
   initialTrimStartSeconds,
   initialTrimNote,
   canModify,
   trimModifyConfirmed,
+  compact = false,
+  onSaved,
 }: {
   assetId: number;
   sourceUrl: string;
@@ -397,6 +429,8 @@ export function TrimReviewActions({
   initialTrimNote?: string | null;
   canModify?: boolean | null;
   trimModifyConfirmed?: boolean | null;
+  compact?: boolean;
+  onSaved?: (value: { trimStartSeconds: number; trimModifyConfirmed: boolean; trimNote: string }) => void;
 }) {
   const [seconds, setSeconds] = useState(Number(initialTrimStartSeconds ?? 0).toFixed(1));
   const [savedSeconds, setSavedSeconds] = useState(Number(initialTrimStartSeconds ?? 0));
@@ -412,32 +446,45 @@ export function TrimReviewActions({
     try {
       const rounded = Math.round(Number(seconds) * 10) / 10;
       if (!Number.isFinite(rounded) || rounded < 0) throw new Error("開始秒が不正です。");
-      const result = await postJson("/api/admin/x-growth/media/trim", { id: assetId, trimStartSeconds: rounded, trimNote: note, trimModifyConfirmed: modifyConfirmed });
+      const defaultNote = "User confirmed trimming only the leading black/title-card segment of FANZA/DMM official sample videos is permitted for X affiliate use.";
+      const result = await postJson("/api/admin/x-growth/media/trim", {
+        id: assetId,
+        trimStartSeconds: rounded,
+        trimNote: note.trim() || defaultNote,
+        trimModifyConfirmed: modifyConfirmed,
+      });
       const saved = Number(result.trimStartSeconds ?? rounded);
       setSeconds(saved.toFixed(1));
       setSavedSeconds(saved);
+      const savedNote = note.trim() || defaultNote;
+      if (!note.trim()) setNote(defaultNote);
+      onSaved?.({ trimStartSeconds: saved, trimModifyConfirmed: modifyConfirmed, trimNote: savedNote });
       setMessage("開始位置を保存しました。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存に失敗しました。");
     }
   });
   return (
-    <div className="mt-3 grid gap-2 rounded-lg border border-cyan-900 bg-cyan-950/10 p-3">
-      <video
-        src={sourceUrl}
-        controls
-        preload="metadata"
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-        className="h-44 w-full bg-black"
-      />
+    <div className="mt-3 grid min-w-0 gap-2 rounded-lg border border-cyan-900 bg-cyan-950/10 p-3">
+      {compact && <p className="text-xs font-black text-cyan-100">動画の最終調整</p>}
+      <div className="mx-auto w-full min-w-0 rounded-lg bg-black">
+        <video
+          src={sourceUrl}
+          controls
+          preload="metadata"
+          onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+          className="block aspect-video h-auto w-full min-w-0 object-contain"
+        />
+      </div>
       <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-cyan-100">
         <span>現在 {currentTime.toFixed(1)}秒</span>
         <span>保存済み {savedSeconds.toFixed(1)}秒</span>
         {dirty && <span className="text-amber-200">未保存</span>}
         {savedSeconds > 0 && <span className="text-emerald-200">冒頭トリム: {savedSeconds.toFixed(1)}秒</span>}
-        {savedSeconds > 0 && !canModify && !modifyConfirmed && <span className="text-rose-200">冒頭カット許可が未確認のため投稿用trim生成は不可</span>}
+        {savedSeconds > 0 && !canModify && !modifyConfirmed && <span className="text-rose-200">冒頭カット許可未確認のためトリム投稿不可</span>}
+        <span className={modifyConfirmed ? "text-emerald-200" : "text-amber-200"}>{modifyConfirmed ? "冒頭カット許可確認済み" : "冒頭カット許可未確認"}</span>
       </div>
-      <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
+      <div className="grid gap-2 sm:grid-cols-2">
         <input
           suppressHydrationWarning
           type="number"
@@ -445,13 +492,13 @@ export function TrimReviewActions({
           step="0.1"
           value={seconds}
           onChange={(event) => setSeconds(event.target.value)}
-          className="h-9 rounded-lg border border-zinc-700 bg-black px-2 text-xs text-zinc-100"
+          className="h-9 min-w-0 rounded-lg border border-zinc-700 bg-black px-2 text-xs text-zinc-100"
         />
-        <button type="button" onClick={() => setSeconds((Math.round(currentTime * 10) / 10).toFixed(1))} className="h-9 rounded-lg bg-cyan-400 px-3 text-xs font-black text-black">現在位置を開始点にする</button>
-        <button type="button" onClick={() => setSeconds("0.0")} className="h-9 rounded-lg border border-zinc-700 px-3 text-xs font-black text-zinc-100">0秒に戻す</button>
-        <button type="button" disabled={pending} onClick={save} className="h-9 rounded-lg bg-emerald-500 px-3 text-xs font-black text-black disabled:opacity-50">保存</button>
+        <button type="button" onClick={() => setSeconds((Math.round(currentTime * 10) / 10).toFixed(1))} className="min-h-9 rounded-lg bg-cyan-400 px-3 py-2 text-center text-[11px] font-black leading-4 text-black">現在位置を開始点にする</button>
+        <button type="button" onClick={() => setSeconds("0.0")} className="min-h-9 rounded-lg border border-zinc-700 px-3 py-2 text-center text-[11px] font-black leading-4 text-zinc-100">0秒に戻す</button>
+        <button type="button" disabled={pending} onClick={save} className="min-h-9 rounded-lg bg-emerald-500 px-3 py-2 text-center text-[11px] font-black leading-4 text-black disabled:opacity-50">開始位置を保存</button>
       </div>
-      <textarea suppressHydrationWarning value={note} onChange={(event) => setNote(event.target.value)} placeholder="トリムメモ" className="h-16 resize-none rounded-lg border border-zinc-700 bg-black p-2 text-xs text-zinc-100" />
+      {!compact && <textarea suppressHydrationWarning value={note} onChange={(event) => setNote(event.target.value)} placeholder="トリムメモ" className="h-16 resize-none rounded-lg border border-zinc-700 bg-black p-2 text-xs text-zinc-100" />}
       <label className="flex items-center gap-2 text-[11px] font-bold text-zinc-300">
         <input
           suppressHydrationWarning
@@ -460,7 +507,7 @@ export function TrimReviewActions({
           onChange={(event) => setModifyConfirmed(event.target.checked)}
           className="h-4 w-4 accent-emerald-400"
         />
-        冒頭カットも許可確認済みとして記録
+        冒頭カット許可確認済み
       </label>
       <button
         type="button"
@@ -473,9 +520,158 @@ export function TrimReviewActions({
         }}
         className="h-9 w-fit rounded-lg border border-cyan-700 px-3 text-xs font-black text-cyan-100"
       >
-        この位置からプレビュー
+        この位置から確認
       </button>
       {message && <p className="text-[11px] font-bold text-emerald-200">{message}</p>}
+    </div>
+  );
+}
+
+export function TrimReviewActions(props: Parameters<typeof XVideoTrimControls>[0]) {
+  return <XVideoTrimControls {...props} />;
+}
+
+export function TopPickVideoActions({
+  postText,
+  replyText,
+  linkPlan,
+  affiliateUrl,
+  mediaUrl,
+  quoteUrl,
+  workId,
+  mediaAsset,
+  intent,
+  pickOrder,
+  mediaType,
+}: {
+  postText: string;
+  replyText?: string | null;
+  linkPlan?: "none" | "body" | "self_reply";
+  affiliateUrl?: string | null;
+  mediaUrl: string | null;
+  quoteUrl?: string | null;
+  workId: number;
+  mediaAsset?: TrimControlAsset | null;
+  intent?: string;
+  pickOrder?: number;
+  mediaType: XGrowthMediaType;
+}) {
+  const [trimStartSeconds, setTrimStartSeconds] = useState(Number(mediaAsset?.trim_start_seconds ?? 0));
+  const [trimModifyConfirmed, setTrimModifyConfirmed] = useState(Boolean(mediaAsset?.trim_modify_confirmed));
+  const canModify = mediaAsset?.can_modify === true || trimModifyConfirmed;
+  const filename = useMemo(() => buildTempFilename({
+    workId,
+    intent,
+    pickOrder,
+    extension: mediaType === "sample_movie" ? "mp4" : "png",
+    trimStartSeconds,
+  }), [intent, mediaType, pickOrder, trimStartSeconds, workId]);
+  const showTrimControls = mediaType === "sample_movie" && Boolean(mediaUrl) && Boolean(mediaAsset?.id);
+  const previewUrl = xGrowthMediaUrl({ workId, mediaType, mediaAssetId: mediaAsset?.id ?? null });
+
+  if (mediaType !== "sample_movie") {
+    return (
+      <ManualPostActions
+        postText={postText}
+        mediaUrl={mediaUrl}
+        mediaType={mediaType}
+        quoteUrl={quoteUrl}
+        workId={workId}
+        mediaAssetId={mediaAsset?.id ?? null}
+        intent={intent}
+        pickOrder={pickOrder}
+        linkPlan={linkPlan}
+        affiliateUrl={affiliateUrl}
+        replyText={replyText}
+        trimStartSeconds={trimStartSeconds}
+        canModify={canModify}
+      />
+    );
+  }
+
+  return (
+    <div className="mt-4 min-w-0 rounded-lg border border-cyan-900 bg-zinc-900 p-3">
+      {showTrimControls && (
+        <div>
+          <div className="flex flex-wrap items-center gap-2 text-[11px] font-black">
+            <span className="rounded-lg border border-cyan-800 bg-cyan-950/30 px-3 py-2 text-cyan-100">現在の投稿動画: asset {mediaAsset?.id}</span>
+            <span className="rounded-lg border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-emerald-100">冒頭トリム: {trimStartSeconds.toFixed(1)}秒</span>
+            <span className={`rounded-lg border px-3 py-2 ${canModify ? "border-emerald-800 bg-emerald-950/30 text-emerald-100" : "border-amber-800 bg-amber-950/30 text-amber-100"}`}>
+              {canModify ? "冒頭カット許可確認済み" : "冒頭カット許可未確認のためトリム投稿不可"}
+            </span>
+            <span className="min-w-0 break-all rounded-lg border border-zinc-700 bg-black/30 px-3 py-2 text-zinc-300">一時ファイル名: {filename}</span>
+          </div>
+          <XVideoTrimControls
+            compact
+            assetId={mediaAsset?.id as number}
+            sourceUrl={previewUrl ?? (mediaUrl as string)}
+            initialTrimStartSeconds={trimStartSeconds}
+            initialTrimNote={mediaAsset?.trim_note}
+            canModify={mediaAsset?.can_modify}
+            trimModifyConfirmed={trimModifyConfirmed}
+            onSaved={(value) => {
+              setTrimStartSeconds(value.trimStartSeconds);
+              setTrimModifyConfirmed(value.trimModifyConfirmed);
+            }}
+          />
+        </div>
+      )}
+      {!showTrimControls && (
+        <div className="rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-xs font-bold leading-5 text-amber-100">
+          投稿動画のasset情報が不足しているため、このカードでは冒頭編集を表示できません。動画投稿用assetを再生成してください。
+        </div>
+      )}
+      <ManualPostActions
+        postText={postText}
+        mediaUrl={mediaUrl}
+        mediaType={mediaType}
+        quoteUrl={quoteUrl}
+        workId={workId}
+        mediaAssetId={mediaAsset?.id ?? null}
+        intent={intent}
+        pickOrder={pickOrder}
+        linkPlan={linkPlan}
+        affiliateUrl={affiliateUrl}
+        replyText={replyText}
+        trimStartSeconds={trimStartSeconds}
+        canModify={canModify}
+      />
+    </div>
+  );
+}
+
+export function CandidateSelectAction({
+  slotId,
+  candidateId,
+  selected,
+}: {
+  slotId?: string;
+  candidateId?: string;
+  selected?: boolean;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [message, setMessage] = useState("");
+  if (!slotId || !candidateId) return null;
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        disabled={pending || selected}
+        onClick={() => startTransition(async () => {
+          setMessage("");
+          try {
+            await postJson("/api/admin/x-growth/select-candidate", { slotId, candidateId });
+            setMessage("選択を保存しました。");
+            window.location.reload();
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "選択を保存できませんでした。");
+          }
+        })}
+        className={`h-9 rounded-lg px-3 text-xs font-black disabled:opacity-70 ${selected ? "border border-emerald-700 bg-emerald-500 text-black" : "border border-zinc-700 bg-zinc-900 text-zinc-100"}`}
+      >
+        {selected ? "選択中" : pending ? "保存中" : "この候補を選ぶ"}
+      </button>
+      {message && <p className="mt-2 text-[11px] font-bold text-emerald-200">{message}</p>}
     </div>
   );
 }
@@ -529,7 +725,7 @@ export function RegenerateTopPicksAction() {
     startTransition(async () => {
       try {
         const data = await postJson("/api/admin/x-growth/regenerate", {});
-        setMessage(`再生成しました。Top Picks ${data.topPicks ?? 0}件 / ${data.elapsedMs ?? "-"}ms`);
+        setMessage(`再生成しました。候補 ${data.topPicks ?? 0}件 / ${data.elapsedMs ?? "-"}ms`);
         window.location.reload();
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "再生成できませんでした。");
@@ -540,10 +736,140 @@ export function RegenerateTopPicksAction() {
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
       <button type="button" onClick={regenerate} disabled={pending} className="h-9 rounded-lg border border-emerald-700 bg-emerald-950/40 px-3 font-black text-emerald-100 disabled:opacity-50">
-        {pending ? "再生成中" : "今日のTop Picksを再生成"}
+        {pending ? "再生成中" : "今日の候補を再生成"}
       </button>
       {message && <span className="font-bold text-emerald-200">{message}</span>}
     </div>
+  );
+}
+
+type DeferredPayload = {
+  ok: boolean;
+  error?: string;
+  supplyDiagnostics?: {
+    generatedByRole?: Record<string, number>;
+    gateOkByRole?: Record<string, number>;
+    shortagesByRole?: Record<string, number>;
+    shortages?: string[];
+    nativeVoiceNgBySource?: Record<string, number>;
+    crossPostDiversityRejected?: number;
+  };
+  nativeXLearning?: {
+    overusedPatterns?: string[];
+    winningPatterns?: string[];
+    avoidConstructions?: string[];
+  };
+  mediaSupply?: Record<string, unknown>;
+  rightsReviewQueue?: Array<Record<string, unknown>>;
+  conversationRadar?: Array<Record<string, unknown>>;
+  learning?: Array<Record<string, unknown>>;
+  opportunities?: Array<Record<string, unknown>>;
+  audit?: Record<string, string[]>;
+  performanceTimings?: Record<string, number>;
+};
+
+function InlineMap({ values }: { values?: Record<string, unknown> }) {
+  const entries = Object.entries(values ?? {});
+  if (!entries.length) return <p>なし</p>;
+  return (
+    <div className="space-y-1">
+      {entries.map(([key, value]) => <p key={key}>{key}: {Array.isArray(value) ? value.join(" / ") : String(value)}</p>)}
+    </div>
+  );
+}
+
+function SimpleList({ items, empty }: { items?: unknown[]; empty: string }) {
+  if (!items?.length) return <p>{empty}</p>;
+  return (
+    <div className="space-y-2">
+      {items.slice(0, 12).map((item, index) => (
+        <pre key={index} className="overflow-auto rounded-lg border border-zinc-800 bg-black/40 p-2 text-[10px] leading-4 text-zinc-400">
+          {JSON.stringify(item, null, 2)}
+        </pre>
+      ))}
+    </div>
+  );
+}
+
+export function DeferredXGrowthSections() {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<DeferredPayload | null>(null);
+
+  const load = async () => {
+    setOpen((current) => !current);
+    if (data || loading) return;
+    setLoading(true);
+    try {
+      const response = await fetch("/api/admin/x-growth/deferred", { cache: "no-store" });
+      const payload = await response.json();
+      setData(payload as DeferredPayload);
+    } catch (error) {
+      setData({ ok: false, error: error instanceof Error ? error.message : "後読み詳細を取得できませんでした。" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="mt-6 rounded-lg border border-zinc-800 bg-zinc-900 p-5">
+      <button type="button" onClick={load} className="flex w-full items-center justify-between text-left">
+        <span>
+          <span className="block text-lg font-black text-white">後読み詳細</span>
+          <span className="mt-1 block text-sm leading-6 text-zinc-400">Supply diagnostics、Native X Learning、Rights Review、Conversation Radar、Learning Lab、Opportunity一覧を必要な時だけ読み込みます。</span>
+        </span>
+        <span className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-black text-zinc-200">{open ? "閉じる" : "展開"}</span>
+      </button>
+      {open && (
+        <div className="mt-5">
+          {loading && <p className="text-sm text-zinc-400">後読み中...</p>}
+          {data?.error && <p className="rounded-lg border border-rose-800 bg-rose-950/30 p-3 text-sm text-rose-100">{data.error}</p>}
+          {data?.ok && (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-xs leading-5 text-zinc-400">
+                <p className="font-black text-zinc-100">Supply diagnostics</p>
+                <InlineMap values={data.supplyDiagnostics?.generatedByRole} />
+                <p className="mt-2">Gate OK</p>
+                <InlineMap values={data.supplyDiagnostics?.gateOkByRole} />
+                <p className="mt-2">不足理由: {data.supplyDiagnostics?.shortages?.length ? data.supplyDiagnostics.shortages.join(" / ") : "なし"}</p>
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-xs leading-5 text-zinc-400">
+                <p className="font-black text-zinc-100">Native X Learning</p>
+                <p>使いすぎ: {data.nativeXLearning?.overusedPatterns?.length ? data.nativeXLearning.overusedPatterns.join(" / ") : "検出なし"}</p>
+                <p>最近強かったHook: {data.nativeXLearning?.winningPatterns?.length ? data.nativeXLearning.winningPatterns.join(" / ") : "実績不足"}</p>
+                <p>避ける構文: {data.nativeXLearning?.avoidConstructions?.length ? data.nativeXLearning.avoidConstructions.join(" / ") : "検出なし"}</p>
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-xs leading-5 text-zinc-400">
+                <p className="font-black text-zinc-100">Media supply counters</p>
+                <InlineMap values={data.mediaSupply} />
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-xs leading-5 text-zinc-400">
+                <p className="font-black text-zinc-100">Audit / diagnostics</p>
+                <InlineMap values={data.audit} />
+                <p className="mt-2">Performance</p>
+                <InlineMap values={data.performanceTimings} />
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-xs leading-5 text-zinc-400">
+                <p className="font-black text-zinc-100">Media Rights Review</p>
+                <SimpleList items={data.rightsReviewQueue} empty="rights確認待ちはありません。" />
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-xs leading-5 text-zinc-400">
+                <p className="font-black text-zinc-100">Conversation Radar</p>
+                <SimpleList items={data.conversationRadar} empty="会話候補はありません。" />
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-xs leading-5 text-zinc-400">
+                <p className="font-black text-zinc-100">Learning Lab詳細</p>
+                <SimpleList items={data.learning} empty="学習ログはまだありません。" />
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-xs leading-5 text-zinc-400">
+                <p className="font-black text-zinc-100">Opportunity一覧</p>
+                <SimpleList items={data.opportunities} empty="候補はありません。" />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 

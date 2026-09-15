@@ -2,7 +2,7 @@ import type { AffiliatePerformanceRow } from "@/lib/affiliateSalesAnalytics";
 import type { FanzaXGrowth } from "@/lib/fanzaXAccountGrowth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { cleanupTempVideo, createXPost, downloadTempVideo, fetchXPostPublicMetrics, getXApiCapabilityStatus, verifyXReadOnlyConnection } from "@/lib/xApi";
-import { canTrimXMediaAsset, isUsableXMediaAsset, sourceDomain, sourceKindFor, validateTrimStartSeconds, X_GROWTH_ACCOUNT, type XMediaAsset } from "@/lib/xMediaAssets";
+import { canTrimOfficialSampleMovie, isPostableOfficialSampleMovie, isUsableXMediaAsset, sourceDomain, sourceKindFor, validateTrimStartSeconds, X_GROWTH_ACCOUNT, type XMediaAsset } from "@/lib/xMediaAssets";
 import type { XCreativeLearningRow, XPostLog, XPostLogInput } from "@/lib/xPostLogs";
 import { saveXPostLog } from "@/lib/xPostLogs";
 import type { XDailyMission, XDailyTopPick, XGrowthIntent, XGrowthOpportunity } from "@/lib/xGrowthOS";
@@ -141,15 +141,39 @@ export async function fetchMediaAssets(workIds: number[]) {
 
 export function applyMediaRights(opportunities: XGrowthOpportunity[], assets: Map<number, XMediaAsset>) {
   return opportunities.map((item) => {
-    const asset = assets.get(item.workId);
-    const verdict = isUsableXMediaAsset(asset);
+    const storedAsset = assets.get(item.workId);
+    const asset = storedAsset ?? (item.mediaType === "sample_movie" && item.sampleMovieUrl ? {
+      id: undefined,
+      account_handle: ACCOUNT,
+      work_id: item.workId,
+      product_id: item.productId,
+      media_type: "sample_movie",
+      source_url: item.sampleMovieUrl,
+      source_domain: sourceDomain(item.sampleMovieUrl),
+      source_kind: sourceKindFor(item.sampleMovieUrl),
+      fetch_status: null,
+      rights_status: "unknown",
+      x_usage_allowed: false,
+      can_reupload: false,
+      can_modify: false,
+      quote_only: true,
+      commercial_use_allowed: false,
+      media_quality: "unreviewed",
+      manual_tags: [],
+      trim_start_seconds: 0,
+      trim_modify_confirmed: false,
+      notes: "virtual official sample_movie_url candidate",
+    } : null);
+    const verdict = item.mediaType === "sample_movie"
+      ? isPostableOfficialSampleMovie(asset, item.sampleMovieUrl)
+      : isUsableXMediaAsset(asset);
     if (item.mediaType !== "sample_movie") return { ...item, mediaUsage: "allowed" as const, canNativeVideo: verdict.usable, mediaAsset: asset ?? null };
     return {
       ...item,
       mediaUsage: verdict.usable ? "allowed" as const : "rights_unchecked" as const,
       canNativeVideo: verdict.usable,
       mediaAsset: asset ?? null,
-      mediaDecision: verdict.usable ? item.mediaDecision : `動画は${verdict.reasons.join(" / ") || "rights未確認"}のため未使用`,
+      mediaDecision: verdict.usable ? "公式FANZA/DMM sample_movie_urlを無加工投稿用のネイティブ動画として使用可" : `動画は${verdict.reasons.join(" / ") || "安全条件未確認"}のため未使用`,
     };
   });
 }
@@ -286,7 +310,7 @@ export async function updateMediaAssetTrim(input: {
     trim_start_seconds: validation.value,
     trim_reviewed_at: new Date().toISOString(),
     trim_reviewed_by: input.reviewedBy ?? "admin_x_growth",
-    trim_review_source: input.reviewSource ?? "manual_video_reviewed",
+    trim_review_source: input.reviewSource ?? "user_confirmed",
     trim_modify_confirmed: input.trimModifyConfirmed === true,
     trim_note: input.trimNote ?? "",
   };
@@ -410,6 +434,12 @@ type SerializedTopPick = {
   title: string;
   url: string;
   pickOrder: number;
+  slotId?: XDailyTopPick["slotId"];
+  slotRole?: XDailyTopPick["slotRole"];
+  slotLabel?: string;
+  candidateRank?: XDailyTopPick["candidateRank"];
+  candidateId?: string;
+  isSelected?: boolean;
   role: XGrowthIntent;
   intent: XGrowthIntent;
   sourceType: XGrowthOpportunity["sourceType"];
@@ -428,7 +458,7 @@ type SerializedTopPick = {
   dailyScore: number;
   sourceEvidence: string[];
   setDiversity: XDailyTopPick["setDiversity"];
-    mediaAsset: {
+  mediaAsset: {
     id: number | undefined;
     work_id: number | null | undefined;
     source_url: string | undefined;
@@ -445,10 +475,13 @@ type SerializedTopPick = {
   } | null;
   selectedVariant: {
     id: string;
+    url: string;
     quality: XDailyTopPick["creativeVariants"][number]["quality"];
     buzzPotential: XDailyTopPick["creativeVariants"][number]["buzzPotential"];
     mediaType: XDailyTopPick["creativeVariants"][number]["mediaType"];
     linkPlan: XDailyTopPick["creativeVariants"][number]["linkPlan"];
+    linkStrategy: XDailyTopPick["creativeVariants"][number]["linkStrategy"];
+    ctaStrategy: XDailyTopPick["creativeVariants"][number]["ctaStrategy"];
     hookDirection: XDailyTopPick["creativeVariants"][number]["hookDirection"];
     hookType: XDailyTopPick["creativeVariants"][number]["hookType"];
   } | null;
@@ -463,6 +496,12 @@ function serializeTopPick(item: XDailyTopPick): SerializedTopPick {
     title: item.title,
     url: variant?.url ?? `/works/${item.workId}`,
     pickOrder: item.pickOrder,
+    slotId: item.slotId,
+    slotRole: item.slotRole,
+    slotLabel: item.slotLabel,
+    candidateRank: item.candidateRank,
+    candidateId: item.candidateId,
+    isSelected: item.isSelected,
     role: item.role,
     intent: item.intent,
     sourceType: item.sourceType,
@@ -498,10 +537,13 @@ function serializeTopPick(item: XDailyTopPick): SerializedTopPick {
     } : null,
     selectedVariant: variant ? {
       id: variant.id,
+      url: variant.url,
       quality: variant.quality,
       buzzPotential: variant.buzzPotential,
       mediaType: variant.mediaType,
       linkPlan: variant.linkPlan,
+      linkStrategy: variant.linkStrategy,
+      ctaStrategy: variant.ctaStrategy,
       hookDirection: variant.hookDirection,
       hookType: variant.hookType,
     } : null,
@@ -526,6 +568,34 @@ export type PersistedXDailyPlan = {
   stale_reason: string | null;
 };
 
+async function hydratePersistedTopPickMediaAssets(plan: PersistedXDailyPlan | null) {
+  if (!plan?.top_picks?.length) return plan;
+  const assetIds = [...new Set(plan.top_picks.map((pick) => pick.mediaAsset?.id).filter((id): id is number => Number.isSafeInteger(id)))];
+  if (!assetIds.length) return plan;
+  const { data, error } = await supabaseAdmin
+    .from("x_media_assets")
+    .select("id,work_id,source_url,media_quality,manual_tags,review_source,x_usage_allowed,rights_status,can_modify,trim_start_seconds,trim_reviewed_at,trim_modify_confirmed,trim_note")
+    .eq("account_handle", ACCOUNT)
+    .in("id", assetIds);
+  if (error) return plan;
+  const assets = new Map((data ?? []).map((asset) => [Number(asset.id), asset as SerializedTopPick["mediaAsset"] & { id: number }]));
+  return {
+    ...plan,
+    top_picks: plan.top_picks.map((pick) => {
+      const latest = pick.mediaAsset?.id ? assets.get(pick.mediaAsset.id) : null;
+      if (!latest) return pick;
+      return {
+        ...pick,
+        recommendedMediaUrl: pick.mediaType === "sample_movie" ? latest.source_url ?? pick.recommendedMediaUrl : pick.recommendedMediaUrl,
+        mediaAsset: {
+          ...pick.mediaAsset,
+          ...latest,
+        },
+      };
+    }),
+  };
+}
+
 export async function getPersistedTodayTopPicks() {
   const { data, error } = await supabaseAdmin
     .from("x_growth_daily_plans")
@@ -537,7 +607,101 @@ export async function getPersistedTodayTopPicks() {
     if (isMissingRelation(error)) return getPersistedTodayTopPicksFallback(error.message);
     return { plan: null as PersistedXDailyPlan | null, error: error.message };
   }
-  return { plan: data as PersistedXDailyPlan | null, error: null as string | null };
+  return { plan: await hydratePersistedTopPickMediaAssets(data as PersistedXDailyPlan | null), error: null as string | null };
+}
+
+export async function selectDailyPlanCandidate(input: {
+  slotId: string;
+  candidateId: string;
+}) {
+  const { data, error } = await supabaseAdmin
+    .from("x_growth_daily_plans")
+    .select("id,top_picks")
+    .eq("account_handle", ACCOUNT)
+    .eq("plan_date", todayTokyo())
+    .maybeSingle();
+  if (error) {
+    if (isMissingRelation(error)) return selectDailyPlanCandidateFallback(input);
+    return { error: error.message };
+  }
+  const plan = data as { id: number; top_picks: SerializedTopPick[] | null } | null;
+  if (!plan?.top_picks?.length) return { error: "今日の候補プランがありません。" };
+  const exists = plan.top_picks.some((pick) => pick.slotId === input.slotId && pick.candidateId === input.candidateId);
+  if (!exists) return { error: "候補が見つかりません。" };
+  const topPicks = plan.top_picks.map((pick) => pick.slotId === input.slotId ? { ...pick, isSelected: pick.candidateId === input.candidateId } : pick);
+  const selected = topPicks.find((pick) => pick.candidateId === input.candidateId);
+  const update = await supabaseAdmin
+    .from("x_growth_daily_plans")
+    .update({ top_picks: topPicks, updated_at: new Date().toISOString() })
+    .eq("account_handle", ACCOUNT)
+    .eq("id", plan.id);
+  if (update.error) return { error: update.error.message };
+  await auditXGrowth("daily_plan_candidate_selected", {
+    date: todayTokyo(),
+    slot_role: selected?.slotRole ?? null,
+    slot_id: input.slotId,
+    candidate_rank: selected?.candidateRank ?? null,
+    candidate_id: input.candidateId,
+    work_id: selected?.workId ?? null,
+    intent: selected?.intent ?? selected?.role ?? null,
+    creativeAngle: selected?.creativeAngle ?? null,
+    media_strategy: selected?.mediaType ?? null,
+    link_strategy: selected?.setDiversity?.signature?.linkStrategy ?? null,
+    selected_at: new Date().toISOString(),
+  });
+  return { error: null };
+}
+
+async function selectDailyPlanCandidateFallback(input: {
+  slotId: string;
+  candidateId: string;
+}) {
+  const { data, error } = await supabaseAdmin
+    .from("x_growth_opportunities")
+    .select("id,work_id,intent,media_type,creative_genome")
+    .eq("account_handle", ACCOUNT)
+    .eq("opportunity_date", todayTokyo())
+    .like("opportunity_key", "daily-pick-%")
+    .order("opportunity_key", { ascending: true });
+  if (error) return { error: error.message };
+  const rows = (data ?? []) as Array<{ id: number; work_id: number | null; intent: string | null; media_type: string | null; creative_genome: Record<string, unknown> | null }>;
+  const withPick = rows.map((row) => {
+    const genome = row.creative_genome ?? {};
+    const pick = (genome.persisted_top_pick ?? {}) as Partial<SerializedTopPick>;
+    return { row, genome, pick };
+  });
+  const exists = withPick.some(({ pick }) => pick.slotId === input.slotId && pick.candidateId === input.candidateId);
+  if (!exists) return { error: "候補が見つかりません。" };
+  await Promise.all(withPick.map(({ row, genome, pick }) => supabaseAdmin
+    .from("x_growth_opportunities")
+    .update({
+      creative_genome: {
+        ...genome,
+        persisted_top_pick: {
+          ...pick,
+          isSelected: pick.slotId === input.slotId ? pick.candidateId === input.candidateId : pick.isSelected,
+        },
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("account_handle", ACCOUNT)
+    .eq("id", row.id)));
+  const selected = withPick.find(({ pick }) => pick.candidateId === input.candidateId);
+  await auditXGrowth("daily_plan_candidate_selected", {
+    date: todayTokyo(),
+    slot_role: selected?.pick.slotRole ?? null,
+    slot_id: input.slotId,
+    candidate_rank: selected?.pick.candidateRank ?? null,
+    candidate_id: input.candidateId,
+    work_id: selected?.pick.workId ?? selected?.row.work_id ?? null,
+    intent: selected?.pick.intent ?? selected?.row.intent ?? null,
+    creativeAngle: selected?.pick.creativeAngle ?? null,
+    media_strategy: selected?.pick.mediaType ?? selected?.row.media_type ?? null,
+    link_strategy: selected?.pick.setDiversity?.signature?.linkStrategy ?? null,
+    selected_at: new Date().toISOString(),
+    storage: "x_growth_opportunities_fallback",
+  });
+  return { error: null };
 }
 
 async function getPersistedTodayTopPicksFallback(staleReason: string) {
@@ -621,8 +785,7 @@ async function getPersistedTodayTopPicksFallback(staleReason: string) {
       selectedVariant: pick.selectedVariant ?? null,
     };
   });
-  return {
-    plan: {
+  const fallbackPlan = {
       id: Number((plan as Record<string, unknown> | null)?.id ?? 0),
       account_handle: ACCOUNT,
       plan_date: todayTokyo(),
@@ -638,7 +801,9 @@ async function getPersistedTodayTopPicksFallback(staleReason: string) {
       performance_timings: ((rows[0]?.creative_genome as Record<string, unknown> | undefined)?.performance_timings ?? {}) as Record<string, number>,
       generated_at: rows[0]?.updated_at ? String(rows[0].updated_at) : null,
       stale_reason: staleReason,
-    },
+    };
+  return {
+    plan: await hydratePersistedTopPickMediaAssets(fallbackPlan),
     error: null as string | null,
   };
 }
@@ -772,23 +937,28 @@ export async function executeOpportunityPost(id: number) {
   try {
     if (mediaType === "sample_movie") {
       const assetId = Number(opportunity.recommended_media_asset_id);
-      if (!Number.isSafeInteger(assetId)) throw new Error("Native Video requires a rights-checked media asset.");
-      const assetResult = await supabaseAdmin.from("x_media_assets").select("*").eq("account_handle", ACCOUNT).eq("id", assetId).single();
-      const asset = assetResult.data as XMediaAsset | null;
-      if (assetResult.error || !asset) throw new Error(assetResult.error?.message ?? "Media asset not found.");
-      const verdict = isUsableXMediaAsset(asset);
+      const persistedPick = ((opportunity.creative_genome as Record<string, unknown> | null)?.persisted_top_pick ?? null) as SerializedTopPick | null;
+      const virtualAsset = persistedPick?.mediaAsset?.source_url ? persistedPick.mediaAsset : null;
+      let asset: Partial<XMediaAsset> | null = virtualAsset as Partial<XMediaAsset> | null;
+      if (Number.isSafeInteger(assetId)) {
+        const assetResult = await supabaseAdmin.from("x_media_assets").select("*").eq("account_handle", ACCOUNT).eq("id", assetId).single();
+        asset = assetResult.data as XMediaAsset | null;
+        if (assetResult.error || !asset) throw new Error(assetResult.error?.message ?? "Media asset not found.");
+      }
+      const verdict = isPostableOfficialSampleMovie(asset, persistedPick?.recommendedMediaUrl ?? undefined);
       if (!verdict.usable) {
         await auditXGrowth("media_rights_blocked", { opportunityId: id, mediaAssetId: assetId, reasons: verdict.reasons });
-        throw new Error("Media rights are not sufficient for native video posting.");
+        throw new Error("公式FANZA/DMM sample_movie_urlとして投稿できる安全条件を満たしていません。");
       }
+      if (!asset?.source_url) throw new Error("sample_movie_urlが見つかりません。");
       if (Number(asset.trim_start_seconds ?? 0) > 0) {
-        const trimVerdict = canTrimXMediaAsset(asset);
+        const trimVerdict = canTrimOfficialSampleMovie(asset, persistedPick?.recommendedMediaUrl ?? undefined);
         if (!trimVerdict.usable) {
           await auditXGrowth("media_trim_blocked", { opportunityId: id, mediaAssetId: assetId, reasons: trimVerdict.reasons });
           throw new Error(`トリム動画は使えません: ${trimVerdict.reasons.join(" / ")}`);
         }
       }
-      temp = await downloadTempVideo(asset.source_url);
+      temp = await downloadTempVideo(asset.source_url as string);
     }
     const created = await createXPost({ text: String(opportunity.post_text ?? ""), videoFile: temp?.file, videoContentType: temp?.contentType });
     const postDate = todayTokyo();
