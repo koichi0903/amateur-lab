@@ -237,7 +237,9 @@ export function buildPriceInsightFromRows(
   rows: PriceHistoryRow[],
   windowStartAt: string,
   windowEndAt: string,
+  options: { requireBuyTimingSignal?: boolean } = {},
 ): HomePriceInsightWork | null {
+  const requireBuyTimingSignal = options.requireBuyTimingSignal ?? true;
   const currentPrice = currentWorkPrice(work);
   const displayedRows = rows
     .map((row) => ({ ...row, value: effectivePrice(row) }))
@@ -254,14 +256,14 @@ export function buildPriceInsightFromRows(
   const observations = allPriceObservations(priceRows).sort(
     (a, b) => databaseDateTime(b.changed_at) - databaseDateTime(a.changed_at),
   );
-  if (!observations.some((row) => row.value === currentPrice)) return null;
+  if (requireBuyTimingSignal && !observations.some((row) => row.value === currentPrice)) return null;
 
   // Candidate selection is independent from sale/list status:
   // 1) a higher price existed in the last 90 days, and
   // 2) the live price is no higher than every recorded price.
   const hadHigherPrice = observations.some((row) => row.value > currentPrice);
   const isCurrentLowest = observations.every((row) => row.value >= currentPrice);
-  if (!hadHigherPrice || !isCurrentLowest) return null;
+  if (requireBuyTimingSignal && (!hadHigherPrice || !isCurrentLowest)) return null;
 
   const chartRows = priceRows;
   const previous = observations.find((row) => row.value !== currentPrice);
@@ -380,7 +382,11 @@ async function fetchPriceHistory(productIds: string[], since: string) {
   return history;
 }
 
-export async function buildInsightsForWorks(works: HomePriceInsightWork[], since: string) {
+export async function buildInsightsForWorks(
+  works: HomePriceInsightWork[],
+  since: string,
+  options: { requireBuyTimingSignal?: boolean } = {},
+) {
   const productIds = [...new Set(works.map((work) => work.product_id).filter(Boolean))];
   if (!productIds.length) return [];
 
@@ -400,6 +406,7 @@ export async function buildInsightsForWorks(works: HomePriceInsightWork[], since
         rowsByProduct.get(work.product_id) ?? [],
         since,
         windowEndAt,
+        options,
       ),
     )
     .filter((work): work is HomePriceInsightWork => work !== null);
@@ -534,3 +541,4 @@ export const getHomePriceInsights = unstable_cache(
     tags: ["home-price-insights"],
   }
 );
+
