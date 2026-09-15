@@ -6,7 +6,7 @@ import Header from "@/components/layout/Header";
 import MiniPriceHistoryChart from "@/components/home/MiniPriceHistoryChart";
 import WorkImage from "@/components/home/WorkImage";
 import { workDetailHref } from "@/lib/affiliateTracking";
-import { getTodayBuyTiming } from "@/lib/getTodayBuyTiming";
+import { getHomePriceInsights } from "@/lib/getHomePriceInsights";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 
 export const revalidate = 1800;
@@ -34,7 +34,7 @@ function insightBadgeTone(badge: string) {
 }
 
 export default async function PriceInsightsPage() {
-  const buyTiming = await getTodayBuyTiming(30);
+  const { buyTiming } = await getHomePriceInsights();
   const structuredItems = buyTiming.map((work) => ({
     name: work.title,
     url: `${SITE_URL}/works/${work.id}`,
@@ -102,8 +102,14 @@ export default async function PriceInsightsPage() {
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
               {buyTiming.map((work, index) => {
-                const decision = work.buyTiming;
-                const insight = work.priceInsight;
+                const insight = work;
+                const discountRate = Math.max(0, Math.round(work.discount_rate ?? 0));
+                const regularPrice = work.previousPrice ?? work.list_price ?? work.price;
+                const label = work.buyScore >= 82
+                  ? "今買う価値が高い"
+                  : work.buyScore >= 68
+                    ? "条件が合えば買い"
+                    : "もう少し比較したい";
 
                 return (
                   <article
@@ -129,10 +135,10 @@ export default async function PriceInsightsPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="rounded-full bg-pink-50 px-3 py-1 text-xs font-black text-pink-700">
-                            判断 {decision.score}/100
+                            判断 {work.buyScore}/100
                           </span>
                           <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
-                            {decision.label}
+                            {label}
                           </span>
                           {insight && (
                             <span className={`rounded-full px-3 py-1 text-xs font-black ${insightBadgeTone(insight.badge)}`}>
@@ -149,31 +155,35 @@ export default async function PriceInsightsPage() {
 
                         <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
                           <span className="text-2xl font-black text-pink-600">
-                            {formatPrice(decision.currentPrice)}
+                            {formatPrice(work.currentPrice)}
                           </span>
-                          {decision.regularPrice && decision.currentPrice && decision.regularPrice > decision.currentPrice && (
+                          {regularPrice && work.currentPrice && regularPrice > work.currentPrice && (
                             <span className="text-sm font-bold text-slate-400 line-through">
-                              {formatPrice(decision.regularPrice)}
+                              {formatPrice(regularPrice)}
                             </span>
                           )}
-                          {decision.discountRate > 0 && (
+                          {discountRate > 0 && (
                             <span className="text-sm font-black text-red-600">
-                              {decision.discountRate}%OFF
+                              {discountRate}%OFF
                             </span>
                           )}
                         </div>
 
                         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold leading-5">
-                          <span className="text-amber-700">{decision.lowestPriceText}</span>
-                          {insight && (
-                            <span className="text-emerald-700">
-                              90日最安 {formatPrice(insight.low90Price)}
-                            </span>
-                          )}
+                          <span className="text-amber-700">
+                            {work.currentPrice <= work.low90Price
+                              ? "過去最安値と同額または更新"
+                              : `過去最安値より¥${Math.max(0, work.currentPrice - work.low90Price).toLocaleString("ja-JP")}高い`}
+                          </span>
+                          <span className="text-emerald-700">90日最安 {formatPrice(work.low90Price)}</span>
                         </div>
 
                         <div className="mt-3 flex flex-wrap gap-1.5">
-                          {primaryReasons(decision.reasons).map((reason) => (
+                          {primaryReasons([
+                            discountRate >= 45 ? `${discountRate}%OFFで割引幅が大きい` : "",
+                            work.badge === "過去最安" ? "過去最安値クラスの価格" : "",
+                            work.peak90Price > work.currentPrice ? "過去90日の価格推移を確認" : "",
+                          ].filter(Boolean)).map((reason) => (
                             <span
                               key={reason}
                               className="rounded-md bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-700"
@@ -200,7 +210,7 @@ export default async function PriceInsightsPage() {
 
                     <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-[11px] font-bold leading-5 text-slate-500">
-                        直近30日: PV {decision.funnel.pageViews} / クリック {decision.funnel.fanzaClicks} / 補正CTR {decision.funnel.adjustedCtr}%
+                        TOPと同じ買い時スコア・価格履歴で表示
                       </p>
                       <Link
                         href={workDetailHref(work.id, "deals")}
@@ -219,3 +229,4 @@ export default async function PriceInsightsPage() {
     </>
   );
 }
+
