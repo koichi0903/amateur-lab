@@ -370,6 +370,7 @@ export async function updateRanking() {
     return {
       success: true,
       count: rankingTargets.length,
+      workIds: rankingTargets.map((target) => target.content_id),
       missingRegistered: missingItems.length,
       playwrightUpdated: playwrightTargets.length,
       playwrightSkipped: skippedCount,

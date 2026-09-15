@@ -9,8 +9,8 @@ export async function POST() {
   if (blocked) return blocked;
 
   try {
-    await updateOldWorks();
-    revalidatePublicCacheForTasks(["old"]);
+    const result = await updateOldWorks();
+    await revalidatePublicCacheForTasks(["old"], { workIds: result?.workIds });
 
     return NextResponse.json({
       success: true,

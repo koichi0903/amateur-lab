@@ -121,7 +121,7 @@ export async function updateOldWorks() {
 
   if (targets.length === 0) {
     console.log("更新対象の旧作はありません");
-    return;
+    return { workIds: [] as string[] };
   }
 
   const job = await beginJob(JOBS.OLD, targets.length);
@@ -132,6 +132,7 @@ export async function updateOldWorks() {
   let current = resumedCount;
   let succeeded = 0;
   let failed = 0;
+  const updatedWorkIds: string[] = [];
   let browser = await createBrowser();
 
   console.log(
@@ -146,6 +147,7 @@ export async function updateOldWorks() {
         batch.map(async (work) => {
           try {
             await updateWork(work.product_id, undefined, browser);
+            updatedWorkIds.push(work.product_id);
             console.log(`[OLD_UPDATE_OK] ${work.product_id}`);
             return true;
           } catch (error) {
@@ -174,6 +176,7 @@ export async function updateOldWorks() {
 
     await finishJob(JOBS.OLD);
     console.log(`[OLD] 完了 success=${succeeded} failed=${failed}`);
+    return { workIds: updatedWorkIds };
   } catch (error) {
     await failJob(
       JOBS.OLD,

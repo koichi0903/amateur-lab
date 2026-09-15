@@ -52,7 +52,7 @@ export async function updateEndedSaleWorks() {
   }
 
   console.log(`終了日時を過ぎたセール作品 ${allWorks.length}件`);
-  if (allWorks.length === 0) return;
+  if (allWorks.length === 0) return { workIds: [] as string[] };
 
   // 対象は毎回DBから再抽出する。古いprocessed_countではスキップしない。
   await beginJob(JOBS.ENDED_SALE, allWorks.length);
@@ -117,6 +117,7 @@ export async function updateEndedSaleWorks() {
 
     await finishJob(JOBS.ENDED_SALE);
     console.log(`終了セール更新完了: ${allWorks.length}件`);
+    return { workIds: allWorks.map((work) => work.product_id) };
   } catch (error) {
     await failJob(
       JOBS.ENDED_SALE,

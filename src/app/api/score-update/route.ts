@@ -24,7 +24,7 @@ export async function POST() {
     // A standalone score run must refresh public pages too. The local runner
     // also does this after the request, but keeping the guarantee here covers
     // direct API calls and manual retries.
-    revalidatePublicCacheForTasks(["score"]);
+    await revalidatePublicCacheForTasks(["score"], { workIds: result.workIds });
 
     return Response.json({
       ...result,

@@ -45,7 +45,8 @@ type WorkDetail = Work & {
 };
 
 const WORK_DETAIL_REVALIDATE_SECONDS = 60 * 60 * 24;
-const WORK_DETAIL_CACHE_TAG = "work-detail";
+const workDetailCacheTag = (workId: string | number) => `work-detail:${String(workId)}`;
+const workDetailProductCacheTag = (productId: string) => `work-detail-product:${productId}`;
 
 // The official share page nests this DMM player in a minimum 476px-wide iframe.
 // Use the same official player directly so its viewport can match narrow phones.
@@ -83,27 +84,30 @@ export async function generateStaticParams() {
 // generateMetadata and the page render both need the same row. React cache
 // deduplicates that lookup within a single server render.
 const getWork = cache(
-  unstable_cache(
-    async (id: string) => {
-      const { data, error } = await supabase
-        .from("works")
-        .select(WORK_DETAIL_COLUMNS)
-        .eq("id", id)
-        .maybeSingle();
+  async (id: string) =>
+    unstable_cache(
+      async () => {
+        const { data, error } = await supabase
+          .from("works")
+          .select(WORK_DETAIL_COLUMNS)
+          .eq("id", id)
+          .maybeSingle();
 
-      if (error) {
-        console.error("[work-detail] failed to load work", { id, error });
-      }
+        if (error) {
+          console.error("[work-detail] failed to load work", { id, error });
+        }
 
-      return data as WorkDetail | null;
-    },
-    ["work-detail-row"],
-    { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
-  )
+        return data as WorkDetail | null;
+      },
+      ["work-detail-row", id],
+      { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [workDetailCacheTag(id)] },
+    )(),
 );
 
-const getWorkDetailData = unstable_cache(
-  async (productId: string) => {
+const getWorkDetailData = cache(
+  async (productId: string) =>
+    unstable_cache(
+      async () => {
     const [sampleImages, priceHistory, workPrices] = await Promise.all([
       supabase
         .from("work_sample_images")
@@ -128,20 +132,24 @@ const getWorkDetailData = unstable_cache(
       priceHistory: priceHistory.data ?? [],
       workPrices: workPrices.data ?? [],
     };
-  },
-  // Versioned after adding period-aware price history. This prevents the old
-  // period-less payload from hiding the 7-day and unlimited series.
-  ["work-detail-data-v4-period-keyed-current-offers"],
-  { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
+      },
+      // Versioned after adding period-aware price history. This prevents the old
+      // period-less payload from hiding the 7-day and unlimited series.
+      ["work-detail-data-v4-period-keyed-current-offers", productId],
+      { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [workDetailProductCacheTag(productId)] },
+    )(),
 );
 
-const getEntityRanks = unstable_cache(
+const getEntityRanks = cache(
   async (
+    workId: number,
     actresses: string[],
     genres: string[],
     makers: string[],
     series: string[]
-  ) => {
+  ) =>
+    unstable_cache(
+      async () => {
     const [actressRanks, genreRanks, makerRanks, seriesRanks] = await Promise.all([
       actresses.length
         ? supabase.from("actress_rankings").select("original_rank, fanza_rank").in("name", actresses)
@@ -163,19 +171,22 @@ const getEntityRanks = unstable_cache(
       makerRanks: makerRanks.data ?? [],
       seriesRanks: seriesRanks.data ?? [],
     };
-  },
-  ["work-detail-entity-ranks"],
-  { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
+      },
+      ["work-detail-entity-ranks", String(workId), ...actresses, ...genres, ...makers, ...series],
+      { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [workDetailCacheTag(workId)] },
+    )(),
 );
 
-const getRelatedWorks = unstable_cache(
+const getRelatedWorks = cache(
   async (
     workId: number,
     mainActress: string,
     mainSeries: string,
     mainGenre: string,
     mainMaker: string,
-  ) => {
+  ) =>
+    unstable_cache(
+      async () => {
     const sources = [
       { column: "series", value: mainSeries, weight: 45 },
       { column: "actress", value: mainActress, weight: 40 },
@@ -215,13 +226,16 @@ const getRelatedWorks = unstable_cache(
       .sort((a, b) => b.relevance - a.relevance)
       .slice(0, 8)
       .map((candidate) => candidate.work);
-  },
-  ["work-detail-related-works"],
-  { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
+      },
+      ["work-detail-related-works", String(workId), mainActress, mainSeries, mainGenre, mainMaker],
+      { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [workDetailCacheTag(workId)] },
+    )(),
 );
 
-const getValueAlternatives = unstable_cache(
-  async (mainGenre: string, workId: number, currentPrice: number) => {
+const getValueAlternatives = cache(
+  async (mainGenre: string, workId: number, currentPrice: number) =>
+    unstable_cache(
+      async () => {
     if (!mainGenre || currentPrice <= 0) return [];
     const minimumPrice = Math.max(1, Math.floor(currentPrice * 0.55));
     const maximumPrice = Math.ceil(currentPrice * 1.45);
@@ -244,9 +258,10 @@ const getValueAlternatives = unstable_cache(
         return bValue - aValue;
       })
       .slice(0, 5);
-  },
-  ["work-detail-value-alternatives"],
-  { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
+      },
+      ["work-detail-value-alternatives", mainGenre, String(workId), String(currentPrice)],
+      { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [workDetailCacheTag(workId)] },
+    )(),
 );
 
 
@@ -342,7 +357,7 @@ export default async function WorkDetailPage(
   const makers = splitEntities(work.maker);
   const series = splitEntities(work.series);
   const { actressRanks, genreRanks, makerRanks, seriesRanks } =
-    await getEntityRanks(actresses, genres, makers, series);
+    await getEntityRanks(work.id, actresses, genres, makers, series);
   const minimumRank = (values: Array<number | null | undefined>) => {
     const ranks = values.filter((value): value is number => typeof value === "number" && value > 0);
     return ranks.length ? Math.min(...ranks) : null;

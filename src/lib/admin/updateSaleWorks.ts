@@ -101,7 +101,7 @@ console.log("一致件数 =", works.length);
 
 if (works.length === 0) {
   console.log("更新対象のセール作品はありません");
-  return;
+  return { workIds: [] as string[] };
 }
 
 console.log("⑥ beginJob開始");
@@ -128,6 +128,7 @@ console.log("total =", job.total_count);
   let browser = await createBrowser();
   let succeeded = 0;
   let failed = 0;
+  const updatedWorkIds: string[] = [];
 
   try {
 
@@ -164,6 +165,7 @@ console.log("targets =", targets.length);
         browser,
         work.price
       );
+      updatedWorkIds.push(work.product_id);
       return true;
     } catch (error) {
       console.error(`[SALE_UPDATE_ERROR] ${work.product_id}`, error);
@@ -205,8 +207,9 @@ console.log("targets =", targets.length);
 
     await finishJob(JOBS.SALE);
 
-    console.log("⑨ セール更新完了");
+console.log("⑨ セール更新完了");
 console.log("======================================");
+    return { workIds: updatedWorkIds };
   } catch (error) {
   await failJob(
     JOBS.SALE,

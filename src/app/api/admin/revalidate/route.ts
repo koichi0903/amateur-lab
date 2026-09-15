@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = revalidatePublicCacheForTasks(tasks);
+  const result = await revalidatePublicCacheForTasks(tasks);
 
   return NextResponse.json(
     { success: true, ...result },

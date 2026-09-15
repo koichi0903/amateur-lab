@@ -14,7 +14,7 @@ export async function POST() {
 
   try {
     const result = await fillSampleMovieUrls();
-    revalidatePublicCacheForTasks(["sample-movie"]);
+    await revalidatePublicCacheForTasks(["sample-movie"], { workIds: result.workIds });
 
     return NextResponse.json({
       success: true,

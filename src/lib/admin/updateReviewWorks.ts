@@ -20,6 +20,7 @@ export type ReviewUpdateResult = {
   success: number;
   skip: number;
   failed: number;
+  workIds: string[];
 };
 
 type ReviewTarget = {
@@ -82,6 +83,7 @@ export async function updateReviewWorks(
         success: 0,
         skip: 0,
         failed: 0,
+        workIds: [],
       };
     }
 
@@ -103,6 +105,7 @@ export async function updateReviewWorks(
     let success = 0;
     let skip = 0;
     let failed = 0;
+    const updatedWorkIds: string[] = [];
     let current = initialProcessedCount;
     let reachedEnd = false;
 
@@ -193,7 +196,10 @@ export async function updateReviewWorks(
               ? firstResult
               : retryResultMap.get(work.product_id) ?? firstResult;
 
-          if (finalResult === "success") success++;
+          if (finalResult === "success") {
+            success++;
+            updatedWorkIds.push(work.product_id);
+          }
           else if (finalResult === "skip") {
             skip++;
             console.log(`[SKIP] ${work.product_id}`);
@@ -246,6 +252,7 @@ export async function updateReviewWorks(
       success,
       skip,
       failed,
+      workIds: updatedWorkIds,
     };
   } catch (error) {
     const message = describeReviewUpdateError(error);

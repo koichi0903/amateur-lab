@@ -12,10 +12,10 @@ export async function POST() {
   try {
     console.log("===== セール更新開始 =====");
 
-    await updateSaleWorks();
+    const result = await updateSaleWorks();
 
     await updateStatistics();
-    revalidatePublicCacheForTasks(["sale"]);
+    await revalidatePublicCacheForTasks(["sale"], { workIds: result?.workIds });
 
     console.log("===== セール更新完了 =====");
 

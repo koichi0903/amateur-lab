@@ -6,8 +6,8 @@ export async function POST() {
   const blocked = blockVercelAdminUpdate();
   if (blocked) return blocked;
 
-  await updateReserveWorks();
-  revalidatePublicCacheForTasks(["reserve"]);
+  const result = await updateReserveWorks();
+  await revalidatePublicCacheForTasks(["reserve"], { workIds: result?.workIds });
 
   return Response.json({
     message: "予約作品更新完了",

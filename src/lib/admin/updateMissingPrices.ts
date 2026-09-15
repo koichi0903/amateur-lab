@@ -119,12 +119,13 @@ export async function updateMissingPrices() {
 
     if (targets.length === 0) {
       await finishJob(JOBS.MISSING_PRICES);
-      return { count: 0, updated: 0 };
+      return { count: 0, updated: 0, workIds: [] as string[] };
     }
 
     browser = await createBrowser();
     const batchSize = UPDATE_CONFIG.parallel;
     let updated = 0;
+    const updatedWorkIds: string[] = [];
     const failedProductIds: string[] = [];
     let nextBrowserRestart =
       (Math.floor(processed / UPDATE_CONFIG.browserRestartInterval) + 1) *
@@ -146,6 +147,11 @@ export async function updateMissingPrices() {
       const succeeded = batch.length - failed.length;
       processed += batch.length;
       updated += succeeded;
+      updatedWorkIds.push(
+        ...batch
+          .filter((work) => !failed.some((failedWork) => failedWork.product_id === work.product_id))
+          .map((work) => work.product_id),
+      );
       failedProductIds.push(...failed.map((work) => work.product_id));
 
       await updateJob(
@@ -180,7 +186,7 @@ export async function updateMissingPrices() {
     }
 
     await finishJob(JOBS.MISSING_PRICES);
-    return { count: targets.length, updated };
+    return { count: targets.length, updated, workIds: updatedWorkIds };
   } catch (error) {
     await failJob(
       JOBS.MISSING_PRICES,

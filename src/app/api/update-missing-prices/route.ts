@@ -8,7 +8,7 @@ export async function POST() {
 
   try {
     const result = await updateMissingPrices();
-    revalidatePublicCacheForTasks(["missing-prices"]);
+    await revalidatePublicCacheForTasks(["missing-prices"], { workIds: result.workIds });
 
     return Response.json({
       success: true,

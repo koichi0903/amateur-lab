@@ -146,6 +146,7 @@ async function registerMissingReservedWorks(
 }
 
 export async function updateReserveWorks() {
+  const updatedWorkIds: string[] = [];
   let browser: Browser | null = null;
   let jobStarted = false;
 
@@ -212,7 +213,7 @@ export async function updateReserveWorks() {
     if (works.length === 0) {
       console.log("更新対象の予約作品はありません");
       await finishJob(JOBS.RESERVE);
-      return;
+      return { workIds: updatedWorkIds };
     }
 
     const processedCount = Math.min(resumeProcessedCount, works.length);
@@ -251,6 +252,7 @@ export async function updateReserveWorks() {
               batchBrowser,
               latest?.listPrice ?? null,
             );
+            updatedWorkIds.push(work.product_id);
 
             if (!latest) {
               const { error } = await supabase
@@ -294,6 +296,7 @@ export async function updateReserveWorks() {
 
     await finishJob(JOBS.RESERVE);
     console.log("予約作品更新完了");
+    return { workIds: updatedWorkIds };
   } catch (error) {
     console.error("updateReserveWorks エラー:", error);
 

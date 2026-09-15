@@ -21,7 +21,7 @@ export async function POST() {
 
   try {
     const ranking = await updateRanking();
-    revalidatePublicCacheForTasks(["ranking"]);
+    await revalidatePublicCacheForTasks(["ranking"], { workIds: ranking.workIds });
 
     return Response.json({
       ...ranking,

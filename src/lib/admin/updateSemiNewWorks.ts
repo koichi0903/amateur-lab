@@ -59,6 +59,7 @@ function hasRequiredDataMissing(work: SemiNewWork): boolean {
 }
 
 export async function updateSemiNewWorks() {
+  const updatedWorkIds: string[] = [];
   const { products, totalPages } = await getSemiNewItems();
 
   // An empty scrape must never move every SEMI_NEW row to OLD.
@@ -79,7 +80,7 @@ export async function updateSemiNewWorks() {
 
   if (works.length === 0) {
     console.log("更新対象の準新作はありません");
-    return;
+    return { workIds: updatedWorkIds };
   }
 
   const productMap = new Map(
@@ -108,6 +109,7 @@ export async function updateSemiNewWorks() {
             try {
               // Capture the final DMM/Playwright state before archiving it.
               await updateWork(work.product_id, null, browser, null);
+              updatedWorkIds.push(work.product_id);
 
               const { error } = await supabase
                 .from("works")
@@ -167,6 +169,7 @@ export async function updateSemiNewWorks() {
               browser,
               latest.listPrice,
             );
+            updatedWorkIds.push(work.product_id);
           } catch (error) {
             console.error(`[SEMI_NEW_UPDATE_ERROR] ${work.product_id}`, error);
           }
@@ -192,6 +195,7 @@ export async function updateSemiNewWorks() {
 
     await finishJob(JOBS.SEMI_NEW);
     console.log("準新作更新完了");
+    return { workIds: updatedWorkIds };
   } catch (error) {
     await failJob(
       JOBS.SEMI_NEW,

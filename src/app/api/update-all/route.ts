@@ -89,7 +89,12 @@ export async function POST(request: NextRequest) {
       });
 
       const { success: successCount, ...reviewResult } = result;
-      revalidatePublicCacheForTasks([REVALIDATE_TASK_BY_STEP[step]]);
+      await revalidatePublicCacheForTasks([REVALIDATE_TASK_BY_STEP[step]], {
+        workIds:
+          "workIds" in result && Array.isArray(result.workIds)
+            ? result.workIds
+            : undefined,
+      });
 
       return NextResponse.json({
         success: true,
@@ -103,8 +108,12 @@ export async function POST(request: NextRequest) {
     }
 
     const run = await update.load();
-    await run();
-    revalidatePublicCacheForTasks([REVALIDATE_TASK_BY_STEP[step]]);
+    const result = await run();
+    const workIds =
+      result && typeof result === "object" && "workIds" in result
+        ? result.workIds
+        : undefined;
+    await revalidatePublicCacheForTasks([REVALIDATE_TASK_BY_STEP[step]], { workIds });
 
     return NextResponse.json({
       success: true,

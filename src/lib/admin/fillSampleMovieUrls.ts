@@ -223,6 +223,7 @@ export async function fillSampleMovieUrls() {
         totalCount: job.total_count,
         saved: 0,
         missing: 0,
+        workIds: [] as string[],
       };
     }
 
@@ -263,6 +264,11 @@ export async function fillSampleMovieUrls() {
       (result) =>
         result.status === "fulfilled" && result.value === "sample_movie_missing",
     ).length;
+    const workIds = results.flatMap((result, index) =>
+      result.status === "fulfilled" && result.value === "updated"
+        ? [targets[index].product_id]
+        : [],
+    );
     const processedCount = processedBefore + targets.length;
     const totalCount = job.total_count;
     const lastProductId = targets[targets.length - 1].product_id;
@@ -290,6 +296,7 @@ export async function fillSampleMovieUrls() {
       totalCount,
       saved,
       missing,
+      workIds,
     };
   } catch (error) {
     const message = formatUnknownError(error);

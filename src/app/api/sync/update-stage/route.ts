@@ -10,7 +10,7 @@ export async function POST() {
 
   try {
     await updateStage();
-    revalidatePublicCacheForTasks(["stage"]);
+    await revalidatePublicCacheForTasks(["stage"]);
 
     return NextResponse.json({
       success: true,

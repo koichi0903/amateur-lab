@@ -147,6 +147,7 @@ async function registerMissingNewWorks(
 }
 
 export async function updateNewWorks() {
+  const updatedWorkIds: string[] = [];
   const { products } = await getNewItems();
   const productMap = new Map(
     products.map((product) => [product.productId, product]),
@@ -173,7 +174,7 @@ export async function updateNewWorks() {
 
     if (works.length === 0) {
       console.log("更新対象の新作はありません");
-      return;
+      return { workIds: updatedWorkIds };
     }
 
     const job = await beginJob(JOBS.NEW_UPDATE, works.length);
@@ -233,6 +234,7 @@ export async function updateNewWorks() {
               browser,
               latest.listPrice,
             );
+            updatedWorkIds.push(work.product_id);
           } catch (error) {
             console.error(`[ERROR] update失敗 ${work.product_id}`, error);
           }
@@ -255,6 +257,7 @@ export async function updateNewWorks() {
 
     await finishJob(JOBS.NEW_UPDATE);
     console.log("新作更新完了");
+    return { workIds: updatedWorkIds };
   } catch (error) {
     console.error("updateNewWorks エラー:", error);
 

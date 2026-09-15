@@ -289,7 +289,12 @@ export async function updateScore(productIds?: string[]) {
     await updateStatistics();
     await finishJob(JOBS.SCORE);
 
-    return { success: true, count: total, updates: total };
+    return {
+      success: true,
+      count: total,
+      updates: total,
+      workIds: works.map((work) => work.product_id),
+    };
   } catch (error) {
     await failJob(JOBS.SCORE, errorMessage(error));
     throw error;

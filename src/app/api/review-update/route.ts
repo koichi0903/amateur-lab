@@ -21,7 +21,7 @@ export async function POST() {
     });
 
     const { success: successCount, ...reviewResult } = result;
-    revalidatePublicCacheForTasks(["review"]);
+    await revalidatePublicCacheForTasks(["review"], { workIds: result.workIds });
 
     return NextResponse.json({
       success: true,
