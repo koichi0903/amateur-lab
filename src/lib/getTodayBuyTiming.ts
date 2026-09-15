@@ -277,7 +277,7 @@ export async function getTodayBuyTiming(limit = 30) {
     .sort((a, b) =>
       b.buyTiming.score - a.buyTiming.score ||
       (b.discount_rate ?? 0) - (a.discount_rate ?? 0) ||
-      (b.score ?? 0) - a.score,
+      (b.score ?? 0) - (a.score ?? 0),
     )
     .slice(0, limit);
 }
