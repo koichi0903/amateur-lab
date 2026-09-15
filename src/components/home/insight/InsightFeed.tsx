@@ -1,5 +1,6 @@
 import InsightCard from "./InsightCard";
 import Link from "next/link";
+import type { HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 
 type Insight = {
   id: string | number;
@@ -7,6 +8,7 @@ type Insight = {
   title?: string | null;
   description?: string | null;
   works?: Record<string, unknown> | Record<string, unknown>[] | null;
+  priceInsight?: HomePriceInsightWork | null;
 };
 
 export default function InsightFeed({ insights, lastUpdatedAt }: { insights: Insight[]; lastUpdatedAt?: string | null }) {
@@ -42,3 +44,4 @@ export default function InsightFeed({ insights, lastUpdatedAt }: { insights: Ins
     </section>
   );
 }
+
