@@ -6,9 +6,12 @@ import {
 } from "@/lib/buyTiming";
 import type { Work } from "@/types/work";
 import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
+import { normalizeDisplayName } from "@/lib/createChartData";
+import { parseDatabaseDate } from "@/lib/dateTime";
 import {
   buildPriceInsightFromRows,
   type HomePriceInsightWork,
+  type HomePricePoint,
   type PriceHistoryRow,
 } from "@/lib/getHomePriceInsights";
 
@@ -50,6 +53,94 @@ const DAY_MS = 86_400_000;
 
 function getCurrentPrice(work: TodayBuyTimingWork) {
   return work.sale_price && work.sale_price > 0 ? work.sale_price : work.price;
+}
+
+function effectiveHistoryPrice(row: PriceHistoryRow) {
+  return row.sale_price && row.sale_price > 0
+    ? row.sale_price
+    : row.normal_price && row.normal_price > 0
+      ? row.normal_price
+      : null;
+}
+
+function databaseTime(value: string) {
+  return parseDatabaseDate(value)?.getTime() ?? Number.NaN;
+}
+
+function buildListPriceInsight(
+  work: TodayBuyTimingWork,
+  rows: PriceHistoryRow[],
+  windowStartAt: string,
+  windowEndAt: string,
+): HomePriceInsightWork | null {
+  const currentPrice = getCurrentPrice(work);
+  if (!currentPrice || currentPrice <= 0) return null;
+
+  const displayedRows = rows
+    .map((row) => ({ ...row, value: effectiveHistoryPrice(row) }))
+    .filter((row): row is PriceHistoryRow & { value: number } => Boolean(row.value && row.value > 0))
+    .sort((a, b) => databaseTime(b.changed_at) - databaseTime(a.changed_at));
+  if (!displayedRows.length) return null;
+
+  const seriesLatest = displayedRows.find((row) => row.value === currentPrice) ?? displayedRows[0];
+  const chartRows = displayedRows.filter(
+    (row) =>
+      normalizeDisplayName(row.display_name) === normalizeDisplayName(seriesLatest.display_name) &&
+      (row.period ?? null) === (seriesLatest.period ?? null),
+  );
+  const start = Date.parse(windowStartAt);
+  const end = Date.parse(windowEndAt);
+  const priceHistory: HomePricePoint[] = chartRows
+    .filter((row) => {
+      const changedAt = databaseTime(row.changed_at);
+      return Number.isFinite(changedAt) && changedAt >= start && changedAt <= end;
+    })
+    .sort((a, b) => databaseTime(a.changed_at) - databaseTime(b.changed_at))
+    .map((row) => ({
+      price: row.value,
+      changedAt: row.changed_at,
+      priceKind: row.price_kind,
+    }));
+
+  priceHistory.push({
+    price: currentPrice,
+    changedAt: windowEndAt,
+    priceKind: null,
+    isCurrent: true,
+  });
+  if (priceHistory.length < 2) return null;
+
+  const prices = priceHistory.map((point) => point.price);
+  const low90Price = Math.min(...prices);
+  const peak90Price = Math.max(...prices);
+  const previousPrice = [...priceHistory]
+    .reverse()
+    .find((point) => !point.isCurrent && point.price !== currentPrice)?.price ?? null;
+  const dropAmount = previousPrice && previousPrice > currentPrice ? previousPrice - currentPrice : 0;
+  const dropRate = previousPrice && previousPrice > currentPrice ? Math.round((dropAmount / previousPrice) * 100) : 0;
+  const discountRate = work.discount_rate > 0
+    ? work.discount_rate
+    : work.list_price && work.list_price > currentPrice
+      ? Math.round((1 - currentPrice / work.list_price) * 100)
+      : 0;
+  const isNearLow = currentPrice <= low90Price * 1.05;
+  const buyScore = Math.max(0, Math.min(100, 50 + Math.min(24, Math.round(dropRate * 0.6)) + Math.min(14, Math.round(discountRate / 5)) + (isNearLow ? 18 : 0)));
+  const badge = dropRate >= 25 ? "急落" : currentPrice <= low90Price ? "過去最安" : isNearLow ? "90日安値" : currentPrice > low90Price ? "価格上昇" : "買い時";
+
+  return {
+    ...(work as unknown as HomePriceInsightWork),
+    currentPrice,
+    previousPrice,
+    dropAmount,
+    dropRate,
+    low90Price,
+    peak90Price,
+    buyScore,
+    badge,
+    priceHistory,
+    priceWindowStartAt: windowStartAt,
+    priceWindowEndAt: windowEndAt,
+  };
 }
 
 async function getFunnelCounts(workIds: number[], days = 30) {
@@ -179,14 +270,14 @@ export async function getTodayBuyTiming(limit = 30) {
         histories.get(work.product_id) ?? [],
         windowStartAt,
         windowEndAt,
-      );
+      ) ?? buildListPriceInsight(work, histories.get(work.product_id) ?? [], windowStartAt, windowEndAt);
 
       return { ...work, buyTiming, priceInsight };
     })
     .sort((a, b) =>
       b.buyTiming.score - a.buyTiming.score ||
       (b.discount_rate ?? 0) - (a.discount_rate ?? 0) ||
-      (b.score ?? 0) - (a.score ?? 0),
+      (b.score ?? 0) - a.score,
     )
     .slice(0, limit);
 }
