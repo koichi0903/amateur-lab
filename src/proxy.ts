@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 
 const PUBLIC_API_PATHS = new Set([
   "/api/affiliate-click",
+  "/api/affiliate-impression",
+  "/api/compare",
+  "/api/contact",
   "/api/favorites",
+  "/api/work-page-view",
 ]);
 const LOCAL_UPDATE_API_PATHS = new Set([
   "/api/admin/browser-health",
-  "/api/admin/fill-sample-movie",
   "/api/admin/local-playwright-update",
   "/api/dmm-ranking",
   "/api/fanza-page",
@@ -23,6 +26,7 @@ const LOCAL_UPDATE_API_PATHS = new Set([
   "/api/update-semi-new",
 ]);
 const ADMIN_SESSION_MAX_AGE = 60 * 60 * 12;
+const WORK_SOCIAL_IMAGE_PATH_PATTERN = /^\/works\/[^/]+\/(?:opengraph-image|twitter-image)$/;
 
 function secureCompare(actual: string, expected: string): boolean {
   if (actual.length !== expected.length) return false;
@@ -82,6 +86,13 @@ function hasValidCronSecret(request: NextRequest): boolean {
   return secureCompare(authorization.slice("Bearer ".length), cronSecret);
 }
 
+function hasSignedRevalidationHeaders(request: NextRequest): boolean {
+  const timestamp = request.headers.get("x-hakkutsu-timestamp") ?? "";
+  const signature = request.headers.get("x-hakkutsu-signature") ?? "";
+
+  return /^\d{13}$/.test(timestamp) && /^[a-f0-9]{64}$/i.test(signature);
+}
+
 function adminCookieName(request: NextRequest): string {
   return request.nextUrl.protocol === "https:"
     ? "__Host-hakkutsu_admin"
@@ -131,6 +142,15 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.hostname,
   );
 
+  if (WORK_SOCIAL_IMAGE_PATH_PATTERN.test(pathname)) {
+    return NextResponse.redirect(new URL("/ogp.png", request.url), {
+      status: 308,
+      headers: {
+        "Cache-Control": "public, s-maxage=604800, stale-while-revalidate=2592000",
+      },
+    });
+  }
+
   // The local admin UI is the control panel for update jobs that cannot run
   // reliably on Vercel (notably Playwright). Keep production admin routes
   // authenticated, while allowing the loopback-only development server.
@@ -154,6 +174,9 @@ export async function proxy(request: NextRequest) {
   }
 
   if (pathname === "/api/admin/revalidate") {
+    // HMAC signatures are verified against the exact request body in the route.
+    // The proxy can only recognize the signed request shape without consuming it.
+    if (hasSignedRevalidationHeaders(request)) return NextResponse.next();
     if (!process.env.CRON_SECRET) return unavailable();
     return hasValidCronSecret(request)
       ? NextResponse.next()
@@ -189,5 +212,10 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/:path*"],
+  matcher: [
+    "/admin/:path*",
+    "/api/:path*",
+    "/works/:id/opengraph-image",
+    "/works/:id/twitter-image",
+  ],
 };

@@ -3,17 +3,20 @@ import { ArrowRight, Clock3, PlayCircle, Star } from "lucide-react";
 import WorkImage from "@/components/home/WorkImage";
 import CompareButton from "@/components/comparison/CompareButton";
 import { workDetailHref, type AffiliateSource } from "@/lib/affiliateTracking";
+import { formatJapanDateTime, parseDatabaseDate } from "@/lib/dateTime";
 import type { Work } from "@/types/work";
 
 export type DealWork = Pick<
   Work,
   | "id"
   | "title"
+  | "genre"
   | "image_url"
   | "price"
   | "sale_price"
   | "list_price"
   | "discount_rate"
+  | "is_on_sale"
   | "score"
   | "review_average"
   | "review_count"
@@ -23,14 +26,9 @@ export type DealWork = Pick<
 > & { sample_movie_url?: string | null };
 
 function formatSaleEnd(value: string | null) {
-  if (!value || Date.parse(value) <= Date.now()) return null;
-  return new Intl.DateTimeFormat("ja-JP", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Tokyo",
-  }).format(new Date(value));
+  const date = parseDatabaseDate(value);
+  if (!date || date.getTime() <= Date.now()) return null;
+  return formatJapanDateTime(value);
 }
 
 export default function DealWorkCard({
@@ -40,13 +38,16 @@ export default function DealWorkCard({
   work: DealWork;
   source?: AffiliateSource;
 }) {
-  const currentPrice = work.sale_price > 0 ? work.sale_price : work.price;
-  const regularPrice = work.list_price && work.list_price > currentPrice
+  const hasSalePrice = work.sale_price > 0;
+  const hasDiscountRate = work.discount_rate > 0;
+  const isSale = work.is_on_sale || hasSalePrice || hasDiscountRate;
+  const currentPrice = hasSalePrice ? work.sale_price : work.price;
+  const regularPrice = isSale && work.list_price && work.list_price > currentPrice
     ? work.list_price
-    : work.price;
-  const discountRate = work.discount_rate > 0
+    : null;
+  const discountRate = isSale && hasDiscountRate
     ? Math.round(work.discount_rate)
-    : regularPrice > currentPrice && currentPrice > 0
+    : hasSalePrice && regularPrice && currentPrice > 0
       ? Math.round((1 - currentPrice / regularPrice) * 100)
       : 0;
   const saleEnd = formatSaleEnd(work.sale_end_at);
@@ -100,10 +101,10 @@ export default function DealWorkCard({
       {purchaseReasons.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{purchaseReasons.map((reason) => <span key={reason} className="rounded-md bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">✓ {reason}</span>)}</div>}
 
       <div className="mt-auto pt-3">
-        {regularPrice > currentPrice && currentPrice > 0 && (
+        {regularPrice && currentPrice > 0 && (
           <p className="text-[11px] font-bold text-slate-400 line-through">通常 ¥{regularPrice.toLocaleString("ja-JP")}</p>
         )}
-        <p className={`text-lg font-black ${work.sale_price > 0 ? "text-rose-600" : "text-slate-950"}`}>
+        <p className={`text-lg font-black ${isSale ? "text-rose-600" : "text-slate-950"}`}>
           {currentPrice > 0 ? `¥${currentPrice.toLocaleString("ja-JP")}` : "価格未取得"}
         </p>
         {saleEnd && (

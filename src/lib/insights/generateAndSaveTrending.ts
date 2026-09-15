@@ -38,7 +38,9 @@ export async function generateAndSaveTrendingInsight(
         `${input.previousRealtimeRank}位 → ` +
         `${input.realtimeRank}位へ上昇しました。`,
       priority: 80,
-      score: diff,
+      // Keep the sortable insight score within the legacy numeric(5,2)
+      // schema as well. The exact rank movement remains in payload.diff.
+      score: Math.min(diff, 999.99),
       payload: {
         previousRank: input.previousRealtimeRank,
         currentRank: input.realtimeRank,

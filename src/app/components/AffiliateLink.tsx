@@ -1,27 +1,41 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { AffiliateSource } from "@/lib/affiliateTracking";
+import {
+  normalizeAffiliateSource,
+  type AffiliateSource,
+} from "@/lib/affiliateTracking";
 import {
   normalizeCtaVariant,
   type CtaVariant,
 } from "@/lib/ctaExperiment";
+import { readExternalAttribution } from "./Analytics";
+import { isOperatorLandingPath } from "@/lib/externalAttribution";
+import type { SampleMovieDeliveryMode } from "@/lib/sampleMovieFallback";
 
-export type AffiliatePlacement = "detail-sidebar" | "mobile-sticky" | "compare-card";
+export type AffiliatePlacement =
+  | "detail-sidebar"
+  | "buy-timing-panel"
+  | "mobile-sticky"
+  | "compare-card"
+  | "sample-movie-fallback";
 
 type Props = {
   href: string;
   workId: number;
   placement: AffiliatePlacement;
-  sourcePage: AffiliateSource;
+  sourcePage?: AffiliateSource;
   className?: string;
   ariaLabel?: string;
   children: ReactNode;
   variantChildren?: Partial<Record<CtaVariant, ReactNode>>;
   experiment?: boolean;
+  deliveryMode?: SampleMovieDeliveryMode;
 };
 
 const STORAGE_PREFIX = "hakkutsu-lab:cta-variant:v1";
+const IMPRESSION_STORAGE_PREFIX = "hakkutsu-lab:cta-impression:v1";
+const MAX_X_POST_KEY_LENGTH = 120;
 
 function getStoredVariant(placement: AffiliatePlacement): CtaVariant {
   if (typeof window === "undefined") return "control";
@@ -38,6 +52,34 @@ function getStoredVariant(placement: AffiliatePlacement): CtaVariant {
   }
 }
 
+function shouldRecordImpression(key: string) {
+  try {
+    if (window.sessionStorage.getItem(key)) return false;
+    window.sessionStorage.setItem(key, "1");
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+function readUrlAttribution(fallbackSourcePage?: AffiliateSource) {
+  if (typeof window === "undefined") {
+    return {
+      sourcePage: fallbackSourcePage ?? "direct",
+      xPostKey: null,
+    };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const xPostKey =
+    params.get("x_post")?.trim().slice(0, MAX_X_POST_KEY_LENGTH) || null;
+
+  return {
+    sourcePage: normalizeAffiliateSource(params.get("from") ?? fallbackSourcePage),
+    xPostKey,
+  };
+}
+
 export default function AffiliateLink({
   href,
   workId,
@@ -48,6 +90,7 @@ export default function AffiliateLink({
   children,
   variantChildren,
   experiment = false,
+  deliveryMode,
 }: Props) {
   const [ctaVariant, setCtaVariant] = useState<CtaVariant | null>(null);
   const linkRef = useRef<HTMLAnchorElement>(null);
@@ -70,11 +113,17 @@ export default function AffiliateLink({
 
     const recordImpression = () => {
       if (impressionRecordedRef.current) return;
+      const attribution = readUrlAttribution(sourcePage);
+      const storageKey = `${IMPRESSION_STORAGE_PREFIX}:${workId}:${placement}:${attribution.sourcePage}:${attribution.xPostKey ?? ""}:${ctaVariant}`;
+      if (!shouldRecordImpression(storageKey)) {
+        impressionRecordedRef.current = true;
+        return;
+      }
       impressionRecordedRef.current = true;
       void fetch("/api/affiliate-impression", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workId, placement, sourcePage, ctaVariant }),
+        body: JSON.stringify({ workId, placement, ...attribution, ctaVariant }),
         keepalive: true,
       }).catch(() => undefined);
     };
@@ -100,12 +149,43 @@ export default function AffiliateLink({
   const activeVariant = ctaVariant ?? "control";
 
   const recordClick = () => {
+    const externalAttribution = readExternalAttribution();
+    const attribution = readUrlAttribution(sourcePage);
+
+    if (
+      isOperatorLandingPath(window.location.pathname) ||
+      isOperatorLandingPath(externalAttribution?.landingPath)
+    ) {
+      return;
+    }
+
+    window.gtag?.("event", "affiliate_click", {
+      work_id: String(workId),
+      placement,
+      source_page: attribution.sourcePage,
+      cta_variant: activeVariant,
+      external_channel: externalAttribution?.channel ?? "unknown",
+      external_source: externalAttribution?.source ?? "unknown",
+      landing_path: externalAttribution?.landingPath ?? "unknown",
+      page_path: `${window.location.pathname}${window.location.search}`,
+      link_url: href,
+      delivery_mode: deliveryMode,
+      transport_type: "beacon",
+    });
+
     // Never delay the purchase destination for analytics. keepalive lets this
     // finish after the new FANZA tab opens, and failures are intentionally ignored.
     void fetch("/api/affiliate-click", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workId, placement, sourcePage, ctaVariant: activeVariant }),
+      body: JSON.stringify({
+        workId,
+        placement,
+        ...attribution,
+        ctaVariant: activeVariant,
+        deliveryMode,
+        externalAttribution,
+      }),
       keepalive: true,
     }).catch(() => undefined);
   };

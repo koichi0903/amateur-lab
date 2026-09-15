@@ -5,7 +5,7 @@ export interface PriceInfo {
 
   name: string;
 
-  period?: string;
+  period?: string | null;
 
   normalPrice?: number;
 
@@ -38,7 +38,6 @@ export interface ParsedData {
 
   sampleImages: string[];
 
-sampleMovieUrl?: string;
 
 saleEndAt: Date | null;
 }
@@ -138,104 +137,92 @@ async function getDateValue(
   return match[0].replace(/\//g, "-");
 }
 
-async function getPrices(
-  page: Page
-): Promise<PriceInfo[]> {
-  const result: PriceInfo[] = [];
+export function parseCurrencyAmount(text: string): number | null {
+  const normalized = text.replace(/\s+/g, "").trim();
+  const match = normalized.match(/^(?:[￥¥])?([\d,]+)円?$/);
 
-  const labels = page.locator("label");
+  // Bare digits can be part of a format name, such as "8KVR".
+  if (!match || !/[￥¥円]/.test(normalized)) return null;
 
-const count = await labels.count();
-
-for (let i = 0; i < count; i++) {
-  const label = labels.nth(i);
-
-  const text =
-    (await label.innerText()).trim();
-
-    const lines = text
-      .split("\n")
-      .map((v) => v.trim())
-      .filter(Boolean);
-
-    const prices = lines.filter((v) =>
-      v.includes("円")
-    );
-
-    if (prices.length === 0) {
-      continue;
-    }
-
-    const toNumber = (value: string) =>
-      Number(value.replace(/[^\d]/g, ""));
-
-    let normalPrice: number | undefined;
-    let salePrice: number | undefined;
-
-    if (prices.length >= 2) {
-  normalPrice = toNumber(prices[0]);
-  salePrice = toNumber(prices[1]);
-} else {
-  normalPrice = toNumber(prices[0]);
+  const value = Number(match[1].replace(/,/g, ""));
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
-    const period = lines.find(
-  (v) =>
-    v === "無期限" ||
-    v.includes("日間")
-);
+export function normalizePricePeriod(text?: string | null): string | null {
+  const normalized = text?.replace(/\s+/g, "").trim();
+  if (!normalized) return null;
+  if (normalized === "無期限") return normalized;
 
-    const name = lines
-  .filter(
-    (v) =>
-      !v.includes("円") &&
-      v !== "無期限" &&
-      !v.includes("日間")
-  )
-  .join(" ");
+  const days = normalized.match(/^(\d+)日(?:間)?$/)?.[1];
+  return days ? `${days}日間` : null;
+}
 
-    result.push({
-  type: "",
-  name,
-  period,
-  normalPrice,
-  salePrice,
-});
-  }
+export function parsePriceOptionFields(input: {
+  name: string;
+  period?: string | null;
+  priceTexts: string[];
+}): PriceInfo | null {
+  const name = input.name
+    .replace(/\s+/g, " ")
+    .replace(/\s*＋\s*/g, " ＋ ")
+    .trim();
+  const period = normalizePricePeriod(input.period);
+  const amounts = input.priceTexts
+    .map(parseCurrencyAmount)
+    .filter((value): value is number => value != null);
 
-  const nameCounts = new Map<string, number>();
+  if (!name || amounts.length === 0) return null;
 
-  for (const price of result) {
-    nameCounts.set(
-      price.name,
-      (nameCounts.get(price.name) ?? 0) + 1
-    );
-  }
+  const normalPrice = amounts[0];
+  const candidateSalePrice = amounts[1];
+  const salePrice =
+    candidateSalePrice != null && candidateSalePrice < normalPrice
+      ? candidateSalePrice
+      : undefined;
 
-  // 同じ販売名でも「無期限」「7日間」などが異なる別プランがある。
-  // work_prices は display_name を一意キーにしているため、重複時だけ期間を付けて区別する。
-  const normalized = result.map((price) =>
-    (nameCounts.get(price.name) ?? 0) > 1
-      ? {
-          ...price,
-          name: `${price.name}（${price.period ?? "期間不明"}）`,
-        }
-      : price
+  return { type: "", name, period, normalPrice, salePrice };
+}
+
+async function getStructuredPrices(page: Page): Promise<PriceInfo[]> {
+  const optionFields = await page.locator("label").evaluateAll((labels) =>
+    labels.map((label) => {
+      const paragraphs = Array.from(label.querySelectorAll("p"));
+      const name = paragraphs.find(
+        (paragraph) =>
+          paragraph.classList.contains("text-gray-800") &&
+          paragraph.classList.contains("text-xs"),
+      );
+      const period = paragraphs.find((paragraph) =>
+        paragraph.classList.contains("text-xxs"),
+      );
+      const priceTexts = paragraphs
+        .map((paragraph) => paragraph.textContent?.trim() ?? "")
+        .filter((text) => /[￥¥円]/.test(text));
+
+      return {
+        name: name?.textContent ?? "",
+        period: period?.textContent ?? null,
+        priceTexts,
+      };
+    }),
   );
 
-  const normalizedNames = new Set<string>();
+  const prices = optionFields
+    .map(parsePriceOptionFields)
+    .filter((price): price is PriceInfo => price != null);
+  const keys = new Set<string>();
 
-  for (const price of normalized) {
-    if (normalizedNames.has(price.name)) {
+  for (const price of prices) {
+    const key = `${price.name}\u0000${price.period ?? ""}`;
+    if (keys.has(key)) {
       throw new Error(
-        `価格プランを一意に識別できません: ${price.name}`
+        `価格プランを一意に識別できません: ${price.name} (${price.period ?? "期間なし"})`,
       );
     }
-
-    normalizedNames.add(price.name);
+    keys.add(key);
   }
 
-  return normalized;
+  return prices;
 }
 
 export async function parsePage(
@@ -243,7 +230,7 @@ export async function parsePage(
 ): Promise<ParsedData> {
 
   
-const prices = await getPrices(page);
+const prices = await getStructuredPrices(page);
 
 
 

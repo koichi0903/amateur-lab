@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
+import { revalidatePublicCacheForTasks } from "@/lib/admin/revalidatePublicCache";
+import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { updateReviewWorks } from "@/lib/admin/updateReviewWorks";
+import { describeReviewUpdateError } from "@/lib/admin/reviewUpdateSupport";
 
 export const maxDuration = 300;
 
@@ -8,6 +11,9 @@ const REVIEW_BATCH_SIZE = 250;
 const REVIEW_TIME_BUDGET_MS = 240_000;
 
 export async function POST() {
+  const blocked = blockVercelAdminUpdate();
+  if (blocked) return blocked;
+
   try {
     const result = await updateReviewWorks({
       maxItems: REVIEW_BATCH_SIZE,
@@ -15,13 +21,14 @@ export async function POST() {
     });
 
     const { success: successCount, ...reviewResult } = result;
+    revalidatePublicCacheForTasks(["review"]);
 
     return NextResponse.json({
       success: true,
       ...reviewResult,
       successCount,
       message: result.completed
-        ? "レビュー更新完了"
+        ? "レビュー更新が完了しました。"
         : `レビュー更新中 ${result.processedCount}/${result.totalCount}`,
     });
   } catch (error) {
@@ -30,11 +37,9 @@ export async function POST() {
     return NextResponse.json(
       {
         success: false,
-        message: "レビュー更新失敗",
+        message: `レビュー更新に失敗しました: ${describeReviewUpdateError(error)}`,
       },
-      {
-        status: 500,
-      },
+      { status: 500 },
     );
   }
 }

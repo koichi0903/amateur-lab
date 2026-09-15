@@ -51,28 +51,16 @@ async function syncRankingByName(
   }
 
   const existingRows: Array<{ id: number | string; name: string }> = [];
-  if (options.deleteStale) {
-    const pageSize = 1000;
-    for (let offset = 0; ; offset += pageSize) {
-      const { data, error } = await supabase
-        .from(table)
-        .select("id,name")
-        .range(offset, offset + pageSize - 1);
-      if (error) throw error;
-      existingRows.push(...((data ?? []) as typeof existingRows));
-      if ((data?.length ?? 0) < pageSize) break;
-    }
-  } else {
-    const names = rows.map((row) => row.name);
-    const chunkSize = 50;
-    for (let offset = 0; offset < names.length; offset += chunkSize) {
-      const { data, error } = await supabase
-        .from(table)
-        .select("id,name")
-        .in("name", names.slice(offset, offset + chunkSize));
-      if (error) throw error;
-      existingRows.push(...((data ?? []) as typeof existingRows));
-    }
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from(table)
+      .select("id,name")
+      .order("id", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    existingRows.push(...((data ?? []) as typeof existingRows));
+    if ((data?.length ?? 0) < pageSize) break;
   }
 
   const idsByName = new Map<string, Array<number | string>>();
@@ -120,11 +108,14 @@ async function syncRankingByName(
     .map((row) => row.id);
 
   if (staleIds.length > 0 && options.deleteStale) {
-    const { error: deleteError } = await supabase
-      .from(table)
-      .delete()
-      .in("id", staleIds);
-    if (deleteError) throw deleteError;
+    const chunkSize = 100;
+    for (let offset = 0; offset < staleIds.length; offset += chunkSize) {
+      const { error: deleteError } = await supabase
+        .from(table)
+        .delete()
+        .in("id", staleIds.slice(offset, offset + chunkSize));
+      if (deleteError) throw deleteError;
+    }
   }
 
   console.log(`[entity-ranking] ${table} completed`, {

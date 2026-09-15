@@ -1,114 +1,113 @@
-// ======================
-// 発掘スコア係数
-// Ver1.0
-// ======================
+// 発掘スコア Ver.3
+// 「人気作品」ではなく「評価の信頼できる、まだ見つかりきっていない良作」を上げる。
 
-const SCORE = {
-  // ======================
-  // 基本スコア（100点）
-  // ======================
+type ScoreParams = {
+  reviewAverage: number;
+  reviewCount: number;
 
-  REVIEW_MAX: 25,
-  POPULARITY_MAX: 25,
+  maxDiscountRate: number;
+  currentPrice?: number | null;
+  lowestPrice?: number | null;
+  hasSampleMovie?: boolean;
+  sampleImageCount?: number;
+  hasImage?: boolean;
 
-  ACTRESS_MAX: 20,
-  MAKER_MAX: 10,
-  GENRE_MAX: 10,
-  SERIES_MAX: 10,
+  actressPoint: number;
+  genrePoint: number;
+  makerPoint: number;
+  seriesPoint: number;
 
-  // ======================
-// ボーナス（20点）
-// ======================
+  realtimeRank?: number | null;
+  dailyRank?: number | null;
+  weeklyRank?: number | null;
+  monthlyRank?: number | null;
 
-NEW_RELEASE_MAX: 10,
-LONG_HIT_MAX: 10,
+  longHitRank?: number | null;
 
-  // ======================
-  // 計算係数
-  // ======================
+  releaseDate: string | null;
+};
 
-  REVIEW: 3,
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
 
-  REVIEW_COUNT_LIMIT: 20,
-  REVIEW_COUNT_DIV: 4,
+function validPrice(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
 
-  DISCOUNT_DIV: 5,
+function getBestRank(...ranks: Array<number | null | undefined>) {
+  const values = ranks.filter(
+    (rank): rank is number => typeof rank === "number" && rank > 0 && rank < 9999,
+  );
+  return values.length ? Math.min(...values) : null;
+}
 
-} as const;
+function getBayesianRating(reviewAverage: number, reviewCount: number) {
+  const priorRating = 4.05;
+  const priorCount = 20;
 
-// ======================
-// 人気度ポイント（Ver.2）
-// ======================
+  return ((reviewAverage * reviewCount) + (priorRating * priorCount)) /
+    (reviewCount + priorCount);
+}
 
-function getRealtimePoint(rank?: number | null): number {
-  if (!rank) return 0;
+function getHiddenPotential(rank: number | null, qualityTrustPoint: number) {
+  let hiddenPoint = 10;
 
-  if (rank <= 10) return 25;
-  if (rank <= 20) return 24;
-  if (rank <= 30) return 23;
-  if (rank <= 40) return 22;
-  if (rank <= 50) return 21;
-  if (rank <= 60) return 20;
-  if (rank <= 70) return 19;
-  if (rank <= 80) return 18;
-  if (rank <= 90) return 17;
-  if (rank <= 100) return 16;
+  if (rank) {
+    const peakRank = 220;
+    const distance = Math.abs(Math.log(rank) - Math.log(peakRank));
+    hiddenPoint = clamp(25 - distance * 12, 3, 25);
+
+    if (rank <= 30) hiddenPoint = Math.min(hiddenPoint, 8);
+    else if (rank <= 80) hiddenPoint = Math.min(hiddenPoint, 16);
+    else if (rank >= 1001) hiddenPoint = Math.min(hiddenPoint, 6);
+  }
+
+  if (qualityTrustPoint < 25) return Math.min(hiddenPoint, 12);
+  if (qualityTrustPoint < 35) return Math.min(hiddenPoint, 18);
+
+  return hiddenPoint;
+}
+
+function getLowestPricePoint(currentPrice: number | null, lowestPrice: number | null) {
+  if (!currentPrice || !lowestPrice) return 2;
+
+  const gap = (currentPrice - lowestPrice) / lowestPrice;
+  if (currentPrice <= lowestPrice) return 8;
+  if (gap <= 0.1) return 8 - (gap / 0.1) * 3;
+  if (gap <= 0.3) return 5 - ((gap - 0.1) / 0.2) * 4;
 
   return 0;
 }
 
-function getDailyPoint(rank?: number | null): number {
-  if (!rank) return 0;
+function getNewReleasePoint(releaseDate: string | null) {
+  if (!releaseDate) return 0;
 
-  if (rank === 1) return 25;
-  if (rank === 2) return 24;
-  if (rank === 3) return 23;
-  if (rank === 4) return 22;
-  if (rank === 5) return 21;
-  if (rank === 6) return 20;
-  if (rank === 7) return 19;
-  if (rank === 8) return 18;
-  if (rank === 9) return 17;
-  if (rank === 10) return 16;
-  if (rank <= 12) return 15;
-  if (rank <= 14) return 14;
-  if (rank <= 16) return 13;
-  if (rank <= 18) return 12;
-  if (rank <= 20) return 11;
+  const release = new Date(releaseDate);
+  const today = new Date();
+  const daysFromRelease = Math.floor(
+    (today.getTime() - release.getTime()) / (1000 * 60 * 60 * 24),
+  );
 
-  return 0;
-}
-
-function getWeeklyMonthlyPoint(rank?: number | null): number {
-  if (!rank) return 0;
-
-  if (rank <= 5) return 25;
-  if (rank <= 10) return 24;
-  if (rank <= 15) return 23;
-  if (rank <= 20) return 22;
-  if (rank <= 25) return 21;
-  if (rank <= 30) return 20;
-  if (rank <= 35) return 19;
-  if (rank <= 40) return 18;
-  if (rank <= 45) return 17;
-  if (rank <= 50) return 16;
-  if (rank <= 55) return 15;
-  if (rank <= 60) return 14;
-  if (rank <= 65) return 13;
-  if (rank <= 70) return 12;
-  if (rank <= 75) return 11;
-  if (rank <= 80) return 10;
-  if (rank <= 85) return 9;
-  if (rank <= 90) return 8;
-  if (rank <= 95) return 7;
-  if (rank <= 100) return 6;
+  if (daysFromRelease < 0) return 0;
+  if (daysFromRelease <= 15) return 10;
+  if (daysFromRelease <= 30) return 9;
+  if (daysFromRelease <= 45) return 8;
+  if (daysFromRelease <= 60) return 7;
+  if (daysFromRelease <= 75) return 6;
+  if (daysFromRelease <= 90) return 5;
+  if (daysFromRelease <= 105) return 4;
+  if (daysFromRelease <= 120) return 3;
+  if (daysFromRelease <= 135) return 2;
+  if (daysFromRelease <= 150) return 1;
 
   return 0;
 }
 
-function getLongHitPoint(rank?: number | null): number {
+function getLongHitPoint(rank?: number | null) {
   if (!rank) return 0;
-
   if (rank <= 50) return 10;
   if (rank <= 100) return 9;
   if (rank <= 150) return 8;
@@ -123,35 +122,40 @@ function getLongHitPoint(rank?: number | null): number {
   return 0;
 }
 
-type ScoreParams = {
-  reviewAverage: number;
+function applyTrustCaps({
+  score,
+  reviewCount,
+  bayesianRating,
+  rank,
+}: {
+  score: number;
   reviewCount: number;
+  bayesianRating: number;
+  rank: number | null;
+}) {
+  let cap = 100;
 
-  // スコア用（全プラン中の最大割引率）
-  maxDiscountRate: number;
+  if (reviewCount === 0) cap = Math.min(cap, 45);
+  else if (reviewCount <= 4) cap = Math.min(cap, 60);
+  else if (reviewCount <= 9) cap = Math.min(cap, 72);
 
-  // updateScore.tsで順位→ポイントへ変換済み
-actressPoint: number;
-  genrePoint: number;
-  // updateScore.tsで順位→ポイントへ変換済み
-makerPoint: number;
-  seriesPoint: number;
+  if (bayesianRating < 4) cap = Math.min(cap, 70);
 
-  // 発掘LAB Ver.2 人気度ランキング
-  realtimeRank?: number | null;
-  dailyRank?: number | null;
-  weeklyRank?: number | null;
-  monthlyRank?: number | null;
+  if (rank && rank <= 10) cap = Math.min(cap, 78);
+  else if (rank && rank <= 30) cap = Math.min(cap, 82);
 
-  longHitRank?: number | null;
-
-  releaseDate: string | null;
-};
+  return Math.min(score, cap);
+}
 
 export function calculateScore({
   reviewAverage,
   reviewCount,
   maxDiscountRate,
+  currentPrice,
+  lowestPrice,
+  hasSampleMovie = false,
+  sampleImageCount = 0,
+  hasImage = false,
   actressPoint,
   genrePoint,
   makerPoint,
@@ -162,155 +166,63 @@ export function calculateScore({
     monthlyRank,
   longHitRank,
   releaseDate,
-}: ScoreParams)
-{
+}: ScoreParams) {
+  const safeReviewAverage = clamp(reviewAverage ?? 0, 0, 5);
+  const safeReviewCount = Math.max(0, reviewCount ?? 0);
+  const safeDiscountRate = clamp(maxDiscountRate ?? 0, 0, 95);
+  const effectivePrice = validPrice(currentPrice);
+  const effectiveLowestPrice = validPrice(lowestPrice);
+  const bestRank = getBestRank(realtimeRank, dailyRank, weeklyRank, monthlyRank);
+  const bayesianRating = getBayesianRating(safeReviewAverage, safeReviewCount);
 
-  reviewAverage = reviewAverage ?? 0;
-reviewCount = reviewCount ?? 0;
-maxDiscountRate = maxDiscountRate ?? 0;
-const finalActressPoint = actressPoint ?? 0;
-const finalGenrePoint = genrePoint ?? 0;
-const finalMakerPoint = makerPoint ?? 0;
-const finalSeriesPoint = seriesPoint ?? 0;
+  const reviewPoint = clamp((bayesianRating - 3.55) / 1.15, 0, 1) * 43;
+  const reviewCountPoint =
+    clamp(Math.log10(safeReviewCount + 1) / Math.log10(201), 0, 1) * 12;
+  const qualityTrustPoint = reviewPoint + reviewCountPoint;
 
-let reviewPoint = 0;
+  const popularityPoint = getHiddenPotential(bestRank, qualityTrustPoint);
 
-if (reviewAverage >= 5.0) reviewPoint = 15;
-else if (reviewAverage >= 4.9) reviewPoint = 14;
-else if (reviewAverage >= 4.8) reviewPoint = 13;
-else if (reviewAverage >= 4.7) reviewPoint = 12;
-else if (reviewAverage >= 4.6) reviewPoint = 11;
-else if (reviewAverage >= 4.5) reviewPoint = 10;
-else if (reviewAverage >= 4.4) reviewPoint = 9;
-else if (reviewAverage >= 4.3) reviewPoint = 8;
-else if (reviewAverage >= 4.2) reviewPoint = 7;
-else if (reviewAverage >= 4.1) reviewPoint = 6;
-else if (reviewAverage >= 4.0) reviewPoint = 5;
-else if (reviewAverage >= 3.9) reviewPoint = 4;
-else if (reviewAverage >= 3.8) reviewPoint = 3;
-else if (reviewAverage >= 3.5) reviewPoint = 2;
-else if (reviewAverage >= 3.0) reviewPoint = 1;
+  const lowestPricePoint = getLowestPricePoint(effectivePrice, effectiveLowestPrice);
+  const discountPoint =
+    clamp(lowestPricePoint + (safeDiscountRate / 50) * 5, 0, 13) +
+    (effectivePrice && effectivePrice <= 500 ? 2 : effectivePrice && effectivePrice <= 1000 ? 1 : 0);
+  const cappedDiscountPoint = clamp(discountPoint, 0, 15);
 
-let reviewCountPoint = 0;
-
-if (reviewCount >= 80) reviewCountPoint = 10;
-else if (reviewCount >= 61) reviewCountPoint = 9;
-else if (reviewCount >= 51) reviewCountPoint = 8;
-else if (reviewCount >= 31) reviewCountPoint = 7;
-else if (reviewCount >= 21) reviewCountPoint = 6;
-else if (reviewCount >= 11) reviewCountPoint = 5;
-else if (reviewCount >= 6) reviewCountPoint = 4;
-else if (reviewCount >= 4) reviewCountPoint = 3;
-else if (reviewCount >= 2) reviewCountPoint = 2;
-else if (reviewCount >= 1) reviewCountPoint = 1;
-
-let discountPoint = 0;
-
-if (maxDiscountRate >= 50) discountPoint = 10;
-else if (maxDiscountRate >= 40) discountPoint = 8;
-else if (maxDiscountRate >= 30) discountPoint = 6;
-else if (maxDiscountRate >= 20) discountPoint = 4;
-else if (maxDiscountRate >= 10) discountPoint = 2;
-else if (maxDiscountRate > 0) discountPoint = 1;
-
-
-const calculatedGenrePoint = finalGenrePoint;
-
-const calculatedMakerPoint = finalMakerPoint;
-
-const calculatedSeriesPoint = finalSeriesPoint;
-
-const popularityPoint = Math.min(
-  SCORE.POPULARITY_MAX,
-  Math.max(
-    getRealtimePoint(realtimeRank),
-    getDailyPoint(dailyRank),
-    getWeeklyMonthlyPoint(weeklyRank),
-    getWeeklyMonthlyPoint(monthlyRank)
-  )
-);
-
-const longHitPoint = getLongHitPoint(longHitRank);
-
-let newReleaseBonus = 0;
-
-if (releaseDate) {
-  const release = new Date(releaseDate);
-  const today = new Date();
-
-  const daysFromRelease = Math.floor(
-    (today.getTime() - release.getTime()) /
-      (1000 * 60 * 60 * 24)
-  );
-
-  if (daysFromRelease < 0) {
-    // 予約作品は発売後の新作ボーナス対象にしない。
-    newReleaseBonus = 0;
-  } else if (daysFromRelease <= 15) {
-    newReleaseBonus = 10;
-  } else if (daysFromRelease <= 30) {
-    newReleaseBonus = 9;
-  } else if (daysFromRelease <= 45) {
-    newReleaseBonus = 8;
-  } else if (daysFromRelease <= 60) {
-    newReleaseBonus = 7;
-  } else if (daysFromRelease <= 75) {
-    newReleaseBonus = 6;
-  } else if (daysFromRelease <= 90) {
-    newReleaseBonus = 5;
-  } else if (daysFromRelease <= 105) {
-    newReleaseBonus = 4;
-  } else if (daysFromRelease <= 120) {
-    newReleaseBonus = 3;
-  } else if (daysFromRelease <= 135) {
-    newReleaseBonus = 2;
-  } else if (daysFromRelease <= 150) {
-    newReleaseBonus = 1;
-  } else {
-    newReleaseBonus = 0;
-  }
-}
-  
+  const enoughInfoCount = [
+    actressPoint > 0,
+    genrePoint > 0,
+    makerPoint > 0,
+    releaseDate,
+    effectivePrice,
+  ].filter(Boolean).length;
+  const decisionSupportPoint =
+    (hasSampleMovie ? 3 : 0) +
+    (sampleImageCount > 0 || hasImage ? 1 : 0) +
+    (enoughInfoCount >= 4 ? 1 : 0);
 
   const rawScore =
-  finalActressPoint +
-  calculatedGenrePoint +
-  calculatedMakerPoint +
-  calculatedSeriesPoint +
-  reviewPoint +
-  reviewCountPoint +
-  discountPoint +
-  popularityPoint;
+    qualityTrustPoint + popularityPoint + cappedDiscountPoint + decisionSupportPoint;
+  const score = Math.round(
+    applyTrustCaps({
+      score: rawScore,
+      reviewCount: safeReviewCount,
+      bayesianRating,
+      rank: bestRank,
+    }),
+  );
 
-// ======================
-// ボーナス
-// ======================
-
-let bonus = 0;
-
-bonus += newReleaseBonus;
-bonus += longHitPoint;
-
-
-
-// 最終スコア
-const score = Math.min(
-  100,
-  Math.round(rawScore + bonus)
-);
-
-return {
-  score,
-  actressPoint,
-  genrePoint: calculatedGenrePoint,
-  reviewPoint,
-  reviewCountPoint,
-  discountPoint,
-  popularityPoint,
-  makerPoint: calculatedMakerPoint,
-  seriesPoint: calculatedSeriesPoint,
-
-  newReleaseBonus,
-  longHitPoint,
-};
+  return {
+    score,
+    actressPoint,
+    genrePoint,
+    reviewPoint,
+    reviewCountPoint,
+    discountPoint: cappedDiscountPoint,
+    popularityPoint,
+    makerPoint,
+    seriesPoint,
+    newReleaseBonus: getNewReleasePoint(releaseDate),
+    longHitPoint: getLongHitPoint(longHitRank),
+    decisionSupportPoint,
+  };
 }

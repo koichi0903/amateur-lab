@@ -4,11 +4,16 @@ import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
 import type { DmmItem } from "@/types/dmm";
 import type { Browser } from "playwright-core";
 
+type UpdateWorkOptions = {
+  captureSampleMovie?: boolean;
+};
+
 export async function updateWork(
   productId: string,
   item?: DmmItem | null,
   browser?: Browser,
-  listPrice?: number | null
+  listPrice?: number | null,
+  options: UpdateWorkOptions = {},
 )
 {
   const dmmItem =
@@ -25,6 +30,7 @@ export async function updateWork(
   dmmItem?.URL ??
   dmmItem?.affiliateURL,
   browser,
-  listPrice
+  listPrice,
+  options,
 );
 }

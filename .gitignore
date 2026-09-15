@@ -34,7 +34,11 @@ yarn-error.log*
 
 # local development and visual QA artifacts
 /.codex-*.log
+/.codex-*.png
 /work/
+/work-npm-cache/
+/.npm-cache/
+/.myfans-affiliate-browser/
 /actress-ranking.png
 /daily-ranking.png
 /ranking.html
@@ -42,6 +46,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -49,3 +54,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.env*

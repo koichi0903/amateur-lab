@@ -14,9 +14,10 @@ const baseWork = {
   long_hit_rank: null,
 };
 
-const price = (sale: number, changed_at?: string) => ({
+const price = (sale: number, changed_at?: string, period = "無期限") => ({
   display_name: "HD版",
   type: "download",
+  period,
   normal_price: 1000,
   sale_price: sale,
   changed_at,
@@ -46,6 +47,19 @@ test("現在250円・過去500円は真の過去最安値にする", () => {
 test("同一価格種別・同一表示条件の履歴だけを比較する", () => {
   const otherCondition = { ...price(100), display_name: "4K版", changed_at: "2026-08-01" };
   assert.equal(titles({ work: baseWork, currentPrice: price(500), priceHistory: [otherCondition, price(800, "2026-07-01")] })[0], "過去最安値");
+});
+
+test("同じ販売形式名でも利用期間が違う履歴は比較しない", () => {
+  const sevenDayHistory = price(100, "2026-08-01", "7日間");
+  const unlimitedHistory = price(800, "2026-07-01", "無期限");
+  assert.equal(
+    titles({
+      work: baseWork,
+      currentPrice: price(500, undefined, "無期限"),
+      priceHistory: [sevenDayHistory, unlimitedHistory],
+    })[0],
+    "過去最安値",
+  );
 });
 
 test("4カテゴリから各1件だけを優先順で選ぶ", () => {

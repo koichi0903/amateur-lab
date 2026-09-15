@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 
+import { revalidatePublicCacheForTasks } from "@/lib/admin/revalidatePublicCache";
+import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { updateStage } from "@/lib/update/updateStage";
 
 export async function POST() {
+  const blocked = blockVercelAdminUpdate();
+  if (blocked) return blocked;
+
   try {
     await updateStage();
+    revalidatePublicCacheForTasks(["stage"]);
 
     return NextResponse.json({
       success: true,

@@ -1,5 +1,9 @@
 import { unstable_cache } from "next/cache";
 import { supabase } from "@/lib/supabase";
+export {
+  ENTITY_INDEX_THRESHOLDS,
+  isEntityIndexable,
+} from "./entityIndexQuality";
 
 export type EntityIndexKind = "actress" | "maker" | "series" | "genre";
 
@@ -57,4 +61,12 @@ const getCachedEntityIndexSummaries = unstable_cache(
 export async function getEntityIndexSummaries(kind: EntityIndexKind) {
   const summaries = await getCachedEntityIndexSummaries();
   return summaries[kind];
+}
+
+export async function getEntityIndexSummary(
+  kind: EntityIndexKind,
+  name: string,
+) {
+  const summaries = await getEntityIndexSummaries(kind);
+  return summaries.find((summary) => summary.name === name) ?? null;
 }

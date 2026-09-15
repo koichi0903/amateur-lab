@@ -10,6 +10,7 @@ export type RecommendReason = {
 export type PriceRecord = {
   display_name: string | null;
   type: string | null;
+  period?: string | null;
   normal_price: number | null;
   sale_price: number | null;
   changed_at?: string | null;
@@ -65,7 +66,12 @@ function priceReason(input: RecommendationInput): RecommendReason | null {
   if (currentPrice === null) return null;
 
   const matchingHistory = (input.priceHistory ?? [])
-    .filter((item) => item.display_name === current.display_name && item.type === current.type)
+    .filter(
+      (item) =>
+        item.display_name === current.display_name &&
+        item.type === current.type &&
+        (item.period ?? null) === (current.period ?? null),
+    )
     .filter((item) => effectivePrice(item) !== null)
     .sort((a, b) => Date.parse(b.changed_at ?? "") - Date.parse(a.changed_at ?? ""));
 

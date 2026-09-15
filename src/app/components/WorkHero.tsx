@@ -7,6 +7,11 @@ import type { Work } from "@/types/work";
 import ImageViewer from "./ImageViewer";
 import ActressTags from "./ActressTags";
 import FavoriteButton from "@/components/favorites/FavoriteButton";
+import { ExternalLink, ImageIcon, PlayCircle } from "lucide-react";
+import AffiliateLink from "./AffiliateLink";
+import type { AffiliateSource } from "@/lib/affiliateTracking";
+import { parseDatabaseDate } from "@/lib/dateTime";
+import { getSampleMovieFallbackCopy } from "@/lib/sampleMovieFallback";
 
 type Props = {
   work: Work;
@@ -16,6 +21,7 @@ type Props = {
   }[];
   sampleMovieUrl?: string | null;
   officialSampleEmbedUrl?: string | null;
+  sourcePage?: AffiliateSource;
 };
 
 export default function WorkHero({
@@ -23,12 +29,22 @@ export default function WorkHero({
   sampleImages,
   sampleMovieUrl,
   officialSampleEmbedUrl,
+  sourcePage,
 }: Props) {
+
+// eslint-disable-next-line react-hooks/purity
+const saleActive = !work.sale_end_at || (parseDatabaseDate(work.sale_end_at)?.getTime() ?? 0) > Date.now();
 
 const genres = work.genre
   ?.split(/\s*\/\s*/)
   .map((name) => name.trim())
   .filter(Boolean) ?? [];
+
+const officialWorkUrl = work.affiliate_url ?? work.url;
+const sampleFallback = getSampleMovieFallbackCopy(work);
+const hasSampleDestination = Boolean(
+  sampleMovieUrl || officialSampleEmbedUrl || officialWorkUrl
+);
 
 const hasValidRanking =
   typeof work.ranking === "number" &&
@@ -42,8 +58,6 @@ const [selected, setSelected] = useState<
 const [viewerOpen, setViewerOpen] =
   useState(false);
 
-const [preferNativeSamplePlayer, setPreferNativeSamplePlayer] = useState(false);
-
 const officialPlayerRef = useRef<HTMLDivElement>(null);
 const [officialPlayerSize, setOfficialPlayerSize] = useState({
   width: 260,
@@ -52,21 +66,6 @@ const [officialPlayerSize, setOfficialPlayerSize] = useState({
 const compactOfficialSampleEmbedUrl = officialSampleEmbedUrl
   ?.replace(/width=\d+/, `width=${officialPlayerSize.width}`)
   .replace(/height=\d+/, `height=${officialPlayerSize.height}`);
-
-useEffect(() => {
-  const updatePlayerPreference = () => {
-    setPreferNativeSamplePlayer(
-      window.matchMedia("(pointer: coarse)").matches ||
-        window.matchMedia("(max-width: 767px)").matches ||
-        navigator.maxTouchPoints > 0
-    );
-  };
-
-  updatePlayerPreference();
-  window.addEventListener("resize", updatePlayerPreference);
-
-  return () => window.removeEventListener("resize", updatePlayerPreference);
-}, []);
 
 const titleRef = useRef<HTMLHeadingElement>(null);
 const [titleExpanded, setTitleExpanded] = useState(false);
@@ -195,20 +194,7 @@ useEffect(() => {
       </div>
     )}
 
-    {selected === "movie" && preferNativeSamplePlayer && sampleMovieUrl ? (
-      <video
-        key="mobile-sample-movie"
-        controls
-        autoPlay
-        muted
-        playsInline
-        preload="metadata"
-        poster={work.image_url ?? undefined}
-        className="aspect-video w-full rounded-2xl border bg-black object-contain shadow-lg"
-      >
-        <source src={sampleMovieUrl} type="video/mp4" />
-      </video>
-    ) : selected === "movie" && compactOfficialSampleEmbedUrl ? (
+    {selected === "movie" && compactOfficialSampleEmbedUrl ? (
     <div>
       <div
         ref={officialPlayerRef}
@@ -227,14 +213,6 @@ useEffect(() => {
           referrerPolicy="strict-origin-when-cross-origin"
         />
       </div>
-      <a
-        href={officialSampleEmbedUrl ?? compactOfficialSampleEmbedUrl}
-        target="_blank"
-        rel="noopener noreferrer nofollow"
-        className="mt-2 block text-center text-[11px] font-medium text-zinc-500 underline decoration-zinc-300 underline-offset-2 transition hover:text-pink-600"
-      >
-        再生できない方はこちら
-      </a>
     </div>
 ) : selected === "movie" && sampleMovieUrl ? (
   <video
@@ -242,6 +220,7 @@ useEffect(() => {
   controls
   playsInline
   preload="metadata"
+  poster={work.image_url ?? undefined}
   className="w-full rounded-2xl border bg-black shadow-lg"
 >
     <source
@@ -249,44 +228,64 @@ useEffect(() => {
       type="video/mp4"
     />
   </video>
-) : (
-
-  <div
-  onClick={() => setViewerOpen(true)}
-  className="relative cursor-zoom-in"
->
+) : selected === "movie" ? (
+  <div className="relative overflow-hidden rounded-2xl border bg-zinc-950 shadow-lg">
   <Image
-  key={
-    selected === "movie"
-      ? "movie"
-      : sampleImages[selected].image_url
-  }
-  src={
-    selected === "movie"
-      ? (work.image_url ?? "")
-      : sampleImages[selected].image_url
-  }
+  key="movie-fallback"
+  src={work.image_url ?? ""}
   alt={work.title}
   width={280}
   height={395}
   className="
     w-full
-    rounded-2xl
-    border
     bg-white
     object-cover
-    shadow-lg
     transition-opacity
     duration-300
   "
 />
-  <div className="absolute bottom-3 right-3 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
-  {selected === "movie"
-    ? "動画"
-    : `${selected + 1} / ${sampleImages.length}`}
-</div>
-
+  {officialWorkUrl ? (
+    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/65 via-black/15 to-transparent p-4">
+      <AffiliateLink
+        href={officialWorkUrl}
+        workId={work.id}
+        placement="sample-movie-fallback"
+        sourcePage={sourcePage}
+        deliveryMode={sampleFallback.deliveryMode}
+        ariaLabel={`${work.title}のサンプルをFANZA公式で確認する`}
+        className="pointer-events-auto mt-auto flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-white px-3 py-3 text-center text-sm font-black text-zinc-900 shadow-lg transition hover:bg-pink-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pink-500"
+      >
+        <PlayCircle aria-hidden="true" size={20} className="shrink-0 text-pink-600" />
+        <span>{sampleFallback.label}</span>
+        <ExternalLink aria-hidden="true" size={15} className="shrink-0 text-zinc-500" />
+      </AffiliateLink>
+    </div>
+  ) : (
+    <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
+      <ImageIcon aria-hidden="true" size={13} />
+      作品画像
+    </div>
+  )}
   </div>
+) : (
+  <button
+    type="button"
+    onClick={() => setViewerOpen(true)}
+    className="relative block w-full cursor-zoom-in"
+    aria-label={`${work.title}のサンプル画像${selected + 1}を拡大する`}
+  >
+    <Image
+      key={sampleImages[selected].image_url}
+      src={sampleImages[selected].image_url}
+      alt={work.title}
+      width={280}
+      height={395}
+      className="w-full rounded-2xl border bg-white object-cover shadow-lg transition-opacity duration-300"
+    />
+    <div className="absolute bottom-3 right-3 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
+      {selected + 1} / {sampleImages.length}
+    </div>
+  </button>
 )}
 
   </div>
@@ -294,7 +293,9 @@ useEffect(() => {
   <div className="mt-4 flex gap-2 overflow-x-auto">
 
   <button
+  type="button"
   onClick={() => setSelected("movie")}
+  aria-label={hasSampleDestination ? "サンプル確認を表示" : "作品画像を表示"}
   className={`
     relative
     h-16
@@ -320,15 +321,13 @@ useEffect(() => {
     className="object-cover"
   />
 
-  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+  {hasSampleDestination && <div className="absolute inset-0 flex items-center justify-center bg-black/30">
 
-    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-sm font-black text-black">
-
-      ▶
-
+    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-black">
+      <PlayCircle aria-hidden="true" size={21} />
     </div>
 
-  </div>
+  </div>}
 
 </button>
 
@@ -359,6 +358,12 @@ useEffect(() => {
   ))}
 
 </div>
+
+  {selected === "movie" && !sampleMovieUrl && !officialSampleEmbedUrl && officialWorkUrl && (
+    <p className="mt-2 text-center text-[11px] font-medium leading-5 text-zinc-500">
+      {sampleFallback.note}
+    </p>
+  )}
 
   <FavoriteButton
     workId={work.id}
@@ -434,57 +439,8 @@ useEffect(() => {
 
 </div>
 
-        <div className="mt-8 grid grid-cols-2 gap-2.5 md:gap-4 lg:grid-cols-[180px_180px_minmax(0,1fr)]">
-  {/* 発掘スコア */}
-  <div className="flex min-h-36 min-w-0 flex-col justify-center rounded-2xl border bg-white p-3 text-center md:h-[210px] md:rounded-3xl md:p-6">
-
-    <div className="text-xs font-bold text-zinc-500 md:text-sm md:font-normal">
-      発掘スコア
-    </div>
-
-    <div className="mt-2 text-5xl font-black leading-none text-pink-600 md:mt-3 md:text-6xl">
-      {work.score}
-    </div>
-
-    <div className="mt-2 text-sm text-zinc-400">
-      /100
-    </div>
-
-    <div className="mt-3 text-base text-yellow-500 md:mt-4 md:text-xl">
-      ★★★★★
-    </div>
-
-  </div>
-
-  {/* 総合おすすめ */}
-  <div className="flex min-h-36 min-w-0 flex-col justify-center rounded-2xl border bg-white p-3 text-center md:h-[210px] md:rounded-3xl md:p-6">
-
-    <div className="text-xs font-bold text-zinc-500 md:text-sm md:font-normal">
-      総合おすすめ度
-    </div>
-
-    <div className="mt-3 flex justify-center md:mt-5">
-
-      <div className="flex h-24 w-24 items-center justify-center rounded-full border-8 border-pink-500 md:h-32 md:w-32 md:border-[10px]">
-
-        <div>
-          <div className="text-3xl font-black leading-none text-pink-600 md:text-4xl">
-            {work.score}%
-          </div>
-
-          <div className="mt-1 text-[10px] text-zinc-500 md:text-sm">
-            今買う価値
-          </div>
-        </div>
-
-      </div>
-
-    </div>
-
-  </div>
-
-  {/* 情報カード */}
-  <div className="col-span-2 min-h-[210px] rounded-3xl border bg-white p-4 md:p-6 lg:col-span-1 lg:h-[210px]">
+        <div className="mt-8">
+  <div className="rounded-3xl border bg-white p-4 md:p-6">
 
     <div className="grid grid-cols-2 gap-y-5">
 
@@ -534,7 +490,7 @@ useEffect(() => {
         </div>
 
         <div className="font-black text-pink-600">
-          ¥{(work.sale_price || work.price).toLocaleString()}
+          ¥{(saleActive && work.sale_price ? work.sale_price : work.price).toLocaleString()}
         </div>
       </div>
 
@@ -550,9 +506,9 @@ useEffect(() => {
 
     </div>
 
-  </div>
 
 </div>
+  </div>
       </div>
 {viewerOpen &&
  selected !== "movie" && (

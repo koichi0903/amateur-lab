@@ -17,12 +17,31 @@ import {
   type RankingWorkSnapshot,
 } from "./rankingPlaywrightTargets";
 import { updateTopRankingWorks } from "./updateTopRankingWorks";
+import { RANKING_UPDATE_CONFIG } from "@/config/update";
 
-const RANKING_LIMIT = 1000;
-const API_PAGE_SIZE = 100;
+const RANKING_LIMIT = RANKING_UPDATE_CONFIG.targetCount;
+const API_PAGE_SIZE = RANKING_UPDATE_CONFIG.apiPageSize;
+const API_PAGE_COUNT = Math.ceil(RANKING_LIMIT / API_PAGE_SIZE);
+const API_MAX_PAGE_COUNT = Math.ceil(API_PAGE_COUNT * 1.5);
+const FANZA_PAGE_COUNT = Math.ceil(
+  RANKING_LIMIT / RANKING_UPDATE_CONFIG.fanzaItemsPerPage,
+);
 const DB_BATCH_SIZE = 500;
 const SAVE_BATCH_SIZE = 10;
 const JOB_TOTAL = 100;
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return String(error);
+}
 
 type RankingPhase =
   | "ranking_api"
@@ -189,27 +208,38 @@ export async function updateRanking() {
       throw new Error("DMM_API_ID または DMM_AFFILIATE_ID が未設定です");
     }
 
-    await reportProgress(0, "ranking_api", 0, 10);
-    const allItems: DmmItem[] = [];
+    await reportProgress(0, "ranking_api", 0, RANKING_LIMIT);
+    const uniqueItemsById = new Map<string, DmmItem>();
     let page = 0;
-    for (let offset = 1; offset <= 901; offset += API_PAGE_SIZE) {
+    for (
+      let offset = 1;
+      page < API_MAX_PAGE_COUNT && uniqueItemsById.size < RANKING_LIMIT;
+      offset += API_PAGE_SIZE
+    ) {
       const items = await fetchRankingPage(apiId, affiliateId, offset);
-      if (items.length !== API_PAGE_SIZE) {
-        throw new Error(
-          `DMMランキングAPIの取得件数が不足しています: offset=${offset} count=${items.length}`,
-        );
+      if (items.length === 0) break;
+
+      for (const item of items) {
+        if (item.content_id && !uniqueItemsById.has(item.content_id)) {
+          uniqueItemsById.set(item.content_id, item);
+        }
       }
-      allItems.push(...items);
+
       page += 1;
-      await reportProgress(page, "ranking_api", page, 10);
+      await reportProgress(
+        Math.min(10, Math.round((uniqueItemsById.size / RANKING_LIMIT) * 10)),
+        "ranking_api",
+        Math.min(uniqueItemsById.size, RANKING_LIMIT),
+        RANKING_LIMIT,
+      );
+
+      if (items.length < API_PAGE_SIZE) break;
     }
 
-    const uniqueItems = Array.from(
-      new Map(allItems.map((item) => [item.content_id, item])).values(),
-    );
-    if (uniqueItems.length !== RANKING_LIMIT) {
+    const uniqueItems = Array.from(uniqueItemsById.values()).slice(0, RANKING_LIMIT);
+    if (uniqueItems.length < RANKING_LIMIT) {
       throw new Error(
-        `DMMランキング上位${RANKING_LIMIT}件を一意に取得できませんでした: ${uniqueItems.length}件`,
+        `DMMランキング上位${RANKING_LIMIT}件を一意に取得できませんでした: ${uniqueItems.length}件（${page}ページ取得）`,
       );
     }
 
@@ -252,7 +282,7 @@ export async function updateRanking() {
     await updateRankingValues(rankingTargets);
     await resetStaleRankings(new Set(productIds));
 
-    await reportProgress(25, "ranking_price_scan", 0, 9);
+    await reportProgress(25, "ranking_price_scan", 0, FANZA_PAGE_COUNT);
     const realtimeListings = await getRealtimeRanking();
     if (realtimeListings.length === 0) {
       throw new Error("FANZA人気順一覧の価格取得結果が0件です");
@@ -262,11 +292,17 @@ export async function updateRanking() {
       realtimeListings.map((listing) => [listing.productId, listing]),
     );
     const worksByProductId = await loadRankingWorkSnapshots(productIds);
+    const newlyRegisteredIds = new Set(
+      missingItems.map((item) => item.content_id),
+    );
     const playwrightTargets = selectRankingPlaywrightTargets(
       rankingTargets,
       worksByProductId,
       listingByProductId,
-    );
+    ).map((target) => ({
+      ...target,
+      captureSampleMovie: newlyRegisteredIds.has(target.item.content_id),
+    }));
     const skippedCount = rankingTargets.length - playwrightTargets.length;
 
     console.log(
@@ -340,10 +376,7 @@ export async function updateRanking() {
       entityCounts,
     };
   } catch (error) {
-    await failJob(
-      JOBS.RANKING,
-      error instanceof Error ? error.message : "Unknown error",
-    );
+    await failJob(JOBS.RANKING, errorMessage(error));
     throw error;
   }
 }

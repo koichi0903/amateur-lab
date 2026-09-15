@@ -10,32 +10,42 @@ import Breadcrumb from "@/app/components/Breadcrumb";
 import BreadcrumbJsonLd from "@/app/components/BreadcrumbJsonLd";
 import Link from "next/link";
 import ProductJsonLd from "@/app/components/ProductJsonLd";
-import InsightTimeline from "@/app/components/InsightTimeline";
 import WorkTabs from "@/app/components/WorkTabs";
 import PurchaseCard from "@/app/components/PurchaseCard";
+import PurchaseDecisionGuide from "@/app/components/PurchaseDecisionGuide";
 import { createChartData } from "@/lib/createChartData";
 import ReviewTab from "@/app/components/ReviewTab";
 import SampleImageCarousel from "@/app/components/SampleImageCarousel";
 import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
+import WorkPageViewTracker from "@/app/components/WorkPageViewTracker";
+import BuyTimingPanel from "@/app/components/BuyTimingPanel";
 import DealWorkCard, { type DealWork } from "@/components/deals/DealWorkCard";
 import CompareTray from "@/components/comparison/CompareTray";
 import PriceTypes from "@/app/components/PriceTypes";
 import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
-import { isInsightVisible } from "@/lib/insights/visibility";
+import { analyzePurchaseDecision } from "@/lib/analyzers/purchaseDecisionAnalyzer";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
+import { isWorkIndexable } from "@/lib/seoQuality";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
-import { normalizeAffiliateSource } from "@/lib/affiliateTracking";
+import { calculateBuyTimingScore, getBuyTimingFunnelStats } from "@/lib/buyTiming";
 
 import {
   analyzeWork,
 } from "@/lib/analyzers/analysisAnalyzer";
 
+function currentTimeMs() {
+  return Date.now();
+}
+
 type WorkDetail = Work & {
   sample_movie_url: string | null;
   long_hit_rank: number | null;
 };
+
+const WORK_DETAIL_REVALIDATE_SECONDS = 60 * 60 * 24;
+const WORK_DETAIL_CACHE_TAG = "work-detail";
 
 // The official share page nests this DMM player in a minimum 476px-wide iframe.
 // Use the same official player directly so its viewport can match narrow phones.
@@ -59,34 +69,42 @@ const WORK_DETAIL_COLUMNS = [
   "list_price", "discount_rate", "review_count", "review_average",
   "release_date", "image_url", "affiliate_url", "stage", "is_on_sale", "sale_end_at",
   "duration", "lowest_price", "previous_realtime_rank", "realtime_rank",
-  "sample_movie_url", "long_hit_rank",
+  "sample_movie_url", "long_hit_rank", "url",
 ].join(",");
 
 // Work data changes at most a few times per day. Reusing the rendered page keeps
 // crawler traffic from issuing the same group of Supabase queries on every hit.
-export const revalidate = 3600;
+export const revalidate = 86400;
+
+export async function generateStaticParams() {
+  return [];
+}
 
 // generateMetadata and the page render both need the same row. React cache
 // deduplicates that lookup within a single server render.
 const getWork = cache(
   unstable_cache(
     async (id: string) => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("works")
         .select(WORK_DETAIL_COLUMNS)
         .eq("id", id)
-        .single();
+        .maybeSingle();
+
+      if (error) {
+        console.error("[work-detail] failed to load work", { id, error });
+      }
 
       return data as WorkDetail | null;
     },
     ["work-detail-row"],
-    { revalidate: 3600 }
+    { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
   )
 );
 
 const getWorkDetailData = unstable_cache(
-  async (productId: string, workId: number) => {
-    const [sampleImages, priceHistory, workPrices, insights] = await Promise.all([
+  async (productId: string) => {
+    const [sampleImages, priceHistory, workPrices] = await Promise.all([
       supabase
         .from("work_sample_images")
         .select("image_url, sort_order")
@@ -94,31 +112,27 @@ const getWorkDetailData = unstable_cache(
         .order("sort_order"),
       supabase
         .from("price_history")
-        .select("id,changed_at,display_name,type,normal_price,sale_price")
+        .select("id,changed_at,display_name,type,period,price_kind,normal_price,sale_price")
         .eq("product_id", productId)
         .order("changed_at", { ascending: false })
         .limit(100),
       supabase
         .from("work_prices")
-        .select("display_name,type,normal_price,sale_price")
+        .select("display_name,type,period,price_kind,normal_price,sale_price")
         .eq("product_id", productId)
         .order("display_name"),
-      supabase
-        .from("insights")
-        .select("id,type,title,description,created_at,updated_at")
-        .eq("work_id", workId)
-        .order("priority", { ascending: false }),
     ]);
 
     return {
       sampleImages: sampleImages.data ?? [],
       priceHistory: priceHistory.data ?? [],
       workPrices: workPrices.data ?? [],
-      insights: insights.data ?? [],
     };
   },
-  ["work-detail-data"],
-  { revalidate: 3600 }
+  // Versioned after adding period-aware price history. This prevents the old
+  // period-less payload from hiding the 7-day and unlimited series.
+  ["work-detail-data-v4-period-keyed-current-offers"],
+  { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
 );
 
 const getEntityRanks = unstable_cache(
@@ -151,7 +165,7 @@ const getEntityRanks = unstable_cache(
     };
   },
   ["work-detail-entity-ranks"],
-  { revalidate: 3600 }
+  { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
 );
 
 const getRelatedWorks = unstable_cache(
@@ -203,7 +217,7 @@ const getRelatedWorks = unstable_cache(
       .map((candidate) => candidate.work);
   },
   ["work-detail-related-works"],
-  { revalidate: 3600 }
+  { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
 );
 
 const getValueAlternatives = unstable_cache(
@@ -232,7 +246,7 @@ const getValueAlternatives = unstable_cache(
       .slice(0, 5);
   },
   ["work-detail-value-alternatives"],
-  { revalidate: 3600 }
+  { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [WORK_DETAIL_CACHE_TAG] }
 );
 
 
@@ -256,14 +270,23 @@ export async function generateMetadata(
 
   const scoreText = typeof work.score === "number" && work.score > 0 ? `・発掘スコア${work.score}` : "";
   const actressText = work.actress ? `${work.actress}出演。` : "";
-  const title = `${work.title}｜レビュー${scoreText} | 発掘LAB`;
-  const description = `${work.title}のレビュー・評価を掲載。${actressText}作品情報を独自データで分析しています。`;
+  const currentPrice = work.sale_price > 0 ? work.sale_price : work.price;
+  const priceText = currentPrice > 0 ? `現在価格${currentPrice.toLocaleString("ja-JP")}円。` : "";
+  const reviewText = work.review_count > 0
+    ? `レビュー${work.review_average.toFixed(2)}（${work.review_count}件）。`
+    : "";
+  const title = `${work.title}｜価格・レビュー${scoreText} | 発掘LAB`;
+  const description = `${work.title}の価格推移と買い時を分析。${priceText}${reviewText}${actressText}同価格帯の作品と比較できます。`;
   const encodedId = encodeURIComponent(id);
-  // Keep a version in the URL so social crawlers do not reuse a previously
-  // failed or incomplete card image after the renderer changes.
-  const openGraphImage = `${SITE_URL}/works/${encodedId}/opengraph-image?v=3`;
-  const twitterImage = `${SITE_URL}/works/${encodedId}/twitter-image?v=3`;
-  const metadata = pageMetadata({ title, description, canonical: `/works/${encodedId}` });
+  const socialImage = work.image_url || `${SITE_URL}/ogp.png`;
+  const metadata = pageMetadata({
+    title,
+    description,
+    canonical: `/works/${encodedId}`,
+    robots: isWorkIndexable(work)
+      ? undefined
+      : { index: false, follow: true },
+  });
 
   return {
     ...metadata,
@@ -272,7 +295,7 @@ export async function generateMetadata(
       type: "article",
       images: [
         {
-          url: openGraphImage,
+          url: socialImage,
           width: 1200,
           height: 630,
           alt: title,
@@ -282,7 +305,7 @@ export async function generateMetadata(
     twitter: {
       ...metadata.twitter,
       card: "summary_large_image",
-      images: [twitterImage],
+      images: [socialImage],
     },
   };
 }
@@ -290,25 +313,28 @@ export async function generateMetadata(
 export default async function WorkDetailPage(
   {
     params,
-    searchParams,
   }: {
     params: Promise<{ id: string }>;
-    searchParams: Promise<{ from?: string | string[] }>;
   }
 ) {
   const { id } = await params;
-  const sourcePage = normalizeAffiliateSource((await searchParams).from);
 
   const work = await getWork(id);
 
   if (!work) notFound();
 
-  const { sampleImages, priceHistory, workPrices, insights } =
-    await getWorkDetailData(work.product_id, work.id);
-
-  const visibleInsights = (insights ?? []).filter((insight) =>
-    isInsightVisible(insight, work)
-  );
+  const { sampleImages, priceHistory, workPrices } =
+    await getWorkDetailData(work.product_id);
+  const latestOffers = new Map<string, (typeof priceHistory)[number]>();
+  for (const offer of priceHistory ?? []) {
+    const key = `${offer.display_name ?? offer.type ?? ""}\u0000${offer.period ?? ""}`;
+    if (!latestOffers.has(key)) latestOffers.set(key, offer);
+  }
+  // Current offers are authoritative. History can contain plans that ended,
+  // so deriving the purchase list from it can resurrect stale price options.
+  const currentOffers = workPrices?.length
+    ? workPrices
+    : [...latestOffers.values()];
 
   const splitEntities = (value: string | null) => value?.split(/\s*\/\s*|\s*／\s*|\s*,\s*|\s*、\s*/).filter(Boolean) ?? [];
   const actresses = splitEntities(work.actress);
@@ -321,24 +347,32 @@ export default async function WorkDetailPage(
     const ranks = values.filter((value): value is number => typeof value === "number" && value > 0);
     return ranks.length ? Math.min(...ranks) : null;
   };
-  const currentPrice = [...(workPrices ?? [])].sort((a, b) =>
-    (a.sale_price ?? a.normal_price ?? Number.MAX_SAFE_INTEGER) - (b.sale_price ?? b.normal_price ?? Number.MAX_SAFE_INTEGER)
-  )[0] ?? {
+  const saleActive = !work.sale_end_at || Date.parse(work.sale_end_at) > currentTimeMs();
+  const hasSaleEvidence =
+    saleActive &&
+    (work.is_on_sale || (work.sale_price != null && work.sale_price > 0) || (work.discount_rate != null && work.discount_rate > 0));
+  const representativePrice = hasSaleEvidence && work.sale_price > 0 ? work.sale_price : work.price;
+  const currentPrice = currentOffers.find((offer) =>
+    (offer.sale_price ?? offer.normal_price ?? 0) === representativePrice
+  ) ?? {
     display_name: "代表価格",
     type: null,
-    normal_price: work.list_price ?? work.price,
-    sale_price: work.sale_price || null,
+    period: null,
+    normal_price: work.price,
+    sale_price: hasSaleEvidence ? work.sale_price || null : null,
   };
   const mobileDisplayPrice =
-    currentPrice.sale_price && currentPrice.sale_price > 0
+    hasSaleEvidence && currentPrice.sale_price && currentPrice.sale_price > 0
       ? currentPrice.sale_price
       : currentPrice.normal_price;
   const mobileDisplayDiscountRate =
+    hasSaleEvidence &&
+    currentPrice.sale_price &&
     currentPrice.normal_price &&
     mobileDisplayPrice &&
     currentPrice.normal_price > mobileDisplayPrice
       ? Math.round((1 - mobileDisplayPrice / currentPrice.normal_price) * 100)
-      : work.discount_rate;
+      : hasSaleEvidence ? work.discount_rate : 0;
   const recommendationReasons = analyzeRecommendation({
     work,
     currentPrice,
@@ -375,15 +409,41 @@ const valueAlternatives = await getValueAlternatives(
   conclusion,
 } = analyzeWork(work);
 
-  const lowestPriceType = currentPrice.display_name ?? "";
+const chartPrice = (priceHistory ?? []).find((item) => {
+  const value = item.sale_price ?? item.normal_price ?? 0;
+  return value === (work.sale_price > 0 ? work.sale_price : work.price);
+}) ?? currentPrice;
 
 const chartData = createChartData(
   priceHistory ?? [],
-  lowestPriceType
+  chartPrice.display_name ?? chartPrice.type ?? "",
+  chartPrice.period ?? null,
 );
+const purchaseDecision = analyzePurchaseDecision({
+  work,
+  currentPrice,
+  priceHistory: priceHistory ?? [],
+  offerCount: currentOffers.length,
+  mainActress,
+  mainGenre,
+  mainSeries,
+});
+const buyTimingFunnel = await getBuyTimingFunnelStats(work.id, 30);
+const buyTiming = calculateBuyTimingScore({
+  work,
+  priceHistory: priceHistory ?? [],
+  funnel: buyTimingFunnel,
+});
 
   return (
   <main className="min-h-screen bg-gray-100 py-8 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-8">
+    <WorkPageViewTracker
+      workId={work.id}
+      price={mobileDisplayPrice ?? null}
+      discountRate={mobileDisplayDiscountRate ?? null}
+      discoveryScore={typeof work.score === "number" ? work.score : null}
+      ranking={typeof work.ranking === "number" ? work.ranking : null}
+    />
     <div className="mx-auto max-w-7xl px-4 sm:px-6">
 
       <Breadcrumb
@@ -412,12 +472,17 @@ const chartData = createChartData(
 />
       </section>
 
-      {/* タイムライン */}
-      {visibleInsights.length > 0 && (
-        <section className="mt-8 hidden md:block">
-          <InsightTimeline insights={visibleInsights} />
-        </section>
-      )}
+      <BuyTimingPanel
+        decision={buyTiming}
+        discoveryScore={typeof work.score === "number" ? work.score : null}
+        workId={work.id}
+        affiliateUrl={work.affiliate_url}
+      />
+
+      <PurchaseDecisionGuide
+        decision={purchaseDecision}
+        hasAlternatives={valueAlternatives.length > 0}
+      />
 
       {/* タブ */}
       <section className="mt-8">
@@ -441,7 +506,7 @@ const chartData = createChartData(
             }
             price={
               <div className="space-y-8">
-                <PriceTypes prices={workPrices ?? []} />
+                <PriceTypes prices={currentOffers} />
                 <PriceHistory history={priceHistory ?? []} />
               </div>
             }
@@ -451,11 +516,10 @@ const chartData = createChartData(
 
           <PurchaseCard
             work={work}
-            offers={workPrices ?? []}
+            offers={currentOffers}
             checkedAt={priceHistory[0]?.changed_at ?? null}
             sampleMovieAvailable={!!work.sample_movie_url}
             recommendationReasons={recommendationReasons}
-            sourcePage={sourcePage}
           />
         </div>
       </section>
@@ -538,7 +602,6 @@ const chartData = createChartData(
       work={work}
       displayPrice={mobileDisplayPrice}
       displayDiscountRate={mobileDisplayDiscountRate}
-      sourcePage={sourcePage}
     />
     <CompareTray />
   </main>

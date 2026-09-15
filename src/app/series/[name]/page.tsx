@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import CatalogDetailPage, { catalogMetadata, decodeCatalogName } from "@/components/catalog/CatalogDetailPage";
 
-export const revalidate = 1800;
+export const revalidate = 86400;
 
 export async function generateMetadata({ params, searchParams }: { params: Promise<{ name: string }>; searchParams: Promise<{ page?: string }> }): Promise<Metadata> {
   const page = Math.max(1, Number.parseInt((await searchParams).page ?? "1", 10) || 1);

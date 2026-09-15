@@ -12,6 +12,7 @@ import {
   subscribeComparison,
 } from "@/lib/comparison";
 import { workDetailHref } from "@/lib/affiliateTracking";
+import { parseDatabaseDate } from "@/lib/dateTime";
 
 type CompareWork = {
   id: number;
@@ -41,8 +42,8 @@ function currentPrice(work: CompareWork) {
 
 function formatDate(value: string | null) {
   if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
+  const date = parseDatabaseDate(value);
+  return !date || Number.isNaN(date.getTime())
     ? "—"
     : new Intl.DateTimeFormat("ja-JP", { dateStyle: "medium", timeZone: "Asia/Tokyo" }).format(date);
 }

@@ -194,6 +194,10 @@ const {
   reviewAverage,
   reviewCount,
   maxDiscountRate: discountRate,
+  currentPrice: Number(item.prices?.price || 0),
+  lowestPrice: Number(item.prices?.price || 0),
+  hasImage: Boolean(item.imageURL?.large || item.imageURL?.list),
+  sampleImageCount: sampleImages.length,
 
   actressPoint: actressScore,
   genrePoint: genreScore,

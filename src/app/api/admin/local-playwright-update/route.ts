@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
   let query = supabaseAdmin
     .from("works")
-    .select("product_id,url,list_price,sample_movie_url")
+    .select("product_id,url,list_price")
     .not("url", "is", null);
 
   query = requestedProductId
@@ -98,8 +98,6 @@ export async function POST(request: NextRequest) {
               work.url,
               activeBrowser,
               work.list_price,
-              false,
-              work.sample_movie_url,
             );
             return {
               productId: work.product_id,
@@ -108,6 +106,8 @@ export async function POST(request: NextRequest) {
               message:
                 status === "unavailable"
                   ? "FANZA側でページまたは価格を確認できませんでした。"
+                  : status === "sample_movie_missing"
+                    ? "サンプル動画を確認できませんでした。"
                   : undefined,
             } as const;
           } catch (updateError) {
@@ -135,7 +135,8 @@ export async function POST(request: NextRequest) {
       (result) => result.status === "updated",
     ).length;
     const unavailable = results.filter(
-      (result) => result.status === "unavailable",
+      (result) =>
+        result.status === "unavailable" || result.status === "sample_movie_missing",
     ).length;
     const failed = results.filter(
       (result) => result.status === "failed",

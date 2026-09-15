@@ -2,11 +2,12 @@ import FavoriteButton from "@/components/favorites/FavoriteButton";
 import CompareButton from "@/components/comparison/CompareButton";
 import type { RecommendReason } from "@/lib/analyzers/recommendAnalyzer";
 import AffiliateLink from "./AffiliateLink";
-import type { AffiliateSource } from "@/lib/affiliateTracking";
+import { formatJapanDateTime, parseDatabaseDate } from "@/lib/dateTime";
 
 type PriceOffer = {
   display_name: string | null;
   type: string | null;
+  period?: string | null;
   normal_price: number | null;
   sale_price: number | null;
 };
@@ -30,7 +31,6 @@ type Props = {
   checkedAt?: string | null;
   sampleMovieAvailable?: boolean;
   recommendationReasons?: RecommendReason[];
-  sourcePage: AffiliateSource;
 };
 
 const effectivePrice = (offer: PriceOffer) =>
@@ -40,26 +40,12 @@ const effectivePrice = (offer: PriceOffer) =>
       ? offer.normal_price
       : null;
 
-const formatDateTime = (value: string | null | undefined) => {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat("ja-JP", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Tokyo",
-  }).format(date);
-};
-
 export default function PurchaseCard({
   work,
   offers = [],
   checkedAt,
   sampleMovieAvailable = false,
   recommendationReasons = [],
-  sourcePage,
 }: Props) {
   const hasValidRanking =
     typeof work.ranking === "number" &&
@@ -71,27 +57,31 @@ export default function PurchaseCard({
       offer.effectivePrice !== null
     )
     .sort((a, b) => a.effectivePrice - b.effectivePrice);
-  const bestOffer = sortedOffers[0] ?? null;
-  const currentPrice =
-    bestOffer?.effectivePrice ??
-    (work.sale_price && work.sale_price > 0 ? work.sale_price : work.price);
-  const regularPrice =
-    bestOffer?.normal_price && currentPrice && bestOffer.normal_price > currentPrice
+  // The server render must compare against the current time to hide expired sales.
+  // eslint-disable-next-line react-hooks/purity
+  const saleActive = !work.sale_end_at || (parseDatabaseDate(work.sale_end_at)?.getTime() ?? 0) > Date.now();
+  const hasSaleEvidence = saleActive && (work.is_on_sale || (work.sale_price != null && work.sale_price > 0) || (work.discount_rate != null && work.discount_rate > 0));
+  const representativePrice = hasSaleEvidence && work.sale_price && work.sale_price > 0 ? work.sale_price : work.price;
+  const bestOffer = sortedOffers.find((offer) => offer.effectivePrice === representativePrice) ?? null;
+  const currentPrice = representativePrice ?? sortedOffers[0]?.effectivePrice ?? null;
+  const regularPrice = hasSaleEvidence
+    ? bestOffer?.normal_price && currentPrice && bestOffer.normal_price > currentPrice
       ? bestOffer.normal_price
       : work.list_price && currentPrice && work.list_price > currentPrice
         ? work.list_price
         : work.price && currentPrice && work.price > currentPrice
           ? work.price
-          : null;
+          : null
+    : null;
   const calculatedDiscount =
-    regularPrice && currentPrice
+    hasSaleEvidence && work.sale_price && work.sale_price > 0 && regularPrice && currentPrice
       ? Math.round((1 - currentPrice / regularPrice) * 100)
       : 0;
   const discountRate = Math.max(work.discount_rate ?? 0, calculatedDiscount);
   const isLowestPrice =
     !!currentPrice && !!work.lowest_price && currentPrice <= work.lowest_price;
-  const saleEnd = work.is_on_sale ? formatDateTime(work.sale_end_at) : null;
-  const checkedLabel = formatDateTime(checkedAt);
+  const saleEnd = work.is_on_sale ? formatJapanDateTime(work.sale_end_at) : null;
+  const checkedLabel = formatJapanDateTime(checkedAt);
   const affiliateUrl = work.affiliate_url?.trim() || null;
   const decisionFacts = [
     isLowestPrice ? "登録以降の最安価格" : null,
@@ -155,11 +145,12 @@ export default function PurchaseCard({
             <div className="mt-2 space-y-2">
               {sortedOffers.slice(0, 4).map((offer, index) => (
                 <div
-                  key={`${offer.type ?? ""}-${offer.display_name ?? index}`}
+                  key={`${offer.type ?? ""}-${offer.display_name ?? index}-${offer.period ?? ""}`}
                   className="flex items-center justify-between gap-3 text-xs"
                 >
                   <span className="min-w-0 truncate font-bold text-zinc-600">
                     {offer.display_name ?? offer.type ?? "販売価格"}
+                    {offer.period ? `（${offer.period}）` : ""}
                     {index === 0 && (
                       <span className="ml-1 text-emerald-600">最安</span>
                     )}
@@ -178,7 +169,6 @@ export default function PurchaseCard({
             href={affiliateUrl}
             workId={work.id}
             placement="detail-sidebar"
-            sourcePage={sourcePage}
             experiment
             variantChildren={{
               "price-focus": "FANZA公式で最安価格を確認",
@@ -186,7 +176,7 @@ export default function PurchaseCard({
             ariaLabel="FANZA公式で価格とサンプルを確認する（新しいタブで開きます）"
             className="mt-6 block w-full rounded-xl bg-gradient-to-r from-pink-600 to-fuchsia-600 px-4 py-4 text-center text-base font-black text-white shadow-md transition hover:scale-[1.02] hover:shadow-lg"
           >
-            FANZA公式で価格・サンプルを確認
+            FANZA公式で確認
           </AffiliateLink>
         ) : (
           <div className="mt-6 rounded-xl bg-zinc-200 px-4 py-4 text-center text-sm font-bold text-zinc-500">
@@ -205,7 +195,7 @@ export default function PurchaseCard({
 
         <FavoriteButton
           workId={work.id}
-          addLabel="お気に入りに追加"
+          addLabel="お気に入り"
           className="mt-4 w-full rounded-xl border py-3 font-semibold hover:bg-zinc-50"
         />
         <CompareButton

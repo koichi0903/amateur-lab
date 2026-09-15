@@ -2,13 +2,6 @@ export const UPDATE_CONFIG = {
   // A single serverless Chromium process is memory constrained on Vercel.
   // Opening five FANZA pages at once can terminate the entire browser process.
   parallel: process.env.VERCEL ? 1 : 5,
-
-  // 動画補完は価格・作品情報を解析しない軽量な専用処理なので、
-  // 通常更新より多くのページを安全に並列実行できる。
-  sampleMovieParallel: process.env.VERCEL
-    ? 1
-    : Math.max(1, Number(process.env.SAMPLE_MOVIE_PARALLEL ?? 8)),
-
   saveInterval: 6,
 
   batchSize: 100,
@@ -37,3 +30,9 @@ export const UPDATE_CONFIG = {
   },
 },
 };
+
+export const RANKING_UPDATE_CONFIG = {
+  targetCount: 5000,
+  apiPageSize: 100,
+  fanzaItemsPerPage: 120,
+} as const;

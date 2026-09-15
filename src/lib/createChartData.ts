@@ -1,9 +1,8 @@
 import type { PriceHistoryItem } from "@/types/price";
+import { parseDatabaseDate } from "@/lib/dateTime";
 
 export function parsePriceHistoryDate(value: string) {
-  const hasTimeZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
-
-  return new Date(hasTimeZone ? value : `${value}Z`);
+  return parseDatabaseDate(value) ?? new Date(value);
 }
 
 export function normalizeDisplayName(name: string) {
@@ -16,14 +15,16 @@ export function formatDisplayName(name: string) {
 
 export function createChartData(
   history: PriceHistoryItem[],
-  displayName: string
+  displayName: string,
+  period: string | null = null,
 ) {
   const target = normalizeDisplayName(displayName);
 
   return history
     .filter(
       (item) =>
-        normalizeDisplayName(item.display_name) === target
+        normalizeDisplayName(item.display_name) === target &&
+        (item.period ?? null) === period
     )
     .map((item) => ({
       changed_at: item.changed_at,

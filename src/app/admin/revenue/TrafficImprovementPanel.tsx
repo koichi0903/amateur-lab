@@ -1,4 +1,4 @@
-import { FlaskConical, Route, Smartphone } from "lucide-react";
+import { FlaskConical, Globe2, Route, Smartphone } from "lucide-react";
 import type {
   CtaVariantPerformance,
   TrafficInsight,
@@ -52,13 +52,15 @@ function InsightTable({
   title: string;
   description: string;
   insights: TrafficInsight[];
-  kind: "source" | "placement" | "variant";
+  kind: "source" | "placement" | "variant" | "external";
 }) {
   const Icon = kind === "source"
     ? Route
     : kind === "placement"
       ? Smartphone
-      : FlaskConical;
+      : kind === "external"
+        ? Globe2
+        : FlaskConical;
 
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">
@@ -201,6 +203,8 @@ function CtaPerformanceTable({
 }
 
 export default function TrafficImprovementPanel({
+  externalChannelInsights,
+  organicLandingInsights,
   sourceInsights,
   placementInsights,
   ctaVariantInsights,
@@ -208,6 +212,8 @@ export default function TrafficImprovementPanel({
   ctaVariantPerformance,
   ctaImpressionTrackingEnabled,
 }: {
+  externalChannelInsights: TrafficInsight[];
+  organicLandingInsights: TrafficInsight[];
   sourceInsights: TrafficInsight[];
   placementInsights: TrafficInsight[];
   ctaVariantInsights: TrafficInsight[];
@@ -219,8 +225,22 @@ export default function TrafficImprovementPanel({
     <div className="mt-6 space-y-6">
       <div className="grid gap-6 xl:grid-cols-2">
         <InsightTable
-          title="流入元の改善判定"
-          description="直近7日とその前7日のクリック推移から、伸ばす流入元と回復が必要な流入元を判定します。"
+          title="外部流入別のFANZAクリック"
+          description="自然検索・SNS・参照サイトなど、サイトへ来た経路別にFANZA送客まで到達した数を比較します。"
+          insights={externalChannelInsights}
+          kind="external"
+        />
+        <InsightTable
+          title="自然検索の流入ページ別"
+          description="Google等の自然検索から入り、FANZAクリックまで到達した最初のページを表示します。"
+          insights={organicLandingInsights}
+          kind="external"
+        />
+      </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <InsightTable
+          title="サイト内導線の改善判定"
+          description="作品詳細へ移動する直前のページ別に、伸ばす導線と回復が必要な導線を判定します。"
           insights={sourceInsights}
           kind="source"
         />

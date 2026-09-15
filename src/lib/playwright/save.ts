@@ -21,14 +21,129 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+const normalizePriceName = (value: string) =>
+  value.normalize("NFKC").replace(/\s+/g, "");
+
+async function repairLegacyPriceHistoryPeriods(
+  productId: string,
+  prices: ParsedData["prices"],
+) {
+  const { data: legacyRows, error } = await supabase
+    .from("price_history")
+    .select("id,display_name,normal_price,changed_at")
+    .eq("product_id", productId)
+    .is("period", null);
+  if (error) throw error;
+  if (!legacyRows?.length) return;
+
+  const currentByName = new Map<string, ParsedData["prices"]>();
+  for (const price of prices) {
+    const key = normalizePriceName(price.name);
+    const candidates = currentByName.get(key) ?? [];
+    candidates.push(price);
+    currentByName.set(key, candidates);
+  }
+
+  const snapshotPrices = new Map<string, number[]>();
+  for (const row of legacyRows) {
+    if (row.normal_price == null) continue;
+    const key = `${normalizePriceName(row.display_name)}\u0000${row.changed_at.slice(0, 16)}`;
+    const values = snapshotPrices.get(key) ?? [];
+    if (!values.includes(row.normal_price)) values.push(row.normal_price);
+    values.sort((a, b) => a - b);
+    snapshotPrices.set(key, values);
+  }
+
+  const updates = new Map<string, number[]>();
+  const unresolved: number[] = [];
+  for (const row of legacyRows) {
+    const name = normalizePriceName(row.display_name);
+    const candidates = (currentByName.get(name) ?? []).filter(
+      (price) => price.period,
+    );
+    let period: string | null = null;
+
+    if (candidates.length === 1) {
+      period = candidates[0].period ?? null;
+    } else if (candidates.length > 1 && row.normal_price != null) {
+      const exact = candidates.filter(
+        (price) => price.normalPrice === row.normal_price,
+      );
+      if (exact.length === 1) {
+        period = exact[0].period ?? null;
+      } else {
+        const snapshotKey = `${name}\u0000${row.changed_at.slice(0, 16)}`;
+        const historicalPrices = snapshotPrices.get(snapshotKey) ?? [];
+        const sortedCandidates = [...candidates].sort(
+          (a, b) =>
+            (a.normalPrice ?? Number.MAX_SAFE_INTEGER) -
+            (b.normalPrice ?? Number.MAX_SAFE_INTEGER),
+        );
+        const index = historicalPrices.indexOf(row.normal_price);
+        if (historicalPrices.length === sortedCandidates.length && index >= 0) {
+          period = sortedCandidates[index].period ?? null;
+        }
+      }
+    }
+
+    if (period) {
+      const ids = updates.get(period) ?? [];
+      ids.push(row.id);
+      updates.set(period, ids);
+    } else {
+      unresolved.push(row.id);
+    }
+  }
+
+  for (const [period, ids] of updates) {
+    const { error: updateError } = await supabase
+      .from("price_history")
+      .update({ period })
+      .in("id", ids);
+    if (updateError) throw updateError;
+  }
+
+  if (unresolved.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("price_history")
+      .delete()
+      .in("id", unresolved);
+    if (deleteError) throw deleteError;
+  }
+}
+
 export async function saveWork(
   productId: string,
   data: ParsedData,
   listPrice?: number | null
 ) {
 
+  const invalidPrices = data.prices.filter(
+    (price) =>
+      !price.name.trim() ||
+      !price.period ||
+      !Number.isSafeInteger(price.normalPrice) ||
+      (price.normalPrice ?? 0) <= 0 ||
+      (price.salePrice != null &&
+        (!Number.isSafeInteger(price.salePrice) ||
+          price.salePrice <= 0 ||
+          price.salePrice >= (price.normalPrice ?? 0))),
+  );
+
+  if (invalidPrices.length > 0) {
+    throw new Error(
+      `Invalid FANZA price data (${productId}): ${invalidPrices
+        .map(
+          (price) =>
+            `${price.name || "(no name)"}/${price.period ?? "no period"}=` +
+            `${price.normalPrice ?? "null"}/${price.salePrice ?? "null"}`,
+        )
+        .join(", ")}`,
+    );
+  }
+
   const duplicatedPriceNames = data.prices
-    .map((price) => price.name)
+    .map((price) => `${price.name}\u0000${price.period ?? ""}`)
     .filter((name, index, names) => names.indexOf(name) !== index);
 
   if (duplicatedPriceNames.length > 0) {
@@ -38,6 +153,14 @@ export async function saveWork(
       ].join(", ")}`
     );
   }
+
+  const getPriceKind = (price: ParsedData["prices"][number]) =>
+    price.salePrice != null &&
+    price.normalPrice != null &&
+    price.salePrice > 0 &&
+    price.salePrice < price.normalPrice
+      ? "sale"
+      : "regular";
 
   // ------------------------
 // サイトで表示する代表価格
@@ -64,7 +187,7 @@ const mainPrice =
 
 const rentalPrice = data.prices.find(
   (p) =>
-    p.period?.includes("7日") &&
+    p.period === "7日間" &&
     p.normalPrice != null
 );
 
@@ -191,8 +314,6 @@ const workUpdate = {
   series: data.series,
   label: data.label,
 
-  sample_movie_url: data.sampleMovieUrl,
-
   release_date: data.releaseDate,
   product_release_date: data.productReleaseDate,
 
@@ -295,7 +416,7 @@ if (changed) {
   // 現在の価格を取得
   const { data: currentPrices, error: currentPricesError } = await supabase
     .from("work_prices")
-    .select("id,display_name,normal_price,sale_price")
+    .select("id,display_name,period,price_kind,normal_price,sale_price")
     .eq("product_id", productId);
 
   if (currentPricesError) {
@@ -306,14 +427,14 @@ if (changed) {
 
   const currentMap = new Map(
     (currentPrices ?? []).map((price) => [
-      price.display_name,
+      `${price.display_name}\u0000${price.period ?? ""}`,
       price,
     ])
   );
 
   // 新しい価格を保存
   for (const price of data.prices) {
-    const current = currentMap.get(price.name);
+    const current = currentMap.get(`${price.name}\u0000${price.period ?? ""}`);
 
     if (!current) {
   // 新規追加
@@ -322,6 +443,8 @@ if (changed) {
     .insert({
       product_id: productId,
       display_name: price.name,
+      period: price.period ?? null,
+      price_kind: getPriceKind(price),
       type: price.type,
       normal_price: price.normalPrice,
       sale_price: price.salePrice,
@@ -339,6 +462,8 @@ if (changed) {
     .insert({
       product_id: productId,
       display_name: price.name,
+      period: price.period ?? null,
+      price_kind: getPriceKind(price),
       type: price.type,
       normal_price: price.normalPrice,
       sale_price: price.salePrice,
@@ -356,7 +481,8 @@ if (changed) {
     // 価格変更あり？
     const changed =
       current.normal_price !== price.normalPrice ||
-      current.sale_price !== price.salePrice;
+      current.sale_price !== price.salePrice ||
+      current.price_kind !== getPriceKind(price);
 
     if (changed) {
       // 履歴保存
@@ -365,6 +491,8 @@ if (changed) {
   .insert({
     product_id: productId,
     display_name: price.name,
+    period: price.period ?? null,
+    price_kind: getPriceKind(price),
     type: price.type,
     normal_price: price.normalPrice,
     sale_price: price.salePrice,
@@ -381,6 +509,8 @@ if (changed) {
         .from("work_prices")
         .update({
           type: price.type,
+          period: price.period ?? null,
+          price_kind: getPriceKind(price),
           normal_price: price.normalPrice,
           sale_price: price.salePrice,
           updated_at: new Date().toISOString(),
@@ -400,11 +530,11 @@ if (changed) {
       }
     }
 
-    currentMap.delete(price.name);
+    currentMap.delete(`${price.name}\u0000${price.period ?? ""}`);
   }
 
   // 取得できなくなった価格を削除
-  for (const price of currentMap.values()) {
+for (const price of currentMap.values()) {
   const { data: deletedPrices, error: deletePriceError } = await supabase
     .from("work_prices")
     .delete()
@@ -422,6 +552,8 @@ if (changed) {
     );
   }
 }
+
+await repairLegacyPriceHistoryPeriods(productId, data.prices);
 
 if (updated && updated.length > 0) {
   await generateAndSaveInsight(updated[0]);

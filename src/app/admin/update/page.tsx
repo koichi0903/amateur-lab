@@ -38,6 +38,69 @@ const [runningAll, setRunningAll] = useState(false);
 
 const [showIdleJobs, setShowIdleJobs] = useState(false);
 
+  async function revalidateAfterManualUpdate(tasks: string[]) {
+    const response = await fetch("/api/admin/revalidate-production", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tasks }),
+    });
+    const result = (await response.json().catch(() => null)) as {
+      success?: boolean;
+      message?: string;
+    } | null;
+    if (!response.ok || result?.success === false) {
+      throw new Error(result?.message ?? "本番キャッシュの更新に失敗しました");
+    }
+  }
+
+  async function runManualRequest(input: RequestInfo | URL, init?: RequestInit) {
+    const response = await fetch(input, init);
+    if (!response.ok) return response;
+
+    const result = (await response.clone().json().catch(() => null)) as {
+      success?: boolean;
+      completed?: boolean;
+    } | null;
+    if (result?.success === false || result?.completed === false) return response;
+
+    const requestUrl = typeof input === "string" ? input : input.toString();
+    const url = new URL(requestUrl, window.location.origin);
+    const taskByPath: Record<string, string> = {
+      "/api/update-reserve": "reserve",
+      "/api/update-new": "new",
+      "/api/update-semi-new": "semi-new",
+      "/api/update-old": "old",
+      "/api/update-sale": "sale",
+      "/api/update-ended-sale": "ended-sale",
+      "/api/sync/update-stage": "stage",
+      "/api/review-update": "review",
+      "/api/dmm-ranking": "ranking",
+      "/api/score-update": "score",
+      "/api/update-missing-prices": "missing-prices",
+      "/api/admin/fill-sample-movie": "sample-movie",
+    };
+
+    const task = taskByPath[url.pathname];
+    if (task) {
+      await revalidateAfterManualUpdate([task]);
+    } else if (url.pathname === "/api/update-all" && url.searchParams.get("step") === "score") {
+      await revalidateAfterManualUpdate([
+        "reserve",
+        "new",
+        "semi-new",
+        "old",
+        "sale",
+        "ended-sale",
+        "stage",
+        "review",
+        "ranking",
+        "score",
+      ]);
+    }
+
+    return response;
+  }
+
   const isUpdating = runningAll || jobs.some(
   (job) =>
     job.status === "running" &&
@@ -48,10 +111,10 @@ const [showIdleJobs, setShowIdleJobs] = useState(false);
     url: string,
     label: string,
   ): Promise<UpdateResponse> {
-    const MAX_REQUESTS = 200;
+    const MAX_REQUESTS = 2_000;
 
     for (let attempt = 0; attempt < MAX_REQUESTS; attempt++) {
-      const res = await fetch(url, {
+      const res = await runManualRequest(url, {
         method: "POST",
       });
 
@@ -74,6 +137,10 @@ const [showIdleJobs, setShowIdleJobs] = useState(false);
       if (data.completed !== false) {
         return data;
       }
+
+      // Give the database connection pool a short recovery window between
+      // long-running chunks instead of immediately starting the next browser batch.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
 
     throw new Error(`${label}の分割更新が上限回数を超えました。`);
@@ -150,7 +217,7 @@ const [showIdleJobs, setShowIdleJobs] = useState(false);
 
 async function handleUpdateNew() {
   try {
-    const res = await fetch("/api/update-new", {
+    const res = await runManualRequest("/api/update-new", {
       method: "POST",
     });
 
@@ -170,7 +237,7 @@ async function handleUpdateNew() {
 async function handleUpdateSemiNew() {
 
   try {
-    const res = await fetch("/api/update-semi-new", {
+    const res = await runManualRequest("/api/update-semi-new", {
       method: "POST",
     });
 
@@ -190,7 +257,7 @@ async function handleUpdateSemiNew() {
 async function handleUpdateSale() {
 
   try {
-    const res = await fetch("/api/update-sale", {
+    const res = await runManualRequest("/api/update-sale", {
       method: "POST",
     });
 
@@ -210,7 +277,7 @@ async function handleUpdateSale() {
 async function handleUpdateRanking() {
 
   try {
-    const res = await fetch("/api/dmm-ranking", {
+    const res = await runManualRequest("/api/dmm-ranking", {
       method: "POST",
     });
 
@@ -234,7 +301,7 @@ async function handleUpdateRanking() {
 async function handleUpdateOld() {
 
   try {
-    const res = await fetch("/api/update-old", {
+    const res = await runManualRequest("/api/update-old", {
       method: "POST",
     });
 
@@ -254,7 +321,7 @@ async function handleUpdateOld() {
 async function handleUpdateEndedSale() {
 
   try {
-    const res = await fetch("/api/update-ended-sale", {
+    const res = await runManualRequest("/api/update-ended-sale", {
       method: "POST",
     });
 
@@ -274,7 +341,7 @@ async function handleUpdateEndedSale() {
 async function handleUpdateScore() {
 
   try {
-    const res = await fetch("/api/score-update", {
+    const res = await runManualRequest("/api/score-update", {
       method: "POST",
     });
 
@@ -320,7 +387,7 @@ async function handleUpdateReview() {
 async function handleUpdateMissingPrices() {
 
   try {
-    const res = await fetch("/api/update-missing-prices", {
+    const res = await runManualRequest("/api/update-missing-prices", {
       method: "POST",
     });
 
@@ -337,32 +404,77 @@ async function handleUpdateMissingPrices() {
   }
 }
 
-async function handleFillSampleMovie() {
-
+async function handleFillSampleMovies() {
   try {
-    const res = await fetch("/api/admin/fill-sample-movie", {
-      method: "POST",
-    });
-
-    const data = await res.json();
-
-    alert(
-      `動画URL補完完了\n成功:${data.success}件\n失敗:${data.failed}件`
+    const data = await runUpdateUntilCompleted(
+      "/api/admin/fill-sample-movie",
+      "サンプル動画補完",
     );
 
+    alert(data.message ?? "サンプル動画補完が完了しました");
     await loadJobs();
   } catch (e) {
     console.error(e);
-    alert("動画URL補完に失敗しました");
+    alert(e instanceof Error ? e.message : "サンプル動画補完に失敗しました");
   } finally {
     setLoading(false);
   }
 }
 
+async function handleRunSchedule(
+  schedule: "daily-0030" | "daily-1030" | "tue-fri-1800" | "sunday-1800",
+) {
+    const schedules = {
+      "daily-0030": {
+        label: "0:30更新",
+        tasks: [
+          ["/api/update-reserve", "予約作品更新"],
+          ["/api/update-new", "新作更新"],
+          ["/api/update-old", "旧作更新"],
+          ["/api/update-sale", "セール更新"],
+          ["/api/update-ended-sale", "終了セール更新"],
+          ["/api/dmm-ranking", "ランキング更新"],
+          ["/api/score-update", "スコア更新"],
+        ],
+      },
+      "daily-1030": {
+        label: "10:30更新",
+        tasks: [
+          ["/api/update-sale", "セール更新"],
+          ["/api/update-ended-sale", "終了セール更新"],
+          ["/api/dmm-ranking", "ランキング更新"],
+          ["/api/score-update", "スコア更新"],
+        ],
+      },
+      "tue-fri-1800": {
+        label: "火〜金18:00更新",
+        tasks: [["/api/update-semi-new", "準新作更新"], ["/api/review-update", "レビュー更新"]],
+      },
+      "sunday-1800": {
+        label: "日曜18:00更新",
+        tasks: [["/api/update-missing-prices", "価格補完"]],
+      },
+    } as const;
+    const selected = schedules[schedule];
+    setRunningAll(true);
+    try {
+      for (const [url, label] of selected.tasks) {
+        await runUpdateUntilCompleted(url, label);
+      }
+      alert(`${selected.label}が完了しました。`);
+      await loadJobs();
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? `${selected.label}を中断しました。\n${error.message}` : `${selected.label}に失敗しました。`);
+    } finally {
+      setRunningAll(false);
+    }
+}
+
 async function handleUpdateReserve() {
 
   try {
-    const res = await fetch("/api/update-reserve", {
+    const res = await runManualRequest("/api/update-reserve", {
       method: "POST",
     });
 
@@ -382,7 +494,7 @@ async function handleUpdateReserve() {
 async function handleUpdateStage() {
 
   try {
-    const res = await fetch("/api/sync/update-stage", {
+    const res = await runManualRequest("/api/sync/update-stage", {
       method: "POST",
     });
 
@@ -442,7 +554,7 @@ async function handleUpdateStage() {
       if (cancelled || document.visibilityState !== "visible") return;
 
       const hasRunningJob = latestJobs.some((job) => job.status === "running");
-      scheduleNext(hasRunningJob ? 5_000 : 60_000);
+      scheduleNext(hasRunningJob ? 5_000 : 15_000);
     };
 
     const handleVisibilityChange = () => {
@@ -515,7 +627,6 @@ const idleJobCount = displayedJobs.filter(
 .filter(
   (job) =>
     showIdleJobs ||
-    job.job_name === "sample_movie" ||
     job.status !== "idle" ||
     job.total_count > 0
 )
@@ -556,7 +667,8 @@ const idleJobCount = displayedJobs.filter(
   
 
         <div className="mt-10">
-  <UpdateButtons
+        <UpdateButtons
+  onRunSchedule={handleRunSchedule}
   onUpdateStage={handleUpdateStage}
   onUpdateNew={handleUpdateNew}
   onUpdateSemiNew={handleUpdateSemiNew}
@@ -568,7 +680,7 @@ const idleJobCount = displayedJobs.filter(
   onUpdateScore={handleUpdateScore}
 onUpdateReview={handleUpdateReview}
 onUpdateMissingPrices={handleUpdateMissingPrices}
-onFillSampleMovie={handleFillSampleMovie}
+onFillSampleMovies={handleFillSampleMovies}
 onUpdateReserve={handleUpdateReserve}
   isUpdating={isUpdating}
   runningJobs={[

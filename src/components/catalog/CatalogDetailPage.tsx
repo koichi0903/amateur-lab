@@ -1,14 +1,26 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, Boxes, Clapperboard, Sparkles, Star, Tags, Trophy } from "lucide-react";
+import { ArrowRight, BadgePercent, Boxes, Clapperboard, Gem, Sparkles, Star, Tags, Trophy } from "lucide-react";
 import Header from "@/components/layout/Header";
 import WorkImage from "@/components/home/WorkImage";
-import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { SITE_URL, pageMetadata } from "@/lib/seo";
-import { unstable_cache } from "next/cache";
 import { workDetailHref } from "@/lib/affiliateTracking";
+import { getEntityBest10, type EntityBest10Item } from "@/lib/getActressBest10";
+import CatalogIntentGuide from "@/components/catalog/CatalogIntentGuide";
+import EntityEditorialGuide from "@/components/editorial/EntityEditorialGuide";
+import { analyzeCatalogIntent } from "@/lib/catalog/catalogIntentAnalyzer";
+import { genreEditorialProfiles } from "@/lib/editorialContent";
+import {
+  getEntityIndexSummary,
+  isEntityIndexable,
+} from "@/lib/catalog/entityIndexSummaries";
+import {
+  ENTITY_PAGE_SIZE,
+  getEntityContext,
+  getEntityWorksPage,
+} from "@/lib/catalog/entityWorks";
 
 export type CatalogKind = "maker" | "series" | "genre";
 
@@ -16,6 +28,12 @@ const catalogConfig = {
   maker: { label: "メーカー", eyebrow: "MAKER", column: "maker", icon: Boxes },
   series: { label: "シリーズ", eyebrow: "SERIES", column: "series", icon: Clapperboard },
   genre: { label: "ジャンル", eyebrow: "GENRE", column: "genre", icon: Tags },
+} as const;
+
+const best10Eyebrow = {
+  maker: "MAKER BEST10",
+  series: "SERIES BEST10",
+  genre: "GENRE BEST10",
 } as const;
 
 export function decodeCatalogName(value: string) {
@@ -26,53 +44,41 @@ export function decodeCatalogName(value: string) {
   }
 }
 
-export function catalogMetadata(kind: CatalogKind, name: string, page = 1): Metadata {
+export async function catalogMetadata(kind: CatalogKind, name: string, page = 1): Promise<Metadata> {
   const { label } = catalogConfig[kind];
   const suffix = page > 1 ? ` ${page}ページ目` : "";
-  return pageMetadata({
-    title: `${name}の作品一覧${suffix} | 発掘LAB`,
-    description: `${name}${label === "シリーズ" ? "シリーズ" : ""}の作品を発掘スコア順に紹介します。`,
-    canonical: `/${kind}/${encodeURIComponent(name)}${page > 1 ? `?page=${page}` : ""}`,
-  });
-}
-
-function splitValues(value: string | null) {
-  return value?.split(" / ").map((item) => item.trim()).filter(Boolean) ?? [];
-}
-
-async function loadWorks(kind: CatalogKind, name: string) {
-  const { column } = catalogConfig[kind];
-  const pageSize = 1000;
-  const works: Work[] = [];
-  let error: unknown = null;
-
-  for (let from = 0; ; from += pageSize) {
-    const query = supabase.from("works").select("id,title,image_url,score,review_average,price,sale_price,genre");
-    const result = kind === "genre"
-      ? await query.ilike(column, `%${name}%`).order("score", { ascending: false, nullsFirst: false }).range(from, from + pageSize - 1)
-      : await query.eq(column, name).order("score", { ascending: false, nullsFirst: false }).range(from, from + pageSize - 1);
-
-    if (result.error) {
-      error = result.error;
-      break;
+  const subject = kind === "series" ? `${name}シリーズ` : name;
+  let robots: Metadata["robots"] = { index: false, follow: true };
+  try {
+    const summary = await getEntityIndexSummary(kind, name);
+    const pageResult = page === 1
+      ? await getEntityWorksPage(kind, name, 1)
+      : null;
+    if (
+      page === 1 &&
+      summary &&
+      isEntityIndexable(kind, summary) &&
+      pageResult &&
+      !pageResult.error &&
+      pageResult.works.length > 0
+    ) {
+      robots = undefined;
     }
-
-    const page = (result.data ?? []) as Work[];
-    works.push(...page);
-    if (page.length < pageSize) break;
+  } catch {
+    // Avoid indexing an error-thin page while quality data is unavailable.
   }
 
-  return {
-    error,
-    works: kind === "genre" ? works.filter((work) => splitValues(work.genre).includes(name)) : works,
-  };
+  return pageMetadata({
+    title: kind === "genre" || kind === "maker" || kind === "series"
+      ? `${subject}のおすすめBEST10${suffix} | セールと注目作も比較 | 発掘LAB`
+      : `${subject}のおすすめ作品・人気ランキング${suffix} | 発掘LAB`,
+    description: kind === "genre" || kind === "maker" || kind === "series"
+      ? `${subject}のおすすめ作品をBEST10形式で比較。埋もれ度、価格判断、レビュー件数、価格条件から選べます。`
+      : `${subject}のおすすめ・人気作品を、発掘スコア、レビュー件数、現在価格で比較。${label}別の買い時と関連条件から作品を探せます。`,
+    canonical: `/${kind}/${encodeURIComponent(name)}${page > 1 ? `?page=${page}` : ""}`,
+    robots,
+  });
 }
-
-const getWorks = unstable_cache(
-  loadWorks,
-  ["catalog-detail-works-v1"],
-  { revalidate: 1800 }
-);
 
 function Price({ work }: { work: Work }) {
   const price = work.sale_price > 0 ? work.sale_price : work.price;
@@ -87,7 +93,7 @@ function WorkCard({ work, rank, kind }: { work: Work; rank: number; kind: Catalo
         <span className="absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-slate-950 text-xs font-black text-white shadow">{rank}</span>
       </div>
       <div className="flex min-w-0 flex-col">
-        <div className="flex items-baseline gap-1.5 text-pink-600"><span className="text-[10px] font-black tracking-wider">SCORE</span><strong className="text-2xl leading-none">{work.score > 0 ? work.score : "—"}</strong></div>
+        <div className="flex items-baseline gap-1.5 text-pink-600"><span className="text-[10px] font-black tracking-wider">発掘スコア</span><strong className="text-2xl leading-none">{work.score > 0 ? work.score : "—"}</strong></div>
         <h2 className="mt-2 line-clamp-2 break-words text-sm font-black leading-5 sm:text-base sm:leading-6">{work.title}</h2>
         <div className="mt-auto flex items-end justify-between gap-2 pt-3 text-xs font-black sm:text-sm"><Price work={work} /><span className="flex shrink-0 items-center gap-1 text-pink-600">詳細 <ArrowRight size={14} /></span></div>
       </div>
@@ -125,35 +131,109 @@ function JsonLd({ kind, name, works, page, pageSize }: { kind: CatalogKind; name
   return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }} />;
 }
 
+function formatPrice(value: number | null) {
+  return value && value > 0 ? `¥${value.toLocaleString("ja-JP")}` : "確認中";
+}
+
+function formatRanking(value: number | null | undefined) {
+  return value && value > 0 && value < 9999 ? `${value}位` : "圏外/未取得";
+}
+
+function Best10Card({ work, rank, kind, scoreLabel }: { work: EntityBest10Item; rank: number; kind: CatalogKind; scoreLabel: string }) {
+  return (
+    <Link href={workDetailHref(work.id, kind)} className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-pink-200 hover:shadow-md sm:grid-cols-[132px_minmax(0,1fr)] sm:gap-4 sm:p-4">
+      <div className="relative aspect-[4/3] overflow-hidden bg-slate-100 sm:aspect-[3/4]">
+        <WorkImage src={work.image_url} alt={work.title} sizes="132px" unoptimized className="object-cover transition duration-300 group-hover:scale-105" />
+        <span className="absolute left-2 top-2 rounded-full bg-slate-950/90 px-2.5 py-1 text-[10px] font-black text-white">{rank}位</span>
+      </div>
+      <div className="flex min-w-0 flex-col">
+        <div className="flex flex-wrap gap-1.5">
+          <span className="rounded-full bg-pink-50 px-2.5 py-1 text-[11px] font-black text-pink-700">{scoreLabel} {scoreLabel === "総合" ? work.best10Score : scoreLabel === "埋もれ度" ? work.discovery.score : work.buyTiming.score}</span>
+          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-black text-emerald-700">埋もれ度 {work.discovery.score}</span>
+          <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-black text-amber-700">価格判断 {work.buyTiming.score}</span>
+        </div>
+        <h3 className="mt-2 line-clamp-2 break-words text-sm font-black leading-5 sm:text-base sm:leading-6">{work.title}</h3>
+        <div className="mt-3 grid grid-cols-2 gap-1.5 text-[11px] font-bold text-slate-600">
+          <span className="bg-slate-50 px-2 py-1.5">評価 {work.review_average > 0 ? work.review_average.toFixed(2) : "未取得"}</span>
+          <span className="bg-slate-50 px-2 py-1.5">レビュー {work.review_count ?? 0}件</span>
+          <span className="bg-slate-50 px-2 py-1.5">順位 {formatRanking(work.ranking)}</span>
+          <span className="bg-slate-50 px-2 py-1.5">割引 {work.discovery.discountRate}%OFF</span>
+        </div>
+        <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <strong className="text-lg text-rose-600">{formatPrice(work.discovery.currentPrice)}</strong>
+          {work.discovery.regularPrice && work.discovery.currentPrice && work.discovery.regularPrice > work.discovery.currentPrice && <span className="text-xs font-bold text-slate-400 line-through">{formatPrice(work.discovery.regularPrice)}</span>}
+          <span className="text-[11px] font-bold text-amber-700">{work.discovery.lowestPriceText}</span>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {work.best10Reasons.map((reason) => <span key={reason} className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-700">{reason}</span>)}
+        </div>
+        <span className="mt-auto flex items-center gap-1 pt-3 text-xs font-black text-pink-600">価格と理由を見る <ArrowRight size={14} /></span>
+      </div>
+    </Link>
+  );
+}
+
+function Best10Section({ id, title, eyebrow, description, items, kind, icon: Icon, scoreLabel }: { id: string; title: string; eyebrow: string; description: string; items: EntityBest10Item[]; kind: CatalogKind; icon: typeof Trophy; scoreLabel: string }) {
+  if (!items.length) return null;
+  return (
+    <section id={id} className="mt-10 scroll-mt-24">
+      <div className="mb-4 flex items-start gap-3">
+        <span className="shrink-0 rounded-2xl bg-white p-3 text-pink-600 shadow-sm"><Icon size={22} /></span>
+        <div className="min-w-0">
+          <p className="text-xs font-black tracking-widest text-pink-600">{eyebrow}</p>
+          <h2 className="mt-1 break-words text-2xl font-black">{title}</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+        </div>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {items.map((work, index) => <Best10Card key={work.id} work={work} rank={index + 1} kind={kind} scoreLabel={scoreLabel} />)}
+      </div>
+    </section>
+  );
+}
+
 export default async function CatalogDetailPage({ kind, name, page = 1 }: { kind: CatalogKind; name: string; page?: number }) {
   const config = catalogConfig[kind];
-  const { works, error } = await getWorks(kind, name);
+  const currentPage = Math.max(1, page);
+  const [summary, pageResult, contextResult] = await Promise.all([
+    getEntityIndexSummary(kind, name).catch(() => null),
+    getEntityWorksPage(kind, name, currentPage),
+    getEntityContext(kind, name),
+  ]);
+  const works = pageResult.works as Work[];
+  const contextWorks = contextResult.works;
+  const error = pageResult.error;
   if (!error && works.length === 0) notFound();
-  const scoredWorks = works.filter((work) => work.score > 0);
-  const reviewedWorks = works.filter((work) => work.review_average > 0);
+  const scoredWorks = contextWorks.filter((work) => work.score > 0);
+  const reviewedWorks = contextWorks.filter((work) => work.review_average > 0);
   const averageScore = scoredWorks.length ? Math.round(scoredWorks.reduce((sum, work) => sum + work.score, 0) / scoredWorks.length) : 0;
   const averageReview = reviewedWorks.length ? (reviewedWorks.reduce((sum, work) => sum + work.review_average, 0) / reviewedWorks.length).toFixed(2) : "—";
-  const topWork = works[0];
-  const pageSize = 60;
-  const totalPages = Math.max(1, Math.ceil(works.length / pageSize));
-  const currentPage = Math.min(Math.max(1, page), totalPages);
-  const offset = (currentPage - 1) * pageSize;
-  const displayedWorks = works.slice(offset, offset + pageSize);
+  const topWork = contextWorks[0] ?? works[0];
+  const totalCount = summary?.count ?? ((currentPage - 1) * ENTITY_PAGE_SIZE + works.length);
+  const totalPages = Math.max(1, Math.ceil(totalCount / ENTITY_PAGE_SIZE));
+  const offset = (currentPage - 1) * ENTITY_PAGE_SIZE;
+  const displayedWorks = works;
   const pageHref = (targetPage: number) => targetPage > 1
     ? `/${kind}/${encodeURIComponent(name)}?page=${targetPage}`
     : `/${kind}/${encodeURIComponent(name)}`;
   const Icon = config.icon;
+  const intentAnalysis = currentPage === 1
+    ? analyzeCatalogIntent({ kind, name, works: contextWorks, totalCount })
+    : null;
+  const best10 = currentPage === 1 && !error
+    ? await getEntityBest10(name, contextWorks as Work[], { entityLabel: config.label })
+    : null;
 
-  return <><Header /><JsonLd kind={kind} name={name} works={displayedWorks} page={currentPage} pageSize={pageSize} /><main className="min-h-screen bg-[#f8fafc] text-slate-950">
+  return <><Header /><JsonLd kind={kind} name={name} works={displayedWorks} page={currentPage} pageSize={ENTITY_PAGE_SIZE} /><main className="min-h-screen bg-[#f8fafc] text-slate-950">
     <section className="border-b border-slate-200 bg-white"><div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
       <nav aria-label="パンくず" className="min-w-0 truncate text-xs font-bold text-slate-500"><Link href="/" className="hover:text-pink-600">TOP</Link><span className="mx-1">/</span><Link href={`/${kind}`} className="hover:text-pink-600">{config.label}</Link><span className="mx-1">/</span><span>{name}</span></nav>
       <div className="mt-6 grid gap-6 md:grid-cols-[280px_minmax(0,1fr)] lg:gap-10">
         <div className="relative aspect-[4/3] overflow-hidden rounded-3xl bg-slate-100 shadow-sm"><WorkImage src={topWork?.image_url} alt={`${name}の作品`} sizes="(max-width: 768px) 92vw, 280px" priority unoptimized className="object-cover" /></div>
-        <div className="min-w-0"><p className="flex items-center gap-2 text-xs font-black tracking-[0.18em] text-pink-600"><Icon size={16} />{config.eyebrow}</p><h1 className="mt-2 break-words text-3xl font-black tracking-tight sm:text-5xl">{name}</h1><p className="mt-4 text-sm leading-7 text-slate-600">{config.label}に登録された作品を発掘スコア順に掲載。高評価作品から、新しい一本を発掘できます。</p>
-          <div className="mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">{[{ icon: Clapperboard, label: "登録作品", value: `${works.length}作品` }, { icon: Trophy, label: "最高スコア", value: topWork?.score > 0 ? String(topWork.score) : "—" }, { icon: Sparkles, label: "平均スコア", value: averageScore > 0 ? String(averageScore) : "—" }, { icon: Star, label: "平均レビュー", value: averageReview }].map((stat) => <div key={stat.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><stat.icon size={18} className="text-pink-600" /><p className="mt-3 text-xs font-bold text-slate-500">{stat.label}</p><p className="mt-1 text-xl font-black">{stat.value}</p></div>)}</div>
+        <div className="min-w-0"><p className="flex items-center gap-2 text-xs font-black tracking-[0.18em] text-pink-600"><Icon size={16} />{config.eyebrow}</p><h1 className="mt-2 break-words text-3xl font-black tracking-tight sm:text-5xl">{name}</h1><p className="mt-4 text-sm leading-7 text-slate-600">{config.label}に登録された作品をスコア順に掲載。高評価、価格条件、関連性を見ながら次の一本を選べます。</p>
+          <div className="mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">{[{ icon: Clapperboard, label: "登録作品", value: `${totalCount}作品` }, { icon: Trophy, label: "最高スコア", value: summary?.maxScore ? String(summary.maxScore) : topWork?.score > 0 ? String(topWork.score) : "—" }, { icon: Sparkles, label: "上位作品平均", value: averageScore > 0 ? String(averageScore) : "—" }, { icon: Star, label: "上位レビュー平均", value: averageReview }].map((stat) => <div key={stat.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><stat.icon size={18} className="text-pink-600" /><p className="mt-3 text-xs font-bold text-slate-500">{stat.label}</p><p className="mt-1 text-xl font-black">{stat.value}</p></div>)}</div>
         </div>
       </div>
     </div></section>
-    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{error ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">作品を読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : works.length ? <><div className="mb-6 flex items-end justify-between gap-4"><div className="min-w-0"><p className="text-xs font-black tracking-widest text-pink-600">TOP WORKS</p><h2 className="mt-1 break-words text-2xl font-black">{name}の作品</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{works.length}作品中 {offset + 1}〜{offset + displayedWorks.length}作品</span></div><div className="grid gap-3 lg:grid-cols-2">{displayedWorks.map((work, index) => <WorkCard key={work.id} work={work} rank={offset + index + 1} kind={kind} />)}</div>{totalPages > 1 && <nav aria-label={`${name}の作品一覧のページ送り`} className="mt-10 flex items-center justify-center gap-3">{currentPage > 1 && <Link href={pageHref(currentPage - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-pink-300 hover:text-pink-600">← 前の60作品</Link>}<span className="text-xs font-bold text-slate-400">{currentPage} / {totalPages}</span>{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-pink-600">次の60作品 →</Link>}</nav>}</> : <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Icon className="mx-auto text-slate-300" size={40} /><p className="mt-4 font-black">登録作品がまだありません</p><Link href={`/${kind}`} className="mt-3 inline-block text-sm font-black text-pink-600">{config.label}一覧に戻る</Link></div>}</div>
+    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{currentPage === 1 && kind === "genre" && <EntityEditorialGuide name={name} profile={genreEditorialProfiles[name]} />}{!error && works.length > 0 && <CatalogIntentGuide name={name} source={kind} analysis={intentAnalysis} />}{best10 && <div className="border-y border-pink-100 bg-white px-4 py-6 shadow-sm sm:px-6"><p className="text-xs font-black tracking-widest text-pink-600">{best10Eyebrow[kind]}</p><h2 className="mt-1 break-words text-2xl font-black">{name} おすすめBEST10</h2><p className="mt-3 text-sm leading-7 text-slate-600">{best10.summary}</p><div className="mt-4 flex flex-wrap gap-2"><Link href="#best10-overall" className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white hover:bg-pink-600">まず見る10本</Link><Link href="#best10-buy-now" className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-black text-rose-700 hover:border-rose-300">価格で選ぶ</Link><Link href="#best10-hidden-gems" className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-black text-amber-700 hover:border-amber-300">定番外から選ぶ</Link></div></div>}{best10 && <Best10Section id="best10-overall" title={`${name} 総合BEST10`} eyebrow="RECOMMEND BEST10" description="発掘スコア、レビュー平均と件数、価格判断、直近30日の送客実績を合わせて、単純な人気順に寄せすぎず選んでいます。" items={best10.overall} kind={kind} icon={Trophy} scoreLabel="総合" />}{best10 && <Best10Section id="best10-hidden-gems" title={`${name}の定番外候補`} eyebrow="HIDDEN GEMS" description="ランキング上位だけでなく、順位は低めでも評価・レビュー・価格条件が強い作品を優先しています。" items={best10.hiddenGems} kind={kind} icon={Gem} scoreLabel="埋もれ度" />}{best10 && <Best10Section id="best10-buy-now" title={`${name} 価格で選ぶ候補`} eyebrow="SALE & BUY TIMING" description="割引率、過去最安値との比較、価格判断を重視して、今チェックする理由がある作品を並べています。" items={best10.buyNow} kind={kind} icon={BadgePercent} scoreLabel="価格判断" />}{error ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">作品を読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : works.length ? <><div className="mb-6 mt-12 flex items-end justify-between gap-4"><div className="min-w-0"><p className="text-xs font-black tracking-widest text-pink-600">TOP WORKS</p><h2 className="mt-1 break-words text-2xl font-black">{name}の作品</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{totalCount}作品中 {offset + 1}〜{offset + displayedWorks.length}作品</span></div><div className="grid gap-3 lg:grid-cols-2">{displayedWorks.map((work, index) => <WorkCard key={work.id} work={work} rank={offset + index + 1} kind={kind} />)}</div>{totalPages > 1 && <nav aria-label={`${name}の作品一覧のページ送り`} className="mt-10 flex items-center justify-center gap-3">{currentPage > 1 && <Link href={pageHref(currentPage - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-pink-300 hover:text-pink-600">← 前の60作品</Link>}<span className="text-xs font-bold text-slate-400">{currentPage} / {totalPages}</span>{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-pink-600">次の60作品 →</Link>}</nav>}</> : <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Icon className="mx-auto text-slate-300" size={40} /><p className="mt-4 font-black">登録作品がまだありません</p><Link href={`/${kind}`} className="mt-3 inline-block text-sm font-black text-pink-600">{config.label}一覧に戻る</Link></div>}</div>
   </main></>;
 }

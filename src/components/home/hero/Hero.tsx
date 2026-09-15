@@ -1,9 +1,53 @@
 import Link from "next/link";
 import type { DailyDiscoveryWork } from "@/lib/getDailyDiscovery";
+import type { HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 import WorkImage from "../WorkImage";
+import MiniPriceHistoryChart from "../MiniPriceHistoryChart";
 import { workDetailHref } from "@/lib/affiliateTracking";
 
-export default function Hero({ work, eyebrow = "TODAY'S PICK", reason }: { work: DailyDiscoveryWork | null; eyebrow?: string; reason?: string }) {
+const formatPrice = (value: number | null | undefined) =>
+  value && value > 0 ? `¥${value.toLocaleString("ja-JP")}` : "価格未取得";
+
+function HeroPricePanel({ priceInsight }: { priceInsight: HomePriceInsightWork }) {
+  return (
+    <div className="mt-5 max-w-md rounded-xl border border-white/20 bg-white/95 p-3 text-slate-950 shadow-lg backdrop-blur sm:mt-6">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-black text-pink-600">PRICE WATCH</p>
+          <p className="mt-1 text-xl font-black text-pink-600">{formatPrice(priceInsight.currentPrice)}</p>
+        </div>
+        <span className="rounded-full bg-pink-100 px-2 py-1 text-[11px] font-black text-pink-700">{priceInsight.badge}</span>
+      </div>
+      <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1">
+        <MiniPriceHistoryChart
+          points={priceInsight.priceHistory}
+          windowStartAt={priceInsight.priceWindowStartAt}
+          windowEndAt={priceInsight.priceWindowEndAt}
+          lowPrice={priceInsight.low90Price}
+          currentPrice={priceInsight.currentPrice}
+          variant="hero"
+        />
+      </div>
+      <p className="text-xs font-bold text-slate-500">
+        {priceInsight.previousPrice && priceInsight.dropAmount > 0
+          ? `${formatPrice(priceInsight.previousPrice)}から${priceInsight.dropRate}%OFF`
+          : `90日最安 ${formatPrice(priceInsight.low90Price)}`}
+      </p>
+    </div>
+  );
+}
+
+export default function Hero({
+  work,
+  eyebrow = "TODAY'S PICK",
+  reason,
+  priceInsight,
+}: {
+  work: DailyDiscoveryWork | null;
+  eyebrow?: string;
+  reason?: string;
+  priceInsight?: HomePriceInsightWork | null;
+}) {
   const hasValidWorkId = work != null && Number.isInteger(work.id) && work.id > 0;
 
   return (
@@ -17,18 +61,20 @@ export default function Hero({ work, eyebrow = "TODAY'S PICK", reason }: { work:
             AIが毎日名作を発掘
           </h1>
           <p className="mt-4 text-base font-bold leading-8 text-slate-200 sm:text-xl">
-            あなたがまだ知らない、本当におすすめの作品がここに。
+            ランキングだけでは見つけにくい作品を、価格推移とレビューから毎日整理。
+            <span className="block text-sm text-pink-100 sm:text-base">迷ったら、まず今日の候補と価格で選べます。</span>
           </p>
           <div className="mt-6 flex flex-wrap gap-3 sm:mt-7">
             <Link
               href="#daily-discovery"
               className="rounded-full bg-pink-600 px-7 py-3.5 text-sm font-black text-white transition hover:bg-pink-500"
             >
-              今日のAI発掘を見る
+              今日の候補を見る
             </Link>
-            <Link href="/features" className="rounded-full border border-white/25 px-6 py-3.5 text-sm font-black text-white transition hover:border-white/60 hover:bg-white/10">特集から探す</Link>
-            <Link href="/deals" className="rounded-full border border-white/25 px-6 py-3.5 text-sm font-black text-white transition hover:border-white/60 hover:bg-white/10">お得に探す</Link>
+            <Link href="/price-insights" className="rounded-full border border-white/25 px-6 py-3.5 text-sm font-black text-white transition hover:border-white/60 hover:bg-white/10">価格で選ぶ</Link>
+            <Link href="/features" className="rounded-full border border-white/25 px-6 py-3.5 text-sm font-black text-white transition hover:border-white/60 hover:bg-white/10">特集を見る</Link>
           </div>
+          {priceInsight && <HeroPricePanel priceInsight={priceInsight} />}
         </div>
 
         <div className="relative mt-7 min-h-[240px] sm:mt-8 lg:mt-0 lg:min-h-[320px]">
@@ -36,8 +82,9 @@ export default function Hero({ work, eyebrow = "TODAY'S PICK", reason }: { work:
             {hasValidWorkId ? (
               <Link
                 href={workDetailHref(work.id, "home")}
-                className="group block h-full cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-pink-300"
+                className="group relative block h-full cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-pink-300"
               >
+                <div className="absolute inset-0">
                 {work.image_url ? (
                   <WorkImage
                     src={work.image_url}
@@ -52,10 +99,11 @@ export default function Hero({ work, eyebrow = "TODAY'S PICK", reason }: { work:
                   </div>
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-[#142438] via-[#142438]/20 to-[#142438]/5" />
-                <div className="absolute inset-x-0 bottom-0 p-5 text-white sm:p-7">
+                <div className={`absolute inset-x-0 bottom-0 p-5 text-white sm:p-7 ${priceInsight ? "lg:max-w-[55%]" : ""}`}>
                   <p className="text-xs font-black tracking-[.18em] text-pink-300">{eyebrow}</p>
                   <p className="mt-2 line-clamp-2 text-lg font-black sm:text-2xl">{work.title}</p>
                   {reason && <p className="mt-2 line-clamp-2 text-xs font-bold leading-5 text-slate-200 sm:text-sm">選定理由：{reason}</p>}
+                </div>
                 </div>
               </Link>
             ) : (

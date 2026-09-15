@@ -15,11 +15,9 @@ import {
 } from "@/lib/affiliateAnalytics";
 import { getAffiliateSalesAnalytics } from "@/lib/affiliateSalesAnalytics";
 import { AFFILIATE_SOURCE_LABELS } from "@/lib/affiliateTracking";
-import { getXPostCandidates } from "@/lib/xPostCandidates";
 import RevenueImportForm from "./RevenueImportForm";
 import RevenuePerformanceTable from "./RevenuePerformanceTable";
 import TrafficImprovementPanel from "./TrafficImprovementPanel";
-import XPostCandidatePanel from "./XPostCandidatePanel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -53,6 +51,7 @@ function MetricCard({
 }
 
 type XTraffic = Awaited<ReturnType<typeof getAffiliateAnalytics>>["xTraffic"];
+type XPostCategoryRevenue = Awaited<ReturnType<typeof getAffiliateAnalytics>>["xPostCategoryRevenue"];
 
 function XTrafficPanel({ xTraffic }: { xTraffic: XTraffic }) {
   return (
@@ -113,12 +112,104 @@ function XTrafficPanel({ xTraffic }: { xTraffic: XTraffic }) {
   );
 }
 
-export default async function RevenueDashboardPage() {
+function XPostCategoryRevenuePanel({
+  days,
+  rows,
+}: {
+  days: number;
+  rows: XPostCategoryRevenue;
+}) {
+  return (
+    <section className="mt-6 rounded-2xl border border-fuchsia-800/80 bg-fuchsia-950/20 p-5 sm:p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-black tracking-[0.18em] text-fuchsia-300">
+            X CATEGORY FUNNEL
+          </p>
+          <h2 className="mt-2 text-xl font-black">投稿カテゴリ別収益ファネル</h2>
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
+            <code className="rounded bg-black/30 px-1.5 py-0.5">x_post</code> と投稿ログをもとに、X投稿カテゴリごとの作品詳細PV、FANZAクリック、CTRを比較します。
+          </p>
+        </div>
+        <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950 p-1 text-sm font-black">
+          {[7, 30].map((value) => (
+            <Link
+              key={value}
+              href={`/admin/revenue?x_days=${value}`}
+              className={`rounded-lg px-4 py-2 transition ${days === value ? "bg-fuchsia-600 text-white" : "text-zinc-400 hover:text-white"}`}
+            >
+              {value}日
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 overflow-x-auto">
+        <table className="w-full min-w-[980px] text-left text-sm">
+          <thead className="text-xs text-zinc-500">
+            <tr className="border-b border-zinc-800">
+              <th className="pb-3 pr-4">カテゴリ</th>
+              <th className="pb-3 pr-4 text-right">投稿数</th>
+              <th className="pb-3 pr-4 text-right">X PV</th>
+              <th className="pb-3 pr-4 text-right">FANZA</th>
+              <th className="pb-3 pr-4 text-right">X経由CTR</th>
+              <th className="pb-3 pr-4 text-right">PV/投稿</th>
+              <th className="pb-3 pr-4 text-right">クリック/投稿</th>
+              <th className="pb-3">上位作品</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-800/80">
+            {rows.map((row) => (
+              <tr key={row.category}>
+                <td className="whitespace-nowrap py-4 pr-4 font-black text-zinc-100">{row.label}</td>
+                <td className="py-4 pr-4 text-right font-bold text-zinc-300">{row.posts.toLocaleString("ja-JP")}</td>
+                <td className="py-4 pr-4 text-right font-black text-fuchsia-200">{row.xPageViews.toLocaleString("ja-JP")}</td>
+                <td className="py-4 pr-4 text-right font-black text-emerald-300">{row.xFanzaClicks.toLocaleString("ja-JP")}</td>
+                <td className="py-4 pr-4 text-right font-black text-emerald-300">{row.xCtr}%</td>
+                <td className="py-4 pr-4 text-right text-zinc-300">{row.pvPerPost.toLocaleString("ja-JP")}</td>
+                <td className="py-4 pr-4 text-right text-zinc-300">{row.clicksPerPost.toLocaleString("ja-JP")}</td>
+                <td className="min-w-[20rem] py-4">
+                  {row.topWorks.length ? (
+                    <div className="space-y-2">
+                      {row.topWorks.slice(0, 3).map((work) => (
+                        <Link
+                          key={work.workId}
+                          href={`/works/${work.workId}`}
+                          className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg bg-zinc-950 px-3 py-2 transition hover:text-fuchsia-200"
+                        >
+                          <span className="truncate font-bold text-zinc-200">{work.title}</span>
+                          <span className="whitespace-nowrap text-xs font-black text-zinc-400">
+                            {work.xPageViews}PV / {work.xFanzaClicks}送客 / {work.xCtr}%
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-zinc-500">まだ対象作品はありません</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!rows.length && <p className="py-5 text-sm text-zinc-500">投稿カテゴリ別の計測データはまだありません。</p>}
+      </div>
+    </section>
+  );
+}
+
+export default async function RevenueDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ x_days?: string | string[] }>;
+}) {
+  const query = await searchParams;
+  const xDaysParam = Array.isArray(query.x_days) ? query.x_days[0] : query.x_days;
+  const xCategoryDays = xDaysParam === "30" ? 30 : 7;
   const [analytics, salesAnalytics] = await Promise.all([
-    getAffiliateAnalytics(),
+    getAffiliateAnalytics(xCategoryDays),
     getAffiliateSalesAnalytics(),
   ]);
-  const xPostCandidates = await getXPostCandidates(salesAnalytics.performance);
   const maxDaily = Math.max(...analytics.daily.map((item) => item.count), 1);
   const thirtyDayTotal = analytics.totals.thirtyDays;
   const mobileClicks = analytics.placements.find(
@@ -170,6 +261,18 @@ export default async function RevenueDashboardPage() {
         {!analytics.sourceAttributionEnabled && !analytics.error && (
           <section className="mt-8 rounded-2xl border border-amber-800 bg-amber-950/30 p-5 text-sm leading-6 text-amber-200">
             流入元追加SQLが未適用のため、既存クリックは「直接・不明」で表示しています。新しいマイグレーションをSupabaseで実行すると流入元別の計測が始まります。
+          </section>
+        )}
+
+        {!analytics.externalAttributionEnabled && !analytics.error && (
+          <section className="mt-8 rounded-2xl border border-amber-800 bg-amber-950/30 p-5 text-sm leading-6 text-amber-200">
+            外部流入計測用SQLが未適用です。<code className="mx-1 rounded bg-black/30 px-1.5 py-0.5">20260820_add_external_attribution_to_affiliate_clicks.sql</code>をSupabaseで実行すると、自然検索からFANZAクリックまでの集計が始まります。
+          </section>
+        )}
+
+        {!analytics.pageViewTrackingEnabled && !analytics.error && (
+          <section className="mt-8 rounded-2xl border border-amber-800 bg-amber-950/30 p-5 text-sm leading-6 text-amber-200">
+            作品詳細ページビュー計測SQLが未適用です。<code className="mx-1 rounded bg-black/30 px-1.5 py-0.5">20260829_add_work_page_view_funnel.sql</code>をSupabaseで実行すると、作品別CTRの集計が始まります。
           </section>
         )}
 
@@ -328,6 +431,8 @@ export default async function RevenueDashboardPage() {
         </section>
 
         <TrafficImprovementPanel
+          externalChannelInsights={analytics.externalChannelInsights}
+          organicLandingInsights={analytics.organicLandingInsights}
           sourceInsights={analytics.sourceInsights}
           placementInsights={analytics.placementInsights}
           ctaVariantInsights={analytics.ctaVariantInsights}
@@ -338,10 +443,73 @@ export default async function RevenueDashboardPage() {
 
         <XTrafficPanel xTraffic={analytics.xTraffic} />
 
-        <XPostCandidatePanel
-          candidates={xPostCandidates.candidates}
-          error={xPostCandidates.error}
+        {analytics.xPostLogError && (
+          <section className="mt-6 rounded-2xl border border-amber-800 bg-amber-950/30 p-5 text-sm leading-6 text-amber-200">
+            X投稿ログを読み込めませんでした。投稿カテゴリ別ファネルはログテーブルの適用後に有効になります。
+          </section>
+        )}
+
+        <XPostCategoryRevenuePanel
+          days={analytics.categoryDays}
+          rows={analytics.xPostCategoryRevenue}
         />
+
+        <section className="mt-6 rounded-2xl border border-emerald-800/80 bg-emerald-950/20 p-5 sm:p-6">
+          <h2 className="text-xl font-black">X運用はGrowth OSへ移動しました</h2>
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
+            この画面はFANZA送客と収益分析に集中します。投稿候補、Daily Mission、Creative Learning、媒体権利確認は新しい司令塔で管理します。
+          </p>
+          <Link href="/admin/x-growth" className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-emerald-500 px-4 text-sm font-black text-black">
+            X Growth OSを開く
+          </Link>
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">
+          <div className="flex items-center gap-3">
+            <BarChart3 className="text-emerald-400" size={22} />
+            <div>
+              <h2 className="font-black">作品別ファネル</h2>
+              <p className="mt-1 text-xs text-zinc-500">直近30日・作品詳細PV → FANZAクリック → CTR</p>
+            </div>
+          </div>
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[980px] text-left text-sm">
+              <thead className="text-xs text-zinc-500">
+                <tr className="border-b border-zinc-800">
+                  <th className="pb-3 pr-4">作品</th>
+                  <th className="pb-3 pr-4">流入元</th>
+                  <th className="pb-3 pr-4 text-right">PV</th>
+                  <th className="pb-3 pr-4 text-right">FANZA</th>
+                  <th className="pb-3 pr-4 text-right">CTR</th>
+                  <th className="pb-3 pr-4 text-right">価格</th>
+                  <th className="pb-3 pr-4 text-right">割引</th>
+                  <th className="pb-3 pr-4 text-right">スコア</th>
+                  <th className="pb-3 pr-4 text-right">順位</th>
+                  <th className="pb-3 text-right">投稿日時</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/80">
+                {analytics.workFunnels.map((row) => (
+                  <tr key={`${row.workId}-${row.sourcePage}`}>
+                    <td className="max-w-sm py-3 pr-4">
+                      <Link href={`/works/${row.workId}`} className="line-clamp-1 font-bold hover:text-pink-300">{row.title}</Link>
+                    </td>
+                    <td className="whitespace-nowrap py-3 pr-4 text-zinc-300">{AFFILIATE_SOURCE_LABELS[row.sourcePage]}</td>
+                    <td className="py-3 pr-4 text-right font-black">{row.pageViews.toLocaleString("ja-JP")}</td>
+                    <td className="py-3 pr-4 text-right text-emerald-300">{row.fanzaClicks.toLocaleString("ja-JP")}</td>
+                    <td className="py-3 pr-4 text-right font-black text-emerald-300">{row.ctr}%</td>
+                    <td className="py-3 pr-4 text-right text-zinc-300">{row.price ? `¥${row.price.toLocaleString("ja-JP")}` : "-"}</td>
+                    <td className="py-3 pr-4 text-right text-zinc-300">{row.discountRate ? `${row.discountRate}%` : "-"}</td>
+                    <td className="py-3 pr-4 text-right text-zinc-300">{row.discoveryScore ?? "-"}</td>
+                    <td className="py-3 pr-4 text-right text-zinc-300">{row.ranking ?? "-"}</td>
+                    <td className="whitespace-nowrap py-3 text-right text-xs text-zinc-500">{row.latestPostedAt ? formatDateTime(row.latestPostedAt) : "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!analytics.workFunnels.length && <p className="py-5 text-sm text-zinc-500">作品詳細ページビューはまだありません。</p>}
+          </div>
+        </section>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">

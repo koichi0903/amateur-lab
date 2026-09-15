@@ -15,21 +15,38 @@ type Props = {
   recommendationReasons: RecommendReason[];
 };
 
+function getDecisionSupportPoint(work: Work) {
+  const detailWork = work as Work & { sample_movie_url?: string | null };
+  const currentPrice = work.sale_price && work.sale_price > 0 ? work.sale_price : work.price;
+  const enoughInfoCount = [
+    work.actress,
+    work.genre,
+    work.maker,
+    work.release_date,
+    currentPrice,
+  ].filter(Boolean).length;
+
+  return (
+    (detailWork.sample_movie_url ? 3 : 0) +
+    (work.image_url ? 1 : 0) +
+    (enoughInfoCount >= 4 ? 1 : 0)
+  );
+}
+
 function ScoreAnalysisCard({ work, className }: { work: Work; className: string }) {
   return (
     <div className={`${className} min-w-0 flex-col items-center rounded-2xl border border-zinc-200 bg-white p-4 sm:p-5`}>
       <h3 className="text-xl font-black">
-        発掘スコア分析
+        おすすめ要素のバランス
       </h3>
 
       <div className="w-full md:max-w-[320px]">
         <RadarChart
-          actress={work.actress_point ?? 0}
-          review={work.review_score ?? 0}
-          popularity={work.ranking_score ?? 0}
-          maker={work.maker_score ?? 0}
-          genre={work.genre_score ?? 0}
-          series={work.series_score ?? 0}
+          quality={work.review_score ?? 0}
+          trust={work.review_count_score ?? 0}
+          discovery={work.ranking_score ?? 0}
+          timing={work.discount_score ?? 0}
+          decision={getDecisionSupportPoint(work)}
         />
       </div>
     </div>

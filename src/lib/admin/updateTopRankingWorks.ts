@@ -1,20 +1,24 @@
 import type { Browser } from "playwright-core";
 
-import { UPDATE_CONFIG } from "@/config/update";
+import { RANKING_UPDATE_CONFIG, UPDATE_CONFIG } from "@/config/update";
 import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
 
 import type { RankingPlaywrightTarget } from "./rankingPlaywrightTargets";
 import { updateWork } from "./updateWork";
-
-const PLAYWRIGHT_LIMIT = 1000;
 
 async function updateBatch(
   targets: RankingPlaywrightTarget[],
   browser: Browser,
 ): Promise<RankingPlaywrightTarget[]> {
   const results = await Promise.allSettled(
-    targets.map(({ item, listPrice }) =>
-      updateWork(item.content_id, item, browser, listPrice ?? undefined),
+    targets.map(({ item, listPrice, captureSampleMovie }) =>
+      updateWork(
+        item.content_id,
+        item,
+        browser,
+        listPrice ?? undefined,
+        { captureSampleMovie },
+      ),
     ),
   );
 
@@ -47,7 +51,7 @@ export async function updateTopRankingWorks(
   let browser: Browser | null = null;
 
   try {
-    const targets = rankingTargets.slice(0, PLAYWRIGHT_LIMIT);
+    const targets = rankingTargets.slice(0, RANKING_UPDATE_CONFIG.targetCount);
     let processed = 0;
 
     console.log(`[ranking-playwright] 詳細更新対象${targets.length}件`);
@@ -77,8 +81,8 @@ export async function updateTopRankingWorks(
       }
 
       if (failedTargets.length > 0) {
-        throw new Error(
-          `Playwright更新に失敗しました: ${failedTargets
+        console.error(
+          `[ranking-playwright] ${failedTargets.length}件を保留し、後続処理を継続します: ${failedTargets
             .map(({ item }) => item.content_id)
             .join(", ")}`,
         );
