@@ -75,12 +75,37 @@ function buildListPriceInsight(
 ): HomePriceInsightWork | null {
   const currentPrice = getCurrentPrice(work);
   if (!currentPrice || currentPrice <= 0) return null;
+  const buildFallbackInsight = (): HomePriceInsightWork => {
+    const discountRate = work.discount_rate > 0
+      ? work.discount_rate
+      : work.list_price && work.list_price > currentPrice
+        ? Math.round((1 - currentPrice / work.list_price) * 100)
+        : 0;
+
+    return {
+      ...(work as unknown as HomePriceInsightWork),
+      currentPrice,
+      previousPrice: null,
+      dropAmount: 0,
+      dropRate: 0,
+      low90Price: currentPrice,
+      peak90Price: currentPrice,
+      buyScore: Math.max(0, Math.min(100, 50 + Math.min(14, Math.round(discountRate / 5)))),
+      badge: "買い時",
+      priceHistory: [
+        { price: currentPrice, changedAt: windowStartAt, priceKind: null },
+        { price: currentPrice, changedAt: windowEndAt, priceKind: null, isCurrent: true },
+      ],
+      priceWindowStartAt: windowStartAt,
+      priceWindowEndAt: windowEndAt,
+    };
+  };
 
   const displayedRows = rows
     .map((row) => ({ ...row, value: effectiveHistoryPrice(row) }))
     .filter((row): row is PriceHistoryRow & { value: number } => Boolean(row.value && row.value > 0))
     .sort((a, b) => databaseTime(b.changed_at) - databaseTime(a.changed_at));
-  if (!displayedRows.length) return null;
+  if (!displayedRows.length) return buildFallbackInsight();
 
   const seriesLatest = displayedRows.find((row) => row.value === currentPrice) ?? displayedRows[0];
   const chartRows = displayedRows.filter(
@@ -108,7 +133,7 @@ function buildListPriceInsight(
     priceKind: null,
     isCurrent: true,
   });
-  if (priceHistory.length < 2) return null;
+  if (priceHistory.length < 2) return buildFallbackInsight();
 
   const prices = priceHistory.map((point) => point.price);
   const low90Price = Math.min(...prices);
