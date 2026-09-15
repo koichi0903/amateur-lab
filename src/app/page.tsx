@@ -11,7 +11,7 @@ import {
 import PriceInsightSections from "@/components/home/PriceInsightSections";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
-import { getHeroPriceDrop, getHomePriceInsights } from "@/lib/getHomePriceInsights";
+import { buildInsightsForWorks, getHeroPriceDrop, getHomePriceInsights } from "@/lib/getHomePriceInsights";
 import { getLatestDailyUpdate } from "@/lib/getLatestDailyUpdate";
 import { getHomeRanking } from "@/lib/getHomeRanking";
 import { getAiDiscoveries } from "@/lib/getAiDiscoveries";
@@ -79,6 +79,16 @@ export default async function Home() {
     ]);
 
   const statistics = statisticsResult.data;
+  const aiPriceInsights = await recoverHomeData(
+    "AI price insights",
+    buildInsightsForWorks(
+      aiDiscoveries as unknown as Parameters<typeof buildInsightsForWorks>[0],
+      new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+      { requireBuyTimingSignal: false },
+    ),
+    [],
+  );
+  const aiPriceInsightsById = new Map(aiPriceInsights.map((work) => [work.id, work]));
   const featuredWork = heroPriceDrop
     ? aiDiscoveries.find((work) => work.id === heroPriceDrop.id) ?? null
     : null;
@@ -95,7 +105,7 @@ export default async function Home() {
           saleWorks={saleWorksResult.count ?? 0}
           aiInsights={totalInsightsResult.count ?? 0}
         />
-        <InsightFeed insights={aiDiscoveries.slice(0, 5).map((work) => ({ id: work.id, type: work.reasonType, title: work.title, description: work.reason, works: work }))} lastUpdatedAt={latestDailyUpdate} />
+        <InsightFeed insights={aiDiscoveries.slice(0, 5).map((work) => ({ id: work.id, type: work.reasonType, title: work.title, description: work.reason, works: work, priceInsight: aiPriceInsightsById.get(work.id) ?? null }))} lastUpdatedAt={latestDailyUpdate} />
         <PriceInsightSections
           priceDrops={priceInsights.priceDrops}
           lowestUpdates={priceInsights.lowestUpdates}
@@ -109,3 +119,4 @@ export default async function Home() {
     </>
   );
 }
+
