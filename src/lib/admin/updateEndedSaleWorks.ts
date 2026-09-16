@@ -16,9 +16,9 @@ async function updateBatch(batch: EndedSaleTarget[], browser: Browser) {
       console.log(`■ 終了セール更新開始 ${work.product_id}`);
 
       try {
-        await updateWork(work.product_id, undefined, browser);
+        const changed = await updateWork(work.product_id, undefined, browser);
         console.log(`✓ 更新成功 ${work.product_id}`);
-        return { productId: work.product_id, success: true as const };
+        return { productId: work.product_id, success: true as const, changed };
       } catch (error) {
         console.error(`✗ 更新失敗 ${work.product_id}`, error);
         return { productId: work.product_id, success: false as const };
@@ -61,6 +61,7 @@ export async function updateEndedSaleWorks() {
   let processed = 0;
   let succeeded = 0;
   const failedProductIds = new Set<string>();
+  const updatedWorkIds = new Set<string>();
 
   try {
     for (let index = 0; index < allWorks.length; index += UPDATE_CONFIG.parallel) {
@@ -70,6 +71,7 @@ export async function updateEndedSaleWorks() {
       for (const result of results) {
         if (result.success) succeeded += 1;
         else failedProductIds.add(result.productId);
+        if (result.success && result.changed) updatedWorkIds.add(result.productId);
       }
 
       processed += batch.length;
@@ -104,6 +106,7 @@ export async function updateEndedSaleWorks() {
 
         for (const result of results) {
           if (result.success) failedProductIds.delete(result.productId);
+          if (result.success && result.changed) updatedWorkIds.add(result.productId);
         }
       }
     }
@@ -117,7 +120,7 @@ export async function updateEndedSaleWorks() {
 
     await finishJob(JOBS.ENDED_SALE);
     console.log(`終了セール更新完了: ${allWorks.length}件`);
-    return { workIds: allWorks.map((work) => work.product_id) };
+    return { workIds: [...updatedWorkIds] };
   } catch (error) {
     await failJob(
       JOBS.ENDED_SALE,

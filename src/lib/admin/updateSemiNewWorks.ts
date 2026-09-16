@@ -109,7 +109,6 @@ export async function updateSemiNewWorks() {
             try {
               // Capture the final DMM/Playwright state before archiving it.
               await updateWork(work.product_id, null, browser, null);
-              updatedWorkIds.push(work.product_id);
 
               const { error } = await supabase
                 .from("works")
@@ -117,6 +116,8 @@ export async function updateSemiNewWorks() {
                 .eq("product_id", work.product_id);
 
               if (error) throw error;
+
+              updatedWorkIds.push(work.product_id);
 
               console.log(`[STAGE] ${work.product_id} SEMI_NEW → OLD`);
             } catch (error) {
@@ -163,13 +164,13 @@ export async function updateSemiNewWorks() {
           );
 
           try {
-            await updateWork(
+            const changed = await updateWork(
               work.product_id,
               null,
               browser,
               latest.listPrice,
             );
-            updatedWorkIds.push(work.product_id);
+            if (changed) updatedWorkIds.push(work.product_id);
           } catch (error) {
             console.error(`[SEMI_NEW_UPDATE_ERROR] ${work.product_id}`, error);
           }

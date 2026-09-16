@@ -146,8 +146,8 @@ export async function updateOldWorks() {
       const results = await Promise.all(
         batch.map(async (work) => {
           try {
-            await updateWork(work.product_id, undefined, browser);
-            updatedWorkIds.push(work.product_id);
+            const changed = await updateWork(work.product_id, undefined, browser);
+            if (changed) updatedWorkIds.push(work.product_id);
             console.log(`[OLD_UPDATE_OK] ${work.product_id}`);
             return true;
           } catch (error) {

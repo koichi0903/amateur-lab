@@ -38,7 +38,6 @@ export async function revalidatePublicCacheForTasks(
   const productIds = [...(options.workIds ?? [])]
       .map((id) => String(id).trim())
       .filter(Boolean);
-  const workPaths = new Set<string>();
   const workTags = new Set<string>();
   if (productIds.length > 0) {
     const { data, error } = await supabaseAdmin
@@ -49,7 +48,6 @@ export async function revalidatePublicCacheForTasks(
     for (const work of data ?? []) {
       const workId = String(work.id);
       const productId = String(work.product_id);
-      workPaths.add(`/works/${encodeURIComponent(workId)}`);
       workTags.add(`work-detail:${workId}`);
       workTags.add(`work-detail-product:${productId}`);
     }
@@ -78,7 +76,6 @@ export async function revalidatePublicCacheForTasks(
     tags.add("latest-daily-update");
   }
 
-  for (const path of workPaths) paths.add(path);
   for (const path of paths) revalidatePath(path);
 
   for (const tag of tags) revalidateTag(tag, tag === "home-price-insights" ? "max" : { expire: 0 });
@@ -88,6 +85,9 @@ export async function revalidatePublicCacheForTasks(
     tasks: knownTasks,
     paths: [...paths],
     tags: [...tags, ...workTags],
-    workPaths: [...workPaths],
+    // Work detail caches are fully covered by their two data tags above:
+    // one for the works row and one for product-keyed offers/history/images.
+    // Avoid an additional per-work revalidatePath call.
+    workPaths: [],
   };
 }

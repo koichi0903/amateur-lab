@@ -26,6 +26,7 @@ export async function updateRanking(
   onProgress?: PopularityRankingProgress,
   prefetchedRealtime?: RankingProduct[],
 ) {
+  const changedProductIds = new Set<string>();
   const realtime = prefetchedRealtime ?? (await getRealtimeRanking());
   const realtimeComplete = realtime.length >= RANKING_UPDATE_CONFIG.targetCount;
   const daily = await getDailyRanking();
@@ -123,6 +124,31 @@ const resetValues = realtimeComplete
 const resetFilter = realtimeComplete
   ? "realtime_rank.not.is.null,daily_rank.not.is.null,weekly_rank.not.is.null,monthly_rank.not.is.null"
   : "daily_rank.not.is.null,weekly_rank.not.is.null,monthly_rank.not.is.null";
+for (let from = 0; ; from += 1000) {
+  const { data: resetRows, error: resetRowsError } = await supabase
+    .from("works")
+    .select("product_id,realtime_rank,daily_rank,weekly_rank,monthly_rank")
+    .or(resetFilter)
+    .range(from, from + 999);
+  if (resetRowsError) throw resetRowsError;
+  for (const work of resetRows ?? []) {
+    const expected = {
+      realtime_rank: realtimeComplete ? (realtimeMap.get(work.product_id) ?? null) : work.realtime_rank,
+      daily_rank: dailyMap.get(work.product_id) ?? null,
+      weekly_rank: weeklyMap.get(work.product_id) ?? null,
+      monthly_rank: monthlyMap.get(work.product_id) ?? null,
+    };
+    if (
+      expected.realtime_rank !== work.realtime_rank ||
+      expected.daily_rank !== work.daily_rank ||
+      expected.weekly_rank !== work.weekly_rank ||
+      expected.monthly_rank !== work.monthly_rank
+    ) {
+      changedProductIds.add(work.product_id);
+    }
+  }
+  if (!resetRows || resetRows.length < 1000) break;
+}
 const { error: resetError } = await supabase
   .from("works")
   .update(resetValues)
@@ -136,21 +162,30 @@ if (resetError) {
 
 for (let index = 0; index < allWorks.length; index += 100) {
   const batch = allWorks.slice(index, index + 100);
-  const updates = batch.map((work) => {
+    const updates = batch.map((work) => {
     const dailyRank = dailyMap.get(work.product_id);
     const realtimeRank = realtimeMap.get(work.product_id);
+    const rankingUpdate = buildRankingUpdate({
+      existingRealtimeRank: work.realtime_rank,
+      realtimeRank,
+      dailyRank,
+      weeklyRank: weeklyMap.get(work.product_id),
+      monthlyRank: monthlyMap.get(work.product_id),
+      realtimeComplete,
+    });
+    if (
+      rankingUpdate["realtime_rank"] !== work.realtime_rank ||
+      rankingUpdate["daily_rank"] !== work.daily_rank ||
+      rankingUpdate["weekly_rank"] !== work.weekly_rank ||
+      rankingUpdate["monthly_rank"] !== work.monthly_rank
+    ) {
+      changedProductIds.add(work.product_id);
+    }
     return {
       id: work.id,
-      ...buildRankingUpdate({
-        existingRealtimeRank: work.realtime_rank,
-        realtimeRank,
-        dailyRank,
-        weeklyRank: weeklyMap.get(work.product_id),
-        monthlyRank: monthlyMap.get(work.product_id),
-        realtimeComplete,
-      }),
+      ...rankingUpdate,
     };
-  });
+    });
 
   const { error: updateError } = await supabase.from("works").upsert(updates);
 
@@ -177,4 +212,5 @@ for (let index = 0; index < allWorks.length; index += 100) {
 }
 
 console.log("Ranking update completed.");
+return [...changedProductIds];
 }

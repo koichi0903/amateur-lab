@@ -27,14 +27,15 @@ const normalizePriceName = (value: string) =>
 async function repairLegacyPriceHistoryPeriods(
   productId: string,
   prices: ParsedData["prices"],
-) {
+): Promise<boolean> {
   const { data: legacyRows, error } = await supabase
     .from("price_history")
     .select("id,display_name,normal_price,changed_at")
     .eq("product_id", productId)
     .is("period", null);
   if (error) throw error;
-  if (!legacyRows?.length) return;
+  if (!legacyRows?.length) return false;
+  let changed = false;
 
   const currentByName = new Map<string, ParsedData["prices"]>();
   for (const price of prices) {
@@ -101,6 +102,7 @@ async function repairLegacyPriceHistoryPeriods(
       .update({ period })
       .in("id", ids);
     if (updateError) throw updateError;
+    if (ids.length > 0) changed = true;
   }
 
   if (unresolved.length > 0) {
@@ -109,14 +111,16 @@ async function repairLegacyPriceHistoryPeriods(
       .delete()
       .in("id", unresolved);
     if (deleteError) throw deleteError;
+    changed = true;
   }
+  return changed;
 }
 
 export async function saveWork(
   productId: string,
   data: ParsedData,
   listPrice?: number | null
-) {
+): Promise<boolean> {
 
   const invalidPrices = data.prices.filter(
     (price) =>
@@ -345,6 +349,7 @@ max_discount_rate: maxDiscountRate,
 };
 
   let updated = null;
+  let priceDataChanged = false;
 let error = null;
 
 const changed =
@@ -475,6 +480,8 @@ if (changed) {
     );
   }
 
+  priceDataChanged = true;
+
   continue;
 }
 
@@ -485,6 +492,7 @@ if (changed) {
       current.price_kind !== getPriceKind(price);
 
     if (changed) {
+      priceDataChanged = true;
       // 履歴保存
       const { error: insertHistoryError } = await supabase
   .from("price_history")
@@ -551,9 +559,10 @@ for (const price of currentMap.values()) {
       `work_prices削除0件 (${productId}/${price.display_name}, id=${price.id})`
     );
   }
+  priceDataChanged = true;
 }
 
-await repairLegacyPriceHistoryPeriods(productId, data.prices);
+const legacyPriceHistoryChanged = await repairLegacyPriceHistoryPeriods(productId, data.prices);
 
 if (updated && updated.length > 0) {
   await generateAndSaveInsight(updated[0]);
@@ -567,4 +576,6 @@ if (updated && updated.length > 0) {
 });
   }
 }
+
+return Boolean(updated?.length) || priceDataChanged || legacyPriceHistoryChanged;
 }

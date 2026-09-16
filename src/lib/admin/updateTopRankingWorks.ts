@@ -9,7 +9,7 @@ import { updateWork } from "./updateWork";
 async function updateBatch(
   targets: RankingPlaywrightTarget[],
   browser: Browser,
-): Promise<RankingPlaywrightTarget[]> {
+): Promise<{ failed: RankingPlaywrightTarget[]; changed: string[] }> {
   const results = await Promise.allSettled(
     targets.map(({ item, listPrice, captureSampleMovie }) =>
       updateWork(
@@ -22,7 +22,9 @@ async function updateBatch(
     ),
   );
 
-  return targets.filter((target, index) => {
+  const failed: RankingPlaywrightTarget[] = [];
+  const changed: string[] = [];
+  targets.forEach((target, index) => {
     const result = results[index];
     if (result.status === "rejected") {
       console.error("[ranking-playwright] 更新失敗", {
@@ -32,10 +34,12 @@ async function updateBatch(
             ? result.reason.message
             : String(result.reason),
       });
-      return true;
+      failed.push(target);
+      return;
     }
-    return false;
+    if (result.value) changed.push(target.item.content_id);
   });
+  return { failed, changed };
 }
 
 type RankingPlaywrightProgress = (
@@ -47,7 +51,8 @@ type RankingPlaywrightProgress = (
 export async function updateTopRankingWorks(
   rankingTargets: RankingPlaywrightTarget[],
   onProgress?: RankingPlaywrightProgress,
-) {
+) : Promise<string[]> {
+  const changedProductIds = new Set<string>();
   let browser: Browser | null = null;
 
   try {
@@ -56,7 +61,7 @@ export async function updateTopRankingWorks(
 
     console.log(`[ranking-playwright] 詳細更新対象${targets.length}件`);
 
-    if (targets.length === 0) return;
+    if (targets.length === 0) return [];
 
     browser = await createBrowser();
     const batchSize = UPDATE_CONFIG.parallel;
@@ -69,7 +74,9 @@ export async function updateTopRankingWorks(
         );
       }
 
-      let failedTargets = await updateBatch(batch, browser);
+      const batchResult = await updateBatch(batch, browser);
+      let failedTargets = batchResult.failed;
+      for (const productId of batchResult.changed) changedProductIds.add(productId);
 
       if (failedTargets.length > 0) {
         console.warn(
@@ -77,7 +84,9 @@ export async function updateTopRankingWorks(
         );
         await closeBrowser(browser);
         browser = await createBrowser();
-        failedTargets = await updateBatch(failedTargets, browser);
+        const retryResult = await updateBatch(failedTargets, browser);
+        failedTargets = retryResult.failed;
+        for (const productId of retryResult.changed) changedProductIds.add(productId);
       }
 
       if (failedTargets.length > 0) {
@@ -108,4 +117,5 @@ export async function updateTopRankingWorks(
   } finally {
     if (browser) await closeBrowser(browser);
   }
+  return [...changedProductIds];
 }

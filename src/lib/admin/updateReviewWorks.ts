@@ -114,7 +114,7 @@ export async function updateReviewWorks(
         const item = await getDmmItem(work.product_id);
         if (!item) return "skip";
 
-        await updateDmmItem(
+        const changed = await updateDmmItem(
           item,
           {
             id: work.id,
@@ -131,7 +131,7 @@ export async function updateReviewWorks(
             updatePrices: false,
           },
         );
-        return "success";
+        return changed ? "success" : "skip";
       } catch (error) {
         console.error(`[ERROR] ${work.product_id}`, error);
         return "failed";

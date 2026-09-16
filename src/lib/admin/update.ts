@@ -7,16 +7,16 @@ export async function updateDmmItem(
   item: DmmItem,
   currentWork?: {
   id: number;
-  review_count: number;
-  review_average: number;
-  maker: string;
-  series: string;
-  url: string;
+  review_count: number | null;
+  review_average: number | null;
+  maker: string | null;
+  series: string | null;
+  url: string | null;
   release_date: string | null;
   actress?: string | null;
 },
   options: { updatePrices?: boolean } = {},
-) {
+) : Promise<boolean> {
 
 const updatePrices = options.updatePrices ?? true;
 
@@ -62,24 +62,38 @@ const nextActress = formatDmmActresses(item);
 const sampleImages =
   item.sampleImageURL?.sample_l?.image ?? [];
 
-const { data: exists } = await supabase
+const { data: existingSampleImages, error: sampleImagesError } = await supabase
   .from("work_sample_images")
-  .select("id")
+  .select("image_url,sort_order")
   .eq("product_id", item.content_id)
-  .limit(1)
-  .maybeSingle();
+  .order("sort_order", { ascending: true });
+if (sampleImagesError) throw sampleImagesError;
 
+let sampleImagesChanged = false;
+const sampleImagesDiffer =
+  sampleImages.length > 0 &&
+  (existingSampleImages?.length ?? 0) !== sampleImages.length ||
+  (sampleImages.length > 0 &&
+    (existingSampleImages ?? []).some(
+      (row, index) => row.image_url !== sampleImages[index],
+    ));
 const hasChanges =
-  currentWork?.review_count !== currentReviewCount ||
-  currentWork?.review_average !== nextReviewAverage ||
-  currentWork?.maker !== nextMaker ||
-  currentWork?.series !== nextSeries ||
-  currentWork?.url !== nextUrl ||
+  (currentWork?.review_count ?? 0) !== currentReviewCount ||
+  (currentWork?.review_average ?? 0) !== nextReviewAverage ||
+  (currentWork?.maker ?? "") !== nextMaker ||
+  (currentWork?.series ?? "") !== nextSeries ||
+  (currentWork?.url ?? "") !== nextUrl ||
   currentWork?.release_date !== nextReleaseDate;
 const hasActressChange =
   nextActress != null && currentWork?.actress !== nextActress;
 
-if (!exists && sampleImages.length > 0) {
+if (sampleImagesDiffer) {
+  const { error: deleteSampleImagesError } = await supabase
+    .from("work_sample_images")
+    .delete()
+    .eq("product_id", item.content_id);
+  if (deleteSampleImagesError) throw deleteSampleImagesError;
+
   const { error: sampleImageError } = await supabase
   .from("work_sample_images")
   .insert(
@@ -93,10 +107,11 @@ if (!exists && sampleImages.length > 0) {
   if (sampleImageError) {
     throw sampleImageError;
   }
+  sampleImagesChanged = true;
 }
 
 if (currentWork && !hasChanges && !hasActressChange) {
-  return;
+  return sampleImagesChanged;
 }
 
   const { error } = await supabase
@@ -144,4 +159,6 @@ if (currentWork && !hasChanges && !hasActressChange) {
     currentReviewCount,
   });
 }
+
+return true;
 }

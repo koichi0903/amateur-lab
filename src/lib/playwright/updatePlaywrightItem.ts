@@ -18,6 +18,7 @@ import { watchSampleMovie } from "./sampleMovie";
 
 export type PlaywrightUpdateResult =
   | "updated"
+  | "unchanged"
   | "unavailable"
   | "sample_movie_missing";
 
@@ -118,6 +119,7 @@ export async function updatePlaywrightItem(
 {
   const sampleMovieOnly = options.sampleMovieOnly === true;
   const captureSampleMovie = options.captureSampleMovie === true || sampleMovieOnly;
+  let dataChanged = false;
   let workUrl: string | undefined =
   url ?? undefined;
 
@@ -271,6 +273,7 @@ if (!workUrl) {
           : 15_000,
       );
       const checkedAt = new Date().toISOString();
+      let sampleMovieSaved = false;
       if (sampleMovieUrl) {
         const { data: savedMovie, error: sampleMovieError } = await supabase
           .from("works")
@@ -283,6 +286,10 @@ if (!workUrl) {
           .select("product_id")
           .maybeSingle();
         if (sampleMovieError) throw sampleMovieError;
+        if (savedMovie) {
+          sampleMovieSaved = true;
+          dataChanged = true;
+        }
 
         console.log(
           savedMovie
@@ -300,8 +307,12 @@ if (!workUrl) {
         console.log(`[SAMPLE_MOVIE_INITIAL_MISSING] ${productId}`);
       }
 
-      if (sampleMovieOnly) {
-        return sampleMovieUrl ? "updated" : "sample_movie_missing";
+        if (sampleMovieOnly) {
+        return sampleMovieSaved
+          ? "updated"
+          : sampleMovieUrl
+            ? "unchanged"
+            : "sample_movie_missing";
       }
     }
 
@@ -335,10 +346,10 @@ if (data.prices.length === 0) {
   // An unavailable/removed FANZA page was still checked successfully. Move its
   // timestamp forward so the oldest-first local batch does not select the same
   // 404 product again on every run.
-  await recordUnavailable(productId);
+  const unavailableChanged = await recordUnavailable(productId);
 
   console.log(`[CHECKED] FANZA利用不可 ${productId}`);
-  return "unavailable";
+  return unavailableChanged ? "updated" : "unavailable";
 }
 
 let saved = false;
@@ -346,7 +357,7 @@ let lastSaveError: unknown = null;
 
 for (let attempt = 1; attempt <= 3; attempt++) {
   try {
-await saveWork(
+dataChanged = await saveWork(
   productId,
   data,
   listPrice
@@ -385,7 +396,7 @@ if (!saved) {
 console.log(
   `[OK] ${productId} 更新完了`
 );
-return "updated";
+return dataChanged ? "updated" : "unchanged";
   } finally {
   sampleMovieWatcher?.stop();
   try {

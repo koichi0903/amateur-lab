@@ -159,13 +159,13 @@ console.log("targets =", targets.length);
     );
 
     try {
-      await updatePlaywrightItem(
+      const result = await updatePlaywrightItem(
         work.product_id,
         work.url,
         browser,
         work.price
       );
-      updatedWorkIds.push(work.product_id);
+      if (result === "updated") updatedWorkIds.push(work.product_id);
       return true;
     } catch (error) {
       console.error(`[SALE_UPDATE_ERROR] ${work.product_id}`, error);

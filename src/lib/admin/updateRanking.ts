@@ -129,16 +129,31 @@ async function saveMissingItem(item: DmmItem): Promise<void> {
 }
 
 async function updateRankingValues(rankingItems: RankedDmmItem[]) {
+  const changedProductIds = new Set<string>();
   for (let index = 0; index < rankingItems.length; index += DB_BATCH_SIZE) {
     const batch = rankingItems.slice(index, index + DB_BATCH_SIZE);
-    const rows = batch.map((item) => ({
+    const { data: currentRows, error: currentError } = await supabase
+      .from("works")
+      .select("product_id,ranking")
+      .in("product_id", batch.map((item) => item.content_id));
+    if (currentError) throw currentError;
+    const currentByProductId = new Map(
+      (currentRows ?? []).map((row) => [row.product_id, row.ranking]),
+    );
+    const rows = batch.filter((item) => {
+      const changed = currentByProductId.get(item.content_id) !== item.rank;
+      if (changed) changedProductIds.add(item.content_id);
+      return changed;
+    }).map((item) => ({
       product_id: item.content_id,
       ranking: item.rank,
     }));
-    const { error } = await supabase
-      .from("works")
-      .upsert(rows, { onConflict: "product_id" });
-    if (error) throw error;
+    if (rows.length > 0) {
+      const { error } = await supabase
+        .from("works")
+        .upsert(rows, { onConflict: "product_id" });
+      if (error) throw error;
+    }
 
     const saved = index + batch.length;
     await reportProgress(
@@ -149,10 +164,12 @@ async function updateRankingValues(rankingItems: RankedDmmItem[]) {
       batch.at(-1)?.content_id,
     );
   }
+  return changedProductIds;
 }
 
 async function resetStaleRankings(currentProductIds: Set<string>) {
   const staleIds: number[] = [];
+  const staleProductIds = new Set<string>();
   const pageSize = 1000;
 
   for (let from = 0; ; from += pageSize) {
@@ -164,7 +181,10 @@ async function resetStaleRankings(currentProductIds: Set<string>) {
     if (error) throw error;
 
     for (const work of data ?? []) {
-      if (!currentProductIds.has(work.product_id)) staleIds.push(work.id);
+      if (!currentProductIds.has(work.product_id)) {
+        staleIds.push(work.id);
+        staleProductIds.add(work.product_id);
+      }
     }
     if (!data || data.length < pageSize) break;
   }
@@ -176,6 +196,7 @@ async function resetStaleRankings(currentProductIds: Set<string>) {
       .in("id", staleIds.slice(index, index + DB_BATCH_SIZE));
     if (error) throw error;
   }
+  return staleProductIds;
 }
 
 async function loadRankingWorkSnapshots(
@@ -279,8 +300,8 @@ export async function updateRanking() {
     }
 
     await reportProgress(20, "ranking_save", 0, RANKING_LIMIT);
-    await updateRankingValues(rankingTargets);
-    await resetStaleRankings(new Set(productIds));
+    const changedRankingIds = await updateRankingValues(rankingTargets);
+    const changedStaleRankingIds = await resetStaleRankings(new Set(productIds));
 
     await reportProgress(25, "ranking_price_scan", 0, FANZA_PAGE_COUNT);
     const realtimeListings = await getRealtimeRanking();
@@ -315,7 +336,7 @@ export async function updateRanking() {
       0,
       playwrightTargets.length,
     );
-    await updateTopRankingWorks(playwrightTargets, async (processed, total, productId) => {
+    const changedPlaywrightIds = await updateTopRankingWorks(playwrightTargets, async (processed, total, productId) => {
       await reportProgress(
         30 + Math.round((processed / Math.max(total, 1)) * 40),
         "ranking_playwright",
@@ -326,7 +347,7 @@ export async function updateRanking() {
     });
 
     await reportProgress(70, "ranking_popularity", 0, 0);
-    await updatePopularityRankings(
+    const changedPopularityIds = await updatePopularityRankings(
       async (processed, total, productId) => {
         await reportProgress(
           70 + Math.round((processed / Math.max(total, 1)) * 12),
@@ -340,7 +361,7 @@ export async function updateRanking() {
     );
 
     await reportProgress(82, "ranking_long_hit", 0, 0);
-    await updateLongHitRanking(async (processed, total, productId) => {
+    const changedLongHitIds = await updateLongHitRanking(async (processed, total, productId) => {
       await reportProgress(
         82 + Math.round((processed / Math.max(total, 1)) * 6),
         "ranking_long_hit",
@@ -370,7 +391,15 @@ export async function updateRanking() {
     return {
       success: true,
       count: rankingTargets.length,
-      workIds: rankingTargets.map((target) => target.content_id),
+      workIds: [
+        ...new Set([
+          ...changedRankingIds,
+          ...changedStaleRankingIds,
+          ...changedPopularityIds,
+          ...changedLongHitIds,
+          ...changedPlaywrightIds,
+        ]),
+      ],
       missingRegistered: missingItems.length,
       playwrightUpdated: playwrightTargets.length,
       playwrightSkipped: skippedCount,

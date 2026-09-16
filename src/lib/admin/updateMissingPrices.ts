@@ -81,12 +81,14 @@ async function loadPriceTargets(): Promise<PriceTarget[]> {
 async function updateBatch(
   batch: PriceTarget[],
   browser: Browser
-): Promise<PriceTarget[]> {
+): Promise<{ failed: PriceTarget[]; changed: PriceTarget[] }> {
   const results = await Promise.allSettled(
-    batch.map((work) => updateWork(work.product_id, undefined, browser))
+    batch.map(async (work) => ({ work, changed: await updateWork(work.product_id, undefined, browser) }))
   );
 
-  return batch.filter((work, index) => {
+  const failed: PriceTarget[] = [];
+  const changed: PriceTarget[] = [];
+  batch.forEach((work, index) => {
     const result = results[index];
     if (result.status === "rejected") {
       console.error("[missing-prices] 更新失敗", {
@@ -96,10 +98,12 @@ async function updateBatch(
             ? result.reason.message
             : String(result.reason),
       });
-      return true;
+      failed.push(work);
+      return;
     }
-    return false;
+    if (result.value.changed) changed.push(work);
   });
+  return { failed, changed };
 }
 
 export async function updateMissingPrices() {
@@ -133,7 +137,8 @@ export async function updateMissingPrices() {
 
     for (let i = 0; i < targets.length; i += batchSize) {
       const batch = targets.slice(i, i + batchSize);
-      let failed = await updateBatch(batch, browser);
+      let batchResult = await updateBatch(batch, browser);
+      let failed = batchResult.failed;
 
       if (failed.length > 0) {
         console.warn(
@@ -141,17 +146,18 @@ export async function updateMissingPrices() {
         );
         await closeBrowser(browser);
         browser = await createBrowser();
-        failed = await updateBatch(failed, browser);
+        const retryResult = await updateBatch(failed, browser);
+        failed = retryResult.failed;
+        batchResult = {
+          failed,
+          changed: [...batchResult.changed, ...retryResult.changed],
+        };
       }
 
       const succeeded = batch.length - failed.length;
       processed += batch.length;
       updated += succeeded;
-      updatedWorkIds.push(
-        ...batch
-          .filter((work) => !failed.some((failedWork) => failedWork.product_id === work.product_id))
-          .map((work) => work.product_id),
-      );
+      updatedWorkIds.push(...batchResult.changed.map((work) => work.product_id));
       failedProductIds.push(...failed.map((work) => work.product_id));
 
       await updateJob(

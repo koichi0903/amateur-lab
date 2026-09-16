@@ -203,6 +203,8 @@ export async function updateNewWorks() {
 
             if (error) throw error;
 
+            updatedWorkIds.push(work.product_id);
+
             console.log(`[STAGE] ${work.product_id} NEW → SEMI_NEW`);
             return;
           }
@@ -228,13 +230,13 @@ export async function updateNewWorks() {
           );
 
           try {
-            await updateWork(
+            const changed = await updateWork(
               work.product_id,
               null,
               browser,
               latest.listPrice,
             );
-            updatedWorkIds.push(work.product_id);
+            if (changed) updatedWorkIds.push(work.product_id);
           } catch (error) {
             console.error(`[ERROR] update失敗 ${work.product_id}`, error);
           }

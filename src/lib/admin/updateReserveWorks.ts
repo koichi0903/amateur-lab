@@ -246,13 +246,13 @@ export async function updateReserveWorks() {
           try {
             // Always refresh DMM details while a product is reserved. The
             // release date can move even when the headline price is unchanged.
-            await updateWork(
+            const changed = await updateWork(
               work.product_id,
               null,
               batchBrowser,
               latest?.listPrice ?? null,
             );
-            updatedWorkIds.push(work.product_id);
+            if (changed) updatedWorkIds.push(work.product_id);
 
             if (!latest) {
               const { error } = await supabase
@@ -261,6 +261,8 @@ export async function updateReserveWorks() {
                 .eq("product_id", work.product_id);
 
               if (error) throw error;
+
+              if (!changed) updatedWorkIds.push(work.product_id);
 
               console.log(`[STAGE] ${work.product_id} RESERVED → NEW`);
             } else {

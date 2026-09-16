@@ -37,6 +37,21 @@ type ScoreUpdateWork = {
   weekly_rank: number | null;
   monthly_rank: number | null;
   long_hit_rank: number | null;
+  actress_score: number | null;
+  genre_score: number | null;
+  maker_score: number | null;
+  series_score: number | null;
+  score: number | null;
+  review_score: number | null;
+  review_count_score: number | null;
+  discount_score: number | null;
+  ranking_score: number | null;
+  new_release_score: number | null;
+  long_hit_point: number | null;
+  actress_point: number | null;
+  genre_point: number | null;
+  maker_point: number | null;
+  series_point: number | null;
 };
 
 const SELECT_COLUMNS = `
@@ -60,6 +75,9 @@ const SELECT_COLUMNS = `
   weekly_rank,
   monthly_rank,
   long_hit_rank
+  ,actress_score,genre_score,maker_score,series_score
+  ,score,review_score,review_count_score,discount_score,ranking_score
+  ,new_release_score,long_hit_point,actress_point,genre_point,maker_point,series_point
 `;
 const PAGE_SIZE = 500;
 const UPDATE_BATCH_SIZE = Number.parseInt(
@@ -193,6 +211,7 @@ export async function updateScore(productIds?: string[]) {
 
     let completed = 0;
     let updates: Array<Record<string, number>> = [];
+    const changedProductIds = new Set<string>();
     const targets = works;
 
     for (let index = 0; index < targets.length; index += 1) {
@@ -238,7 +257,7 @@ export async function updateScore(productIds?: string[]) {
         releaseDate: work.release_date,
       });
 
-      updates.push({
+      const next = {
         id: work.id,
         actress_score: actressPoint,
         genre_score: genrePoint,
@@ -255,9 +274,19 @@ export async function updateScore(productIds?: string[]) {
         genre_point: Math.round(result.genrePoint),
         maker_point: Math.round(result.makerPoint),
         series_point: Math.round(result.seriesPoint),
-      });
+      };
+      const changed = Object.entries(next).some(
+        ([key, value]) => work[key as keyof ScoreUpdateWork] !== value,
+      );
+      if (changed) {
+        updates.push(next);
+        changedProductIds.add(work.product_id);
+      }
 
-      if (updates.length === UPDATE_BATCH_SIZE || index === targets.length - 1) {
+      if (
+        updates.length === UPDATE_BATCH_SIZE ||
+        (index === targets.length - 1 && updates.length > 0)
+      ) {
         const batchSize = updates.length;
         const { error } = await supabase.from("works").upsert(updates);
         if (error) throw error;
@@ -292,8 +321,8 @@ export async function updateScore(productIds?: string[]) {
     return {
       success: true,
       count: total,
-      updates: total,
-      workIds: works.map((work) => work.product_id),
+      updates: changedProductIds.size,
+      workIds: [...changedProductIds],
     };
   } catch (error) {
     await failJob(JOBS.SCORE, errorMessage(error));
