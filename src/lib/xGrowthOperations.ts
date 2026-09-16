@@ -5,6 +5,7 @@ import { cleanupTempVideo, createXPost, downloadTempVideo, fetchXPostPublicMetri
 import { canTrimOfficialSampleMovie, isPostableOfficialSampleMovie, isUsableXMediaAsset, sourceDomain, sourceKindFor, validateTrimStartSeconds, X_GROWTH_ACCOUNT, type XMediaAsset } from "@/lib/xMediaAssets";
 import type { XCreativeLearningRow, XPostLog, XPostLogInput } from "@/lib/xPostLogs";
 import { saveXPostLog } from "@/lib/xPostLogs";
+import { normalizeTopPickCandidates } from "@/lib/xGrowthTopPicks";
 import type { XDailyMission, XDailyTopPick, XGrowthIntent, XGrowthOpportunity } from "@/lib/xGrowthOS";
 
 export type XDailyPlanStatus = "draft" | "confirmed" | "completed" | "regenerated";
@@ -427,7 +428,7 @@ export async function upsertDailyPlan(mission: ReturnType<typeof buildStrategicM
   return { plan: data, error: error?.message ?? null };
 }
 
-type SerializedTopPick = {
+export type SerializedTopPick = {
   key: string;
   workId: number;
   productId: string;
@@ -568,32 +569,108 @@ export type PersistedXDailyPlan = {
   stale_reason: string | null;
 };
 
+type PersistedMediaAsset = NonNullable<SerializedTopPick["mediaAsset"]> & { id: number; media_type?: string | null };
+
+export function mergePersistedTopPickMediaAsset(
+  pick: SerializedTopPick,
+  latestAssets: Map<number, PersistedMediaAsset>,
+  assetsByWorkId: Map<number, PersistedMediaAsset[]>,
+) {
+  const existingId = pick.mediaAsset?.id;
+  const workAssets = assetsByWorkId.get(pick.workId) ?? [];
+  const sourceUrl = pick.mediaAsset?.source_url ?? pick.recommendedMediaUrl;
+  const latest = (existingId ? latestAssets.get(existingId) : undefined)
+    ?? workAssets.find((asset) => asset.source_url && asset.source_url === sourceUrl)
+    ?? workAssets.find((asset) => asset.media_type === "sample_movie")
+    ?? workAssets[0];
+  if (!latest) return pick;
+  return {
+    ...pick,
+    recommendedMediaUrl: pick.mediaType === "sample_movie" ? latest.source_url ?? pick.recommendedMediaUrl : pick.recommendedMediaUrl,
+    mediaAsset: { ...pick.mediaAsset, ...latest },
+  };
+}
+
 async function hydratePersistedTopPickMediaAssets(plan: PersistedXDailyPlan | null) {
   if (!plan?.top_picks?.length) return plan;
-  const assetIds = [...new Set(plan.top_picks.map((pick) => pick.mediaAsset?.id).filter((id): id is number => Number.isSafeInteger(id)))];
-  if (!assetIds.length) return plan;
+  const workIds = [...new Set(plan.top_picks.map((pick) => pick.workId).filter((id): id is number => Number.isSafeInteger(id)))];
+  if (!workIds.length) return plan;
   const { data, error } = await supabaseAdmin
     .from("x_media_assets")
-    .select("id,work_id,source_url,media_quality,manual_tags,review_source,x_usage_allowed,rights_status,can_modify,trim_start_seconds,trim_reviewed_at,trim_modify_confirmed,trim_note")
+    .select("id,work_id,media_type,source_url,media_quality,manual_tags,review_source,x_usage_allowed,rights_status,can_modify,trim_start_seconds,trim_reviewed_at,trim_modify_confirmed,trim_note")
     .eq("account_handle", ACCOUNT)
-    .in("id", assetIds);
+    .in("work_id", workIds);
   if (error) return plan;
-  const assets = new Map((data ?? []).map((asset) => [Number(asset.id), asset as SerializedTopPick["mediaAsset"] & { id: number }]));
+  const assets = new Map((data ?? []).map((asset) => [Number(asset.id), asset as PersistedMediaAsset]));
+  const assetsByWorkId = new Map<number, PersistedMediaAsset[]>();
+  for (const asset of assets.values()) {
+    if (!Number.isSafeInteger(asset.work_id)) continue;
+    const current = assetsByWorkId.get(asset.work_id as number) ?? [];
+    current.push(asset);
+    assetsByWorkId.set(asset.work_id as number, current);
+  }
   return {
     ...plan,
-    top_picks: plan.top_picks.map((pick) => {
-      const latest = pick.mediaAsset?.id ? assets.get(pick.mediaAsset.id) : null;
-      if (!latest) return pick;
-      return {
-        ...pick,
-        recommendedMediaUrl: pick.mediaType === "sample_movie" ? latest.source_url ?? pick.recommendedMediaUrl : pick.recommendedMediaUrl,
-        mediaAsset: {
-          ...pick.mediaAsset,
-          ...latest,
-        },
-      };
-    }),
+    top_picks: plan.top_picks.map((pick) => mergePersistedTopPickMediaAsset(pick, assets, assetsByWorkId)),
   };
+}
+
+export async function getPostedWorkIds() {
+  const { data, error } = await supabaseAdmin
+    .from("x_post_logs")
+    .select("work_id")
+    .eq("account_handle", ACCOUNT)
+    .not("work_id", "is", null)
+    .limit(10_000);
+  if (error) return { workIds: new Set<number>(), error: error.message };
+  return {
+    workIds: new Set((data ?? []).map((row) => Number((row as { work_id?: unknown }).work_id)).filter((id) => Number.isSafeInteger(id) && id > 0)),
+    error: null as string | null,
+  };
+}
+
+async function normalizePersistedPlan(plan: PersistedXDailyPlan | null) {
+  if (!plan) return plan;
+  const posted = await getPostedWorkIds();
+  const topPicks = normalizeTopPickCandidates(plan.top_picks, posted.workIds) as SerializedTopPick[];
+  return { ...plan, top_picks: topPicks, stale_reason: posted.error ? posted.error : plan.stale_reason };
+}
+
+async function invalidateTodayPlanWork(workId: number) {
+  const { data } = await supabaseAdmin.from("x_growth_daily_plans").select("id,top_picks").eq("account_handle", ACCOUNT).eq("plan_date", todayTokyo()).maybeSingle();
+  if (!data) return;
+  const plan = data as { id: number; top_picks: unknown };
+  const topPicks = normalizeTopPickCandidates(plan.top_picks, new Set([workId]));
+  if (Array.isArray(plan.top_picks) && topPicks.length === plan.top_picks.length) return;
+  await supabaseAdmin.from("x_growth_daily_plans").update({ top_picks: topPicks, updated_at: new Date().toISOString() }).eq("account_handle", ACCOUNT).eq("id", plan.id);
+}
+
+export async function recordManualXPost(input: {
+  workId: number;
+  candidateId?: string | null;
+  slotId?: string | null;
+  candidateRank?: string | null;
+  slotRole?: string | null;
+  title: string;
+  postText: string;
+  intent?: string | null;
+  mediaAssetId?: number | null;
+  linkStrategy?: string | null;
+}) {
+  if (!Number.isSafeInteger(input.workId) || input.workId <= 0) return { error: "作品IDが不正です。" };
+  const candidateId = input.candidateId?.trim() || `manual-${input.workId}`;
+  const linkStrategy = input.linkStrategy === "reply_link" || input.linkStrategy === "self_reply" ? "reply_link" : input.linkStrategy === "body_link" || input.linkStrategy === "body" ? "body_link" : null;
+  const result = await saveXPostLog({
+    postKey: `manual-${todayTokyo()}-${candidateId}`.slice(0, 180), workId: input.workId, category: "score",
+    title: input.title.slice(0, 300), postText: input.postText, postDate: todayTokyo(), accountHandle: ACCOUNT,
+    postIntent: "work_link", scheduledSlot: input.slotId ?? null, creativeVariantId: candidateId,
+    mediaAssetId: input.mediaAssetId ?? null, linkStrategy,
+    creativeGenome: { candidate_id: candidateId, slot_id: input.slotId ?? null, slot_role: input.slotRole ?? null, candidate_rank: input.candidateRank ?? null, intent: input.intent ?? null, completion_source: "admin_manual_posted_button" },
+  });
+  if (result.error) return { error: result.error.message };
+  await invalidateTodayPlanWork(input.workId);
+  await auditXGrowth("manual_x_post_recorded", { workId: input.workId, candidateId, slotId: input.slotId ?? null, candidateRank: input.candidateRank ?? null });
+  return { error: null };
 }
 
 export async function getPersistedTodayTopPicks() {
@@ -607,7 +684,8 @@ export async function getPersistedTodayTopPicks() {
     if (isMissingRelation(error)) return getPersistedTodayTopPicksFallback(error.message);
     return { plan: null as PersistedXDailyPlan | null, error: error.message };
   }
-  return { plan: await hydratePersistedTopPickMediaAssets(data as PersistedXDailyPlan | null), error: null as string | null };
+  const normalized = await normalizePersistedPlan(data as PersistedXDailyPlan | null);
+  return { plan: await hydratePersistedTopPickMediaAssets(normalized), error: null as string | null };
 }
 
 export async function selectDailyPlanCandidate(input: {
@@ -802,8 +880,9 @@ async function getPersistedTodayTopPicksFallback(staleReason: string) {
       generated_at: rows[0]?.updated_at ? String(rows[0].updated_at) : null,
       stale_reason: staleReason,
     };
+  const normalized = await normalizePersistedPlan(fallbackPlan);
   return {
-    plan: await hydratePersistedTopPickMediaAssets(fallbackPlan),
+    plan: await hydratePersistedTopPickMediaAssets(normalized),
     error: null as string | null,
   };
 }
@@ -932,13 +1011,13 @@ export async function executeOpportunityPost(id: number) {
   const { data, error } = await supabaseAdmin.from("x_growth_opportunities").select("*").eq("account_handle", ACCOUNT).eq("id", id).single();
   if (error || !data) return { error: error?.message ?? "Opportunity not found", postId: null as string | null };
   const opportunity = data as Record<string, unknown>;
+  const persistedPick = ((opportunity.creative_genome as Record<string, unknown> | null)?.persisted_top_pick ?? null) as SerializedTopPick | null;
   const mediaType = String(opportunity.media_type ?? "text");
   let temp: { dir: string; file: string; contentType: string } | null = null;
   try {
     if (mediaType === "sample_movie") {
       const assetId = Number(opportunity.recommended_media_asset_id);
-      const persistedPick = ((opportunity.creative_genome as Record<string, unknown> | null)?.persisted_top_pick ?? null) as SerializedTopPick | null;
-      const virtualAsset = persistedPick?.mediaAsset?.source_url ? persistedPick.mediaAsset : null;
+       const virtualAsset = persistedPick?.mediaAsset?.source_url ? persistedPick.mediaAsset : null;
       let asset: Partial<XMediaAsset> | null = virtualAsset as Partial<XMediaAsset> | null;
       if (Number.isSafeInteger(assetId)) {
         const assetResult = await supabaseAdmin.from("x_media_assets").select("*").eq("account_handle", ACCOUNT).eq("id", assetId).single();
@@ -964,20 +1043,25 @@ export async function executeOpportunityPost(id: number) {
     const postDate = todayTokyo();
     const logInput: XPostLogInput = {
       postKey: String(opportunity.opportunity_key),
-      workId: Number(opportunity.work_id),
+     workId: Number(opportunity.work_id),
       category: "score",
       title: String(opportunity.topic).slice(0, 300),
       postText: String(opportunity.post_text),
       postDate,
       accountHandle: ACCOUNT,
-      postIntent: "work_link",
-      scheduledSlot: null,
-      plannedAt: null,
-      creativeVariantId: String(opportunity.opportunity_key),
-    };
+     postIntent: "work_link",
+     scheduledSlot: persistedPick?.slotId ?? null,
+     plannedAt: null,
+     creativeVariantId: persistedPick?.candidateId ?? String(opportunity.opportunity_key),
+     hookType: persistedPick?.selectedVariant?.hookType ?? null,
+     linkStrategy: persistedPick?.selectedVariant?.linkStrategy ?? null,
+     ctaStrategy: persistedPick?.selectedVariant?.ctaStrategy ?? null,
+     creativeGenome: persistedPick ? { persisted_top_pick: persistedPick, candidate_id: persistedPick.candidateId ?? null, slot_role: persistedPick.slotRole ?? null, candidate_rank: persistedPick.candidateRank ?? null } : null,
+   };
     const logResult = await saveXPostLog({ ...logInput, xPostId: created.id, opportunityId: id, mediaAssetId: Number(opportunity.recommended_media_asset_id) || null } as XPostLogInput);
     if (logResult.error) throw new Error(logResult.error.message);
-    await supabaseAdmin.from("x_growth_opportunities").update({ status: "posted", x_post_id: created.id, posted_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", id);
+     await supabaseAdmin.from("x_growth_opportunities").update({ status: "posted", x_post_id: created.id, posted_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", id);
+     await invalidateTodayPlanWork(Number(opportunity.work_id));
     await auditXGrowth("x_post_created", { opportunityId: id, xPostId: created.id, mediaId: created.mediaId ?? null });
     return { error: null, postId: created.id };
   } catch (postError) {

@@ -8,6 +8,7 @@ import { buildXGrowthOS, getRightsCheckedMediaCount, type XDailyTopPick, type XG
 import { getPersistedTodayTopPicks, type PersistedXDailyPlan } from "@/lib/xGrowthOperations";
 import { getXCreativeLearning, getXPostOutcomes, getRecentXPostLogs } from "@/lib/xPostLogs";
 import { getRightsReviewQueue } from "@/lib/xMediaAssets";
+import { buildTopPickSlotsViewModel } from "@/lib/xGrowthTopPicks";
 import { CandidateSelectAction, DeferredXGrowthSections, MediaPipelineActions, MetricSyncActions, OpportunityActions, RegenerateTopPicksAction, RightsReviewActions, TempFolderStatus, TopPickVideoActions, TrimReviewActions } from "./XGrowthActions";
 
 export const dynamic = "force-dynamic";
@@ -345,6 +346,11 @@ function PersistedTopPickCard({ item }: { item: PersistedTopPick }) {
           trim_start_seconds: item.mediaAsset.trim_start_seconds,
           trim_note: item.mediaAsset.trim_note,
         } : null}
+        candidateId={item.candidateId}
+        slotId={item.slotId}
+        candidateRank={item.candidateRank}
+        slotRole={item.slotRole}
+        title={item.title}
         intent={item.role}
         pickOrder={item.pickOrder}
         linkPlan={linkStrategy.plan}
@@ -533,13 +539,13 @@ async function XGrowthPageContent() {
     };
     const native = plan.native_x_learning as { overusedPatterns?: string[]; winningPatterns?: string[]; avoidConstructions?: string[] };
     const mediaReview = await getRightsReviewQueue(12);
-    const slotGroups = [
-      { id: "slot_1", label: "投稿枠1: REACH中心", items: plan.top_picks.filter((item) => item.slotId === "slot_1") },
-      { id: "slot_2", label: "投稿枠2: FOLLOW / AUTHORITY中心", items: plan.top_picks.filter((item) => item.slotId === "slot_2") },
-      { id: "slot_3", label: "投稿枠3: MONEY または別REACH中心", items: plan.top_picks.filter((item) => item.slotId === "slot_3") },
-    ].filter((slot) => slot.items.length > 0);
-    const legacyTopPicks = slotGroups.length ? [] : plan.top_picks;
-    const postableSlots = slotGroups.length ? slotGroups.length : plan.top_picks.length;
+    const slotGroups = buildTopPickSlotsViewModel(plan.top_picks).map((slot, index) => ({
+      id: slot.slotId,
+      label: ["投稿枠1: REACH中心", "投稿枠2: FOLLOW / AUTHORITY中心", "投稿枠3: MONEY または別REACH中心"][index],
+      items: slot.candidates,
+    }));
+    const legacyTopPicks = plan.top_picks.some((item) => !item.slotId) ? plan.top_picks : [];
+    const postableSlots = slotGroups.filter((slot) => slot.items.length > 0).length;
     return (
       <main className="min-h-screen bg-zinc-950 text-white">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">

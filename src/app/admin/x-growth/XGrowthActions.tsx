@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { shouldShowTopPickTrimControls, trimPostButtonLabel } from "@/lib/xGrowthTrimUi";
 
 type FileSystemPermissionMode = "read" | "readwrite";
 type FileSystemHandlePermissionDescriptor = { mode?: FileSystemPermissionMode };
@@ -273,6 +274,11 @@ export function ManualPostActions({
   quoteUrl,
   workId,
   mediaAssetId,
+  candidateId,
+  slotId,
+  candidateRank,
+  slotRole,
+  title,
   intent,
   pickOrder,
   trimStartSeconds = 0,
@@ -287,6 +293,11 @@ export function ManualPostActions({
   quoteUrl?: string | null;
   workId: number;
   mediaAssetId?: number | null;
+  candidateId?: string | null;
+  slotId?: string | null;
+  candidateRank?: string | null;
+  slotRole?: string | null;
+  title?: string;
   intent?: string;
   pickOrder?: number;
   trimStartSeconds?: number;
@@ -364,10 +375,10 @@ export function ManualPostActions({
   const deleteTempFile = async () => {
     setMessage("");
     try {
+      await postJson("/api/admin/x-growth/mark-posted", { workId, candidateId, slotId, candidateRank, slotRole, title, postText, intent, mediaAssetId, linkStrategy: linkPlan });
       const handle = await loadDirectoryHandle();
-      if (!handle || !(await ensurePermission(handle))) throw new Error("一時フォルダを再設定してください。");
-      await handle.removeEntry(tempFilename);
-      setMessage(`投稿済みとして ${tempFilename} を削除しました。`);
+      if (handle && (await ensurePermission(handle))) await handle.removeEntry(tempFilename).catch(() => undefined);
+      setMessage(`投稿済みとして記録しました。${tempFilename} を削除しました。`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "削除できませんでした。既に削除済みの可能性があります。");
     }
@@ -390,7 +401,7 @@ export function ManualPostActions({
           <button type="button" onClick={copyImage} className="h-10 rounded-lg bg-cyan-400 px-3 text-xs font-black text-black">画像をコピー</button>
         )}
         {mediaUrl && downloadUrl && mediaType === "sample_movie" && (
-          <button type="button" onClick={useVideoForX} className="h-10 rounded-lg bg-cyan-400 px-3 text-xs font-black text-black">{trimStartSeconds > 0 ? "トリム済み動画を使ってX投稿" : "動画を使ってX投稿"}</button>
+          <button type="button" onClick={useVideoForX} className="h-10 rounded-lg bg-cyan-400 px-3 text-xs font-black text-black">{trimPostButtonLabel(trimStartSeconds)}</button>
         )}
         {mediaUrl && downloadUrl && materialLabel && (
           <a href={downloadUrl} className="inline-flex h-10 items-center justify-center rounded-lg border border-cyan-700 bg-cyan-950/40 px-3 text-xs font-black text-cyan-100">
@@ -401,9 +412,7 @@ export function ManualPostActions({
           <a href={quoteUrl} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center rounded-lg border border-amber-700 bg-amber-950/40 px-3 text-xs font-black text-amber-100">引用元を開く</a>
         )}
         <a href={xComposeUrl} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-xs font-black text-zinc-100">X投稿画面を開く</a>
-        {mediaType === "sample_movie" && (
-          <button type="button" onClick={deleteTempFile} className="h-10 rounded-lg border border-rose-700 bg-rose-950/30 px-3 text-xs font-black text-rose-100">投稿済み・一時ファイル削除</button>
-        )}
+        <button type="button" onClick={deleteTempFile} className="h-10 rounded-lg border border-rose-700 bg-rose-950/30 px-3 text-xs font-black text-rose-100">{mediaType === "sample_movie" ? "投稿済み・一時ファイル削除" : "投稿済みとして記録"}</button>
       </div>
       <p className="mt-2 text-[11px] leading-5 text-zinc-500">
         {linkPlan === "self_reply" ? "順序: 本投稿を投稿 → 投稿後に自己リプを付ける。画像はコピー優先です。動画は一時フォルダへ保存してXで手動添付します。" : linkPlan === "body" ? "この投稿の本文にリンクを入れる。完成文コピーにはURLも含まれます。画像はコピー優先です。動画は一時フォルダへ保存してXで手動添付します。" : "この投稿にはリンクを入れない。画像はコピー優先です。動画は一時フォルダへ保存してXで手動添付します。"}
@@ -540,6 +549,11 @@ export function TopPickVideoActions({
   quoteUrl,
   workId,
   mediaAsset,
+  candidateId,
+  slotId,
+  candidateRank,
+  slotRole,
+  title,
   intent,
   pickOrder,
   mediaType,
@@ -552,6 +566,11 @@ export function TopPickVideoActions({
   quoteUrl?: string | null;
   workId: number;
   mediaAsset?: TrimControlAsset | null;
+  candidateId?: string | null;
+  slotId?: string | null;
+  candidateRank?: string | null;
+  slotRole?: string | null;
+  title?: string;
   intent?: string;
   pickOrder?: number;
   mediaType: XGrowthMediaType;
@@ -566,7 +585,7 @@ export function TopPickVideoActions({
     extension: mediaType === "sample_movie" ? "mp4" : "png",
     trimStartSeconds,
   }), [intent, mediaType, pickOrder, trimStartSeconds, workId]);
-  const showTrimControls = mediaType === "sample_movie" && Boolean(mediaUrl) && Boolean(mediaAsset?.id);
+  const showTrimControls = shouldShowTopPickTrimControls({ mediaType, mediaUrl, assetId: mediaAsset?.id });
   const previewUrl = xGrowthMediaUrl({ workId, mediaType, mediaAssetId: mediaAsset?.id ?? null });
 
   if (mediaType !== "sample_movie") {
@@ -578,6 +597,11 @@ export function TopPickVideoActions({
         quoteUrl={quoteUrl}
         workId={workId}
         mediaAssetId={mediaAsset?.id ?? null}
+        candidateId={candidateId}
+        slotId={slotId}
+        candidateRank={candidateRank}
+        slotRole={slotRole}
+        title={title}
         intent={intent}
         pickOrder={pickOrder}
         linkPlan={linkPlan}
@@ -628,6 +652,11 @@ export function TopPickVideoActions({
         quoteUrl={quoteUrl}
         workId={workId}
         mediaAssetId={mediaAsset?.id ?? null}
+        candidateId={candidateId}
+        slotId={slotId}
+        candidateRank={candidateRank}
+        slotRole={slotRole}
+        title={title}
         intent={intent}
         pickOrder={pickOrder}
         linkPlan={linkPlan}

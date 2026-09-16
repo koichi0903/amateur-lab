@@ -19,6 +19,7 @@ import {
   persistCreativeLearning,
   persistOpportunities,
   persistDailyTopPicks,
+  getPostedWorkIds,
   upsertDailyPlan,
   type XGrowthSystemStatus,
 } from "@/lib/xGrowthOperations";
@@ -164,7 +165,7 @@ export type XGrowthOS = {
   mediaSupply: Awaited<ReturnType<typeof getXMediaSupplyStatus>>;
   rightsReviewQueue: Awaited<ReturnType<typeof getRightsReviewQueue>>["rows"];
   supplyDiagnostics: {
-    target: "通常3件" | "本日2件" | "本日1件" | "本日0件";
+  target: "3slot × 最大3候補" | "候補不足";
     gateOkBySource: Record<string, number>;
     generatedBySource: Record<string, number>;
     humanVoiceNgBySource: Record<string, number>;
@@ -891,8 +892,7 @@ async function fetchRecentDailyPickWorkIds(days = DAILY_PICK_COOLDOWN_DAYS) {
     .filter((workId) => Number.isSafeInteger(workId) && workId > 0));
 }
 
-function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDailyMission, logs: XPostLog[], recentDailyPickWorkIds = new Set<number>()) {
-  const postedWorkIds = recentPostedWorkIds(logs);
+function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDailyMission, logs: XPostLog[], recentDailyPickWorkIds = new Set<number>(), postedWorkIds = recentPostedWorkIds(logs)) {
   const pool = opportunities.filter((item) => (
     item.freshness.status !== "expired"
     && item.mediaUsage !== "not_available"
@@ -1091,7 +1091,7 @@ function buildSupplyDiagnostics(opportunities: XGrowthOpportunity[], picks: XDai
     return acc;
   }, {} as Record<XGrowthIntent, number>);
   const crossPostDiversityRejected = opportunities.filter((item) => item.creativeVariants.some((variant) => variant.quality.passed) && !picks.some((pick) => pick.workId === item.workId || pick.sourceType === item.sourceType)).length;
-  const target = picks.length >= 3 ? "通常3件" as const : picks.length === 2 ? "本日2件" as const : picks.length === 1 ? "本日1件" as const : "本日0件" as const;
+  const target = picks.length >= 3 ? "3slot × 最大3候補" as const : "候補不足" as const;
   const shortages = [
     reachGenerated < 5 ? `REACH供給目標5件に対して${reachGenerated}件` : "",
     (generatedByRole.FOLLOW + generatedByRole.AUTHORITY) < 5 ? `FOLLOW/AUTHORITY供給目標5件に対して${generatedByRole.FOLLOW + generatedByRole.AUTHORITY}件` : "",
@@ -1191,6 +1191,7 @@ export async function buildXGrowthOS({
     return result;
   };
   const candidateResult = await mark("candidate_generation_ms", getXPostCandidates(performance, logs));
+  const postedWorkResult = await mark("posted_work_ids_ms", getPostedWorkIds());
   const expandedCandidates = expandCreativeSupply(candidateResult.candidates);
   const scoredAll = expandedCandidates.map(scoreOpportunity).sort((a, b) => {
     const aMax = Math.max(a.reachScore, a.followScore, a.authorityScore, a.revenueScore);
@@ -1212,7 +1213,8 @@ export async function buildXGrowthOS({
   timings.creative_quality_ms = Date.now() - qualityStarted;
   const mission = buildStrategicMission(growth, logs, creativeLearning);
   const recentDailyPickWorkIds = await mark("recent_daily_pick_cooldown_ms", fetchRecentDailyPickWorkIds());
-  const dailySelection = selectDailyTopPicks(opportunities, mission, logs, recentDailyPickWorkIds);
+  const postedWorkIds = new Set([...recentPostedWorkIds(logs), ...postedWorkResult.workIds]);
+  const dailySelection = selectDailyTopPicks(opportunities, mission, logs, recentDailyPickWorkIds, postedWorkIds);
   const supplyDiagnostics = buildSupplyDiagnostics(opportunities, dailySelection.picks);
   const nativeXLearning = buildNativeXLearning(logs, outcomes);
   const persistedTopPicks = await mark("persisted_top_picks_ms", persistDailyTopPicks({
