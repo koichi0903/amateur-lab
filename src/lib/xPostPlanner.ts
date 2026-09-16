@@ -96,6 +96,7 @@ const SELECT_COLUMNS = [
 const DAY_MS = 86_400_000;
 const HISTORY_BATCH_SIZE = 20;
 const HISTORY_PAGE_SIZE = 1000;
+const CANDIDATE_WORK_LIMIT = 120;
 const ABSOLUTE_COOLDOWN_DAYS = 3;
 const databaseDateTime = (value: string) => parseDatabaseDate(value)?.getTime() ?? Number.NaN;
 
@@ -665,7 +666,7 @@ export async function getXPostCandidates(performance: AffiliatePerformanceRow[],
   ];
   const selectedGroups = pools.map(([category, works]) => ({
     category,
-    ...selectWithDiversity(works, logs, category === "deal" || category === "hidden_gem" || category === "today_buy" || category === "today_discovery" ? 24 : 8, `${todayKey()}:${category}`),
+    ...selectWithDiversity(works, logs, category === "deal" || category === "hidden_gem" || category === "today_buy" || category === "today_discovery" ? 60 : 24, `${todayKey()}:${category}`),
   }));
   const reviewedVideoAssets = await supabaseAdmin
     .from("x_media_assets")
@@ -728,9 +729,9 @@ export async function getXPostCandidates(performance: AffiliatePerformanceRow[],
         used.add(work.id);
         candidates.push(candidate);
         groupCount += 1;
-        if (groupCount >= 4 || candidates.length >= 24) break;
+        if (groupCount >= 24 || candidates.length >= CANDIDATE_WORK_LIMIT) break;
       }
-      if (candidates.length >= 24) break;
+      if (candidates.length >= CANDIDATE_WORK_LIMIT) break;
     }
     return {
       candidates: candidates.sort((a, b) => b.funnelScore - a.funnelScore),

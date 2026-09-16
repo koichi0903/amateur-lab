@@ -817,7 +817,10 @@ function buildTopPickCandidate(input: {
   candidateRank: NonNullable<XDailyTopPick["candidateRank"]>;
   reason: string;
 }): XDailyTopPick {
-  const pickMediaType = input.variant.mediaType === "sample_movie" && !isPostableOfficialSampleMovie(input.item.mediaAsset, input.item.sampleMovieUrl).usable
+  const pickMediaType = input.variant.mediaType === "sample_movie"
+    && !input.item.mediaAsset?.id
+    ? input.item.imageUrl ? "existing_link_image" as const : "text" as const
+    : input.variant.mediaType === "sample_movie" && !isPostableOfficialSampleMovie(input.item.mediaAsset, input.item.sampleMovieUrl).usable
     ? input.item.imageUrl ? "existing_link_image" as const : "text" as const
     : input.variant.mediaType;
   const pickMediaUrl = pickMediaType === "sample_movie"
@@ -918,6 +921,7 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
     { slotId: "slot_3" as const, slotRole: "MONEY_OR_REACH" as const, slotLabel: "投稿枠3: MONEY または別REACH中心", roles: ["MONEY" as const, "REACH" as const, "FOLLOW" as const, "AUTHORITY" as const] },
   ];
   const rankLabels = ["A", "B", "C"] as const;
+  const workUseCount = new Map<number, number>();
   for (const slot of slots) {
     const slotPicked: XDailyTopPick[] = [];
     for (const role of slot.roles) {
@@ -926,13 +930,16 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
         : role === "REACH"
           ? ["MARKET", "COMPARISON", "JUDGMENT", "HIDDEN_GEM", "PRICE_EVENT", "WORK", "FOLLOW_UP", "ACTRESS_TREND", "GENRE_TREND", "MAKER_TREND"]
           : ["FOLLOW_UP", "HIDDEN_GEM", "ACTRESS_TREND", "GENRE_TREND", "MAKER_TREND", "WORK", "MARKET", "COMPARISON", "JUDGMENT", "PRICE_EVENT"];
-      const candidateEntries = () => pool
-        .filter((item) => !usedWorkIds.has(item.workId))
+      const candidateEntries = (allowCreativeReuse = false) => pool
+        .filter((item) => allowCreativeReuse || !usedWorkIds.has(item.workId))
         .filter((item) => !slotPicked.some((pick) => pick.workId === item.workId || pick.productId === item.productId))
+        .filter((item) => !allowCreativeReuse || !picked.some((pick) => pick.workId === item.workId && pick.creativeAngle === item.creativeAngle))
         .filter((item) => !slotPicked.some((pick) => pick.key === item.key && pick.role === role))
         .filter((item) => {
           const mediaId = Number(item.mediaAsset?.id);
-          return !Number.isSafeInteger(mediaId) || (!usedMediaIds.has(mediaId) && !slotPicked.some((pick) => Number(pick.mediaAsset?.id) === mediaId));
+          return allowCreativeReuse
+            ? true
+            : !Number.isSafeInteger(mediaId) || (!usedMediaIds.has(mediaId) && !slotPicked.some((pick) => Number(pick.mediaAsset?.id) === mediaId));
         })
         .filter((item) => role === "MONEY" || item.sourceType !== "MONEY")
         .filter((item) => passesLinklessQualityGate(item, role))
@@ -954,10 +961,11 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
           return item.canNativeVideo && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable && !tags.includes("too_explicit_for_reach") && item.mediaAsset?.media_quality !== "weak";
         })
         .sort((a, b) => b.score - a.score);
-      const addCandidates = () => {
-        for (const entry of candidateEntries()) {
+      const addCandidates = (allowCreativeReuse = false) => {
+        for (const entry of candidateEntries(allowCreativeReuse)) {
           if (slotPicked.length >= 3) break;
           if (slotPicked.some((pick) => pick.workId === entry.item.workId || pick.productId === entry.item.productId)) continue;
+          if (allowCreativeReuse && (workUseCount.get(entry.item.workId) ?? 0) >= 3) continue;
         const mediaId = Number(entry.item.mediaAsset?.id);
         if (Number.isSafeInteger(mediaId) && slotPicked.some((pick) => Number(pick.mediaAsset?.id) === mediaId)) continue;
         const rank = rankLabels[slotPicked.length];
@@ -983,10 +991,15 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
         }
       };
       addCandidates();
+      // Reusing a work is a last-resort supply fallback only. A different
+      // creative angle is required, and the same work can appear at most three times
+      // across the day's slots so the set does not collapse onto one work.
+      if (slotPicked.length < 3) addCandidates(true);
       if (slotPicked.length >= 3) break;
     }
     for (const pick of slotPicked) {
       picked.push(pick);
+      workUseCount.set(pick.workId, (workUseCount.get(pick.workId) ?? 0) + 1);
       usedWorkIds.add(pick.workId);
       const mediaId = Number(pick.mediaAsset?.id);
       if (Number.isSafeInteger(mediaId)) usedMediaIds.add(mediaId);

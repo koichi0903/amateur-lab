@@ -585,8 +585,8 @@ export function TopPickVideoActions({
     extension: mediaType === "sample_movie" ? "mp4" : "png",
     trimStartSeconds,
   }), [intent, mediaType, pickOrder, trimStartSeconds, workId]);
-  const showTrimControls = shouldShowTopPickTrimControls({ mediaType, mediaUrl, assetId: mediaAsset?.id });
   const previewUrl = xGrowthMediaUrl({ workId, mediaType, mediaAssetId: mediaAsset?.id ?? null });
+  const showTrimControls = shouldShowTopPickTrimControls({ mediaType, mediaUrl: previewUrl ?? mediaUrl, assetId: mediaAsset?.id });
 
   if (mediaType !== "sample_movie") {
     return (
