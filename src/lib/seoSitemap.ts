@@ -89,6 +89,7 @@ const getQualityWorkCount = unstable_cache(
     const { count, error } = await supabase
       .from("works")
       .select("id", { count: "exact", head: true })
+      .neq("stage", "DISCONTINUED")
       .gte("score", WORK_INDEX_MIN_SCORE)
       .gte("price", WORK_INDEX_MIN_PRICE)
       .not("image_url", "is", null)
@@ -99,7 +100,7 @@ const getQualityWorkCount = unstable_cache(
     if (error) throw error;
     return count ?? 0;
   },
-  ["seo-sitemap-quality-work-count-v2"],
+  ["seo-sitemap-quality-work-count-v3-stage-filtered"],
   { revalidate: 3600 },
 );
 
@@ -124,6 +125,7 @@ export async function getWorkSitemapEntries(
       const { data, error } = await supabase
         .from("works")
         .select("id, created_at, updated_at")
+        .neq("stage", "DISCONTINUED")
         .gte("score", WORK_INDEX_MIN_SCORE)
         .gte("price", WORK_INDEX_MIN_PRICE)
         .not("image_url", "is", null)
@@ -136,7 +138,7 @@ export async function getWorkSitemapEntries(
       if (error) throw error;
       return (data ?? []) as SitemapWork[];
     },
-    ["seo-sitemap-quality-work-chunk-v2", String(chunkNumber)],
+    ["seo-sitemap-quality-work-chunk-v3-stage-filtered", String(chunkNumber)],
     { revalidate: 3600 },
   );
   const works = await getChunk();

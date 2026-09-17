@@ -10,6 +10,7 @@ import Breadcrumb from "@/app/components/Breadcrumb";
 import BreadcrumbJsonLd from "@/app/components/BreadcrumbJsonLd";
 import Link from "next/link";
 import ProductJsonLd from "@/app/components/ProductJsonLd";
+import InsightTimeline from "@/app/components/InsightTimeline";
 import WorkTabs from "@/app/components/WorkTabs";
 import PurchaseCard from "@/app/components/PurchaseCard";
 import PurchaseDecisionGuide from "@/app/components/PurchaseDecisionGuide";
@@ -25,7 +26,8 @@ import PriceTypes from "@/app/components/PriceTypes";
 import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
 import { analyzePurchaseDecision } from "@/lib/analyzers/purchaseDecisionAnalyzer";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
-import { isWorkIndexable } from "@/lib/seoQuality";
+import { isInsightVisible } from "@/lib/insights/visibility";
+import { isWorkDetailEligible, isWorkIndexable } from "@/lib/seoQuality";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
@@ -73,12 +75,20 @@ const WORK_DETAIL_COLUMNS = [
   "sample_movie_url", "long_hit_rank", "url",
 ].join(",");
 
-// Work data changes at most a few times per day. Reusing the rendered page keeps
-// crawler traffic from issuing the same group of Supabase queries on every hit.
-export const revalidate = 86400;
+// This route is intentionally request-rendered. On-demand ISR would create a
+// new persistent page entry and an ISR write for every previously unseen work
+// ID, so a crawler could turn the catalog size into an unbounded write bill.
+// The expensive data functions below remain independently cached for 24 hours,
+// preserving the query-saving behavior without caching the rendered page.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function generateStaticParams() {
   return [];
+}
+
+function isValidWorkId(id: string): boolean {
+  return /^\d+$/.test(id) && id.length <= 10;
 }
 
 // generateMetadata and the page render both need the same row. React cache
@@ -91,6 +101,13 @@ const getWork = cache(
           .from("works")
           .select(WORK_DETAIL_COLUMNS)
           .eq("id", id)
+          .neq("stage", "DISCONTINUED")
+          .gte("score", 1)
+          .gte("price", 1)
+          .not("image_url", "is", null)
+          .neq("image_url", "")
+          .not("affiliate_url", "is", null)
+          .neq("affiliate_url", "")
           .maybeSingle();
 
         if (error) {
@@ -105,10 +122,10 @@ const getWork = cache(
 );
 
 const getWorkDetailData = cache(
-  async (productId: string) =>
+  async (productId: string, workId: number) =>
     unstable_cache(
       async () => {
-    const [sampleImages, priceHistory, workPrices] = await Promise.all([
+    const [sampleImages, priceHistory, workPrices, insights] = await Promise.all([
       supabase
         .from("work_sample_images")
         .select("image_url, sort_order")
@@ -125,12 +142,18 @@ const getWorkDetailData = cache(
         .select("display_name,type,period,price_kind,normal_price,sale_price")
         .eq("product_id", productId)
         .order("display_name"),
+      supabase
+        .from("insights")
+        .select("id,type,title,description,created_at,updated_at")
+        .eq("work_id", workId)
+        .order("priority", { ascending: false }),
     ]);
 
     return {
       sampleImages: sampleImages.data ?? [],
       priceHistory: priceHistory.data ?? [],
       workPrices: workPrices.data ?? [],
+      insights: insights.data ?? [],
     };
       },
       // Versioned after adding period-aware price history. This prevents the old
@@ -272,9 +295,18 @@ export async function generateMetadata(
 
   const { id } = await params;
 
+  if (!isValidWorkId(id)) {
+    return pageMetadata({
+      title: "作品情報 | 発掘LAB",
+      description: "指定された作品は見つかりませんでした。",
+      canonical: `/works/${encodeURIComponent(id)}`,
+      robots: { index: false, follow: false },
+    });
+  }
+
   const work = await getWork(id);
 
-  if (!work) {
+  if (!work || !isWorkDetailEligible(work)) {
     return pageMetadata({
       title: "作品情報 | 発掘LAB",
       description: "指定された作品は見つかりませんでした。",
@@ -334,12 +366,17 @@ export default async function WorkDetailPage(
 ) {
   const { id } = await params;
 
+  if (!isValidWorkId(id)) notFound();
+
   const work = await getWork(id);
 
-  if (!work) notFound();
+  if (!work || !isWorkDetailEligible(work)) notFound();
 
-  const { sampleImages, priceHistory, workPrices } =
-    await getWorkDetailData(work.product_id);
+  const { sampleImages, priceHistory, workPrices, insights } =
+    await getWorkDetailData(work.product_id, work.id);
+  const visibleInsights = (insights ?? []).filter((insight) =>
+    isInsightVisible(insight, work),
+  );
   const latestOffers = new Map<string, (typeof priceHistory)[number]>();
   for (const offer of priceHistory ?? []) {
     const key = `${offer.display_name ?? offer.type ?? ""}\u0000${offer.period ?? ""}`;
@@ -498,6 +535,12 @@ const buyTiming = calculateBuyTimingScore({
         decision={purchaseDecision}
         hasAlternatives={valueAlternatives.length > 0}
       />
+
+      {visibleInsights.length > 0 && (
+        <section className="mt-8 hidden md:block">
+          <InsightTimeline insights={visibleInsights} />
+        </section>
+      )}
 
       {/* タブ */}
       <section className="mt-8">

@@ -8,6 +8,10 @@ export type WorkIndexabilityInput = {
   affiliate_url: string | null;
 };
 
+export type WorkDetailEligibilityInput = WorkIndexabilityInput & {
+  stage: string | null;
+};
+
 function hasValue(value: string | null): boolean {
   return Boolean(value?.trim());
 }
@@ -19,4 +23,10 @@ export function isWorkIndexable(work: WorkIndexabilityInput): boolean {
     hasValue(work.image_url) &&
     hasValue(work.affiliate_url)
   );
+}
+
+// The detail page fans out into several costly queries, so only public-quality
+// catalog rows should be allowed to reach that work.
+export function isWorkDetailEligible(work: WorkDetailEligibilityInput): boolean {
+  return work.stage !== "DISCONTINUED" && isWorkIndexable(work);
 }

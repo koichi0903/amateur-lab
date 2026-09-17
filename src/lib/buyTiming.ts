@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { unstable_cache } from "next/cache";
 
 const DAY_MS = 86_400_000;
 const MIN_RELIABLE_PAGE_VIEWS = 20;
@@ -81,7 +82,7 @@ export function calculateAdjustedCtr(pageViews: number, fanzaClicks: number) {
   };
 }
 
-export async function getBuyTimingFunnelStats(workId: number, days = 30) {
+async function loadBuyTimingFunnelStats(workId: number, days: number) {
   const cutoff = new Date(Date.now() - Math.max(1, days) * DAY_MS).toISOString();
   const [viewResult, clickResult] = await Promise.all([
     supabaseAdmin
@@ -105,6 +106,22 @@ export async function getBuyTimingFunnelStats(workId: number, days = 30) {
     fanzaClicks,
     ...ctr,
   };
+}
+
+// This aggregate is read by the work detail page. Keep it separate from the
+// page cache so force-dynamic rendering does not turn every page view into two
+// count queries. A short TTL keeps the displayed CTR reasonably fresh while
+// bounding repeated crawler traffic to at most one aggregate refresh per work
+// and window.
+export async function getBuyTimingFunnelStats(workId: number, days = 30) {
+  return unstable_cache(
+    () => loadBuyTimingFunnelStats(workId, days),
+    ["work-buy-timing-funnel-v1", String(workId), String(days)],
+    {
+      revalidate: 300,
+      tags: [`work-detail:${String(workId)}`],
+    },
+  )();
 }
 
 export function calculateBuyTimingScore({

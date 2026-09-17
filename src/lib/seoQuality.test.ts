@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isWorkIndexable } from "./seoQuality.ts";
+import { isWorkDetailEligible, isWorkIndexable } from "./seoQuality.ts";
 
 const qualityWork = {
   score: 80,
@@ -8,6 +8,8 @@ const qualityWork = {
   image_url: "https://example.com/image.jpg",
   affiliate_url: "https://example.com/product",
 };
+
+const detailWork = { ...qualityWork, stage: "OLD" };
 
 test("掲載情報が揃った作品はインデックス対象にする", () => {
   assert.equal(isWorkIndexable(qualityWork), true);
@@ -22,4 +24,10 @@ test("スコア、価格、画像、紹介先の不足はインデックス対�
   ]) {
     assert.equal(isWorkIndexable(work), false);
   }
+});
+
+test("詳細ページは公開品質を満たす未終了作品だけに許可する", () => {
+  assert.equal(isWorkDetailEligible(detailWork), true);
+  assert.equal(isWorkDetailEligible({ ...detailWork, stage: "DISCONTINUED" }), false);
+  assert.equal(isWorkDetailEligible({ ...detailWork, affiliate_url: null }), false);
 });
