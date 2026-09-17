@@ -11,7 +11,7 @@ const DIAGNOSTIC_REQUEST_EVENT = "amateur-lab:myfans-diagnostic:start";
 const DIAGNOSTIC_RESPONSE_EVENT = "amateur-lab:myfans-diagnostic:ack";
 const DIAGNOSTIC_STATE_REQUEST_EVENT = "amateur-lab:myfans-diagnostic:state";
 const DIAGNOSTIC_STATE_RESPONSE_EVENT = "amateur-lab:myfans-diagnostic:state:ack";
-const BRIDGE_DIAGNOSTIC_VERSION = "0.1.9";
+const BRIDGE_DIAGNOSTIC_VERSION = "0.1.10";
 let bridgeDisconnected = false;
 let bridgeDisconnectReported = false;
 

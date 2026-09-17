@@ -66,7 +66,7 @@ type VisualQueueState = {
   items?: Array<{ status: string }>;
 };
 
-const EXPECTED_COMPANION_VERSION = "0.1.9";
+const EXPECTED_COMPANION_VERSION = "0.1.10";
 const READY_EVENT = "amateur-lab:myfans-quote-refresh:bridge-ready";
 const PING_EVENT = "amateur-lab:myfans-quote-refresh:ping";
 const PONG_EVENT = "amateur-lab:myfans-quote-refresh:pong";
