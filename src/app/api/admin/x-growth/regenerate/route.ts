@@ -19,7 +19,7 @@ export async function POST() {
     logs: logs.logs,
     outcomes: outcomes.outcomes,
     creativeLearning: creativeLearning.rows,
-    includeDeferred: false,
+    includeDeferred: true,
   });
   return NextResponse.json({
     ok: true,

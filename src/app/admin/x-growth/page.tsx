@@ -9,6 +9,7 @@ import { getPersistedTodayTopPicks, type PersistedXDailyPlan } from "@/lib/xGrow
 import { getXCreativeLearning, getXPostOutcomes, getRecentXPostLogs } from "@/lib/xPostLogs";
 import { getRightsReviewQueue, isOfficialFanzaDmmSampleUrl } from "@/lib/xMediaAssets";
 import { buildTopPickSlotsViewModel } from "@/lib/xGrowthTopPicks";
+import { visualFactBasis, type XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
 import { CandidateSelectAction, DeferredXGrowthSections, MediaPipelineActions, MetricSyncActions, OpportunityActions, RegenerateTopPicksAction, RightsReviewActions, TempFolderStatus, TopPickVideoActions, TrimReviewActions } from "./XGrowthActions";
 
 export const dynamic = "force-dynamic";
@@ -83,6 +84,11 @@ function videoHookReason(item: Pick<XGrowthOpportunity, "mediaType" | "mediaAsse
   if (tags.includes("actress_fit")) return "女優×作品相性";
   if (tags.includes("safe_preview")) return "安全に見せられる試聴";
   return "内容断定なし";
+}
+
+function factBasisLabel(facts: XVisualVideoFacts | null | undefined) {
+  const basis = visualFactBasis(facts);
+  return basis.label;
 }
 
 function editorialVerdict(item: XGrowthOpportunity) {
@@ -218,6 +224,7 @@ function TopPickCard({ item }: { item: XDailyTopPick }) {
           <p className={`rounded-lg border px-3 py-2 ${mediaOk ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-rose-800 bg-rose-950/30 text-rose-200"}`}>使用素材: {mediaName(item)} / {mediaOk ? "使用可" : "不可"}</p>
           <p className={`rounded-lg border px-3 py-2 ${item.intent === "MONEY" ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-sky-800 bg-sky-950/30 text-sky-200"}`}>{linkStrategy.label}</p>
           {hookReason && <p className="rounded-lg border border-cyan-800 bg-cyan-950/30 px-3 py-2 text-cyan-100">動画Hook根拠: {hookReason}</p>}
+          <p className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-300">文面根拠: {factBasisLabel(item.visualFacts)}</p>
           {item.mediaType === "sample_movie" && trimStartSeconds > 0 && <p className="rounded-lg border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-emerald-100">冒頭トリム: {trimStartSeconds.toFixed(1)}秒</p>}
         </div>
         <LinkStrategyPanel strategy={linkStrategy} replyText={displayReplyText} />
@@ -275,6 +282,7 @@ function TopPickCard({ item }: { item: XDailyTopPick }) {
           <p>素材判定: {item.mediaDecision}</p>
           <p>Creative angle: {item.creativeAngle} / evidence {item.sourceEvidence.join(" / ")}</p>
           {hookReason && <p>動画Hook根拠: {hookReason} / tags {(item.mediaAsset?.manual_tags ?? []).join(", ") || "なし"}</p>}
+          <p>Visual/Video Facts: {item.visualFacts?.usableFacts.length ?? 0}件使用可 / {item.visualFacts?.facts.length ?? 0}件候補 / {item.visualFacts?.diagnostics.join(" / ") || "Truth Guard OK"}</p>
           <p>狙い: {item.setDiversity.roleLabel}</p>
           <p>当日セット重複チェック: {item.setDiversity.status} / {item.setDiversity.reasons.length ? item.setDiversity.reasons.join(" / ") : "opening/judgment/構造の同日重複なし"}</p>
           <p>Creative構造: {item.setDiversity.signature.openingPattern} / {item.setDiversity.signature.subjectStructure} / {item.setDiversity.signature.emotionalAngle} / {item.setDiversity.signature.mediaType} / {item.setDiversity.signature.linkStrategy}</p>
@@ -318,6 +326,7 @@ function PersistedTopPickCard({ item }: { item: PersistedTopPick }) {
         <p className={`rounded-lg border px-3 py-2 ${mediaOk ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-rose-800 bg-rose-950/30 text-rose-200"}`}>使用素材: {mediaName({ mediaType: item.mediaType })} / {mediaOk ? "使用可" : "不可"}</p>
         <p className={`rounded-lg border px-3 py-2 ${item.role === "MONEY" ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-sky-800 bg-sky-950/30 text-sky-200"}`}>{linkStrategy.label}</p>
         {hookReason && <p className="rounded-lg border border-cyan-800 bg-cyan-950/30 px-3 py-2 text-cyan-100">動画Hook根拠: {hookReason}</p>}
+        <p className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-300">文面根拠: {factBasisLabel(item.visualFacts)}</p>
         {item.mediaType === "sample_movie" && trimStartSeconds > 0 && <p className="rounded-lg border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-emerald-100">冒頭トリム: {trimStartSeconds.toFixed(1)}秒</p>}
       </div>
       <LinkStrategyPanel strategy={linkStrategy} replyText={displayReplyText} />
@@ -364,6 +373,7 @@ function PersistedTopPickCard({ item }: { item: PersistedTopPick }) {
           <p>作品: <span className="font-bold text-zinc-300">{item.title}</span></p>
           <p>素材判定: {item.mediaDecision}</p>
           <p>Creative angle: {item.creativeAngle} / evidence {item.sourceEvidence.join(" / ")}</p>
+          <p>Visual/Video Facts: {item.visualFacts?.usableFacts.length ?? 0}件使用可 / {item.visualFacts?.facts.length ?? 0}件候補 / {item.visualFacts?.diagnostics.join(" / ") || "Truth Guard OK"}</p>
           <p>当日セット重複チェック: {item.setDiversity.status} / {item.setDiversity.reasons.length ? item.setDiversity.reasons.join(" / ") : "opening/judgment/構造の同日重複なし"}</p>
           <p>Native X Voice: {item.selectedVariant?.quality.lastMile.nativeXVoice.passed ? "OK" : "NG"} / {item.selectedVariant?.quality.lastMile.nativeXVoice.reasons.length ? item.selectedVariant.quality.lastMile.nativeXVoice.reasons.join(" / ") : "Xに自然な短文としてOK"}</p>
           <p>Buzz Potential {item.selectedVariant?.buzzPotential.total ?? "-"} / Scroll Stop {item.selectedVariant?.buzzPotential.scrollStop ?? "-"} / Media Fit {item.selectedVariant?.buzzPotential.mediaFit ?? "-"}</p>

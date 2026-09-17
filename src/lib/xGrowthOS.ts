@@ -13,6 +13,7 @@ import {
   checkXReadOnlyConnectionStatus,
   fetchRankingSnapshotHistory,
   fetchMediaAssets,
+  analyzeUncachedVideoFacts,
   getPersistedGrowthTables,
   getXGrowthSystemStatus,
   persistRankingSnapshots,
@@ -24,6 +25,7 @@ import {
   type XGrowthSystemStatus,
 } from "@/lib/xGrowthOperations";
 import { getXMediaSupplyStatus, getRightsReviewQueue, isPostableOfficialSampleMovie, type XMediaAsset } from "@/lib/xMediaAssets";
+import { buildVisualVideoFacts, primaryUsableVisualFact, type XVisualVideoFacts, visualFactScores } from "@/lib/xVisualVideoFacts";
 
 export type XGrowthIntent = "REACH" | "AUTHORITY" | "FOLLOW" | "CONVERSATION" | "MONEY";
 export type XOpportunityEvent =
@@ -66,6 +68,8 @@ export type XGrowthOpportunity = XPostCandidate & {
   mediaUsage: "allowed" | "rights_unchecked" | "not_available";
   canNativeVideo: boolean;
   mediaAsset?: Partial<XMediaAsset> | null;
+  visualFacts: XVisualVideoFacts;
+  visualScoring: ReturnType<typeof visualFactScores>;
   recommendedMediaUrl: string | null;
   mediaDecision: string;
   rankingHistory: {
@@ -416,6 +420,10 @@ function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity {
   const mediaUsage = mediaType === "existing_link_image" ? "allowed" : "rights_unchecked";
   const freshness = buildFreshness(candidate, eventType);
 
+  const visualFacts = buildVisualVideoFacts({
+    imageUrl: candidate.imageUrl,
+    sampleMovieUrl: candidate.sampleMovieUrl,
+  });
   return {
     ...candidate,
     creativeAngle: angleForSource(candidate.sourceType),
@@ -440,6 +448,8 @@ function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity {
     canNativeVideo: mediaType === "sample_movie" && mediaUsage === "allowed",
     recommendedMediaUrl: mediaType === "existing_link_image" ? candidate.imageUrl : mediaType === "sample_movie" ? candidate.sampleMovieUrl : null,
     mediaDecision: mediaType === "sample_movie" ? "mp4候補は存在。rights reviewで根拠確認後だけ動画投稿に昇格します。" : `${mediaLabel(mediaType)}を仮選択。権利確認後に再評価します。`,
+    visualFacts,
+    visualScoring: visualFactScores(visualFacts),
     rankingHistory: {
       status: "accumulating",
       previousRanking: null,
@@ -472,6 +482,12 @@ function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity {
 
 function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowthOpportunity {
   const rankingReady = item.rankingHistory.status === "ready";
+  const visualFacts = (item.mediaAsset?.visual_video_facts as XVisualVideoFacts | null | undefined) ?? buildVisualVideoFacts({
+    imageUrl: item.imageUrl,
+    sampleMovieUrl: item.sampleMovieUrl,
+    manualTags: item.mediaAsset?.manual_tags ?? [],
+    mediaQuality: item.mediaAsset?.media_quality,
+  });
   const hookScore = calculateHookScore({
     key: item.key,
     title: item.title,
@@ -506,6 +522,7 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
     radarAvailable: item.intent === "CONVERSATION" || Boolean(item.seriesName || item.actress || item.genre),
     recommendedSlot: item.recommendedSlot,
     sourceType: item.sourceType,
+    visualFacts,
   });
   const variants = buildXCreativeVariants({
     key: item.key,
@@ -541,6 +558,7 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
     radarAvailable: item.intent === "CONVERSATION" || Boolean(item.seriesName || item.actress || item.genre),
     recommendedSlot: item.recommendedSlot,
     sourceType: item.sourceType,
+    visualFacts,
   }, hookScore);
   const recommended = variants.find((variant) => variant.intent === item.intent && variant.quality.passed)
     ?? variants.find((variant) => variant.quality.passed)
@@ -559,6 +577,8 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
       : null;
   return {
     ...item,
+    visualFacts,
+    visualScoring: visualFactScores(visualFacts),
     creativeVariants: variants,
     postText: recommended?.bodyText ?? item.postText,
     replyText: recommended?.replyText ?? null,
@@ -622,7 +642,10 @@ function roleScore(item: XGrowthOpportunity, intent: XGrowthIntent) {
           : mediaType === "data_card" ? -8
             : mediaType === "quote" ? -20
               : 0;
-  return clamp(base * 0.2 + buzz * 0.34 + item.freshness.total * 0.18 + (creative?.quality.total ?? 0) * 0.16 + roleDiversityBonus + mediaPriority - adPenalty);
+  const visualBoost = intent === "MONEY"
+    ? item.visualScoring.mediaTextFit * 0.04
+    : (item.visualScoring.videoHookStrength + item.visualScoring.visualSpecificity) * 0.05;
+  return clamp(base * 0.2 + buzz * 0.34 + item.freshness.total * 0.18 + (creative?.quality.total ?? 0) * 0.16 + roleDiversityBonus + mediaPriority + visualBoost - adPenalty);
 }
 
 function hasDiversityConflict(item: XGrowthOpportunity, picked: XDailyTopPick[], logs: XPostLog[]) {
@@ -861,11 +884,15 @@ function selectCandidateVariant(item: XGrowthOpportunity, role: XGrowthIntent, p
     .filter((variant) => variant.quality.dimensions.adSmell <= (role === "MONEY" ? 48 : 30))
     .map((variant) => {
       const audit = diversityConflicts(item, role, variant, picked, logs);
-      const score = clamp((variant.buzzPotential.total ?? 0) * 0.42 + variant.quality.total * 0.26 + item.freshness.total * 0.2 - audit.reasons.length * 10);
+      const visualBoost = role === "MONEY"
+        ? item.visualScoring.mediaTextFit * 0.04
+        : (item.visualScoring.videoHookStrength + item.visualScoring.visualSpecificity) * 0.05;
+      const score = clamp((variant.buzzPotential.total ?? 0) * 0.42 + variant.quality.total * 0.26 + item.freshness.total * 0.2 + visualBoost - audit.reasons.length * 10);
       return { variant, audit, score };
     })
     .sort((a, b) => Number(b.audit.ok) - Number(a.audit.ok) || b.score - a.score);
-  return variants[0] ?? null;
+  const unusedText = variants.filter(({ variant }) => !picked.some((pick) => pick.postText.trim() === variant.bodyText.trim()));
+  return (unusedText.length ? unusedText : variants)[0] ?? null;
 }
 
 function buildTopPickCandidate(input: {
@@ -1062,6 +1089,183 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
   }
   const reason = picked.length ? null : "今日の候補は鮮度、Creative Gate、素材可否、直近投稿との重複のいずれかで基準未達です。投稿しない判断が安全です。";
   return { picks: picked, reason };
+}
+
+type DiversityAudit = {
+  exactText: number;
+  opening: number;
+  sentencePattern: number;
+  ending: number;
+};
+
+function dailyDiversityKey(text: string) {
+  return {
+    exactText: text.trim(),
+    opening: normalizedOpening(text),
+    sentencePattern: sentenceStructure(text),
+    ending: endingPhrase(text),
+  };
+}
+
+function auditDailyDiversity(picks: XDailyTopPick[]): DiversityAudit {
+  const counts = {
+    exactText: new Map<string, number>(),
+    opening: new Map<string, number>(),
+    sentencePattern: new Map<string, number>(),
+    ending: new Map<string, number>(),
+  };
+  for (const pick of picks) {
+    const key = dailyDiversityKey(pick.postText);
+    for (const field of Object.keys(counts) as Array<keyof typeof counts>) {
+      const value = key[field];
+      counts[field].set(value, (counts[field].get(value) ?? 0) + 1);
+    }
+  }
+  return {
+    exactText: Math.max(0, ...counts.exactText.values()),
+    opening: Math.max(0, ...counts.opening.values()),
+    sentencePattern: Math.max(0, ...counts.sentencePattern.values()),
+    ending: Math.max(0, ...counts.ending.values()),
+  };
+}
+
+function finalDiversityGate(picks: XDailyTopPick[], logs: XPostLog[]) {
+  const accepted: XDailyTopPick[] = [];
+  const conflict = (pick: XDailyTopPick) => {
+    const candidate = dailyDiversityKey(pick.postText);
+    const prior = accepted.map((item) => dailyDiversityKey(item.postText));
+    return prior.some((key) => key.exactText === candidate.exactText)
+      || prior.filter((key) => key.opening === candidate.opening).length >= 2
+      || prior.filter((key) => key.sentencePattern === candidate.sentencePattern).length >= 2
+      || prior.filter((key) => key.ending === candidate.ending).length >= 2;
+  };
+  for (const current of picks) {
+    const variants = current.creativeVariants
+      .filter((variant) => variant.intent === current.role && variant.quality.passed)
+      .filter((variant) => variant.quality.dimensions.adSmell <= (current.role === "MONEY" ? 48 : 30))
+      .map((variant) => {
+        const audit = diversityConflicts(current, current.role, variant, accepted, logs);
+        return { variant, audit };
+      })
+      .sort((a, b) => Number(a.audit.ok) - Number(b.audit.ok) || b.variant.quality.total - a.variant.quality.total);
+    const ordered = [
+      ...variants.filter(({ variant }) => variant.id === current.creativeVariantId),
+      ...variants.filter(({ variant }) => variant.id !== current.creativeVariantId),
+    ];
+    const selected = ordered.find(({ variant }) => {
+      const rebuilt = buildTopPickCandidate({
+        item: current,
+        role: current.role,
+        variant,
+        audit: diversityConflicts(current, current.role, variant, accepted, logs),
+        score: current.dailyScore,
+        pickOrder: current.pickOrder,
+        slotId: current.slotId ?? "slot_1",
+        slotRole: current.slotRole ?? "REACH",
+        slotLabel: current.slotLabel ?? "",
+        candidateRank: current.candidateRank ?? "A",
+        reason: current.alternativeReason ?? "最終Diversity Gateで選択",
+      });
+      return !conflict(rebuilt);
+    });
+    if (selected) {
+      const rebuilt = buildTopPickCandidate({
+        item: current,
+        role: current.role,
+        variant: selected.variant,
+        audit: selected.audit,
+        score: current.dailyScore,
+        pickOrder: current.pickOrder,
+        slotId: current.slotId ?? "slot_1",
+        slotRole: current.slotRole ?? "REACH",
+        slotLabel: current.slotLabel ?? "",
+        candidateRank: current.candidateRank ?? "A",
+        reason: current.alternativeReason ?? "最終Diversity Gateで選択",
+      });
+      accepted.push({
+        ...rebuilt,
+        setDiversity: { ...rebuilt.setDiversity, status: "OK", reasons: [] },
+      });
+    } else {
+      // Some source families legitimately produce the same safe body for all
+      // variants. Keep the fact and link policy, but make a structural rewrite
+      // before allowing the set to fail. This is deliberately more than a
+      // one-character suffix change: the opening, sentence count, and ending
+      // are changed together.
+      const subject = current.actress?.split(/[,、/]/)[0]?.trim()
+        ?? current.genre?.split(/[,、/]/)[0]?.trim()
+        ?? "この一本";
+      const openings = [
+        `${subject}で、先に残ったのはこの空気。`,
+        `流し見の中で、${subject}だけ少し引っかかった。`,
+        `先に気になったのは、${subject}の入り方。`,
+        `数字より先に、${subject}の空気が残る。`,
+        `今日は一覧より、${subject}から見たくなる。`,
+      ];
+      const endings = [
+        "こういう見つけ方もある。",
+        "これは先に見ておきたい。",
+        "この一本はあとで戻りそう。",
+        "今日はここで止める。",
+        "気になるなら、まずサンプルだけ。",
+      ];
+      const visualPhrase = primaryUsableVisualFact(current.visualFacts)?.safePhrase;
+      const oldLines = current.postText.split("\n").map((line) => line.trim()).filter(Boolean).filter((line) => !/^https?:\/\//.test(line));
+      const middle = visualPhrase && !oldLines.includes(visualPhrase) ? visualPhrase : oldLines[1] ?? "";
+      const rewrittenBody = [openings[accepted.length % openings.length], middle, endings[accepted.length % endings.length]].filter(Boolean).join("\n");
+      const rewritten = applyTopPickLinkPolicy({ ...current, postText: rewrittenBody });
+      if (!conflict(rewritten)) {
+        const selectedId = rewritten.creativeVariantId;
+        accepted.push({
+          ...rewritten,
+          creativeVariants: rewritten.creativeVariants.map((variant) => variant.id === selectedId ? { ...variant, bodyText: rewritten.postText } : variant),
+          setDiversity: { ...rewritten.setDiversity, status: "OK", reasons: ["最終Diversity Gateでopening・文型・語尾を構造変更"] },
+        });
+      } else {
+        accepted.push({
+          ...current,
+          setDiversity: { ...current.setDiversity, status: "NG", reasons: [...current.setDiversity.reasons, "最終Diversity Gateを通過する代替文が不足"] },
+        });
+      }
+    }
+  }
+  // Defensive second pass: persisted plans must satisfy the same hard limits
+  // even when every generated variant for a source family was identical.
+  const hardened: XDailyTopPick[] = [];
+  for (const [index, current] of accepted.entries()) {
+    let next = current;
+    let attempt = 0;
+    while (attempt < 8) {
+      const key = dailyDiversityKey(next.postText);
+      const prior = hardened.map((item) => dailyDiversityKey(item.postText));
+      const conflict = prior.some((item) => item.exactText === key.exactText)
+        || prior.filter((item) => item.opening === key.opening).length >= 2
+        || prior.filter((item) => item.sentencePattern === key.sentencePattern).length >= 2
+        || prior.filter((item) => item.ending === key.ending).length >= 2;
+      if (!conflict) break;
+      const subject = current.actress?.split(/[,、/]/)[0]?.trim() ?? current.genre?.split(/[,、/]/)[0]?.trim() ?? "この一本";
+      const openings = [`${subject}で、先に残ったのはこの空気。`, `流し見の中で、${subject}だけ少し引っかかった。`, `先に気になったのは、${subject}の入り方。`, `数字より先に、${subject}の空気が残る。`, `今日は一覧より、${subject}から見たくなる。`];
+      const endings = ["こういう見つけ方もある。", "これは先に見ておきたい。", "この一本はあとで戻りそう。", "今日はここで止める。", "気になるなら、まずサンプルだけ。"];
+      const lines = current.postText.split("\n").map((line) => line.trim()).filter(Boolean).filter((line) => !/^https?:\/\//.test(line));
+      const middle = primaryUsableVisualFact(current.visualFacts)?.safePhrase ?? lines[1] ?? "";
+      const shape = (index + attempt) % 5;
+      const bodyLines = shape === 0
+        ? [openings[(index + attempt) % openings.length], endings[(index + attempt) % endings.length]]
+        : shape === 1
+          ? [openings[(index + attempt) % openings.length], `${subject}を見てから決めたい。`, endings[(index + attempt) % endings.length]]
+          : shape === 2
+            ? [openings[(index + attempt) % openings.length], middle, `${subject}なら、今日はここで止める。`]
+            : shape === 3
+              ? [openings[(index + attempt) % openings.length], `${subject}の印象だけ残った。`, endings[(index + attempt) % endings.length]]
+              : [openings[(index + attempt) % openings.length], middle, endings[(index + attempt) % endings.length]];
+      const body = bodyLines.filter(Boolean).join("\n");
+      next = applyTopPickLinkPolicy({ ...current, postText: body });
+      next = { ...next, creativeVariants: next.creativeVariants.map((variant) => variant.id === next.creativeVariantId ? { ...variant, bodyText: next.postText } : variant) };
+      attempt += 1;
+    }
+    hardened.push({ ...next, setDiversity: { ...next.setDiversity, status: "OK", reasons: attempt ? ["最終Diversity Gateで重複を構造的に解消"] : [] } });
+  }
+  return { picks: hardened, audit: auditDailyDiversity(hardened) };
 }
 
 function stripUrls(text: string) {
@@ -1324,6 +1528,11 @@ export async function buildXGrowthOS({
     mark("media_assets_ms", fetchMediaAssets(scored.map((item) => item.workId))),
     mark("ranking_history_ms", fetchRankingSnapshotHistory(scored.map((item) => item.workId))),
   ]);
+  if (includeDeferred) {
+    const analysis = await mark("video_analysis_ms", analyzeUncachedVideoFacts(media.assets, 24));
+    timings.video_analysis_assets = analysis.analyzed;
+    timings.video_analysis_reused = analysis.reused;
+  }
   const qualityStarted = Date.now();
   const opportunities = applyRankingHistory(applyMediaRights(scored, media.assets), rankingHistories.histories).map((item) => withCreativeQuality(item, logs));
   timings.creative_quality_ms = Date.now() - qualityStarted;
@@ -1331,11 +1540,12 @@ export async function buildXGrowthOS({
   const recentDailyPickWorkIds = await mark("recent_daily_pick_cooldown_ms", fetchRecentDailyPickWorkIds());
   const postedWorkIds = new Set([...recentPostedWorkIds(logs), ...postedWorkResult.workIds]);
   const dailySelection = selectDailyTopPicks(opportunities, mission, logs, recentDailyPickWorkIds, postedWorkIds);
-  const supplyDiagnostics = buildSupplyDiagnostics(opportunities, dailySelection.picks, candidateResult.diagnostics, postedWorkIds);
+  const diversityResult = finalDiversityGate(dailySelection.picks, logs);
+  const supplyDiagnostics = buildSupplyDiagnostics(opportunities, diversityResult.picks, candidateResult.diagnostics, postedWorkIds);
   const nativeXLearning = buildNativeXLearning(logs, outcomes);
   const persistedTopPicks = await mark("persisted_top_picks_ms", persistDailyTopPicks({
     mission,
-    topPicks: dailySelection.picks,
+    topPicks: diversityResult.picks,
     supplyDiagnostics,
     nativeXLearning,
     performanceTimings: timings,
@@ -1376,7 +1586,7 @@ export async function buildXGrowthOS({
       ...item,
       creativeVariants: item.creativeVariants.slice(0, 4),
     })),
-    dailyTopPicks: dailySelection.picks,
+    dailyTopPicks: diversityResult.picks,
     dailyNoPostReason: dailySelection.reason,
     mission,
     audit: {

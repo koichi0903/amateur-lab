@@ -50,6 +50,12 @@ export type XMediaAsset = {
   trim_modify_confirmed: boolean;
   trim_note: string | null;
   notes: string;
+  visual_video_facts?: Record<string, unknown> | null;
+  video_analysis_version?: string | null;
+  video_analysis_source_fingerprint?: string | null;
+  video_analyzed_at?: string | null;
+  video_raw_metrics?: Record<string, unknown> | null;
+  video_analysis_diagnostics?: string[] | null;
 };
 
 export type XMediaUsability = {

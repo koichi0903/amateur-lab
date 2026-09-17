@@ -7,6 +7,8 @@ import type { XCreativeLearningRow, XPostLog, XPostLogInput } from "@/lib/xPostL
 import { saveXPostLog } from "@/lib/xPostLogs";
 import { normalizeTopPickCandidates } from "@/lib/xGrowthTopPicks";
 import type { XDailyMission, XDailyTopPick, XGrowthIntent, XGrowthOpportunity } from "@/lib/xGrowthOS";
+import { buildVisualVideoFacts, type XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
+import { analyzeSampleMovie, videoSourceFingerprint, VIDEO_ANALYSIS_VERSION } from "@/lib/xVideoAnalysis";
 
 export type XDailyPlanStatus = "draft" | "confirmed" | "completed" | "regenerated";
 export type XOpportunityStatus = "candidate" | "adopted" | "rejected" | "posted" | "expired";
@@ -121,11 +123,20 @@ export async function auditXGrowth(action: string, detail: Record<string, unknow
 export async function fetchMediaAssets(workIds: number[]) {
   const ids = [...new Set(workIds)].filter(Boolean);
   if (!ids.length) return { assets: new Map<number, XMediaAsset>(), error: null as string | null };
-  const { data, error } = await supabaseAdmin
+  const selectWithFacts = "id,account_handle,work_id,product_id,media_type,source_url,source_domain,source_kind,mime_type,content_length,fetch_status,fetch_status_code,last_checked_at,rights_status,rights_basis_type,rights_basis_url,evidence_ref,rights_basis_note,reviewed_at,reviewed_by,review_source,x_usage_allowed,can_reupload,can_modify,quote_only,commercial_use_allowed,media_quality,manual_tags,trim_start_seconds,trim_reviewed_at,trim_reviewed_by,trim_review_source,trim_modify_confirmed,trim_note,notes,visual_video_facts,video_analysis_version,video_analysis_source_fingerprint,video_analyzed_at,video_raw_metrics,video_analysis_diagnostics";
+  const selectWithoutFacts = "id,account_handle,work_id,product_id,media_type,source_url,source_domain,source_kind,mime_type,content_length,fetch_status,fetch_status_code,last_checked_at,rights_status,rights_basis_type,rights_basis_url,evidence_ref,rights_basis_note,reviewed_at,reviewed_by,review_source,x_usage_allowed,can_reupload,can_modify,quote_only,commercial_use_allowed,media_quality,manual_tags,trim_start_seconds,trim_reviewed_at,trim_reviewed_by,trim_review_source,trim_modify_confirmed,trim_note,notes";
+  const primary = await supabaseAdmin
     .from("x_media_assets")
-    .select("id,account_handle,work_id,product_id,media_type,source_url,source_domain,source_kind,mime_type,content_length,fetch_status,fetch_status_code,last_checked_at,rights_status,rights_basis_type,rights_basis_url,evidence_ref,rights_basis_note,reviewed_at,reviewed_by,review_source,x_usage_allowed,can_reupload,can_modify,quote_only,commercial_use_allowed,media_quality,manual_tags,trim_start_seconds,trim_reviewed_at,trim_reviewed_by,trim_review_source,trim_modify_confirmed,trim_note,notes")
+    .select(selectWithFacts)
     .eq("account_handle", ACCOUNT)
     .in("work_id", ids);
+  let data = primary.data as unknown as XMediaAsset[] | null;
+  let error = primary.error;
+  if (error && (error.code === "42703" || error.message.includes("schema cache"))) {
+    const fallback = await supabaseAdmin.from("x_media_assets").select(selectWithoutFacts).eq("account_handle", ACCOUNT).in("work_id", ids);
+    data = fallback.data as unknown as XMediaAsset[] | null;
+    error = fallback.error;
+  }
   if (error) return { assets: new Map<number, XMediaAsset>(), error: error.message };
   const map = new Map<number, XMediaAsset>();
   for (const asset of (data ?? []) as XMediaAsset[]) {
@@ -138,6 +149,22 @@ export async function fetchMediaAssets(workIds: number[]) {
     if (!current || (nextUsable && !currentUsable) || (nextUsable === currentUsable && nextStrong && !currentStrong)) map.set(asset.work_id, asset);
   }
   return { assets: map, error: null };
+}
+
+export async function analyzeUncachedVideoFacts(assets: Map<number, XMediaAsset>, limit = 24) {
+  const started = Date.now(); let analyzed = 0; let reused = 0; const diagnostics: Array<{ workId: number | null; sourceUrl: string; status: string; detail?: string }> = [];
+  for (const asset of [...assets.values()].slice(0, limit)) {
+    if (!asset.work_id || !asset.source_url || (asset.media_type !== "video" && asset.media_type !== "sample_movie")) continue;
+    if (asset.video_analysis_version === VIDEO_ANALYSIS_VERSION && asset.video_analysis_source_fingerprint === videoSourceFingerprint(asset.source_url) && asset.visual_video_facts) { reused += 1; continue; }
+    const jacketResult = asset.work_id ? await supabaseAdmin.from("works").select("image_url").eq("id", asset.work_id).maybeSingle() : { data: null };
+    const result = await analyzeSampleMovie({ sourceUrl: asset.source_url, trimStartSeconds: asset.trim_start_seconds ?? 0, jacketUrl: (jacketResult.data as { image_url?: string | null } | null)?.image_url });
+    const facts = buildVisualVideoFacts({ sampleMovieUrl: asset.source_url, videoEvidence: result.videoEvidence, jacketEvidence: result.jacketEvidence });
+    const update = { visual_video_facts: facts, video_analysis_version: result.version, video_analysis_source_fingerprint: result.sourceFingerprint, video_analyzed_at: result.analyzedAt, video_raw_metrics: result.rawMetrics, video_analysis_diagnostics: result.diagnostics };
+    const saved = await supabaseAdmin.from("x_media_assets").update(update).eq("account_handle", ACCOUNT).eq("id", asset.id);
+    if (saved.error) diagnostics.push({ workId: asset.work_id, sourceUrl: asset.source_url, status: "persist_failed", detail: saved.error.message });
+    else { Object.assign(asset, update); analyzed += 1; diagnostics.push({ workId: asset.work_id, sourceUrl: asset.source_url, status: result.videoEvidence.length ? "analyzed" : "no_usable_video_evidence", detail: result.diagnostics.join(" / ") }); }
+  }
+  return { analyzed, reused, elapsedMs: Date.now() - started, diagnostics };
 }
 
 export function applyMediaRights(opportunities: XGrowthOpportunity[], assets: Map<number, XMediaAsset>) {
@@ -463,6 +490,7 @@ export type SerializedTopPick = {
   alternativeReason: string | null;
   dailyScore: number;
   sourceEvidence: string[];
+  visualFacts?: XVisualVideoFacts | null;
   setDiversity: XDailyTopPick["setDiversity"];
   mediaAsset: {
     id: number | undefined;
@@ -525,6 +553,7 @@ function serializeTopPick(item: XDailyTopPick): SerializedTopPick {
     alternativeReason: item.alternativeReason,
     dailyScore: item.dailyScore,
     sourceEvidence: item.sourceEvidence,
+    visualFacts: item.visualFacts,
     setDiversity: item.setDiversity,
     mediaAsset: item.mediaAsset ? {
       id: item.mediaAsset.id,

@@ -1,5 +1,6 @@
 import type { XPostLog } from "@/lib/xPostLogs";
 import { getXWeightedLength } from "@/lib/xText";
+import { primaryUsableVisualFact, type XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
 
 export type XGrowthIntent = "REACH" | "AUTHORITY" | "FOLLOW" | "CONVERSATION" | "MONEY";
 export type XHookType = "price_anomaly" | "rating_anomaly" | "ranking_anomaly" | "review_proof" | "discovery_anomaly" | "buy_timing";
@@ -147,6 +148,7 @@ export type XCreativeInput = {
   radarAvailable?: boolean;
   recommendedSlot?: string;
   sourceType?: XSourceType;
+  visualFacts?: XVisualVideoFacts | null;
 };
 
 const HOOK_ORDER: XHookType[] = ["ranking_anomaly", "price_anomaly", "buy_timing", "discovery_anomaly", "rating_anomaly", "review_proof"];
@@ -281,6 +283,11 @@ function primaryVideoTag(input: XCreativeInput): XVideoManualTag | null {
 }
 
 function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPlan: XLinkPlan) {
+  const visualFact = primaryUsableVisualFact(input.visualFacts);
+  if (visualFact?.safePhrase) {
+    const link = linkPlan === "body_link" ? input.url : "";
+    return [visualFact.safePhrase, intent === "MONEY" ? humanProofLine(input, intent) : "", link].filter(Boolean);
+  }
   const tag = primaryVideoTag(input);
   if (!tag || tag === "too_explicit_for_reach" || tag === "weak_visual") return null;
   const actress = primaryActress(input);
@@ -381,6 +388,10 @@ function hookLine(input: XCreativeInput, intent: XGrowthIntent, direction: XHook
 
 function voiceProof(input: XCreativeInput, intent: XGrowthIntent, direction: XHookDirection) {
   // A lived-in X reaction does not need a stat on every post.
+  // Numeric proof is reserved for the archetypes that actually make a proof
+  // the point of the post. This keeps metadata fallback from becoming a
+  // mandatory rating/price footer on every Human Voice variant.
+  if (intent !== "MONEY" && !["social_proof", "hot_take"].includes(direction)) return "";
   if (["missed", "confession", "surprise", "empathy", "question"].includes(direction)) return "";
   return humanProofLine(input, intent);
 }
@@ -826,13 +837,19 @@ export function buildXCreativeVariants(input: XCreativeInput, hookScore = calcul
     const alternatives = hookOpenings(input, intent);
     return alternatives.slice(0, 5).map((alternative, alternativeIndex) => {
       const linkPlan = intent === "MONEY" && alternativeIndex === 4 ? "reply_link" as const : plan.linkPlan;
-      const reviewed = buildLastMileBodies(input, intent, linkPlan, alternative.direction)
+      const reviewedCandidates = buildLastMileBodies(input, intent, linkPlan, alternative.direction)
         .map((text, index) => ({
           text,
           quality: qualityFor(input, { intent, structure: plan.structure, mediaType, linkPlan, text }),
           rewriteCount: index,
-        }))
-        .sort((a, b) => Number(b.quality.passed) - Number(a.quality.passed) || b.quality.total - a.quality.total)[0];
+        }));
+      // Keep A/B/C materially different when the same source produces several
+      // valid bodies. The preferred index is stable, while failed variants still
+      // fall back to the strongest passing body.
+      const preferred = reviewedCandidates[alternativeIndex % Math.max(1, reviewedCandidates.length)];
+      const reviewed = preferred?.quality.passed
+        ? preferred
+        : reviewedCandidates.sort((a, b) => Number(b.quality.passed) - Number(a.quality.passed) || b.quality.total - a.quality.total)[0];
       const text = reviewed.text;
       const quality = {
         ...reviewed.quality,
