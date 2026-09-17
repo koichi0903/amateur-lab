@@ -1,4 +1,5 @@
 import type { MyfansAnalytics, MyfansProduct, MyfansQuoteCandidate, MyfansXPost } from "@/lib/myfansAnalytics";
+import { bestResolverEvidence, buildDbExistingEvidence, resolveTextEvidence } from "@/lib/myfansProductResolver";
 import { calculateMyfansOpportunityScores } from "@/lib/myfansScore";
 import { getXWeightedLength } from "@/lib/xText";
 
@@ -6,6 +7,8 @@ export type MyfansLinkStrategy = "body_link" | "reply_link" | "profile_cta" | "n
 export type MyfansGrowthStage = "day_1_7" | "day_8_14" | "day_15_30";
 export type MyfansObjective = "impression" | "profile_visit" | "follow" | "click" | "conversion";
 export type MyfansCreativeStrategy = "quote_post" | "myfans_ogp" | "comparison_card" | "ranking_card" | "discovery_card" | "revenue_data_card" | "text_only" | "permitted_media";
+export type MyfansCandidateType = "Growth" | "Monetizable Growth" | "Revenue";
+export type MyfansMonetizableStatus = "unlinked" | "linked_no_affiliate" | "linked_affiliate_ready";
 export type MyfansQuoteCollectionTask = {
   id: string;
   creatorName: string;
@@ -82,7 +85,7 @@ type HookType =
   | "SCARCITY_DEADLINE";
 
 type AudienceIntent = "broad_curiosity" | "creator_interest" | "category_interest" | "comparison_shopper" | "purchase_intent" | "returning_follower";
-export const MYFANS_PUBLIC_COPY_GENERATOR_VERSION = "public-copy-v13-daily-freshness";
+export const MYFANS_PUBLIC_COPY_GENERATOR_VERSION = "public-copy-v15-natural-reaction";
 export const MYFANS_VISUAL_ANALYZER_VERSION = "visual-understanding-v3-logged-in-chrome";
 export const MYFANS_PUBLIC_COPY_V9_GENERATOR_VERSION = "public-copy-v9-visual-grounded";
 export const MYFANS_PUBLIC_COPY_V10_GENERATOR_VERSION = "public-copy-v10-human-observation";
@@ -209,6 +212,14 @@ type AttentionValue = {
   naturalReaction: number;
   reasons: string[];
   weakCue: boolean;
+};
+
+export type PublicCopyReactionReview = {
+  naturalUserReaction: number;
+  analystCommentaryRisk: number;
+  sourceSpecificity: number;
+  verdict: "natural_user_reaction" | "analyst_commentary" | "needs_more_source";
+  reasons: string[];
 };
 
 export const MYFANS_30_DAY_STRATEGY: Record<MyfansGrowthStage, {
@@ -363,6 +374,42 @@ function compactSourceText(text: string, max = 34) {
 
 function stringField(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function creatorMyfansUrl(product: MyfansProduct | null | undefined) {
+  const relation = product?.myfans_creators as { myfans_url?: unknown } | null | undefined;
+  return stringField(relation?.myfans_url);
+}
+
+function quoteMatchesProduct(quote: MyfansQuoteCandidate | null | undefined, product: MyfansProduct | null | undefined) {
+  if (!quote || !product) return false;
+  if (quote.product_id && quote.product_id === product.id) return true;
+  const quoteHandle = (quote.source_x_handle || quote.creator_x_url || "").replace(/^@/, "").toLowerCase();
+  const productHandle = (product.creator_x_url || "").replace(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\//i, "").split(/[/?#]/)[0]?.replace(/^@/, "").toLowerCase();
+  return Boolean(quoteHandle && productHandle && quoteHandle === productHandle);
+}
+
+function resolvedMyfansTarget(product: MyfansProduct | null | undefined, quote: MyfansQuoteCandidate | null | undefined) {
+  if (!product) return { type: "none", url: "", affiliateUrl: "", canConnectAffiliate: false } as const;
+  const canConnectAffiliate = !quote || quoteMatchesProduct(quote, product);
+  const url = canConnectAffiliate ? product.product_url || creatorMyfansUrl(product) : "";
+  return {
+    type: url ? (product.product_url ? "product" : "creator") : "none",
+    url,
+    affiliateUrl: canConnectAffiliate ? product.affiliate_url || "" : "",
+    canConnectAffiliate,
+  } as const;
+}
+
+function monetizableStatusFor(product: MyfansProduct | null | undefined, canConnectAffiliate: boolean): MyfansMonetizableStatus {
+  if (!product || !canConnectAffiliate) return "unlinked";
+  return product.affiliate_url ? "linked_affiliate_ready" : "linked_no_affiliate";
+}
+
+function candidateTypeFor(role: DailyRole, quote: MyfansQuoteCandidate | null | undefined, status: MyfansMonetizableStatus, exactResolution = false): MyfansCandidateType {
+  if (role === "REVENUE") return "Revenue";
+  if ((quote && status !== "unlinked") || exactResolution) return "Monetizable Growth";
+  return "Growth";
 }
 
 function normalizeVisualEvidence(text: string) {
@@ -766,6 +813,7 @@ function qualityScoreFor(input: {
   const firstLine = input.body.split(/\n+/)[0] ?? "";
   const facts = publicCopyFactsFor(input.product, input.quote);
   const understanding = visualUnderstandingFor(facts);
+  const reactionReview = reviewPublicCopyReaction(input.body, input.quote, understanding);
   const attentionValue = attentionValueForText(input.body, understanding.attentionMoment || understanding.humanObservation);
   const leak = detectPublicCopyLeak(input.body);
   const hardFail = publicCopyHardFail(input.body);
@@ -787,10 +835,13 @@ function qualityScoreFor(input: {
   const allCueTokens = [...cueTokens, ...visualKeywordTokens];
   const bodyCompact = input.body.replace(/[^\p{L}\p{N}]+/gu, "");
   const cueInBody = Boolean(groundingText && allCueTokens.some((token) => bodyCompact.includes(token.replace(/\s+/g, ""))));
+  const sourceTextSnippet = compactSourceText(input.quote?.text_excerpt ?? "", 28).replace(/[^\p{L}\p{N}]+/gu, "");
+  const sourceTextGrounded = Boolean(isQuote && sourceTextSnippet.length >= 6 && bodyCompact.includes(sourceTextSnippet.slice(0, Math.min(12, sourceTextSnippet.length))));
   const firstTwoLines = input.body.split(/\n+/).slice(0, 2).join(" ");
   const cueEarly = cueInBody && allCueTokens.some((token) => firstTwoLines.replace(/[^\p{L}\p{N}]+/gu, "").includes(token.replace(/\s+/g, "")));
   const concreteVisualSpecificity = isQuote
-    ? (cueEarly ? 30 : cueInBody ? 22 : visualWords.test(firstTwoLines) && understanding.concreteVisualCue ? 18 : 6)
+    ? sourceTextGrounded ? 24
+    : (cueEarly ? 30 : cueInBody ? 22 : visualWords.test(firstTwoLines) && understanding.concreteVisualCue ? 18 : 6)
     : 0;
   const observationFirstLine = isQuote && understanding.humanObservation && firstLine.includes(understanding.humanObservation);
   const readerCuriosity = firstLine.length >= 10 && firstLine.length <= 46 && /[。？?]$/.test(firstLine) && !/です。$|ます。$/.test(firstLine) && (reactionWords.test(firstLine) || observationFirstLine) ? 30 : firstLine.length >= 10 ? 18 : 8;
@@ -817,13 +868,13 @@ function qualityScoreFor(input: {
     ? (/^https:\/\/mfco\.link\/r\//.test(input.product.affiliate_url) && /#PR/.test(input.body + "\n" + replyFor(input.product, input.linkStrategy)) ? 10 : 0)
     : 0;
   const attentionOrDiscovery = role === "ATTENTION" || role === "DISCOVERY";
-  const firstLineGateFailed = attentionOrDiscovery && !isDiscovery && readerCuriosity < 25;
+  const firstLineGateFailed = attentionOrDiscovery && !isDiscovery && readerCuriosity < 25 && !sourceTextGrounded;
   const discoveryInsight = discoveryInsightFor(input.product, input.quote, 0);
   const topicInsight = input.topicValue?.verdict === "PASS" ? discoveryInsightFromTopic(input.topicValue) : null;
   const discoveryFactMissing = input.postType === "ranking_note" && !topicInsight && !input.product.popularity_rank && input.product.likes_count <= 0 && input.product.saves_count <= 0 && !input.product.is_new && !input.quote;
   const discoveryConcrete = isDiscovery && (
     (Boolean(discoveryInsight) && input.body.includes(discoveryInsight?.line.split("。")[0] ?? ""))
-    || /(新着なのに|新着で|人気[0-9０-９]+位|全体上位|中央値|同価格帯|いいね[0-9０-９,，]+に対して保存|X側で[0-9０-９]+万表示|X表示[0-9０-９,，]+|¥[0-9０-９,，]+)/.test(input.body)
+    || /(新着なのに|新着で|人気[0-9０-９]+位|全体上位|中央値|同価格帯|いいね[0-9０-９,，]+に対して保存|X側で[0-9０-９]+万表示|X表示[0-9０-９,，]+|[0-9０-９]+万表示|[0-9０-９]+千表示|[0-9０-９]+いいね|反応が残っている|見た人の温度|元投稿の空気|¥[0-9０-９,，]+)/.test(input.body)
     || Boolean(topicInsight && input.body.includes(topicInsight.line.split("。")[0] ?? ""))
   );
   const discoveryMethodTalk = isDiscovery && /(比較して見る|見て残す|反応と価格を見て|分析|判断材料|候補|条件を確認)/.test(input.body);
@@ -847,7 +898,9 @@ function qualityScoreFor(input: {
   const legacyScore = readerCuriosity + concreteFact + visualTextFit + readerRelevance + originalAngle + naturalLanguage + salesAdminSmell + roleDifferentiation;
   const total = leak.hasLeak || hardFail.length
     ? 0
-    : Math.max(0, Math.min(100, isQuote && hasVerifiedVisualAnalysis(input.quote)
+    : Math.max(0, Math.min(100, sourceTextGrounded
+      ? Math.max(88, v8QuoteScore)
+      : isQuote && hasVerifiedVisualAnalysis(input.quote)
       ? (
         (cueEarly && understanding.visualAnalysisStatus === "verified" ? 30 : 0)
         + emotionalStopPower
@@ -857,13 +910,15 @@ function qualityScoreFor(input: {
         + originality
       )
       : isQuote ? v8QuoteScore : role === "ATTENTION" ? legacyScore : roleScore));
-  const quoteVisualMissing = isQuote && (!understanding.humanObservation || !cueInBody || !cueEarly);
+  const quoteVisualMissing = isQuote && hasVerifiedVisualAnalysis(input.quote) && (!understanding.humanObservation || !cueInBody || !cueEarly);
   const quoteAttentionMissing = isQuote && hasVerifiedVisualAnalysis(input.quote) && (!understanding.attentionMoment || attentionValue.score < MYFANS_ATTENTION_VALUE_MINIMUM || attentionValue.weakCue);
-  const abstractFallbackQuote = isQuote && understanding.visualAnalysisStatus !== "verified";
+  const abstractFallbackQuote = isQuote && understanding.visualAnalysisStatus !== "verified" && !input.quote?.text_excerpt;
   const verifiedVisualNotGrounded = isQuote && hasVerifiedVisualAnalysis(input.quote) && (!cueInBody || understanding.visualAnalysisStatus !== "verified");
   const unverifiableVisualDetail = isQuote && !hasVerifiedVisualAnalysis(input.quote) && /(表情|ポーズ|構図|テロップ|字幕|アップ|引きの画|途中で|後半|冒頭と|距離が近くなる|1枚目|2枚目)/.test(input.body);
   const reportTone = isQuote && (reportWords.test(input.body) && !reactionWords.test(input.body));
-  const abstractTextOnly = input.creativeStrategy === "text_only" && /この投稿|この切り取り|こういう|一回開いて|強い|気になる|刺さる/.test(input.body) && !/(人気|保存|新着|¥|価格|ランキング|プロフィール)/.test(input.body);
+  const analystCommentary = isQuote && reactionReview.verdict === "analyst_commentary";
+  const unnaturalReaction = isQuote && reactionReview.naturalUserReaction < 55;
+  const abstractTextOnly = input.creativeStrategy === "text_only" && /この投稿|この切り取り|こういう|一回開いて|強い|気になる|刺さる/.test(input.body) && !/(人気|保存|新着|¥|価格|ランキング|プロフィール|万表示|千表示|いいね|反応が残っている|見た人の温度|元投稿の空気)/.test(input.body);
   const sourceSimilarity = sourceCopySimilarity(input.body, input.quote?.text_excerpt ?? "");
   const repeatedLine = (() => {
     const lines = input.body.split(/\n+/).map((line) => line.trim()).filter(Boolean);
@@ -886,7 +941,9 @@ function qualityScoreFor(input: {
     quoteVisualMissing ? "quote本文に照合可能な具体visual cueがありません" : "",
     vagueReactionOnly ? "抽象リアクションだけで終わっています" : "",
     reportTone ? "quote本文が数字レポート口調です" : "",
-    sourceSimilarity >= 0.72 ? "元投稿本文に近すぎます" : "",
+    analystCommentary ? `Natural reaction判定NG: analyst risk ${reactionReview.analystCommentaryRisk}/100` : "",
+    unnaturalReaction ? `Natural reaction ${reactionReview.naturalUserReaction}/100: 普通のXユーザーの一言として弱い` : "",
+    sourceSimilarity >= 0.72 && !sourceTextGrounded ? "元投稿本文に近すぎます" : "",
     repeatedLine ? "本文内で同じ内容を繰り返しています" : "",
     quoteAttentionMissing ? `Attention Value ${MYFANS_ATTENTION_VALUE_MINIMUM}未満` : "",
     isQuote && weakAttentionCue(input.body) ? "事実でもhookとして弱いvisual cueです" : "",
@@ -909,6 +966,9 @@ function qualityScoreFor(input: {
       audience: isQuote ? naturalnessV8 : readerRelevance,
       followReason: isQuote ? naturalness : readerRelevance,
       attentionValue: attentionValue.score,
+      naturalUserReaction: reactionReview.naturalUserReaction,
+      analystCommentaryRisk: reactionReview.analystCommentaryRisk,
+      sourceSpecificity: reactionReview.sourceSpecificity,
       roleDifferentiation,
       spamSalesSmell: salesAdminSmell + naturalLanguage,
       repetitionPenalty: hardFail.length ? 100 : 0,
@@ -961,6 +1021,9 @@ const PUBLIC_COPY_LEAK_PATTERNS = [
   /止まりやすい|探す時間を減らしたい|反応と価格のズレ|判断材料|比較して見|好き嫌いが.*分かれ|〜向け|向けに/,
   /数字だけ浮いて見える|反応の強さが目に入る|数字の伸び方|同価格帯なら先に気になる|この反応は目立つ/,
   /validation|estimated reward|reward|audience intent|attention reason/i,
+  /source text/i,
+  /見た人の温度|元投稿の空気|空気を見ておきたい|反応が残った理由|まず確認したい|を見て判断したい|入口として強い|距離感で見せる|残り方が別物|流しにくい|さすがに一度確認したい/,
+  /反応があるから|表示.*だから.*見たい|理由だけ確かめたい|先に元投稿/,
 ];
 
 export function detectPublicCopyLeak(text: string) {
@@ -984,9 +1047,14 @@ function publicCopyHardFail(text: string) {
     [/要素から入る|構図だけで空気が(だいぶ)?伝わる|から[^。！？!?]{0,18}が出る|で先に引けてる|分かりやすさで/, "v10自然文hard fail"],
     [/白いプロフィール画面|白っぽい部屋で動き出す|目に残る|目に入る、地味に強い|説明が少なくても手が止まる/, "low attention visual cue"],
     [/空気が(だいぶ)?伝わる|先を見たくなる|続きが気になる|引けてる|分かりやすさ|流れてきた理由がある|比べた時の違いが残る|方向性が分かる|方向性がはっきり|何が違うか分からない/, "汎用抽象結論"],
+    [/見た人の温度|元投稿の空気|空気を見ておきたい|反応が残った理由|まず確認したい|を見て判断したい|入口として強い|距離感で見せる|残り方が別物|流しにくい|さすがに一度確認したい/, "分析者/第三者視点の抽象語"],
+    [/反応があるから|表示.*だから.*見たい|理由だけ確かめたい|先に元投稿/, "バズ事実の解説だけ"],
     [/^.*向け/m, "audience label起点"],
   ];
-  return rules.flatMap(([pattern, reason]) => pattern.test(text) ? [reason] : []);
+  const reasons = rules.flatMap(([pattern, reason]) => pattern.test(text) ? [reason] : []);
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  if (new Set(lines).size < lines.length) reasons.push("同じ文を1投稿内で反復");
+  return reasons;
 }
 
 function machineLikeCopyIssue(text: string) {
@@ -1022,15 +1090,36 @@ function hasPublicCopyDiversityIssue(body: string, previousBodies: string[]) {
     const previousLines = previous.split(/\n+/).map((line) => line.trim()).filter(Boolean);
     if (first && first === previousFirst) return "同じ1行目構文が続いています";
     if (lines.some((line) => line.length >= 12 && previousLines.includes(line))) return "同じ文が別投稿にも出ています";
-    for (const phrase of ["地味に強い", "説明が少なくても手が止まる", "盛って言わなくても", "逆に気になる"]) {
+    for (const phrase of ["地味に強い", "説明が少なくても手が止まる", "盛って言わなくても", "動画を見る前から引っかかりがある", "合う人にはすぐ分かる", "タイムラインで見たら"]) {
       if (body.includes(phrase) && previous.includes(phrase)) return `同じreaction phraseが別投稿にも出ています: ${phrase}`;
     }
     if (ending && ending === endingTone(previous) && first.slice(0, 8) === previousFirst.slice(0, 8)) return "同じ語尾が続いています";
     const metricTemplate = /表示[0-9,]+\/いいね[0-9,]+/.test(body.replace(/\s+/g, "")) && /表示[0-9,]+\/いいね[0-9,]+/.test(previous.replace(/\s+/g, ""));
     if (metricTemplate && first.slice(0, 6) === previousFirst.slice(0, 6)) return "数字テンプレの見え方が近すぎます";
   }
+  const todayBodies = [body, ...previousBodies];
+  const startsWithThisVideo = todayBodies.filter((text) => /^この動画/.test(text.trim())).length;
+  if (startsWithThisVideo > 2) return "「この動画」始まりは同日2回までです";
   if ((body.match(/します/g) ?? []).length >= 2) return "宣言文の連発が残っています";
   return "";
+}
+
+function sourceSpecificityScore(body: string, quote: MyfansQuoteCandidate | null, understanding: VisualUnderstanding | null) {
+  const sourceText = compactSourceText(quote?.text_excerpt ?? "", 80);
+  const sourceTokens = sourceText
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 3);
+  const visualCue = understanding?.attentionMoment || understanding?.humanObservation || understanding?.concreteVisualCue || "";
+  const cueTokens = visualCue
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 2);
+  const compactBody = body.replace(/[^\p{L}\p{N}]+/gu, "");
+  const tokenHits = [...sourceTokens, ...cueTokens].filter((token) => compactBody.includes(token.replace(/\s+/g, ""))).length;
+  const properSource = /【[^】]+】|#[^\s#]+|@[A-Za-z0-9_]+|[A-Za-z0-9]{4,}|[一-龠ぁ-んァ-ヶー]{4,}/.test(body);
+  const visualSpecific = /(制服|階段|海辺|砂浜|赤|黒|ベッド|距離|くま|踊|引き|近め|表情|目線|衣装|ポーズ|字幕|テロップ|タイトル|設定)/.test(body);
+  return Math.min(100, tokenHits * 24 + (properSource ? 20 : 0) + (visualSpecific ? 24 : 0) + (quote?.source_x_handle && body.includes(quote.source_x_handle) ? 16 : 0));
 }
 
 function holdQuality(quality: ReturnType<typeof qualityScoreFor>, reason: string) {
@@ -1325,11 +1414,127 @@ function semanticTopicSimilarity(left: string, right: string) {
   return overlap / Math.max(leftParts.size, rightParts.length);
 }
 
+type PastUsageRecord = {
+  date: string;
+  source: string;
+  creatorKey: string;
+  topicIdentity: string;
+  topicSemanticKey: string;
+  bodyFingerprint: string;
+  actualPosted: boolean;
+};
+
+function buildPastUsageIndex(analytics: MyfansAnalytics, planDate: string) {
+  const records: PastUsageRecord[] = [];
+  const quoteBySource = new Map<string, MyfansQuoteCandidate>();
+  for (const quote of analytics.quoteCandidates) {
+    quoteBySource.set(normalizeSourceUrl(quote.x_post_url), quote);
+    quoteBySource.set(normalizeSourceUrl(quoteUrlFromCandidate(quote)), quote);
+  }
+
+  for (const post of analytics.posts) {
+    const usedAt = (post.posted_at ?? post.created_at ?? "").slice(0, 10);
+    if (!usedAt || usedAt >= planDate) continue;
+    const source = normalizeSourceUrl(post.quote_x_url || post.source_x_url);
+    const quote = quoteBySource.get(source);
+    const product = analytics.products.find((item) => item.id === post.product_id);
+    records.push({
+      date: usedAt,
+      source,
+      creatorKey: quote ? creatorKeyFromQuote(quote) : product ? creatorKeyFromProduct(product) : "",
+      topicIdentity: quote ? `quote:${quote.id}` : post.product_id ? `product:${post.product_id}:${post.post_type ?? ""}:${post.creative_strategy ?? ""}` : "",
+      topicSemanticKey: quote ? topicSemanticKeyFor(product ?? analytics.products[0], quote, null) : post.product_id ? `product:${post.product_id}:${post.post_type ?? ""}:${post.creative_strategy ?? ""}` : "",
+      bodyFingerprint: normalizeBodyFingerprint(post.body),
+      actualPosted: post.status === "posted" || Boolean(post.posted_at || post.x_post_url),
+    });
+  }
+
+  for (const plan of analytics.dailyPlans ?? []) {
+    if (!plan.plan_date || plan.plan_date >= planDate) continue;
+    const strategy = plan.strategy_json ?? {};
+    const selections = strategy.daily_option_selection && typeof strategy.daily_option_selection === "object"
+      ? strategy.daily_option_selection as Record<string, string>
+      : {};
+    const slots = Array.isArray(strategy.candidate_options) ? strategy.candidate_options as Array<Record<string, unknown>> : [];
+    for (const slot of slots) {
+      const postOrder = String(slot.post_order ?? "");
+      const selectedLabel = selections[postOrder] || String(slot.recommended_option ?? "A");
+      const candidates = Array.isArray(slot.candidates) ? slot.candidates as Array<Record<string, unknown>> : [];
+      const selected = candidates.find((candidate) => String(candidate.option_label ?? "A") === selectedLabel) ?? candidates[0];
+      if (!selected) continue;
+      const source = normalizeSourceUrl(String(selected.quote_x_url || selected.source_x_url || ""));
+      const quote = quoteBySource.get(source);
+      const productId = Number(selected.product_id ?? 0) || null;
+      const product = productId ? analytics.products.find((item) => item.id === productId) : null;
+      records.push({
+        date: plan.plan_date,
+        source,
+        creatorKey: quote ? creatorKeyFromQuote(quote) : product ? creatorKeyFromProduct(product) : String(selected.creator ?? ""),
+        topicIdentity: String(selected.topic_identity || (quote ? `quote:${quote.id}` : "")),
+        topicSemanticKey: quote ? topicSemanticKeyFor(product ?? analytics.products[0], quote, null) : String(selected.topic_identity || ""),
+        bodyFingerprint: normalizeBodyFingerprint(String(selected.body ?? "")),
+        actualPosted: false,
+      });
+    }
+  }
+
+  const latest = (predicate: (record: PastUsageRecord) => boolean) =>
+    records.filter(predicate).sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
+
+  return {
+    records,
+    latestSource: (source: string) => latest((record) => Boolean(source) && record.source === normalizeSourceUrl(source)),
+    latestCreator: (creatorKey: string) => latest((record) => Boolean(creatorKey) && record.creatorKey === creatorKey),
+    latestTopic: (topicIdentity: string, topicSemanticKey: string) => latest((record) =>
+      Boolean(topicIdentity || topicSemanticKey) &&
+      (record.topicIdentity === topicIdentity || semanticTopicSimilarity(record.topicSemanticKey, topicSemanticKey) >= 0.75)),
+    latestBody: (body: string) => {
+      const fingerprint = normalizeBodyFingerprint(body);
+      return latest((record) => Boolean(fingerprint) && (record.bodyFingerprint === fingerprint || bodySimilarityFromFingerprints(record.bodyFingerprint, fingerprint) >= 0.9));
+    },
+  };
+}
+
+function bodySimilarityFromFingerprints(left: string, right: string) {
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+  const grams = (text: string) => {
+    const set = new Set<string>();
+    for (let index = 0; index < Math.max(1, text.length - 1); index += 1) set.add(text.slice(index, index + 2));
+    return set;
+  };
+  const leftGrams = grams(left);
+  const rightGrams = grams(right);
+  return [...leftGrams].filter((gram) => rightGrams.has(gram)).length / Math.max(1, Math.min(leftGrams.size, rightGrams.size));
+}
+
+function quotePublicDiscoveryLine(quote: MyfansQuoteCandidate | null, topicValue: MyfansTopicValue | null, variant = 0) {
+  if (!quote) return "";
+  const visual = visualAnalysisForQuote(quote);
+  if (visual?.status === "verified") return "";
+  const media = quote.has_video ? "動画" : quote.has_image ? "画像" : "投稿";
+  const excerpt = compactSourceText(quote.text_excerpt ?? "", 18);
+  const subject = media === "動画" ? "この動画" : media === "画像" ? "この画像" : "この投稿";
+  const lines = [
+    `${subject}、最初の置き方がうまい。`,
+    `${subject}、タイムラインで見たら一回開く。`,
+    `${media}だけで見せ切る感じ、けっこうずるい。`,
+    excerpt ? `「${excerpt}」の出し方が気になってしまう。` : "",
+    topicValue?.reasonToCare === "conversation_worthy" ? `${subject}、短いのに妙に引っかかる。` : "",
+  ].filter(Boolean);
+  return lines[(variant + stableHash(quote.x_post_url)) % lines.length] ?? "";
+}
+
 function buildDiscoveryCopy(product: MyfansProduct, quote: MyfansQuoteCandidate | null, topicValue: MyfansTopicValue | null, variant = 0) {
   const insight = topicValue?.verdict === "PASS" ? discoveryInsightFromTopic(topicValue) : null;
   if (!insight) return ["話す価値の根拠が弱いので今日は出さない。"];
-  const closers = [insight.value, "数字だけで押さず、見えた場面まで残しておきたい。", "伸びた投稿でも、何が見えたかまで確認してから拾う。"];
-  return [insight.line, closers[variant % closers.length]];
+  const safeQuoteLine = quotePublicDiscoveryLine(quote, topicValue, variant);
+  const firstLine = safeQuoteLine || insight.line;
+  const closers = safeQuoteLine
+    ? ["この入り方ずるい。", "一回開いてしまうタイプ。", "こういうの、気づいたら最後まで見てる。", "言葉より先に見せ方で持っていく。", "この人、他の投稿も少し気になる。"]
+    : [insight.value, "ぱっと見で気になる場所がある。", "説明より先に、引用元で一回引っかかる。", "この出し方ならタイムラインでも目が戻る。"];
+  const second = closers[(variant + stableHash(firstLine)) % closers.length];
+  return [firstLine, second === firstLine ? closers[(variant + 1) % closers.length] : second];
 }
 
 function buildAuthorityCopy(product: MyfansProduct, quote: MyfansQuoteCandidate | null, topicValue: MyfansTopicValue | null, variant = 0) {
@@ -1345,7 +1550,7 @@ function buildAuthorityCopy(product: MyfansProduct, quote: MyfansQuoteCandidate 
   const openers = [
     `今日残すなら、${insight.line}`,
     `${shortTitle(product.title)}は、${insight.line}`,
-    `単独の条件より、${insight.line}`,
+    `この組み合わせなら、${insight.line}`,
   ];
   const seconds = [
     `${secondEvidence}。ここまで揃うと、先に見る理由になる。`,
@@ -1375,6 +1580,9 @@ const QUOTE_REFRESH_DAYS = 3;
 const QUOTE_MIN_SCORE = 55;
 const QUOTE_STRONG_SCORE = 78;
 const QUOTE_CREATOR_COOLDOWN_DAYS = 2;
+const POSTED_SOURCE_COOLDOWN_DAYS = 7;
+const SELECTED_SOURCE_SOFT_COOLDOWN_DAYS = 3;
+const TOPIC_COOLDOWN_DAYS = 3;
 
 function addDaysIso(value: string | null | undefined, days: number) {
   if (!value) return null;
@@ -1391,6 +1599,13 @@ function daysSinceIso(value?: string | null) {
   return Math.max(0, (Date.now() - time) / 86_400_000);
 }
 
+function daysBetweenDates(laterDate: string, earlierDate: string) {
+  const later = new Date(`${laterDate}T00:00:00+09:00`).getTime();
+  const earlier = new Date(`${earlierDate}T00:00:00+09:00`).getTime();
+  if (!Number.isFinite(later) || !Number.isFinite(earlier)) return null;
+  return Math.floor((later - earlier) / 86_400_000);
+}
+
 function creatorKeyFromProduct(product: MyfansProduct) {
   return product.creator_id ? `creator:${product.creator_id}` : `x:${(product.creator_x_url ?? "").toLowerCase()}`;
 }
@@ -1404,7 +1619,41 @@ function creatorKeyFromQuote(candidate: MyfansQuoteCandidate) {
 }
 
 function quoteUrlFromCandidate(candidate: MyfansQuoteCandidate) {
-  return candidate.quote_visual_ready && candidate.media_permalink ? candidate.media_permalink : candidate.x_post_url;
+  return candidate.x_post_url;
+}
+
+function sourceAuthorHandleFromQuote(candidate: MyfansQuoteCandidate | null | undefined) {
+  return (candidate?.source_x_handle || candidate?.creator_x_url?.match(/(?:x|twitter)\.com\/([^/?#]+)/i)?.[1] || "")
+    .replace(/^@/, "")
+    .trim();
+}
+
+function sourceAuthorLabelFromQuote(candidate: MyfansQuoteCandidate | null | undefined) {
+  const handle = sourceAuthorHandleFromQuote(candidate);
+  return handle ? `@${handle}` : "引用元X投稿者不明";
+}
+
+function normalizeSourceUrl(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    url.hostname = url.hostname.replace(/^twitter\.com$/i, "x.com").toLowerCase();
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return raw.toLowerCase().replace(/\?.*$/, "").replace(/#.*$/, "").replace(/\/$/, "");
+  }
+}
+
+function normalizeBodyFingerprint(value: string | null | undefined) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[^\p{Letter}\p{Number}ぁ-んァ-ヶー一-龠]+/gu, "")
+    .trim();
 }
 
 function visualPriority(candidate: MyfansQuoteCandidate) {
@@ -1435,9 +1684,10 @@ function usedQuoteUrls(analytics: MyfansAnalytics) {
   return urls;
 }
 
-export function buildMyfansQuotePool(analytics: MyfansAnalytics) {
+export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = currentPlanDate()) {
   const recentCreators = recentUsedCreatorKeys(analytics);
   const usedUrls = usedQuoteUrls(analytics);
+  const pastUsage = buildPastUsageIndex(analytics, planDate);
   const creatorLastUsed = new Map<string, string>();
   for (const post of analytics.posts) {
     if (post.creative_strategy !== "quote_post") continue;
@@ -1453,30 +1703,43 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics) {
   const mediaScoped = analytics.quoteCandidates.length;
   const baseEligible = analytics.quoteCandidates.filter((candidate) => {
     const age = daysSinceIso(candidate.collected_at);
+    const sourceUsage = pastUsage.latestSource(candidate.x_post_url) ?? pastUsage.latestSource(quoteUrlFromCandidate(candidate));
+    const sourceAge = sourceUsage ? daysBetweenDates(planDate, sourceUsage.date) : null;
+    const topicProduct = analytics.products.find((product) => product.id === candidate.product_id) ?? analytics.products[0] ?? null;
+    const topicUsage = topicProduct ? pastUsage.latestTopic(`quote:${candidate.id}`, topicSemanticKeyFor(topicProduct, candidate, null)) : null;
+    const topicAge = topicUsage ? daysBetweenDates(planDate, topicUsage.date) : null;
     if (age !== null && age > QUOTE_FRESH_DAYS) return false;
     if (candidate.is_repost) return false;
     if (candidate.cooldown_until && candidate.cooldown_until > now) return false;
     if (usedUrls.has(candidate.x_post_url) || usedUrls.has(quoteUrlFromCandidate(candidate)) || candidate.last_used_at) return false;
+    if (sourceUsage?.actualPosted && sourceAge !== null && sourceAge < POSTED_SOURCE_COOLDOWN_DAYS) return false;
+    if (sourceUsage && sourceAge !== null && sourceAge < SELECTED_SOURCE_SOFT_COOLDOWN_DAYS) return false;
+    if (topicUsage && topicAge !== null && topicAge < TOPIC_COOLDOWN_DAYS) return false;
     return true;
   });
-  const qualified = baseEligible.filter((candidate) =>
-    hasBrowserVisibleVisual(candidate) &&
-    ((candidate.creator_rank ?? 99) <= 3 || hasVerifiedVisualAnalysis(candidate)) &&
-    candidate.score >= QUOTE_MIN_SCORE,
-  );
+  const qualified = baseEligible.filter((candidate) => {
+    const visual = visualPriority(candidate);
+    return visual >= 1 &&
+      ((candidate.creator_rank ?? 99) <= 5 || hasVerifiedVisualAnalysis(candidate) || (candidate.views ?? 0) >= 10_000) &&
+      candidate.score >= QUOTE_MIN_SCORE;
+  });
   const scoredGlobal = qualified
     .map((candidate) => {
       const key = creatorKeyFromQuote(candidate);
       const freshnessAge = daysSinceIso(candidate.collected_at) ?? QUOTE_FRESH_DAYS;
       const unusedDays = daysSinceIso(creatorLastUsed.get(key)) ?? 30;
+      const creatorUsage = pastUsage.latestCreator(key);
+      const creatorUsageAge = creatorUsage ? daysBetweenDates(planDate, creatorUsage.date) : null;
       const visual = visualPriority(candidate);
-      const visualBoost = visual === 4 ? 45 : visual === 3 ? 24 : visual === 2 ? 8 : visual === 1 ? -18 : -28;
+      const visualBoost = visual === 4 ? 28 : visual === 3 ? 18 : visual === 2 ? 8 : visual === 1 ? 2 : -24;
+      const creatorHistoryPenalty = creatorUsageAge !== null && creatorUsageAge < 1 ? 38 : creatorUsageAge !== null && creatorUsageAge < 2 ? 24 : creatorUsageAge !== null && creatorUsageAge < 3 ? 12 : 0;
       const globalScore = Math.round(Math.max(0, Math.min(120,
         candidate.score
         + visualBoost
         + Math.max(0, 10 - freshnessAge)
         + Math.min(8, unusedDays / 3)
         - (recentCreators.has(key) ? 18 : 0)
+        - creatorHistoryPenalty
         - Math.max(0, (candidate.use_count ?? 0) * 12)
         - ((candidate.creator_rank ?? 3) - 1) * 4,
       )));
@@ -1806,26 +2069,26 @@ function humanReactionLine(reactionType: HumanReactionType, understanding: Visua
     : understanding.attentionMoment || understanding.humanObservation;
   if (cue) {
     const concreteByType: Record<HumanReactionType, string[]> = {
-      surprise: [`${cue}、最初の引きが強い。`, `${cue}って分かった瞬間ちょっと止まる。`, `${cue}だけで一回目が行く。`],
-      agreement: [`${cue}なら、そりゃ見ちゃう。`, `${cue}が先に来ると伸びるの分かる。`, `${cue}で入れるのは強い。`],
-      curiosity: [`${cue}から入ると続きが気になる。`, `${cue}のあとを見たくなるやつ。`, `${cue}で止めてくるのずるい。`],
-      contrast: [`${cue}で先に印象が変わる。`, `${cue}があるから普通に流せない。`, `${cue}のギャップで目が戻る。`],
-      immediacy: [`${cue}を冒頭に置くの強い。`, `${cue}で一瞬持っていく。`, `${cue}だけで空気が伝わる。`],
-      specific_appeal: [`${cue}が好きな人には一瞬で刺さる。`, `${cue}の方向性がはっきりしてる。`, `${cue}で好みが分かれる。`],
+      surprise: [`え、${cue}から始まるのずるい。`, `${cue}って分かった瞬間に目が戻る。`, `${cue}だけで普通に見入った。`],
+      agreement: [`${cue}なら最後まで見ちゃう。`, `${cue}が先に来たらそりゃ強い。`, `${cue}で入るの、かなりうまい。`],
+      curiosity: [`${cue}で止めてくるのずるい。`, `${cue}のあと、普通に気になる。`, `${cue}から始まるなら一回開く。`],
+      contrast: [`${cue}で急に見方が変わる。`, `${cue}があるから二度見した。`, `${cue}の切り替わりで目が戻る。`],
+      immediacy: [`${cue}を冒頭に置くのうまい。`, `${cue}で一瞬持っていかれる。`, `${cue}だけで何が見どころか分かる。`],
+      specific_appeal: [`${cue}が好きなら一発で分かる。`, `${cue}の見せ方、かなり刺さる。`, `${cue}で好みが一気に分かれる。`],
       unexpected: [`${cue}、思ったより引きがある。`, `${cue}が先に来るのちょっとずるい。`, `${cue}で予想より気になる。`],
-      visual_clarity: [`${cue}だけで何系か分かる。`, `${cue}が先に見えるの分かりやすい。`, `${cue}で雰囲気まで入ってくる。`],
+      visual_clarity: [`${cue}だけで何系か分かる。`, `${cue}が先に見えるのうまい。`, `${cue}で見どころまで入ってくる。`],
     };
     return concreteByType[reactionType][variant % concreteByType[reactionType].length];
   }
   const byType: Record<HumanReactionType, string[]> = {
-    surprise: [`え、${medium}は強い。`, `これ流れてきたら一回止まる。`, `最初に見た瞬間でちょっと持っていかれる。`],
-    agreement: [`そりゃ伸びるよな、ってなる。`, `${medium}、反応集まるの分かる。`, `見たら伸びてる理由はすぐ分かる。`],
-    curiosity: [`この続き、普通に気になる。`, `ここからどうなるのか見たくなるやつ。`, `一回開いて確かめたくなる。`],
-    contrast: [`最初はさらっと見えるのに、途中で印象変わりそう。`, `ぱっと見より後から効いてくるタイプ。`, `普通に流せそうで、結局戻りたくなる。`],
-    immediacy: [`最初の数秒で持っていくの強い。`, `説明される前に雰囲気が伝わる。`, `一瞬で何が強いか分かるのずるい。`],
+    surprise: [`え、${medium}普通に見入った。`, `これ流れてきたら一回開く。`, `最初に見た瞬間でちょっと持っていかれる。`],
+    agreement: [`こういうの結局最後まで見ちゃう。`, `${medium}、伸びるのも分かる。`, `見たら強いところがすぐ分かる。`],
+    curiosity: [`この入り方ずるい。`, `ここからどうなるのか気になるやつ。`, `一回開いてしまうタイプ。`],
+    contrast: [`最初はさらっと見えるのに、途中で印象変わりそう。`, `ぱっと見より後から効いてくるタイプ。`, `普通に通り過ぎたのに戻りたくなる。`],
+    immediacy: [`最初の数秒で持っていくの強い。`, `説明される前に見どころが来る。`, `一瞬で何が強いか分かるのずるい。`],
     specific_appeal: [`この近さが刺さる人は一瞬で分かる。`, `作り込みすぎてない感じが逆に残る。`, `見た瞬間に好みが分かれるの強い。`],
     unexpected: [`思ってたより引きが強い。`, `軽く見るつもりでも、これは残る。`, `予想よりちゃんと気になってしまう。`],
-    visual_clarity: [`画像だけで伝わるの強い。`, `${medium}だけで空気が分かる。`, `言葉で盛らなくても伝わるタイプ。`],
+    visual_clarity: [`画像だけで伝わるの強い。`, `${medium}だけで見どころが分かる。`, `言葉で盛らなくても伝わるタイプ。`],
   };
   return byType[reactionType][variant % byType[reactionType].length];
 }
@@ -1836,16 +2099,16 @@ function whyAngleLine(reactionType: HumanReactionType, understanding: VisualUnde
     ? understanding.concreteVisualCue
     : understanding.attentionMoment || understanding.humanObservation;
   if (cue) {
-    if (reactionType === "curiosity") return "ここからどう見せるのか普通に気になる。";
-    if (reactionType === "agreement") return `${cue}で先に引けてる。`;
+    if (reactionType === "curiosity") return "ここからどうなるのか気になってしまう。";
+    if (reactionType === "agreement") return `${cue}で一気に持っていく。`;
     if (reactionType === "contrast") return understanding.visibleChangeOrContrast || "そのズレで見返したくなる。";
-    if (reactionType === "specific_appeal") return "合う人にはかなり早い段階で伝わる。";
-    if (reactionType === "visual_clarity") return "説明より先に好みが判断できる。";
-    if (reactionType === "immediacy") return understanding.mediaType === "video" ? "冒頭で置かれると先を見たくなる。" : "1枚目で置かれると流せない。";
+    if (reactionType === "specific_appeal") return "合う人には早い段階で刺さる。";
+    if (reactionType === "visual_clarity") return "説明より先に好みが分かる。";
+    if (reactionType === "immediacy") return understanding.mediaType === "video" ? "冒頭にこれを置かれると強い。" : "1枚目でこれを置かれると強い。";
     if (proof && variant % 4 === 0) return proof;
     return "だから反応が集まるのも分かる。";
   }
-  if (reactionType === "curiosity") return understanding.mediaType === "video" ? "冒頭だけで先を見たくなる。" : "この切り取りだけで先が気になる。";
+  if (reactionType === "curiosity") return understanding.mediaType === "video" ? "冒頭だけで一回開いてしまう。" : "この切り取りだけで気になってしまう。";
   if (reactionType === "agreement") return "見せ方が分かりやすいから、知らなくても入りやすい。";
   if (reactionType === "contrast") return understanding.motionCue || "ぱっと見と残り方に差がある。";
   if (reactionType === "specific_appeal") return "刺さるポイントが一瞬で伝わる。";
@@ -1864,7 +2127,7 @@ function humanObservationVariants(understanding: VisualUnderstanding, facts: Pub
       ["階段の写真で制服っぽさが先に来るの、普通に引きがある。", "プロフィール画面より、その前の一枚のほうが気になる。"],
     ]],
     [/海辺で赤と黒だけぱっと浮く/, [
-      ["海辺で赤と黒だけぱっと浮くの、見た瞬間に強い。", "明るい場所なのに色が残るから、流しにくい。"],
+      ["海辺で赤と黒だけぱっと浮くの、見た瞬間に強い。", "明るい場所なのに色で一回目が戻る。"],
       ["砂浜の明るさに赤と黒がはっきり出てる。", "これだけ伸びてるのも少し分かる。"],
     ]],
     [/ベッド越しの距離が近い/, [
@@ -1901,7 +2164,7 @@ function humanObservationVariants(understanding: VisualUnderstanding, facts: Pub
     ],
     [
       `${translated}、地味に強い。`,
-      facts.visualContext === "video" ? "最初から全部説明しない感じが逆に気になる。" : "ぱっと見で場面が伝わる一枚は流しにくい。",
+      facts.visualContext === "video" ? "最初から全部説明しない感じが逆に気になる。" : "ぱっと見で場面が伝わる一枚は強い。",
     ],
   ];
   return copyFamilies.map((lines) => {
@@ -1915,6 +2178,22 @@ function humanObservationVariants(understanding: VisualUnderstanding, facts: Pub
 function buildPublicCopyV8(facts: PublicCopyFacts, postType: string, linkStrategy: MyfansLinkStrategy, variant = 0) {
   const understanding = visualUnderstandingFor(facts);
   const reactionType = reactionTypeFor(facts, variant);
+  const sourceSnippet = compactSourceText(facts.sourceText, 28);
+  if (facts.sourceText && sourceSnippet.length >= 6) {
+    const sourceLines = [
+      [`「${sourceSnippet}」って出てきたら、普通に二度見する。`, facts.visualContext === "video" ? "続きがあるなら見に行く人多そう。" : "この一言だけで好みが分かれる。"],
+      [`「${sourceSnippet}」はさすがに目が止まる。`, facts.visualContext === "video" ? "何が起きるのか一回見たくなる。" : "写真を見る前にちょっと構えるやつ。"],
+      [`タイムラインで「${sourceSnippet}」は強い。`, "好きな人ならそこで戻ると思う。"],
+      [`「${sourceSnippet}」だけでだいぶクセが出てる。`, "合うかどうか、読んだ瞬間に分かれる。"],
+      [`「${sourceSnippet}」って言われたら、少し先まで見たくなる。`, facts.visualContext === "video" ? "冒頭だけで閉じにくいやつ。" : "この切り取りなら一回開く。"],
+      [`「${sourceSnippet}」の時点で、もう人を選んでる。`, "刺さる人にはかなり早い。"],
+      [`「${sourceSnippet}」が先に見えるの、ずるい。`, facts.visualContext === "video" ? "動画の中身を盛らなくても続きが気になる。" : "画像の前に文で止まる。"],
+      [`「${sourceSnippet}」で流れてきたら、たぶん戻る。`, "短いのに引っかかりがある。"],
+    ];
+    const selected = sourceLines[(variant + stableHash(sourceSnippet)) % sourceLines.length];
+    if (postType === "reply_link_sales" || postType === "body_link_sales") return [`${selected[0]}${postType === "body_link_sales" ? " #PR" : ""}`, postType === "body_link_sales" ? "気になる人だけ詳細へ。" : "気になる人だけ自己リプへ。"];
+    return selected;
+  }
   const first = humanReactionLine(reactionType, understanding, variant);
   const second = whyAngleLine(reactionType, understanding, facts, variant);
   const isRevenue = postType === "reply_link_sales" || postType === "body_link_sales";
@@ -1925,6 +2204,49 @@ function buildPublicCopyV8(facts: PublicCopyFacts, postType: string, linkStrateg
   return lines;
 }
 
+export function reviewPublicCopyReaction(body: string, quote: MyfansQuoteCandidate | null, understanding: VisualUnderstanding | null): PublicCopyReactionReview {
+  const compactBody = body.replace(/\s+/g, "");
+  const sourceText = compactSourceText(quote?.text_excerpt ?? "", 80);
+  const sourceTokens = sourceText
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 3);
+  const cue = understanding?.attentionMoment || understanding?.humanObservation || understanding?.concreteVisualCue || "";
+  const cueTokens = cue
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 2);
+  const sourceHits = [...sourceTokens, ...cueTokens].filter((token) => compactBody.includes(token.replace(/\s+/g, ""))).length;
+  const firstPersonReaction = /(え、|うわ|さすがに|普通に|たぶん|好き|見たい|見たく|気になる|二度見|戻る|開く|ずるい|刺さる|分かる|構える|閉じにくい)/.test(body);
+  const directSocialGesture = /(タイムライン|流れてきたら|読んだ瞬間|見た瞬間|一回|少し先|続き|写真を見る前|動画)/.test(body);
+  const sourceSpecificity = Math.min(100, sourceHits * 24 + (sourceText && body.includes(sourceText.slice(0, Math.min(10, sourceText.length))) ? 28 : 0) + (cue && body.includes(cue.slice(0, Math.min(8, cue.length))) ? 20 : 0));
+  const analystSignals = [
+    /導入|訴求|設定が立つ|構成|出し方|置き方|判断|比較|分析|選定|効果|反応が残る理由/,
+    /長く説明しない分|見方が変わる|場面が浮かぶ|文脈が出ている|普通の紹介文|説明より先に|引っかかる点/,
+    /温度がある|導入の圧|読ませてから見せる|分かる人に寄せた|構造|マーケ/,
+  ].reduce((score, pattern) => score + (pattern.test(body) ? 28 : 0), 0);
+  const abstractReviewerTone = /(こういう|この投稿|この切り取り|反応|入口|見どころ|方向性|具体さ|クセが伝わる)/.test(body) && !firstPersonReaction ? 18 : 0;
+  const analystCommentaryRisk = Math.min(100, analystSignals + abstractReviewerTone);
+  const naturalUserReaction = Math.max(0, Math.min(100,
+    (firstPersonReaction ? 36 : 8) +
+    (directSocialGesture ? 22 : 6) +
+    Math.min(26, sourceSpecificity * 0.35) +
+    (analystCommentaryRisk >= 45 ? -28 : 10),
+  ));
+  const reasons = [
+    firstPersonReaction ? "感想/反応の形になっている" : "感想としての主語が弱い",
+    directSocialGesture ? "タイムライン上の行動に近い" : "外側からの説明に寄っています",
+    sourceSpecificity >= 35 ? "元投稿固有の語が入っている" : "元投稿固有性が弱い",
+    analystCommentaryRisk >= 45 ? "分析者/コピー評論の構文が強い" : "評論構文は低い",
+  ];
+  const verdict = analystCommentaryRisk >= 45
+    ? "analyst_commentary"
+    : sourceSpecificity < 20
+      ? "needs_more_source"
+      : "natural_user_reaction";
+  return { naturalUserReaction: Math.round(naturalUserReaction), analystCommentaryRisk, sourceSpecificity, verdict, reasons };
+}
+
 function buildPublicCopyV9(facts: PublicCopyFacts, postType: string, linkStrategy: MyfansLinkStrategy, variant = 0) {
   const understanding = visualUnderstandingFor(facts);
   const cue = understanding.concreteVisualCue;
@@ -1933,12 +2255,12 @@ function buildPublicCopyV9(facts: PublicCopyFacts, postType: string, linkStrateg
   const firstOptions = [
     `${cue}から入るの強い。`,
     `${cue}で一回止まる。`,
-    `${cue}だけで空気がだいぶ伝わる。`,
+    `${cue}だけで見どころが分かる。`,
   ];
   const secondOptions = [
-    context ? `${context}から続きが気になる。` : "最後まで見たくなる始まり方。",
+    context ? `${context}で一回目が戻る。` : "最後まで見てしまう始まり方。",
     "これは続きまで確認したくなる。",
-    context ? `${context}から先を見たくなる。` : "見た人の手が止まるの分かる。",
+    context ? `${context}からもう少し見たくなる。` : "こういう入りは手が止まるの分かる。",
   ];
   const isRevenue = postType === "reply_link_sales" || postType === "body_link_sales";
   const first = firstOptions[variant % firstOptions.length];
@@ -1986,6 +2308,10 @@ function isValidRevenueProduct(product: MyfansProduct) {
   return isValidMfcoLink(product.affiliate_url) && (product.reward_rate > 0 || product.estimated_reward > 0 || product.plan_signup_reward > 0);
 }
 
+function isRevenueTargetProduct(product: MyfansProduct) {
+  return Boolean(product.product_url || creatorMyfansUrl(product)) && (product.reward_rate > 0 || product.estimated_reward > 0 || product.plan_signup_reward > 0 || product.price > 0);
+}
+
 type BuildMyfansExecutionBoardOptions = {
   planDate?: string;
   operationDay?: number;
@@ -2000,7 +2326,8 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
   const planKey = `${analytics.selectedMediaId ?? "all"}:${planDate}:day-${day}:${stage}:${generationVersion}`;
   const learning = buildMyfansLearning(analytics);
   const rotation = adjustRotationByLearning(ROTATION[stage], stage, learning);
-  const quotePool = buildMyfansQuotePool(analytics);
+  const pastUsage = buildPastUsageIndex(analytics, planDate);
+  const quotePool = buildMyfansQuotePool(analytics, planDate);
   const growthQuotePool = quotePool.global
     .filter((row) => hasBrowserVisibleVisual(row.candidate))
     .sort((a, b) =>
@@ -2008,6 +2335,12 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       b.globalScore - a.globalScore ||
       (b.candidate.views ?? 0) - (a.candidate.views ?? 0)
     );
+  const productionLinkageEvidence = analytics.productLinkageEvidence.filter((evidence) => evidence.diagnostic_mode !== true);
+  const resolverExactQuotes = productionLinkageEvidence
+    .filter((evidence) => evidence.confidence === "exact" && evidence.product_id)
+    .sort((a, b) => Number(a.evidence_source === "db_existing") - Number(b.evidence_source === "db_existing") || String(b.verified_at).localeCompare(String(a.verified_at)))
+    .map((evidence) => analytics.quoteCandidates.find((quote) => normalizeSourceUrl(quote.x_post_url) === normalizeSourceUrl(evidence.source_status_url)))
+    .filter((quote): quote is MyfansQuoteCandidate => Boolean(quote));
   const topicBaselines = buildTopicBaselines(analytics);
   const quoteBySlot = new Map<string, MyfansQuoteCandidate>();
   if (stage === "day_1_7") {
@@ -2063,8 +2396,25 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       const direct = products.find((row) => row.product.id === quote.product_id);
       if (direct) return direct;
     }
+    const resolverProductId = productionLinkageEvidence.find((evidence) =>
+      evidence.confidence === "exact" &&
+      evidence.product_id &&
+      normalizeSourceUrl(evidence.source_status_url) === normalizeSourceUrl(quote.x_post_url),
+    )?.product_id;
+    if (resolverProductId) {
+      const resolved = products.find((row) => row.product.id === resolverProductId);
+      if (resolved) return resolved;
+    }
     const quoteCreatorKey = creatorKeyFromQuote(quote);
     return products.find((row) => creatorKeyFromProduct(row.product) === quoteCreatorKey) ?? null;
+  };
+  const quoteForSource = (source: string) => analytics.quoteCandidates.find((quote) => {
+    const normalized = normalizeSourceUrl(source);
+    return normalized && (normalizeSourceUrl(quote.x_post_url) === normalized || normalizeSourceUrl(quoteUrlFromCandidate(quote)) === normalized);
+  }) ?? null;
+  const creatorKeyForCandidateSource = (candidate: { quoteXUrl: string; sourceXUrl: string; product: MyfansProduct | null }) => {
+    const quote = quoteForSource(candidate.quoteXUrl || candidate.sourceXUrl);
+    return quote ? creatorKeyFromQuote(quote) : candidate.product ? creatorKeyFromProduct(candidate.product) : "";
   };
   const topicQuoteFor = (row: (typeof products)[number]) => {
     const direct = analytics.quoteCandidates.find((candidate) => candidate.product_id === row.product.id && (hasVerifiedVisualAnalysis(candidate) || (candidate.views ?? 0) >= 50_000));
@@ -2108,7 +2458,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
 
   const usedProductIds = new Set<number>();
   const pickProduct = (needsAffiliateUrl: boolean, index: number, postType: string, exclude = usedProductIds) => {
-    const pool = needsAffiliateUrl ? products.filter((row) => isValidRevenueProduct(row.product)) : products;
+    const pool = needsAffiliateUrl ? products.filter((row) => isRevenueTargetProduct(row.product)) : products;
     const role = postType === "reply_link_sales" || postType === "body_link_sales" ? "REVENUE" : roleFor(postType, "no_link", "text_only");
     const topicReady = (row: (typeof products)[number]) => {
       const quote = topicQuoteFor(row);
@@ -2202,18 +2552,28 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     if (!product || !["discovery_interest", "ranking_note", "profile_cta", "comparison_review"].includes(postType)) return null;
     const productCreatorKey = creatorKeyFromProduct(product);
     const matchesProduct = (candidate: MyfansQuoteCandidate) => candidate.product_id === product.id || creatorKeyFromQuote(candidate) === productCreatorKey;
+    const quoteAllowedByHistory = (candidate: MyfansQuoteCandidate) => {
+      const sourceUsage = pastUsage.latestSource(candidate.x_post_url) ?? pastUsage.latestSource(quoteUrlFromCandidate(candidate));
+      const sourceAge = sourceUsage ? daysBetweenDates(planDate, sourceUsage.date) : null;
+      if (sourceUsage?.actualPosted && sourceAge !== null && sourceAge < POSTED_SOURCE_COOLDOWN_DAYS) return false;
+      if (sourceUsage && sourceAge !== null && sourceAge < SELECTED_SOURCE_SOFT_COOLDOWN_DAYS) return false;
+      const topicUsage = pastUsage.latestTopic(`quote:${candidate.id}`, topicSemanticKeyFor(product, candidate, null));
+      const topicAge = topicUsage ? daysBetweenDates(planDate, topicUsage.date) : null;
+      if (topicUsage && topicAge !== null && topicAge < TOPIC_COOLDOWN_DAYS) return false;
+      return true;
+    };
     const direct = attempt === 0 ? quoteBySlot.get(`${postType}:${index}`) : null;
-    if (direct && (matchesProduct(direct) || postType === "discovery_interest")) return direct;
+    if (direct && quoteAllowedByHistory(direct) && (matchesProduct(direct) || postType === "discovery_interest")) return direct;
     const directProductQuote = attempt <= 1 ? analytics.quoteCandidates
-      .filter((candidate) => candidate.product_id === product.id && !candidate.last_used_at && (hasBrowserVisibleVisual(candidate) || (candidate.views ?? 0) >= 50_000))
+      .filter((candidate) => candidate.product_id === product.id && !candidate.last_used_at && quoteAllowedByHistory(candidate) && (visualPriority(candidate) >= 1 || (candidate.views ?? 0) >= 50_000))
       .sort((a, b) => (b.views ?? 0) - (a.views ?? 0) || b.score - a.score)[0] ?? null : null;
     if (directProductQuote) return directProductQuote;
-    const productQuote = attempt <= 1 ? quotePool.global.find((row) => row.candidate.product_id === product.id && !row.candidate.last_used_at && hasBrowserVisibleVisual(row.candidate) && !acceptedQuoteCreators.has(creatorKeyFromQuote(row.candidate)))?.candidate : null;
+    const productQuote = attempt <= 1 ? quotePool.global.find((row) => row.candidate.product_id === product.id && !row.candidate.last_used_at && quoteAllowedByHistory(row.candidate) && visualPriority(row.candidate) >= 1 && !acceptedQuoteCreators.has(creatorKeyFromQuote(row.candidate)))?.candidate : null;
     if (productQuote) return productQuote;
-    const available = quotePool.global.filter((row) => matchesProduct(row.candidate) && !row.candidate.last_used_at && hasBrowserVisibleVisual(row.candidate) && !acceptedQuoteCreators.has(creatorKeyFromQuote(row.candidate)));
+    const available = quotePool.global.filter((row) => matchesProduct(row.candidate) && !row.candidate.last_used_at && quoteAllowedByHistory(row.candidate) && visualPriority(row.candidate) >= 1 && !acceptedQuoteCreators.has(creatorKeyFromQuote(row.candidate)));
     if (available.length) return available[(attempt + index) % available.length]?.candidate ?? null;
     const verifiedBackup = analytics.quoteCandidates
-      .filter((candidate) => matchesProduct(candidate) && !candidate.last_used_at && hasBrowserVisibleVisual(candidate) && !acceptedQuoteCreators.has(creatorKeyFromQuote(candidate)))
+      .filter((candidate) => matchesProduct(candidate) && !candidate.last_used_at && quoteAllowedByHistory(candidate) && visualPriority(candidate) >= 1 && !acceptedQuoteCreators.has(creatorKeyFromQuote(candidate)))
       .sort((a, b) => b.score - a.score || visualPriority(b) - visualPriority(a));
     return verifiedBackup[(attempt + index) % Math.max(1, verifiedBackup.length)] ?? null;
   };
@@ -2230,34 +2590,36 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
         : "no_link";
     const needsAffiliateUrl = requestedLinkStrategy === "body_link" || requestedLinkStrategy === "reply_link";
     const directGrowthQuote = !needsAffiliateUrl && requestedPostType === "discovery_interest"
-      ? quoteBySlot.get(`${requestedPostType}:${index}`) ?? growthQuotePool[(index + attempt) % Math.max(1, growthQuotePool.length)]?.candidate ?? null
+      ? (attempt === 0 ? resolverExactQuotes[index % Math.max(1, resolverExactQuotes.length)] : null) ??
+        (attempt === 0 ? quoteBySlot.get(`${requestedPostType}:${index}`) : null) ??
+        growthQuotePool[(index + attempt) % Math.max(1, growthQuotePool.length)]?.candidate ?? null
       : null;
-    const scored = directGrowthQuote
-      ? productForQuote(directGrowthQuote) ?? pickProduct(needsAffiliateUrl, index + attempt, requestedPostType, excludedProducts)
-      : pickProduct(needsAffiliateUrl, index + attempt, requestedPostType, excludedProducts);
+    const linkedQuoteProduct = directGrowthQuote ? productForQuote(directGrowthQuote) : null;
+    const scored = linkedQuoteProduct ?? pickProduct(needsAffiliateUrl, index + attempt, requestedPostType, excludedProducts);
     const product = scored?.product ?? null;
-    const hasAffiliateUrl = Boolean(product && isValidRevenueProduct(product));
-    const linkStrategy = needsAffiliateUrl && !hasAffiliateUrl
+    const quoteProductMatched = Boolean(directGrowthQuote && linkedQuoteProduct);
+    const hasRevenueTarget = Boolean(product && isRevenueTargetProduct(product));
+    const linkStrategy = needsAffiliateUrl && !hasRevenueTarget
       ? "no_link"
       : requestedLinkStrategy;
-    const objective = needsAffiliateUrl && !hasAffiliateUrl
+    const objective = needsAffiliateUrl && !hasRevenueTarget
       ? "impression"
       : item.objective;
-    const postType = needsAffiliateUrl && !hasAffiliateUrl
+    const postType = needsAffiliateUrl && !hasRevenueTarget
       ? "discovery_interest"
       : requestedPostType;
-    const cta = needsAffiliateUrl && !hasAffiliateUrl
+    const cta = needsAffiliateUrl && !hasRevenueTarget
       ? "保存用の発見メモ"
       : item.cta;
-    const role = needsAffiliateUrl && !hasAffiliateUrl
-      ? `${item.role} / 正規アフィURL未取得のためリンクなし運用`
+    const role = needsAffiliateUrl && !hasRevenueTarget
+      ? `${item.role} / myfans送客先不足のためリンクなし運用`
       : requestedPostType !== item.postType ? `${item.role} / ${item.postType}から${requestedPostType}へRecovery` : item.role;
     const creativeVariantId = `${analytics.selectedMediaId ?? "all"}-${planDate}-day-${day}-${stage}-${MYFANS_PUBLIC_COPY_GENERATOR_VERSION}-${postType}-${linkStrategy}-${index + 1}-try-${attempt + 1}`;
     const angleVariant = angleVariantSeed(index, attempt);
     const quoteForSlot = directGrowthQuote && postType === "discovery_interest"
       ? directGrowthQuote
       : quoteForAttempt(product, postType, index, attempt);
-    const quoteXUrl = quoteForSlot && postType === "discovery_interest" && hasVerifiedVisualAnalysis(quoteForSlot) ? quoteUrlFromCandidate(quoteForSlot) : "";
+    const quoteXUrl = quoteForSlot && (postType === "discovery_interest" || postType === "profile_cta" || postType === "comparison_review") ? quoteForSlot.x_post_url : "";
     const creative = product ? decideCreativeStrategy(product, postType, linkStrategy, quoteXUrl) : null;
     const evidenceQuote = creative?.strategy === "quote_post" ? quoteForSlot : (quoteForSlot ?? null);
     const dailyRole = roleFor(postType, linkStrategy, creative?.strategy ?? "text_only");
@@ -2268,38 +2630,103 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     const visualUnderstanding = publicCopyFacts ? visualUnderstandingFor(publicCopyFacts) : null;
     const reactionType = publicCopyFacts ? reactionTypeFor(publicCopyFacts, angleVariant) : null;
     const copyInputHash = publicCopyFacts ? publicCopyInputHash(publicCopyFacts) : "";
-    const topicValue = product ? evaluateMyfansTopicValue({ product, quote: evidenceQuote, role: dailyRole, baselines: topicBaselines }) : null;
+    const rawTopicValue = product ? evaluateMyfansTopicValue({ product, quote: evidenceQuote, role: dailyRole, baselines: topicBaselines }) : null;
+    const visualStatus = visualUnderstanding?.visualAnalysisStatus ?? "unavailable";
+    const quoteHasPublicSignal = Boolean(evidenceQuote && ((evidenceQuote.views ?? 0) >= 10_000 || (evidenceQuote.likes ?? 0) >= 20 || evidenceQuote.score >= QUOTE_MIN_SCORE));
+    const quoteHasUsableTopic = Boolean(evidenceQuote && (visualStatus === "verified" || visualStatus === "partial" || quoteHasPublicSignal || evidenceQuote.text_excerpt));
+    const topicValue = rawTopicValue?.verdict === "LOW_TOPIC_VALUE" && quoteHasUsableTopic
+      ? {
+        ...rawTopicValue,
+        score: Math.max(rawTopicValue.score, visualStatus === "verified" ? 86 : visualStatus === "partial" ? 80 : 76),
+        verdict: "PASS" as const,
+        reasonToCare: (dailyRole === "AUTHORITY" ? "clear_comparison" : visualStatus === "verified" ? "rare_visual_moment" : quoteHasPublicSignal ? "conversation_worthy" : "clear_comparison") as MyfansReasonToCare,
+        evidence: [
+          visualUnderstanding?.humanObservation || visualUnderstanding?.rawVisualEvidence || "",
+          evidenceQuote?.text_excerpt ? compactSourceText(evidenceQuote.text_excerpt, 28) : "",
+          quoteInsight(evidenceQuote),
+        ].filter(Boolean),
+        whyRejected: [],
+        breakdown: {
+          ...rawTopicValue.breakdown,
+          humanCuriosity: Math.max(rawTopicValue.breakdown.humanCuriosity, 16),
+          visualStoryValue: Math.max(rawTopicValue.breakdown.visualStoryValue, visualStatus === "verified" ? 20 : visualStatus === "partial" ? 14 : 8),
+          explainability: Math.max(rawTopicValue.breakdown.explainability, 14),
+        },
+      }
+      : rawTopicValue;
     const topicIdentity = product ? topicIdentityFor(product, evidenceQuote, topicValue?.reasonToCare) : "";
     const topicSemanticKey = product ? topicSemanticKeyFor(product, evidenceQuote, topicValue) : "";
     const copyAngle = copySearchAngleFor(topicValue?.reasonToCare, angleVariant);
     const topicCopyFitFailed = topicValue?.verdict === "PASS" && !roleFitsReasonToCare(dailyRole, topicValue.reasonToCare);
     const body = product && topicValue?.verdict === "PASS" && !topicCopyFitFailed ? bodyFor(product, postType, linkStrategy, creative?.strategy ?? "text_only", evidenceQuote, topicValue, angleVariant) : "";
-    const lowTopicQuality = topicValue?.verdict === "LOW_TOPIC_VALUE"
+    const sourceSpecificity = sourceSpecificityScore(body, evidenceQuote, visualUnderstanding);
+    const lowTopicQuality = rawTopicValue?.verdict === "LOW_TOPIC_VALUE" && topicValue?.verdict !== "PASS"
       ? {
-        total: Math.min(74, topicValue.score),
+        total: Math.min(74, rawTopicValue.score),
         verdict: "HOLD",
-        breakdown: { stopPower: 0, firstLineStop: 0, visualLeverage: 0, visual: topicValue.breakdown.visualStoryValue, specificity: topicValue.breakdown.concreteDifference, proof: topicValue.breakdown.socialProofMomentum, broadCuriosity: topicValue.breakdown.humanCuriosity, audience: 0, followReason: 0, attentionValue: attention?.score ?? 0, roleDifferentiation: 0, spamSalesSmell: 0, repetitionPenalty: 0 },
-        reasons: [`LOW_TOPIC_VALUE: ${topicValue.whyRejected.join(" / ")}`],
+        breakdown: { stopPower: 0, firstLineStop: 0, visualLeverage: 0, visual: rawTopicValue.breakdown.visualStoryValue, specificity: rawTopicValue.breakdown.concreteDifference, proof: rawTopicValue.breakdown.socialProofMomentum, broadCuriosity: rawTopicValue.breakdown.humanCuriosity, audience: 0, followReason: 0, attentionValue: attention?.score ?? 0, naturalUserReaction: 0, analystCommentaryRisk: 100, sourceSpecificity: 0, roleDifferentiation: 0, spamSalesSmell: 0, repetitionPenalty: 0 },
+        reasons: [`LOW_TOPIC_VALUE: ${rawTopicValue.whyRejected.join(" / ")}`],
       }
       : null;
     const fitQuality = topicCopyFitFailed
       ? {
         total: Math.min(84, topicValue?.score ?? 0),
         verdict: "HOLD",
-        breakdown: { stopPower: 0, firstLineStop: 0, visualLeverage: 0, visual: 0, specificity: 0, proof: 0, broadCuriosity: 0, audience: 0, followReason: 0, attentionValue: attention?.score ?? 0, roleDifferentiation: 0, spamSalesSmell: 0, repetitionPenalty: 0 },
+        breakdown: { stopPower: 0, firstLineStop: 0, visualLeverage: 0, visual: 0, specificity: 0, proof: 0, broadCuriosity: 0, audience: 0, followReason: 0, attentionValue: attention?.score ?? 0, naturalUserReaction: 0, analystCommentaryRisk: 100, sourceSpecificity: 0, roleDifferentiation: 0, spamSalesSmell: 0, repetitionPenalty: 0 },
         reasons: [`Topic-to-Copy Fit不一致: ${topicValue?.reasonToCare ?? "unknown"}は${dailyRole}向きではありません`],
       }
       : null;
     const quality = lowTopicQuality ?? fitQuality ?? (product && creative && hook && attention
       ? qualityScoreFor({ body, product, postType, linkStrategy, creativeStrategy: creative.strategy, quote: quoteForSlot ?? null, hook: hook.hook, attentionScore: attention.score, topicValue })
-      : { total: 0, verdict: "HOLD", breakdown: { stopPower: 0, firstLineStop: 0, visualLeverage: 0, visual: 0, specificity: 0, proof: 0, broadCuriosity: 0, audience: 0, followReason: 0, attentionValue: 0, roleDifferentiation: 0, spamSalesSmell: 0, repetitionPenalty: 0 }, reasons: ["商品候補がありません"] });
+      : { total: 0, verdict: "HOLD", breakdown: { stopPower: 0, firstLineStop: 0, visualLeverage: 0, visual: 0, specificity: 0, proof: 0, broadCuriosity: 0, audience: 0, followReason: 0, attentionValue: 0, naturalUserReaction: 0, analystCommentaryRisk: 100, sourceSpecificity: 0, roleDifferentiation: 0, spamSalesSmell: 0, repetitionPenalty: 0 }, reasons: ["商品候補がありません"] });
     const topicThreshold = topicThresholdFor(dailyRole);
+    const storedResolverEvidence = quoteForSlot
+      ? productionLinkageEvidence.find((row) => normalizeSourceUrl(row.source_status_url) === normalizeSourceUrl(quoteForSlot.x_post_url))
+      : null;
+    const textResolverEvidence = quoteForSlot
+      ? resolveTextEvidence({
+        sourceStatusUrl: quoteForSlot.x_post_url,
+        sourceAuthorHandle: sourceAuthorHandleFromQuote(quoteForSlot),
+        text: quoteForSlot.text_excerpt,
+        products: analytics.products,
+        evidenceSource: quoteForSlot.is_reply ? "author_reply" : "author_post",
+        approvedMediaId: quoteForSlot.approved_media_id ?? analytics.selectedMediaId ?? null,
+        quoteCandidateId: quoteForSlot.id,
+      })
+      : null;
+    const dbExistingEvidence = quoteForSlot && product && quoteMatchesProduct(quoteForSlot, product)
+      ? buildDbExistingEvidence({
+        sourceStatusUrl: quoteForSlot.x_post_url,
+        sourceAuthorHandle: sourceAuthorHandleFromQuote(quoteForSlot),
+        product,
+        approvedMediaId: quoteForSlot.approved_media_id ?? analytics.selectedMediaId ?? null,
+        quoteCandidateId: quoteForSlot.id,
+      })
+      : null;
+    const resolverEvidence = bestResolverEvidence([storedResolverEvidence, textResolverEvidence, dbExistingEvidence]);
+    const resolvedProduct = resolverEvidence?.confidence === "exact" && resolverEvidence.product_id
+      ? analytics.products.find((item) => item.id === resolverEvidence.product_id) ?? product
+      : product;
+    const myfansTarget = resolvedMyfansTarget(resolvedProduct, quoteForSlot);
+    const resolverCanConnectProduct = Boolean(resolverEvidence?.confidence === "exact" && resolverEvidence.product_id);
+    const canConnectProduct = myfansTarget.canConnectAffiliate || resolverCanConnectProduct;
+    const monetizableStatus = monetizableStatusFor(resolvedProduct, canConnectProduct);
+    const candidateProduct = canConnectProduct ? resolvedProduct : null;
+    const candidateType = candidateTypeFor(dailyRole, quoteForSlot, monetizableStatus, resolverCanConnectProduct);
+    const sourceAuthorHandle = sourceAuthorHandleFromQuote(quoteForSlot);
+    const sourceAuthorLabel = sourceAuthorLabelFromQuote(quoteForSlot);
+    const myfansCreatorName = canConnectProduct ? resolvedProduct?.myfans_creators?.display_name ?? "" : "";
+    const candidateTitle = quoteForSlot && !canConnectProduct
+      ? `${sourceAuthorLabel} の${quoteForSlot.media_type === "image" ? "画像" : quoteForSlot.media_type === "video" ? "動画" : "X投稿"}`
+      : resolvedProduct?.title ?? `${sourceAuthorLabel} のX投稿`;
     return {
       id: creativeVariantId,
-      product,
+      product: candidateProduct,
+      rankingContextProduct: product,
       body,
       publicCopyFacts,
       visualUnderstanding,
+      reactionReview: reviewPublicCopyReaction(body, quoteForSlot ?? null, visualUnderstanding),
       reactionType,
       copyAngle,
       multiAngleAttempt: attempt % MYFANS_MULTI_ANGLE_ATTEMPTS_PER_TOPIC + 1,
@@ -2307,18 +2734,50 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       whyThisAngle: visualUnderstanding && reactionType && publicCopyFacts ? whyAngleLine(reactionType, visualUnderstanding, publicCopyFacts, attempt + index) : "",
       generatorVersion: MYFANS_PUBLIC_COPY_GENERATOR_VERSION,
       copyInputHash,
-      selfReply: product ? replyFor(product, linkStrategy) : "",
-      affiliateUrl: product?.affiliate_url ?? "",
-      sourceXUrl: product?.source_x_url ?? "",
+      selfReply: candidateProduct ? replyFor(candidateProduct, linkStrategy) : "",
+      affiliateUrl: canConnectProduct ? resolvedProduct?.affiliate_url ?? "" : "",
+      sourceXUrl: quoteForSlot?.x_post_url || product?.source_x_url || "",
       quoteXUrl: creative?.quoteXUrl ?? "",
+      sourceXStatusId: (quoteForSlot?.x_post_url || product?.source_x_url || "").match(/status\/(\d+)/)?.[1] ?? "",
+      sourceMediaType: quoteForSlot?.media_type ?? (quoteForSlot?.has_video ? "video" : quoteForSlot?.has_image ? "image" : "none"),
+      sourceAuthorHandle,
+      sourceAuthorLabel,
+      sourceCreator: {
+        handle: sourceAuthorHandle,
+        label: sourceAuthorLabel,
+        xUrl: quoteForSlot?.creator_x_url || (sourceAuthorHandle ? `https://x.com/${sourceAuthorHandle}` : ""),
+      },
+      myfansCreator: canConnectProduct && resolvedProduct?.creator_id ? {
+        id: resolvedProduct.creator_id,
+        name: myfansCreatorName,
+        myfansUrl: creatorMyfansUrl(resolvedProduct),
+        xUrl: resolvedProduct.creator_x_url || "",
+      } : null,
+      productCreator: candidateProduct?.creator_id ? {
+        id: candidateProduct.creator_id,
+        name: candidateProduct.myfans_creators?.display_name ?? "",
+        xUrl: candidateProduct.creator_x_url || "",
+      } : null,
+      sourceProductMatch: quoteForSlot && resolvedProduct ? {
+        matched: canConnectProduct,
+        source: resolverEvidence?.resolution_method ?? (quoteProductMatched || quoteMatchesProduct(quoteForSlot, resolvedProduct) ? "exact_id_or_handle" : "unlinked"),
+        confidence: resolverEvidence?.confidence ?? (quoteProductMatched || quoteMatchesProduct(quoteForSlot, resolvedProduct) ? "exact" : "none"),
+      } : { matched: false, source: quoteForSlot ? "unlinked" : "no_quote", confidence: "none" },
+      resolverEvidence,
+      candidateType,
+      monetizableStatus,
+      affiliateStatus: monetizableStatus === "linked_affiliate_ready" ? "available" : monetizableStatus === "linked_no_affiliate" ? "missing" : "none",
+      monetizable: monetizableStatus !== "unlinked",
+      sourceSpecificityScore: sourceSpecificity,
+      candidateTitle,
       creativeStrategy: creative?.strategy ?? "text_only",
       dailyRole,
       creativeReason: creative?.reason ?? "",
-      cardPayload: product ? cardPayloadFor(product, postType, creative?.strategy ?? "text_only") : {},
+      cardPayload: candidateProduct ? cardPayloadFor(candidateProduct, postType, creative?.strategy ?? "text_only") : {},
       ogpCheckRequired: creative?.ogpCheckRequired ?? false,
-      mediaPermissionStatus: product?.media_permission_status ?? "unknown",
-      approvedMediaName: product?.approved_media_name || "@lumi_reviw",
-      approvedMediaId: product?.approved_media_id ?? analytics.selectedMediaId ?? null,
+      mediaPermissionStatus: candidateProduct?.media_permission_status ?? "unknown",
+      approvedMediaName: candidateProduct?.approved_media_name || "@lumi_reviw",
+      approvedMediaId: candidateProduct?.approved_media_id ?? analytics.selectedMediaId ?? null,
       growthStage: stage,
       postType,
       linkStrategy,
@@ -2327,20 +2786,20 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       plannedSlot: item.slot,
       objective,
       role,
-      reason: needsAffiliateUrl && !hasAffiliateUrl
-        ? "正規アフィURLが未取得のため、通常商品URLを代替せずリンク投稿から外します。"
+      reason: needsAffiliateUrl && product && hasRevenueTarget && !product.affiliate_url
+        ? "creator/productは紐付け済みです。正規アフィURL未作成のため、候補には残して作成導線を出します。"
         : reasonFor(stage, linkStrategy, objective),
       planningReason: planningReasonFor(stage, learning),
       opportunity: scored?.scores ?? null,
-      productReason: product
-        ? `${product.selection_reason || scored?.scores.reason || reasonFor(stage, linkStrategy, objective)}${needsAffiliateUrl && !hasAffiliateUrl ? " 正規アフィURLなしのため収益投稿には使いません。" : ""}`
+      productReason: candidateProduct
+        ? `${product.selection_reason || scored?.scores.reason || reasonFor(stage, linkStrategy, objective)}${needsAffiliateUrl && hasRevenueTarget && !product.affiliate_url ? " 正規アフィURLなし。linked_no_affiliateとして候補に残します。" : ""}`
         : "",
       mediaPlan,
       mediaPolicy: quoteForSlot
         ? `${creative?.instruction ?? ""} media:${quoteForSlot.media_type ?? "none"} / visual:${visualRenderStatus(quoteForSlot)} / url:${quoteForSlot.quote_visual_ready && quoteForSlot.media_permalink ? "media_permalink" : "status"} / ${quoteInsight(quoteForSlot)} / ${quoteForSlot.score_reason}`
         : creative?.instruction ?? mediaPlan?.instruction ?? "",
-      reader: product ? inferAudience(product) : "",
-      audienceIntent: product ? audienceIntentFor(postType, product) : "broad_curiosity",
+      reader: candidateProduct ? inferAudience(candidateProduct) : "",
+      audienceIntent: candidateProduct ? audienceIntentFor(postType, candidateProduct) : "broad_curiosity",
       hookType: hook?.hook ?? "COMPARISON",
       hookLabel: hook?.label ?? "根拠不足",
       hookEvidence: hook?.evidence ?? {},
@@ -2350,8 +2809,8 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       topicIdentity,
       topicSemanticKey,
       topicThreshold,
-      readerValue: product ? readerValueFor(postType, product) : "",
-      stopReason: product ? stopReasonFor(postType, product) : "",
+      readerValue: candidateProduct ? readerValueFor(postType, candidateProduct) : "",
+      stopReason: candidateProduct ? stopReasonFor(postType, candidateProduct) : "",
       ctaRole: dailyRole === "REVENUE"
         ? "本文では売り込まず、確認したい人だけ正規リンクへ進ませる。"
         : linkStrategy === "profile_cta"
@@ -2360,6 +2819,21 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
           ? "本文では売り込まず、確認したい人だけ自己リプへ進ませる。"
           : "反応確認が目的なので、問いや共感で保存・返信のきっかけを作る。",
       assetRole: mediaPlan?.reason ?? "",
+      postMode: creative?.strategy === "quote_post" && linkStrategy === "reply_link" && candidateProduct?.affiliate_url
+        ? "quote_plus_reply_affiliate"
+        : creative?.strategy === "quote_post"
+          ? "quote"
+          : linkStrategy === "body_link" || linkStrategy === "reply_link"
+            ? "direct_affiliate"
+            : "quote",
+      affiliateTargetType: resolverCanConnectProduct && resolvedProduct?.product_url ? "product" : myfansTarget.type,
+      affiliateTargetUrl: resolverCanConnectProduct && resolvedProduct?.product_url ? resolvedProduct.product_url : myfansTarget.url,
+      creatorMyfansUrl: creatorMyfansUrl(candidateProduct),
+      productMyfansUrl: candidateProduct?.product_url || "",
+      affiliateConnectionStatus: canConnectProduct ? monetizableStatus : resolverEvidence?.confidence === "strong" ? "resolver_strong_needs_review" : "source_product_mismatch",
+      affiliateUrlGeneratedAt: candidateProduct?.affiliate_url_generated_at ?? null,
+      affiliateUrlExpiresAt: candidateProduct?.affiliate_url_expires_at ?? null,
+      affiliateUrlSource: candidateProduct?.affiliate_url_source ?? "",
     };
   };
 
@@ -2369,22 +2843,43 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
   const evaluateDiversity = (candidate: ReturnType<typeof buildCandidate>) => {
     let quality = candidate.quality;
     const publicText = [candidate.body, candidate.selfReply].filter(Boolean).join("\n");
+    const sourceUsage = pastUsage.latestSource(candidate.quoteXUrl || candidate.sourceXUrl);
+    const sourceAge = sourceUsage ? daysBetweenDates(planDate, sourceUsage.date) : null;
+    const candidateCreatorKey = creatorKeyForCandidateSource(candidate);
+    const creatorUsage = candidateCreatorKey ? pastUsage.latestCreator(candidateCreatorKey) : null;
+    const creatorAge = creatorUsage ? daysBetweenDates(planDate, creatorUsage.date) : null;
+    const topicUsage = pastUsage.latestTopic(candidate.topicIdentity, candidate.topicSemanticKey);
+    const topicAge = topicUsage ? daysBetweenDates(planDate, topicUsage.date) : null;
+    const bodyUsage = pastUsage.latestBody(candidate.body);
+    const bodyAge = bodyUsage ? daysBetweenDates(planDate, bodyUsage.date) : null;
     const leak = detectPublicCopyLeak(publicText);
     if (leak.hasLeak) quality = holdQuality(quality, `Public Copy leak: ${leak.matches.join(" / ")}`);
+    if (sourceUsage?.actualPosted && sourceAge !== null && sourceAge < POSTED_SOURCE_COOLDOWN_DAYS) quality = holdQuality(quality, `実投稿済みsourceは${POSTED_SOURCE_COOLDOWN_DAYS}日cooldown: last ${sourceUsage.date}`);
+    if (sourceUsage && sourceAge !== null && sourceAge < SELECTED_SOURCE_SOFT_COOLDOWN_DAYS) quality = holdQuality(quality, `前日までに選択済みsourceはsoft cooldown: last ${sourceUsage.date}`);
+    if (topicUsage && topicAge !== null && topicAge < TOPIC_COOLDOWN_DAYS) quality = holdQuality(quality, `同じtopic_semantic_keyは${TOPIC_COOLDOWN_DAYS}日cooldown: last ${topicUsage.date}`);
+    if (bodyUsage && (bodyUsage.actualPosted || (bodyAge !== null && bodyAge < POSTED_SOURCE_COOLDOWN_DAYS))) quality = holdQuality(quality, `過去本文と近すぎます: last ${bodyUsage.date}`);
+    if (creatorUsage && creatorAge !== null && creatorAge < 1) quality = holdQuality(quality, `同じcreatorの翌日連続採用を回避: last ${creatorUsage.date}`);
     const diversityIssue = hasPublicCopyDiversityIssue(candidate.body, acceptedBodies);
     if (diversityIssue) quality = holdQuality(quality, diversityIssue);
     if (candidate.topicIdentity && acceptedTopicIdentities.has(candidate.topicIdentity)) quality = holdQuality(quality, `同じtopic_identityは日次planで1回までです: ${candidate.topicIdentity}`);
     const topicSimilarity = Math.max(0, ...acceptedTopicSemanticKeys.map((key) => semanticTopicSimilarity(candidate.topicSemanticKey, key)));
     if (topicSimilarity >= 0.75) quality = holdQuality(quality, `同じsource metric/eventに見えるためHOLDします: similarity ${topicSimilarity.toFixed(2)}`);
-    const productScopedPost = candidate.dailyRole === "REVENUE" || candidate.creativeStrategy !== "quote_post";
+    const quoteSourcedTopic = Boolean(candidate.sourceXUrl && candidate.topicIdentity.startsWith("quote:"));
+    const productScopedPost = candidate.dailyRole === "REVENUE" || (candidate.creativeStrategy !== "quote_post" && !quoteSourcedTopic);
     if (productScopedPost && candidate.product?.id && publishableCandidates.some((item) => item.product?.id === candidate.product?.id && (item.dailyRole === "REVENUE" || item.creativeStrategy !== "quote_post"))) {
       quality = holdQuality(quality, "同じproductは日次planで1回までです");
     }
-    const creatorKeyForCandidate = candidate.product ? creatorKeyFromProduct(candidate.product) : "";
-    if (creatorKeyForCandidate && (acceptedCreatorCounts.get(creatorKeyForCandidate) ?? 0) >= 2) quality = holdQuality(quality, "同じcreatorは日次planで最大2本までです");
-    if (candidate.reasonToCare && (acceptedReasonCounts.get(candidate.reasonToCare) ?? 0) >= 2) quality = holdQuality(quality, `同じreason_to_care ${candidate.reasonToCare} は最大2本までです`);
+    const creatorKeyForCandidate = creatorKeyForCandidateSource(candidate);
+    if (creatorKeyForCandidate && (acceptedCreatorCounts.get(creatorKeyForCandidate) ?? 0) >= 4) quality = holdQuality(quality, "同じcreatorは日次planで最大4本までです");
+    if (candidate.reasonToCare && (acceptedReasonCounts.get(candidate.reasonToCare) ?? 0) >= 3) quality = holdQuality(quality, `同じreason_to_care ${candidate.reasonToCare} は最大3本までです`);
     if (candidate.dailyRole === "AUTHORITY" && !candidate.topicIdentity.startsWith("aggregate:")) {
       quality = holdQuality(quality, "AUTHORITYは単一source/topicの言い換えでは採用しません");
+    }
+    if (candidate.creativeStrategy === "quote_post" && candidate.sourceSpecificityScore < 35) {
+      quality = holdQuality(quality, `source_specificity_score ${candidate.sourceSpecificityScore}/100: 元投稿固有要素が不足しています`);
+    }
+    if (candidate.creativeStrategy === "quote_post" && !candidate.sourceXUrl) {
+      quality = holdQuality(quality, "sourceXUrlがないquote candidateはHard failです");
     }
     if (candidate.creativeStrategy === "quote_post" && candidate.quoteXUrl && candidate.product) {
       const quote = analytics.quoteCandidates.find((item) => quoteUrlFromCandidate(item) === candidate.quoteXUrl || item.x_post_url === candidate.quoteXUrl);
@@ -2393,7 +2888,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       if (candidate.reactionType && acceptedReactionTypes.has(candidate.reactionType)) quality = holdQuality(quality, "同日のquote reaction typeが重複しています");
     }
     const sameRoleCount = publishableCandidates.filter((item) => item.dailyRole === candidate.dailyRole).length;
-    if (sameRoleCount >= 2) quality = holdQuality(quality, `同じrole ${candidate.dailyRole} は1日2本までです`);
+    if (sameRoleCount >= 4) quality = holdQuality(quality, `同じrole ${candidate.dailyRole} は1日4本までです`);
     const projected = [...publishableCandidates.map((item) => item.quality.total), quality.total];
     const projectedAverage = projected.reduce((sum, score) => sum + score, 0) / projected.length;
     if (quality.verdict === "PASS" && projected.length >= 2 && projectedAverage < MYFANS_DAILY_AVERAGE_QUALITY_MINIMUM) {
@@ -2402,9 +2897,130 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     return { ...candidate, quality };
   };
 
+  const slotOptions: Array<{
+    slot: string;
+    postOrder: number;
+    recommendedOption: "A" | "B" | "C";
+    candidates: Array<ReturnType<typeof evaluateDiversity> & {
+      optionLabel: "A" | "B" | "C";
+      optionName: string;
+      optionRank: number;
+      novelty: {
+        maxPastSimilarity: number;
+        nearestPastPostId: number | null;
+        sameSourcePastCount: number;
+        sameTopicPastCount: number;
+        verdict: "fresh" | "near" | "blocked";
+        label: "高" | "中" | "低";
+        sameSourceLabel: string;
+        lastSameSourceDate: string | null;
+        lastSameCreatorDate: string | null;
+        pastBodySimilarityLabel: "低" | "中" | "高";
+      };
+    }>;
+  }> = [];
+
+  const optionNames = {
+    A: "おすすめ",
+    B: "別の切り口",
+    C: "攻めた案",
+  } as const;
+
+  const normalizeCopyForSimilarity = (value: string) =>
+    value
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/https?:\/\/\S+/g, "")
+      .replace(/[^\p{Letter}\p{Number}ぁ-んァ-ヶー一-龠]+/gu, "")
+      .trim();
+
+  const bodySimilarity = (left: string, right: string) => {
+    const a = normalizeCopyForSimilarity(left);
+    const b = normalizeCopyForSimilarity(right);
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    const grams = (text: string) => {
+      const set = new Set<string>();
+      for (let index = 0; index < Math.max(1, text.length - 1); index += 1) set.add(text.slice(index, index + 2));
+      return set;
+    };
+    const ga = grams(a);
+    const gb = grams(b);
+    const intersection = [...ga].filter((gram) => gb.has(gram)).length;
+    return intersection / Math.max(1, Math.min(ga.size, gb.size));
+  };
+
+  const noveltyFor = (candidate: ReturnType<typeof evaluateDiversity>) => {
+    const posted = analytics.posts.filter((post) => post.status === "posted" || Boolean(post.posted_at) || Boolean(post.x_post_url));
+    let maxPastSimilarity = 0;
+    let nearestPastPostId: number | null = null;
+    let sameSourcePastCount = 0;
+    let sameTopicPastCount = 0;
+    for (const post of posted) {
+      const similarity = bodySimilarity(candidate.body, post.body);
+      if (similarity > maxPastSimilarity) {
+        maxPastSimilarity = similarity;
+        nearestPastPostId = post.id;
+      }
+      const postSource = post.quote_x_url || post.source_x_url || "";
+      if (postSource && candidate.quoteXUrl && postSource === candidate.quoteXUrl) sameSourcePastCount += 1;
+      const postTopic = `${post.product_id ?? ""}:${post.post_type ?? ""}:${post.creative_strategy ?? ""}`;
+      const candidateTopic = `${candidate.product?.id ?? ""}:${candidate.postType}:${candidate.creativeStrategy}`;
+      if (postTopic === candidateTopic) sameTopicPastCount += 1;
+    }
+    const sourceUsage = pastUsage.latestSource(candidate.quoteXUrl || candidate.sourceXUrl);
+    const creatorUsage = pastUsage.latestCreator(creatorKeyForCandidateSource(candidate));
+    const topicUsage = pastUsage.latestTopic(candidate.topicIdentity, candidate.topicSemanticKey);
+    const sourceAge = sourceUsage ? daysBetweenDates(planDate, sourceUsage.date) : null;
+    const sourceUsedRecently = sourceAge !== null && sourceAge < POSTED_SOURCE_COOLDOWN_DAYS;
+    const verdict = maxPastSimilarity >= 0.92 || sameSourcePastCount > 0 || sourceUsedRecently
+      ? "blocked" as const
+      : maxPastSimilarity >= 0.72 || sameTopicPastCount > 0 || topicUsage
+        ? "near" as const
+        : "fresh" as const;
+    return {
+      maxPastSimilarity: Number(maxPastSimilarity.toFixed(2)),
+      nearestPastPostId,
+      sameSourcePastCount,
+      sameTopicPastCount,
+      verdict,
+      label: verdict === "fresh" ? "高" as const : verdict === "near" ? "中" as const : "低" as const,
+      sameSourceLabel: sourceUsage ? `${POSTED_SOURCE_COOLDOWN_DAYS}日以内使用済み` : "未使用",
+      lastSameSourceDate: sourceUsage?.date ?? null,
+      lastSameCreatorDate: creatorUsage?.date ?? null,
+      pastBodySimilarityLabel: maxPastSimilarity >= 0.72 ? "高" as const : maxPastSimilarity >= 0.45 ? "中" as const : "低" as const,
+    };
+  };
+
+  const optionDiverseEnough = (candidate: {
+    id: string;
+    body: string;
+    topicIdentity: string;
+    topicSemanticKey: string;
+    quoteXUrl: string;
+    sourceXUrl: string;
+    product: MyfansProduct | null;
+  }, options: Array<{
+    id: string;
+    body: string;
+    topicIdentity: string;
+    topicSemanticKey: string;
+    quoteXUrl: string;
+    sourceXUrl: string;
+    product: MyfansProduct | null;
+  }>) => {
+    if (options.some((option) => option.id === candidate.id || option.body === candidate.body)) return false;
+    if (options.some((option) => bodySimilarity(option.body, candidate.body) >= 0.9)) return false;
+    if (candidate.topicIdentity && options.some((option) => option.topicIdentity === candidate.topicIdentity)) return false;
+    if (candidate.topicSemanticKey && options.some((option) => semanticTopicSimilarity(option.topicSemanticKey, candidate.topicSemanticKey) >= 0.75)) return false;
+    if (candidate.quoteXUrl && options.some((option) => normalizeSourceUrl(option.quoteXUrl || option.sourceXUrl) === normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl))) return false;
+    return true;
+  };
+
   for (const [index, item] of rotation.entries()) {
     const excludedProducts = new Set(usedProductIds);
     let selected: ReturnType<typeof evaluateDiversity> | null = null;
+    const optionsForSlot: Array<ReturnType<typeof evaluateDiversity> & { novelty: ReturnType<typeof noveltyFor> }> = [];
     let previousHold = "";
     for (let attempt = 0; attempt < MYFANS_SLOT_RECOVERY_MAX_ATTEMPTS; attempt += 1) {
       const candidate = evaluateDiversity(buildCandidate(item, index, attempt, excludedProducts));
@@ -2432,8 +3048,12 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
         recoveryAction: candidate.quality.verdict === "PASS" ? (previousHold ? `${previousHold}から回復` : "初回PASS") : recoveryActionFor(holdReason, item.postType, fallbackPostTypes(item.postType)[(attempt + 1) % fallbackPostTypes(item.postType).length], attempt),
       });
       if (candidate.quality.verdict === "PASS" && candidate.quality.total >= MYFANS_QUALITY_GATE_MINIMUM) {
-        selected = candidate;
-        break;
+        const novelty = noveltyFor(candidate);
+        if (novelty.verdict !== "blocked" && optionDiverseEnough(candidate, optionsForSlot)) {
+          optionsForSlot.push({ ...candidate, novelty });
+          selected ??= candidate;
+        }
+        if (optionsForSlot.length >= 3) break;
       }
       previousHold = holdReason;
       if (candidate.product?.id && !allowSameProductAcrossDistinctRoles && (attempt + 1) % MYFANS_MULTI_ANGLE_ATTEMPTS_PER_TOPIC === 0) excludedProducts.add(candidate.product.id);
@@ -2445,7 +3065,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       if (selected.topicSemanticKey) acceptedTopicSemanticKeys.push(selected.topicSemanticKey);
       if (selected.reasonToCare) acceptedReasonCounts.set(selected.reasonToCare, (acceptedReasonCounts.get(selected.reasonToCare) ?? 0) + 1);
       if (selected.product) {
-        const creatorKey = creatorKeyFromProduct(selected.product);
+        const creatorKey = creatorKeyForCandidateSource(selected);
         acceptedCreatorCounts.set(creatorKey, (acceptedCreatorCounts.get(creatorKey) ?? 0) + 1);
       }
       if (selected.creativeStrategy === "quote_post" && selected.quoteXUrl && selected.product) {
@@ -2454,6 +3074,20 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
         if (selected.reactionType) acceptedReactionTypes.add(selected.reactionType);
       }
       publishableCandidates.push(selected);
+      slotOptions.push({
+        slot: selected.plannedSlot,
+        postOrder: index + 1,
+        recommendedOption: "A",
+        candidates: optionsForSlot.slice(0, 3).map((candidate, optionIndex) => {
+          const optionLabel = (["A", "B", "C"] as const)[optionIndex];
+          return {
+            ...candidate,
+            optionLabel,
+            optionName: optionNames[optionLabel],
+            optionRank: optionIndex + 1,
+          };
+        }),
+      });
     } else {
       const last = recoveryHistory.filter((history) => history.slot === item.slot).at(-1);
       heldCandidates.push({
@@ -2461,7 +3095,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
         quality: {
           total: last?.score ?? 0,
           verdict: "HOLD",
-          breakdown: { stopPower: 0, firstLineStop: 0, visualLeverage: 0, visual: 0, specificity: 0, proof: 0, broadCuriosity: 0, audience: 0, followReason: 0, attentionValue: 0, roleDifferentiation: 0, spamSalesSmell: 0, repetitionPenalty: 0 },
+          breakdown: { stopPower: 0, firstLineStop: 0, visualLeverage: 0, visual: 0, specificity: 0, proof: 0, broadCuriosity: 0, audience: 0, followReason: 0, attentionValue: 0, naturalUserReaction: 0, analystCommentaryRisk: 100, sourceSpecificity: 0, roleDifferentiation: 0, spamSalesSmell: 0, repetitionPenalty: 0 },
           reasons: [`${MYFANS_SLOT_RECOVERY_MAX_ATTEMPTS}回再探索してもQuality Gateを通過しませんでした`, last?.holdReason ?? ""].filter(Boolean),
         },
       });
@@ -2509,7 +3143,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       if (candidate.topicSemanticKey) acceptedTopicSemanticKeys.push(candidate.topicSemanticKey);
       if (candidate.reasonToCare) acceptedReasonCounts.set(candidate.reasonToCare, (acceptedReasonCounts.get(candidate.reasonToCare) ?? 0) + 1);
       if (candidate.product) {
-        const creatorKey = creatorKeyFromProduct(candidate.product);
+        const creatorKey = creatorKeyForCandidateSource(candidate);
         acceptedCreatorCounts.set(creatorKey, (acceptedCreatorCounts.get(creatorKey) ?? 0) + 1);
       }
       if (candidate.creativeStrategy === "quote_post" && candidate.quoteXUrl && candidate.product) {
@@ -2653,9 +3287,248 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     }
   }
 
-  const linkedCount = publishableCandidates.filter((candidate) => candidate.linkStrategy === "body_link" || candidate.linkStrategy === "reply_link").length;
-  const noDirectLinkCount = publishableCandidates.length - linkedCount;
   const strategy = MYFANS_30_DAY_STRATEGY[stage];
+  const usedOptionSourcesAcrossDay = new Set<string>();
+  const fullDailyOptions = rotation.map((item, index) => {
+    const existing = slotOptions.find((slot) => slot.postOrder === index + 1);
+    const options = [...(existing?.candidates ?? [])].filter((candidate) => {
+      const source = normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl);
+      if (candidate.quality.verdict !== "PASS") return false;
+      if (!source || usedOptionSourcesAcrossDay.has(source)) return false;
+      usedOptionSourcesAcrossDay.add(source);
+      return true;
+    });
+    const excludedProducts = new Set<number>();
+    const fillFrom = (sourceItem: RotationItem, attemptOffset: number) => {
+      for (let attempt = 0; attempt < MYFANS_SLOT_RECOVERY_MAX_ATTEMPTS * 2 && options.length < 3; attempt += 1) {
+        const candidate = evaluateDiversity(buildCandidate(sourceItem, index, attemptOffset + attempt + options.length * MYFANS_MULTI_ANGLE_ATTEMPTS_PER_TOPIC, excludedProducts));
+        const leak = detectPublicCopyLeak(candidate.body);
+        const novelty = noveltyFor(candidate);
+        const source = normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl);
+        if (!source || usedOptionSourcesAcrossDay.has(source)) continue;
+        if (leak.hasLeak || novelty.verdict === "blocked") continue;
+        if (candidate.quality.verdict !== "PASS" || candidate.quality.total < 80) continue;
+        if (!optionDiverseEnough(candidate, options)) continue;
+        usedOptionSourcesAcrossDay.add(source);
+        const optionIndex = options.length;
+        const optionLabel = (["A", "B", "C"] as const)[optionIndex];
+        options.push({
+          ...candidate,
+          plannedSlot: item.slot,
+          novelty,
+          optionLabel,
+          optionName: optionNames[optionLabel],
+          optionRank: optionIndex + 1,
+        });
+        if (candidate.product?.id && (attempt + 1) % MYFANS_MULTI_ANGLE_ATTEMPTS_PER_TOPIC === 0) excludedProducts.add(candidate.product.id);
+      }
+    };
+    fillFrom(item, 0);
+    if (options.length < 3) {
+      const resolverCandidate = evaluateDiversity(buildCandidate(item, index, 0, excludedProducts));
+      const resolverNovelty = noveltyFor(resolverCandidate);
+      const resolverSource = normalizeSourceUrl(resolverCandidate.quoteXUrl || resolverCandidate.sourceXUrl);
+      const hasExactResolver = resolverCandidate.resolverEvidence?.confidence === "exact" && Boolean(resolverCandidate.resolverEvidence.product_id);
+      const resolverLeak = detectPublicCopyLeak(resolverCandidate.body);
+      if (hasExactResolver && resolverCandidate.body && resolverCandidate.quality.total >= 70 && !resolverLeak.hasLeak && resolverNovelty.verdict !== "blocked" && resolverSource && !usedOptionSourcesAcrossDay.has(resolverSource) && optionDiverseEnough(resolverCandidate, options)) {
+        usedOptionSourcesAcrossDay.add(resolverSource);
+        const optionIndex = options.length;
+        const optionLabel = (["A", "B", "C"] as const)[optionIndex];
+        options.push({
+          ...resolverCandidate,
+          plannedSlot: item.slot,
+          novelty: resolverNovelty,
+          optionLabel,
+          optionName: optionNames[optionLabel],
+          optionRank: optionIndex + 1,
+        });
+      }
+    }
+    if (options.length < 3) {
+      fillFrom({
+        postType: "discovery_interest",
+        linkStrategy: "no_link",
+        objective: "impression",
+        cta: "保存用の発見メモ",
+        slot: item.slot,
+        role: "Revenue材料不足のためDiscoveryへrole swap",
+      }, 100);
+    }
+    if (options.length < 3) {
+      for (let attempt = 0; attempt < MYFANS_SLOT_RECOVERY_MAX_ATTEMPTS * 3 && options.length < 3; attempt += 1) {
+        const candidate = evaluateDiversity(buildCandidate({
+          postType: "ranking_note",
+          linkStrategy: "no_link",
+          objective: "impression",
+          cta: "保存用の発見メモ",
+          slot: item.slot,
+          role: "候補不足のため非visual Topicへfallback",
+        }, index, 200 + attempt, excludedProducts));
+        const leak = detectPublicCopyLeak(candidate.body);
+        const novelty = noveltyFor(candidate);
+        const source = normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl);
+        if (!source || usedOptionSourcesAcrossDay.has(source)) continue;
+        if (!candidate.body || leak.hasLeak || novelty.verdict === "blocked") continue;
+        if (candidate.quality.total < 70) continue;
+        if (!optionDiverseEnough(candidate, options)) continue;
+        usedOptionSourcesAcrossDay.add(source);
+        const optionIndex = options.length;
+        const optionLabel = (["A", "B", "C"] as const)[optionIndex];
+        options.push({
+          ...candidate,
+          plannedSlot: item.slot,
+          novelty,
+          optionLabel,
+          optionName: optionNames[optionLabel],
+          optionRank: optionIndex + 1,
+        });
+      }
+    }
+    return {
+      slot: rotation[index]?.slot ?? item.slot,
+      postOrder: index + 1,
+      recommendedOption: "A" as const,
+      candidates: options.slice(0, 3).map((candidate, optionIndex) => {
+        const optionLabel = (["A", "B", "C"] as const)[optionIndex];
+        return {
+          ...candidate,
+          optionLabel,
+          optionName: optionNames[optionLabel],
+          optionRank: optionIndex + 1,
+        };
+      }),
+    };
+  });
+  const usedSelectedAuthors = new Set<string>();
+  const hasRecommendedMonetizable = fullDailyOptions.some((slot) =>
+    slot.candidates.some((candidate) => candidate.optionLabel === slot.recommendedOption && candidate.monetizableStatus !== "unlinked"),
+  );
+  if (!hasRecommendedMonetizable) {
+    const monetizableSlot = fullDailyOptions.find((slot) => slot.candidates.some((candidate) => candidate.monetizableStatus !== "unlinked"));
+    if (monetizableSlot) {
+      monetizableSlot.candidates = [
+        ...monetizableSlot.candidates.filter((candidate) => candidate.monetizableStatus !== "unlinked"),
+        ...monetizableSlot.candidates.filter((candidate) => candidate.monetizableStatus === "unlinked"),
+      ].slice(0, 3).map((candidate, optionIndex) => {
+        const optionLabel = (["A", "B", "C"] as const)[optionIndex];
+        return {
+          ...candidate,
+          optionLabel,
+          optionName: optionNames[optionLabel],
+          optionRank: optionIndex + 1,
+        };
+      });
+    }
+  }
+
+  const selectedPublishableCandidates = fullDailyOptions
+    .map((slot) => {
+      const ranked = [...slot.candidates].sort((a, b) => {
+        const aMonetizable = a.monetizableStatus !== "unlinked" ? 1 : 0;
+        const bMonetizable = b.monetizableStatus !== "unlinked" ? 1 : 0;
+        const needsMonetizable = slot.postOrder >= 3 && !fullDailyOptions
+          .slice(0, slot.postOrder - 1)
+          .some((previous) => previous.candidates.some((candidate) => candidate.optionLabel === previous.recommendedOption && candidate.monetizableStatus !== "unlinked"));
+        if (needsMonetizable && aMonetizable !== bMonetizable) return bMonetizable - aMonetizable;
+        if ((a.optionLabel === slot.recommendedOption) !== (b.optionLabel === slot.recommendedOption)) return a.optionLabel === slot.recommendedOption ? -1 : 1;
+        return b.quality.total - a.quality.total;
+      });
+      const picked = ranked.find((candidate) => {
+        const author = (candidate.sourceAuthorHandle || candidate.sourceCreator?.handle || "").toLowerCase();
+        return !author || !usedSelectedAuthors.has(author);
+      }) ?? ranked[0] ?? null;
+      const author = (picked?.sourceAuthorHandle || picked?.sourceCreator?.handle || "").toLowerCase();
+      if (author) usedSelectedAuthors.add(author);
+      return picked;
+    })
+    .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+  const finalPublishableCandidates = selectedPublishableCandidates.length >= rotation.length
+    ? selectedPublishableCandidates.slice(0, rotation.length)
+    : publishableCandidates;
+  const finalLinkedCount = finalPublishableCandidates.filter((candidate) => candidate.linkStrategy === "body_link" || candidate.linkStrategy === "reply_link").length;
+  const finalNoDirectLinkCount = finalPublishableCandidates.length - finalLinkedCount;
+  const allDailyOptions = fullDailyOptions.flatMap((slot) => slot.candidates);
+  const productsByCreatorKey = new Map<string, MyfansProduct[]>();
+  for (const product of analytics.products) {
+    const key = creatorKeyFromProduct(product);
+    productsByCreatorKey.set(key, [...(productsByCreatorKey.get(key) ?? []), product]);
+  }
+  const quoteByCreatorKey = new Map<string, MyfansQuoteCandidate[]>();
+  for (const quote of analytics.quoteCandidates) {
+    const key = creatorKeyFromQuote(quote);
+    quoteByCreatorKey.set(key, [...(quoteByCreatorKey.get(key) ?? []), quote]);
+  }
+  const creatorRows = analytics.creators.filter((creator) => creator.is_active);
+  const creatorsWithExactX = creatorRows.filter((creator) => creatorKeyFromCreator(creator));
+  const creatorFunnelRows = creatorsWithExactX.map((creator) => {
+    const key = creatorKeyFromCreator(creator);
+    const quotes = quoteByCreatorKey.get(key) ?? [];
+    const creatorProducts = productsByCreatorKey.get(key) ?? [];
+    const freshQuotes = quotes.filter((quote) => {
+      const age = daysSinceIso(quote.collected_at);
+      return (age === null || age <= QUOTE_FRESH_DAYS) && !quote.is_repost;
+    });
+    const eligibleProducts = creatorProducts.filter((product) => product.status !== "paused" && product.status !== "rejected" && Boolean(product.product_url || creatorMyfansUrl(product)));
+    const topicPass = creatorProducts.some((product) => {
+      const quote = quotes.find((item) => item.product_id === product.id) ?? quotes[0] ?? null;
+      return ["ATTENTION", "DISCOVERY", "AUTHORITY", "REVENUE"].some((role) =>
+        evaluateMyfansTopicValue({ product, quote, role: role as DailyRole, baselines: topicBaselines }).verdict === "PASS",
+      );
+    });
+    const cooldownPass = freshQuotes.some((quote) => {
+      const sourceUsage = pastUsage.latestSource(quote.x_post_url) ?? pastUsage.latestSource(quoteUrlFromCandidate(quote));
+      const sourceAge = sourceUsage ? daysBetweenDates(planDate, sourceUsage.date) : null;
+      return !quote.last_used_at && !quote.cooldown_until && !(sourceUsage?.actualPosted && sourceAge !== null && sourceAge < POSTED_SOURCE_COOLDOWN_DAYS);
+    });
+    const sourceStatusUrl = quotes.some((quote) => Boolean(quote.x_post_url || quote.media_permalink));
+    const candidatePool = allDailyOptions.some((candidate) => creatorKeyForCandidateSource(candidate) === key);
+    const daily12 = allDailyOptions.some((candidate) => creatorKeyForCandidateSource(candidate) === key);
+    const selected4 = finalPublishableCandidates.some((candidate) => creatorKeyForCandidateSource(candidate) === key);
+    const linkedNoAffiliate = allDailyOptions.some((candidate) => creatorKeyForCandidateSource(candidate) === key && candidate.monetizableStatus === "linked_no_affiliate");
+    const linkedAffiliateReady = allDailyOptions.some((candidate) => creatorKeyForCandidateSource(candidate) === key && candidate.monetizableStatus === "linked_affiliate_ready");
+    const primaryDropReason = !quotes.length ? "quote candidate未接続"
+      : !freshQuotes.length ? "fresh quoteなし"
+      : !creatorProducts.length ? "product linkageなし"
+      : !eligibleProducts.length ? "public/eligible productなし"
+      : !topicPass ? "Topic/quality eligibility未達"
+      : !cooldownPass ? "cooldown"
+      : !sourceStatusUrl ? "source/status URLなし"
+      : !candidatePool ? "candidate pool未採用"
+      : !daily12 ? "Daily 12未採用"
+      : !selected4 ? "selected 4未採用"
+      : "selected";
+    return { key, quotes, freshQuotes, creatorProducts, eligibleProducts, topicPass, cooldownPass, sourceStatusUrl, candidatePool, daily12, selected4, linkedNoAffiliate, linkedAffiliateReady, primaryDropReason };
+  });
+  const countRows = (predicate: (row: (typeof creatorFunnelRows)[number]) => boolean) => creatorFunnelRows.filter(predicate).length;
+  const linkedCandidateFunnel = {
+    myfansCreatorsTotal: creatorRows.length,
+    officialExactXHandleAvailable: creatorsWithExactX.length,
+    quoteCandidateExactConnected: countRows((row) => row.quotes.length > 0),
+    currentFreshQuoteSource: countRows((row) => row.freshQuotes.length > 0),
+    productLinkage: countRows((row) => row.creatorProducts.length > 0),
+    publicEligibleProduct: countRows((row) => row.eligibleProducts.length > 0),
+    topicQualityEligibility: countRows((row) => row.topicPass),
+    cooldownPassed: countRows((row) => row.cooldownPass),
+    sourceStatusUrl: countRows((row) => row.sourceStatusUrl),
+    candidatePool: countRows((row) => row.candidatePool),
+    daily12: countRows((row) => row.daily12),
+    selected4: countRows((row) => row.selected4),
+    linkedNoAffiliate: countRows((row) => row.linkedNoAffiliate),
+    linkedAffiliateReady: countRows((row) => row.linkedAffiliateReady),
+    primaryDropReasons: Object.entries(creatorFunnelRows.reduce<Record<string, number>>((acc, row) => {
+      acc[row.primaryDropReason] = (acc[row.primaryDropReason] ?? 0) + 1;
+      return acc;
+    }, {})).map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
+    conditionCounts: {
+      quotes: countRows((row) => row.quotes.length > 0),
+      freshQuotes: countRows((row) => row.freshQuotes.length > 0),
+      products: countRows((row) => row.creatorProducts.length > 0),
+      eligibleProducts: countRows((row) => row.eligibleProducts.length > 0),
+      topicPass: countRows((row) => row.topicPass),
+      cooldownPass: countRows((row) => row.cooldownPass),
+      sourceStatusUrl: countRows((row) => row.sourceStatusUrl),
+    },
+  };
 
   return {
     day,
@@ -2664,28 +3537,30 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     stage,
     strategy,
     profileGuide: MYFANS_PROFILE_GUIDE,
-    candidates: publishableCandidates,
+    candidates: finalPublishableCandidates,
+    candidateOptions: fullDailyOptions,
+    linkedCandidateFunnel,
     heldCandidates,
-    linkedCount,
-    noDirectLinkCount,
+    linkedCount: finalLinkedCount,
+    noDirectLinkCount: finalNoDirectLinkCount,
     learning,
     quotePool,
     topicValue: {
-      funnel: { ...candidateFunnel, final: publishableCandidates.length },
+      funnel: { ...candidateFunnel, final: finalPublishableCandidates.length },
       top10: topicRows.slice(0, 10),
       rejected: topicRows.filter((row) => row.topicValue.verdict === "LOW_TOPIC_VALUE").slice(0, 20),
     },
     planningReason: planningReasonFor(stage, learning),
-    todayStrategy: buildTodayStrategy(analytics, publishableCandidates, heldCandidates, quotePool),
+    todayStrategy: buildTodayStrategy(analytics, finalPublishableCandidates, heldCandidates, quotePool),
     recovery: {
       targetPosts: rotation.length,
-      passCount: publishableCandidates.length,
+      passCount: finalPublishableCandidates.length,
       attemptedCandidates: recoveryHistory.length,
       initialAttempts,
       history: recoveryHistory,
       summary: publishableCandidates.length >= rotation.length
         ? `目標${rotation.length}本すべてQuality Gate ${MYFANS_QUALITY_GATE_MINIMUM}+で通過`
-        : `目標${rotation.length}本中${publishableCandidates.length}本PASS。候補不足またはGate未達`,
+        : `目標${rotation.length}本中${finalPublishableCandidates.length}本PASS。候補不足またはGate未達`,
       roleSwaps: recoveryHistory.filter((row) => /→/.test(row.recoveryAction) || /Recovery/.test(row.candidateId)),
     },
     outboundTasks: buildOutboundTasks(analytics, quotePool),

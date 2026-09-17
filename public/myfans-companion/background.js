@@ -1,8 +1,12 @@
 const QUOTE_STATE_KEY = "myfansQuoteRefreshState";
+const QUOTE_SETTINGS_KEY = "myfansQuoteRefreshSettings";
+const COMPANION_SETTINGS_KEY = "myfansCompanionSettings";
+const QUOTE_ALARM_NAME = "myfansQuoteRefreshNext";
 const WORKER_TAB_KEY = "myfansQuoteWorkerTabId";
-const WORKER_VERSION = "0.1.5";
+const WORKER_VERSION = "0.1.9";
 const ADMIN_BRIDGE_FILE = "myfans-admin-bridge.js";
 const ADMIN_HOSTS = new Set(["localhost", "127.0.0.1"]);
+let diagnosticRunning = false;
 
 function isMyfansAdminUrl(value) {
   try {
@@ -205,7 +209,56 @@ function ensureStructuredScanResult(value, fallbackStage = "EXTRACT") {
 }
 
 function normalizeBaseUrl(value) {
-  return String(value || "http://localhost:3000").replace(/\/$/, "");
+  return String(value || "").trim().replace(/\/$/, "");
+}
+
+function dailyPageContext(urlValue) {
+  try {
+    const url = new URL(String(urlValue || ""));
+    if (!isMyfansAdminUrl(url.href)) return null;
+    const media = url.searchParams.get("media");
+    return {
+      baseUrl: url.origin,
+      approvedMediaId: /^[1-9]\d*$/.test(media || "") ? media : ""
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function getCompanionSettings() {
+  const stored = await chrome.storage.local.get([COMPANION_SETTINGS_KEY, QUOTE_SETTINGS_KEY, QUOTE_STATE_KEY]);
+  const saved = stored[COMPANION_SETTINGS_KEY] || stored[QUOTE_SETTINGS_KEY] || {};
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const detected = dailyPageContext(tab?.url);
+  const settings = { ...saved };
+  if (detected) {
+    settings.baseUrl = detected.baseUrl;
+    if (detected.approvedMediaId) settings.approvedMediaId = detected.approvedMediaId;
+    await chrome.storage.local.set({ [COMPANION_SETTINGS_KEY]: settings });
+  }
+  return { settings, detected, state: stored[QUOTE_STATE_KEY] || null };
+}
+
+async function saveCompanionSettings(settings) {
+  const current = await chrome.storage.local.get([COMPANION_SETTINGS_KEY]);
+  const next = { ...(current[COMPANION_SETTINGS_KEY] || {}), ...settings };
+  await chrome.storage.local.set({ [COMPANION_SETTINGS_KEY]: next });
+  return next;
+}
+
+async function fetchQuoteProgress(settings, state) {
+  const base = normalizeBaseUrl(settings?.baseUrl);
+  if (!base) return null;
+  const query = new URLSearchParams();
+  const jobId = state?.jobId || settings?.jobId;
+  if (jobId) query.set("jobId", String(jobId));
+  else if (settings?.approvedMediaId) query.set("approvedMediaId", String(settings.approvedMediaId));
+  else return null;
+  const response = await fetch(`${base}/api/admin/myfans/quote-refresh?${query.toString()}`);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `進捗取得に失敗しました (${response.status})`);
+  return payload;
 }
 
 async function setQuoteState(patch) {
@@ -213,6 +266,20 @@ async function setQuoteState(patch) {
   const next = { ...(stored[QUOTE_STATE_KEY] || {}), ...patch, updatedAt: new Date().toISOString() };
   await chrome.storage.local.set({ [QUOTE_STATE_KEY]: next });
   return next;
+}
+
+async function saveQuoteSettings(settings) {
+  await chrome.storage.local.set({ [QUOTE_SETTINGS_KEY]: settings });
+}
+
+async function clearQuoteContinuation() {
+  await chrome.alarms.clear(QUOTE_ALARM_NAME).catch(() => undefined);
+  await chrome.storage.local.remove([QUOTE_SETTINGS_KEY]);
+}
+
+async function scheduleQuoteContinuation(settings, delayMs = 5000) {
+  await saveQuoteSettings(settings);
+  await chrome.alarms.create(QUOTE_ALARM_NAME, { when: Date.now() + Math.max(1000, delayMs) });
 }
 
 async function quoteRefreshRequest(settings, body) {
@@ -235,6 +302,68 @@ async function sendPayload(settings, result) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || `送信に失敗しました (${response.status})`);
   return payload;
+}
+
+function diagnosticStatusUrl(value) {
+  const raw = String(value || "").trim().replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
+  return /^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d+$/i.test(raw) ? raw : "";
+}
+
+async function runDiagnosticStatus(settings) {
+  if (diagnosticRunning) return;
+  diagnosticRunning = true;
+  const diagnosticRunId = settings.diagnosticRunId || `diag-${Date.now()}`;
+  await chrome.storage.local.set({ myfansDiagnosticState: { status: "running", diagnosticRunId, sourceStatusUrl: settings.sourceStatusUrl || null, diagnosticMode: true } });
+  let diagnosticWorkerTabId = null;
+  let originalTabId = null;
+  try {
+    const statusUrl = diagnosticStatusUrl(settings.sourceStatusUrl);
+    const handle = statusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "";
+    if (!statusUrl || !handle) throw new Error("診断対象はx.comの正規status URLを指定してください。");
+    const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    originalTabId = currentTab?.id || null;
+    const workerTab = await chrome.tabs.create({ url: "about:blank", active: true, openerTabId: currentTab?.id });
+    const workerTabId = workerTab.id;
+    diagnosticWorkerTabId = workerTabId;
+    await chrome.tabs.update(workerTabId, { url: statusUrl, active: true });
+    await waitForTabComplete(workerTabId, 45000);
+    await waitForTweetRender(workerTabId, handle, 18000);
+    let threadResult = null;
+    for (let attempt = 1; attempt <= 8; attempt += 1) {
+      threadResult = await executeMain(workerTabId, collectXStatusThreadReplies, [{ sourceXHandle: handle, sourceStatusUrl: statusUrl }]);
+      if (!threadResult?.ok || threadResult.authorReplyCount > 0 || attempt === 8) break;
+      await wait(1500);
+    }
+    if (!threadResult?.ok) throw new Error("status threadの取得に失敗しました。");
+    if (String(threadResult.sourceAuthorHandle || "").toLowerCase() !== handle.toLowerCase()) throw new Error("status元投稿のauthorが指定handleと一致しません。");
+    for (const candidate of threadResult.quoteCandidates || []) {
+      for (const redirectUrl of (candidate.myfansUrls || []).filter((url) => /^https:\/\/t\.co\//i.test(url))) {
+        await chrome.tabs.update(workerTabId, { url: redirectUrl, active: true });
+        await waitForTabComplete(workerTabId, 30000);
+        let resolvedUrl = "";
+        for (let redirectAttempt = 0; redirectAttempt < 15; redirectAttempt += 1) {
+          resolvedUrl = (await chrome.tabs.get(workerTabId)).url || "";
+          if (/^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(resolvedUrl)) break;
+          await wait(1000);
+        }
+        if (!/^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(resolvedUrl)) {
+          resolvedUrl = await executeMain(workerTabId, () => location.href).catch(() => resolvedUrl);
+        }
+        if (/^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(resolvedUrl)) {
+          candidate.observedMfcoLink = true;
+          candidate.myfansUrls = [...new Set([...(candidate.myfansUrls || []).filter((url) => !/^https:\/\/t\.co\//i.test(url)), resolvedUrl.replace(/[?#].*$/, "")])];
+        }
+      }
+    }
+    const payload = await sendPayload({ ...settings, diagnosticMode: true, sourceStatusUrl: statusUrl, diagnosticRunId }, { type: "x_diagnostic_status_scan", diagnosticMode: true, sourceStatusUrl: statusUrl, sourceXHandle: handle, diagnosticRunId, quoteCandidates: threadResult.quoteCandidates || [] });
+    await chrome.storage.local.set({ myfansDiagnosticState: { status: "done", diagnosticMode: true, sourceStatusUrl: statusUrl, sourceXHandle: handle, sourceAuthorHandle: threadResult.sourceAuthorHandle, replyCandidates: threadResult.quoteCandidates || [], ...payload } });
+  } catch (error) {
+    await chrome.storage.local.set({ myfansDiagnosticState: { status: "error", diagnosticMode: true, diagnosticRunId, sourceStatusUrl: settings.sourceStatusUrl || null, error: error instanceof Error ? error.message : String(error) } });
+  } finally {
+    if (originalTabId) await chrome.tabs.update(originalTabId, { active: true }).catch(() => undefined);
+    if (diagnosticWorkerTabId) await chrome.tabs.remove(diagnosticWorkerTabId).catch(() => undefined);
+    diagnosticRunning = false;
+  }
 }
 
 async function markItemFailed(settings, jobId, itemId, error) {
@@ -381,6 +510,11 @@ function collectXQuoteCandidates() {
     const socialContext = article.querySelector('[data-testid="socialContext"]')?.textContent || "";
     const rawText = article.innerText || "";
     const analytics = Array.from(article.querySelectorAll("a[href]")).find((link) => /\/analytics$/.test(link.getAttribute("href") || ""));
+    const myfansUrls = Array.from(article.querySelectorAll("a[href]"))
+      .map((link) => link.href || link.getAttribute("href") || "")
+      .filter((href) => /^https?:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(href))
+      .map((href) => href.replace(/[?#].*$/, ""))
+      .filter((href, index, all) => all.indexOf(href) === index);
     const metric = (testId) => parseCount(article.querySelector(`[data-testid="${testId}"]`)?.getAttribute("aria-label") || "");
     const media = mediaInfoFor(article, statusUrl);
     return {
@@ -395,6 +529,7 @@ function collectXQuoteCandidates() {
       sourceXHandle,
       postedAt: article.querySelector("time")?.getAttribute("datetime") || null,
       text: article.querySelector('[data-testid="tweetText"]')?.textContent || "",
+      myfansUrls,
       views: parseCount(analytics?.getAttribute("aria-label") || analytics?.textContent || ""),
       likes: metric("like"),
       reposts: metric("retweet"),
@@ -460,6 +595,114 @@ function inspectXPageState(expectedHandle) {
     hasChallenge: /captcha|challenge|認証|ロボット|不審なログイン|ログインしてください|Sign in to X|Log in to X/i.test(text),
     notFound: /このアカウントは存在しません|Account suspended|アカウントは凍結|This account doesn.?t exist|Profile not found|存在しません/i.test(text),
     textSample: text.replace(/\s+/g, " ").slice(0, 180)
+  };
+}
+
+async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
+  const pageText = document.body?.innerText || "";
+  const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]')).slice(0, 40);
+  const targetStatusId = String(sourceStatusUrl || "").match(/\/status\/(\d+)/)?.[1] || "";
+  const parseCount = (label) => {
+    if (!label) return null;
+    const match = String(label).replace(/,/g, "").match(/([\d.]+)\s*([KMB万億]?)/i);
+    if (!match) return null;
+    const value = Number(match[1]);
+    if (!Number.isFinite(value)) return null;
+    const suffix = match[2];
+    const multiplier = suffix === "K" ? 1000 : suffix === "M" ? 1000000 : suffix === "B" ? 1000000000 : suffix === "万" ? 10000 : suffix === "億" ? 100000000 : 1;
+    return Math.round(value * multiplier);
+  };
+  const cleanHandle = (href) => String(href || "").replace(/^\//, "").split(/[/?#]/)[0];
+  const normalizeHandle = (value) => cleanHandle(value).replace(/^@/, "").toLowerCase();
+  const articleHandle = (article) => Array.from(article.querySelectorAll('[data-testid="User-Name"] a[href]'))
+    .map((link) => link.getAttribute("href") || "")
+    .map(cleanHandle)
+    .find((handle) => /^[A-Za-z0-9_]{1,15}$/.test(handle) && !["home", "explore", "search", "notifications", "messages", "i", "settings"].includes(handle.toLowerCase())) || "";
+  const extractMyfansUrls = (article) => {
+    const urls = [];
+    for (const link of Array.from(article.querySelectorAll("a[href]"))) {
+      const href = link.href || link.getAttribute("href") || "";
+      const visible = [href, link.getAttribute("aria-label") || "", link.textContent || ""].join(" ");
+      const direct = visible.match(/https?:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\/[^\s"'<>）)]+/gi) || [];
+      urls.push(...direct.map((url) => url.replace(/[?#].*$/, "").replace(/[.,。、]+$/, "")));
+      if (/\bmfco\.link\b/i.test(visible) && !direct.some((url) => /mfco\.link/i.test(url)) && /^https:\/\/t\.co\//i.test(href)) urls.push(href.replace(/[?#].*$/, ""));
+    }
+    return Array.from(new Set(urls));
+  };
+  const mediaInfo = (article, statusUrl) => {
+    const hrefs = Array.from(article.querySelectorAll("a[href]"))
+      .map((link) => (link.getAttribute("href") || "").split(/[?#]/)[0])
+      .filter((href) => /^\/[^/]+\/status\/\d+\/(photo|video)\/[1-9]\d*$/.test(href));
+    const videoHref = hrefs.find((href) => /\/video\//.test(href)) || "";
+    const photoHref = hrefs.find((href) => /\/photo\//.test(href)) || "";
+    const hasVideo = Boolean(article.querySelector('[data-testid="videoPlayer"], video')) || Boolean(videoHref);
+    const hasImage = Boolean(article.querySelector('[data-testid="tweetPhoto"] img')) || Boolean(photoHref);
+    return {
+      mediaPermalink: videoHref || photoHref ? `https://x.com${videoHref || photoHref}` : "",
+      verifiedVideoPermalink: videoHref ? `https://x.com${videoHref}` : "",
+      generatedVideoPermalink: hasVideo && statusUrl ? `${statusUrl}/video/1` : "",
+      validationStatus: videoHref || photoHref ? "dom_media_permalink" : hasVideo ? "needs_video_permalink_validation" : "not_media",
+      mediaType: videoHref ? "video" : photoHref ? "image" : hasVideo ? "video" : hasImage ? "image" : "none",
+      mediaCount: new Set(hrefs).size || (hasVideo || hasImage ? 1 : 0),
+      hasImage,
+      hasVideo,
+      quoteVisualReady: Boolean(statusUrl && (videoHref || photoHref))
+    };
+  };
+  const candidates = articles.map((article) => {
+    const hrefs = Array.from(article.querySelectorAll("a[href]")).map((link) => link.getAttribute("href") || "");
+    const statusHref = hrefs.find((href) => /^\/[^/]+\/status\/\d+/.test(href));
+    const statusUrl = statusHref ? `https://x.com${statusHref.match(/^([^?#]+)/)?.[1] || statusHref}` : "";
+    const statusId = statusUrl.match(/\/status\/(\d+)/)?.[1] || "";
+    const authorHandle = articleHandle(article);
+    // X's Japanese thread UI does not expose the reply-to marker in article text.
+    // On a status thread, a distinct status URL is the stable boundary between
+    // the opening post and a reply; author ownership remains an exact handle match.
+    const isReply = Boolean(statusUrl && statusId && statusId !== targetStatusId);
+    const media = mediaInfo(article, statusUrl);
+    const myfansUrls = extractMyfansUrls(article);
+    const metric = (testId) => parseCount(article.querySelector(`[data-testid="${testId}"]`)?.getAttribute("aria-label") || "");
+    return {
+      xPostUrl: statusUrl,
+      mediaPermalink: media.mediaPermalink,
+      verifiedVideoPermalink: media.verifiedVideoPermalink,
+      generatedVideoPermalink: media.generatedVideoPermalink,
+      validationStatus: media.validationStatus,
+      mediaType: media.mediaType,
+      mediaCount: media.mediaCount,
+      quoteVisualReady: media.quoteVisualReady,
+      sourceXHandle,
+      authorHandle,
+      postedAt: article.querySelector("time")?.getAttribute("datetime") || null,
+      text: article.querySelector('[data-testid="tweetText"]')?.textContent || "",
+      myfansUrls,
+      views: null,
+      likes: metric("like"),
+      reposts: metric("retweet"),
+      replies: metric("reply"),
+      bookmarks: metric("bookmark"),
+      hasImage: media.hasImage,
+      hasVideo: media.hasVideo,
+      isPinned: false,
+      isReply,
+      isRepost: false,
+      isQuote: Boolean(article.querySelector('div[role="link"] article'))
+    };
+  }).filter((candidate, index, all) => candidate.isReply && normalizeHandle(candidate.authorHandle) === normalizeHandle(sourceXHandle) && candidate.xPostUrl && all.findIndex((item) => item.xPostUrl === candidate.xPostUrl) === index);
+  const sourceArticle = articles.find((article) => {
+    const href = Array.from(article.querySelectorAll("a[href]")).map((link) => link.getAttribute("href") || "").find((value) => /\/status\/\d+/.test(value));
+    return String(href || "").match(/\/status\/(\d+)/)?.[1] === targetStatusId;
+  });
+  const sourceAuthorHandle = sourceArticle ? articleHandle(sourceArticle) : "";
+  return {
+    ok: true,
+    sourceStatusUrl,
+    sourceAuthorHandle,
+    articleCount: articles.length,
+    authorReplyCount: candidates.length,
+    myfansLinkCount: candidates.reduce((total, candidate) => total + candidate.myfansUrls.length, 0),
+    pageTextSample: pageText.replace(/\s+/g, " ").slice(0, 160),
+    quoteCandidates: candidates
   };
 }
 
@@ -695,108 +938,181 @@ async function collectFromWorkerTab(tabId, item, jobId) {
   });
   await waitForTweetRender(tabId, expectedHandle, 8000);
   const rawResult = await executeMain(tabId, collectXQuoteCandidates);
-  const result = ensureStructuredScanResult(rawResult, "EXTRACT");
+  let result = ensureStructuredScanResult(rawResult, "EXTRACT");
   if (!result.ok || !Array.isArray(result.quoteCandidates) || result.quoteCandidates.length === 0) {
     throw categorizedError(result.errorCode || FAILURE_CATEGORY.UNKNOWN, result.errorMessage || "Xページから引用候補を取得できませんでした。");
   }
-  return await validateVideoPermalinks(tabId, result);
+  result = await validateVideoPermalinks(tabId, result);
+  const threadCandidates = result.quoteCandidates
+    .filter((candidate) => candidate.xPostUrl && (candidate.myfansUrls?.length || candidate.replies > 0))
+    .slice(0, 5);
+  const authorReplies = [];
+  let statusThreadsOpened = 0;
+  let statusThreadMyfansLinkCount = 0;
+  for (const candidate of threadCandidates) {
+    try {
+      await chrome.tabs.update(tabId, { url: candidate.xPostUrl, active: false });
+      await waitForTabComplete(tabId, 45000);
+      await waitForTweetRender(tabId, expectedHandle, 18000);
+      const threadResult = await executeMain(tabId, collectXStatusThreadReplies, [{ sourceXHandle: expectedHandle, sourceStatusUrl: candidate.xPostUrl }]);
+      if (!threadResult?.ok) continue;
+      statusThreadsOpened += 1;
+      statusThreadMyfansLinkCount += threadResult.myfansLinkCount || 0;
+      authorReplies.push(...(threadResult.quoteCandidates || []));
+    } catch {
+      // A status thread can be unavailable independently of the creator profile; keep the profile result.
+    }
+  }
+  const deduped = [...result.quoteCandidates, ...authorReplies].filter((candidate, index, all) => all.findIndex((item) => item.xPostUrl === candidate.xPostUrl) === index);
+  return {
+    ...result,
+    quoteCandidates: deduped,
+    diagnostics: {
+      ...result.diagnostics,
+      statusThreadsOpened,
+      authorReplyCount: authorReplies.length,
+      statusThreadMyfansLinkCount
+    }
+  };
 }
 
 async function runBulkQuoteRefresh(settings) {
   if (globalThis.myfansQuoteRefreshRunning) return;
   globalThis.myfansQuoteRefreshRunning = true;
-  await setQuoteState({ running: true, status: "starting", jobId: settings.jobId || null, message: "一括更新を開始します。", sessionProcessed: 0, lastError: null });
+  const persistedSettings = { ...settings };
+  globalThis.myfansQuoteRefreshSettings = persistedSettings;
+  await setQuoteState({ running: true, status: "starting", jobId: persistedSettings.jobId || null, message: "一括更新を開始します。", lastError: null });
+  await scheduleQuoteContinuation(persistedSettings, 120000);
   try {
     const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!settings.jobId) {
-      const created = await quoteRefreshRequest(settings, {
+    if (!persistedSettings.jobId) {
+      const created = await quoteRefreshRequest(persistedSettings, {
         action: "create",
-        batchSize: settings.batchSize || 5,
-        queueLimit: settings.queueLimit || settings.batchSize || 5,
+        batchSize: persistedSettings.batchSize || 10,
+        queueLimit: persistedSettings.queueLimit || persistedSettings.batchSize || 10,
+        cooldownDays: persistedSettings.cooldownDays || 3,
         replaceActive: true
       });
       if (!created.job?.id) {
+        await clearQuoteContinuation();
         await setQuoteState({ running: false, status: "done", job: created.job || null, items: created.items || [], message: "対象creatorがありません。" });
         return;
       }
-      settings.jobId = created.job.id;
-      await quoteRefreshRequest(settings, { action: "start", jobId: settings.jobId });
-      await setQuoteState({ jobId: settings.jobId, job: created.job, items: created.items || [], message: "jobを作成し、巡回を開始します。" });
+      persistedSettings.jobId = created.job.id;
+      await quoteRefreshRequest(persistedSettings, { action: "start", jobId: persistedSettings.jobId });
+      const rotationMessage = created.rotation?.selectionMode === "empty"
+        ? "対象不足: 前日除外とcooldown中のため、同日再利用せず停止します。"
+        : created.rotation?.selectionMode === "relaxed"
+          ? "優先cooldown中のため、前日除外を維持して最古巡回順で開始します。"
+          : "未巡回・長期間未巡回creatorを優先して開始します。";
+      await setQuoteState({ jobId: persistedSettings.jobId, job: created.job, items: created.items || [], message: `jobを作成しました。${rotationMessage}` });
     } else {
-      await quoteRefreshRequest(settings, { action: "start", jobId: settings.jobId });
+      await quoteRefreshRequest(persistedSettings, { action: "start", jobId: persistedSettings.jobId });
     }
     const workerTabId = await ensureWorkerTab(currentTab?.id);
-    let processedInSession = 0;
-    while (true) {
-      const next = await quoteRefreshRequest(settings, { action: "next", jobId: settings.jobId || undefined });
-      if (next.paused) {
-        await setQuoteState({ running: false, status: "paused", job: next.job, message: "一括更新は一時停止中です。" });
-        return;
-      }
-      if (next.done || !next.item) {
-        await setQuoteState({ running: false, status: "done", job: next.job, items: next.items || [], message: "一括更新が完了しました。" });
-        return;
-      }
-      const item = next.item;
-      const creatorName = Array.isArray(item.myfans_creators) ? item.myfans_creators[0]?.display_name : item.myfans_creators?.display_name;
-      await setQuoteState({ status: "running", jobId: next.jobId, currentCreator: creatorName || item.creator_x_url, message: `処理中: ${creatorName || item.creator_x_url}`, sessionProcessed: processedInSession });
-      try {
-        let result = null;
-        let lastCollectError = null;
-        for (let attempt = 1; attempt <= 3; attempt += 1) {
-          try {
-            await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `処理中: ${creatorName || item.creator_x_url} (${attempt}/3)`, retryCount: attempt - 1, sessionProcessed: processedInSession });
-            result = await collectFromWorkerTab(workerTabId, item, next.jobId);
-            await setQuoteState({
-              status: "running",
-              currentCreator: creatorName || item.creator_x_url,
-              stage: result.stage || "FINALIZE",
-              articleCount: result.diagnostics?.articleCount ?? null,
-              ownPostCount: result.diagnostics?.ownPostCount ?? null,
-              candidateCount: result.quoteCandidates?.length ?? 0,
-              videoCandidates: result.diagnostics?.videoCandidates ?? null,
-              videoValidation: result.diagnostics?.videoValidation || null,
-              retryCount: attempt - 1,
-              finalStatus: "extracted",
-              sessionProcessed: processedInSession
-            });
-            break;
-          } catch (collectError) {
-            lastCollectError = collectError;
-            if (attempt >= 3 || !isRetryableError(collectError)) break;
-            const retryMessage = collectError instanceof Error ? collectError.message : "取得を再試行します。";
-            await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, stage: categoryFromError(collectError), message: `retry: ${retryMessage}`, lastError: retryMessage, retryCount: attempt, sessionProcessed: processedInSession });
-            await prepareRetry(workerTabId, item).catch(() => undefined);
-            await wait(2500);
-          }
+    const next = await quoteRefreshRequest(persistedSettings, { action: "next", jobId: persistedSettings.jobId || undefined });
+    if (next.paused) {
+      await clearQuoteContinuation();
+      await setQuoteState({ running: false, status: "paused", job: next.job, message: "一括更新は一時停止中です。" });
+      return;
+    }
+    if (next.done || !next.item) {
+      await clearQuoteContinuation();
+      await setQuoteState({ running: false, status: "done", job: next.job, items: next.items || [], message: "一括更新が完了しました。" });
+      return;
+    }
+    const item = next.item;
+    const creatorName = Array.isArray(item.myfans_creators) ? item.myfans_creators[0]?.display_name : item.myfans_creators?.display_name;
+    const processedBefore = Number(next.job?.processed_creators || 0);
+    await setQuoteState({ status: "running", jobId: next.jobId, currentCreator: creatorName || item.creator_x_url, message: `処理中: ${creatorName || item.creator_x_url}`, sessionProcessed: processedBefore });
+    await scheduleQuoteContinuation(persistedSettings, 120000);
+    try {
+      let result = null;
+      let lastCollectError = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `処理中: ${creatorName || item.creator_x_url} (${attempt}/3)`, retryCount: attempt - 1, sessionProcessed: processedBefore });
+          result = await collectFromWorkerTab(workerTabId, item, next.jobId);
+          await setQuoteState({
+            status: "running",
+            currentCreator: creatorName || item.creator_x_url,
+            stage: result.stage || "FINALIZE",
+            articleCount: result.diagnostics?.articleCount ?? null,
+            ownPostCount: result.diagnostics?.ownPostCount ?? null,
+            candidateCount: result.quoteCandidates?.length ?? 0,
+            videoCandidates: result.diagnostics?.videoCandidates ?? null,
+            videoValidation: result.diagnostics?.videoValidation || null,
+            statusThreadsOpened: result.diagnostics?.statusThreadsOpened ?? 0,
+            authorReplyCount: result.diagnostics?.authorReplyCount ?? 0,
+            statusThreadMyfansLinkCount: result.diagnostics?.statusThreadMyfansLinkCount ?? 0,
+            retryCount: attempt - 1,
+            finalStatus: "extracted",
+            sessionProcessed: processedBefore
+          });
+          break;
+        } catch (collectError) {
+          lastCollectError = collectError;
+          if (attempt >= 3 || !isRetryableError(collectError)) break;
+          const retryMessage = collectError instanceof Error ? collectError.message : "取得を再試行します。";
+          await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, stage: categoryFromError(collectError), message: `retry: ${retryMessage}`, lastError: retryMessage, retryCount: attempt, sessionProcessed: processedBefore });
+          await prepareRetry(workerTabId, item).catch(() => undefined);
+          await wait(2500);
         }
-        if (!result) throw lastCollectError || categorizedError(FAILURE_CATEGORY.UNKNOWN, "Xページから引用候補を取得できませんでした。");
-        const payload = await sendPayload(settings, result);
-        processedInSession += 1;
-        await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `保存しました: ${creatorName || item.creator_x_url}`, finalStatus: "success", lastCandidatesCount: payload.candidatesCount || 0, sessionProcessed: processedInSession });
-        if (processedInSession > 0 && next.batchSize > 0 && processedInSession % next.batchSize === 0) await wait(60000);
-        await wait(5000);
-      } catch (error) {
-        await markItemFailed(settings, next.jobId, item.id, error);
-        processedInSession += 1;
-        const message = error instanceof Error ? error.message : "取得に失敗しました";
-        await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `skip: ${creatorName || item.creator_x_url}`, finalStatus: "failed", errorCode: categoryFromError(error), lastError: message, sessionProcessed: processedInSession });
-        if (categoryFromError(error) === FAILURE_CATEGORY.LOGIN_OR_CHALLENGE || /認証|ログイン|challenge|captcha/i.test(message)) {
-          await setQuoteState({ running: false, status: "stopped", message, lastError: message });
-          return;
-        }
-        if (processedInSession > 0 && next.batchSize > 0 && processedInSession % next.batchSize === 0) await wait(60000);
-        await wait(4000);
+      }
+      if (!result) throw lastCollectError || categorizedError(FAILURE_CATEGORY.UNKNOWN, "Xページから引用候補を取得できませんでした。");
+      const payload = await sendPayload(persistedSettings, result);
+      await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `保存しました: ${creatorName || item.creator_x_url}`, finalStatus: "success", lastCandidatesCount: payload.candidatesCount || 0, sessionProcessed: processedBefore + 1 });
+    } catch (error) {
+      await markItemFailed(persistedSettings, next.jobId, item.id, error);
+      const message = error instanceof Error ? error.message : "取得に失敗しました";
+      await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `skip: ${creatorName || item.creator_x_url}`, finalStatus: "failed", errorCode: categoryFromError(error), lastError: message, sessionProcessed: processedBefore + 1 });
+      if (categoryFromError(error) === FAILURE_CATEGORY.LOGIN_OR_CHALLENGE || /認証|ログイン|challenge|captcha/i.test(message)) {
+        await clearQuoteContinuation();
+        await setQuoteState({ running: false, status: "stopped", message, lastError: message });
+        return;
       }
     }
+    const batchSize = Number(next.batchSize || persistedSettings.batchSize || 10);
+    const delayMs = (processedBefore + 1) % batchSize === 0 ? 60000 : 5000;
+    await scheduleQuoteContinuation(persistedSettings, delayMs);
+    await setQuoteState({ running: true, status: "scheduled", jobId: persistedSettings.jobId, message: `次のcreatorを${Math.round(delayMs / 1000)}秒後に再開します。` });
   } catch (error) {
-    await setQuoteState({ running: false, status: "error", message: error instanceof Error ? error.message : "一括更新を実行できませんでした。", lastError: error instanceof Error ? error.message : String(error) });
+    const message = error instanceof Error ? error.message : "一括更新を実行できませんでした。";
+    await setQuoteState({ running: false, status: "error", message, lastError: message });
+    await scheduleQuoteContinuation(persistedSettings, 10000).catch(() => undefined);
   } finally {
     globalThis.myfansQuoteRefreshRunning = false;
+    globalThis.myfansQuoteRefreshSettings = null;
   }
 }
 
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== QUOTE_ALARM_NAME) return;
+  if (globalThis.myfansQuoteRefreshRunning) {
+    scheduleQuoteContinuation(globalThis.myfansQuoteRefreshSettings || {}, 120000).catch(() => undefined);
+    return;
+  }
+  chrome.storage.local.get([QUOTE_SETTINGS_KEY]).then((stored) => {
+    const savedSettings = stored[QUOTE_SETTINGS_KEY];
+    if (savedSettings?.baseUrl) return runBulkQuoteRefresh(savedSettings);
+    return undefined;
+  }).catch((error) => console.debug("[myfans companion background] continuation failed", error));
+});
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "myfans_companion_settings_sync") {
+    getCompanionSettings().then(async (context) => {
+      const progress = await fetchQuoteProgress(context.settings, context.state).catch(() => null);
+      sendResponse({ ok: true, workerVersion: WORKER_VERSION, ...context, progress });
+    }).catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error), workerVersion: WORKER_VERSION }));
+    return true;
+  }
+  if (message?.type === "myfans_companion_settings_save") {
+    saveCompanionSettings(message.settings || {})
+      .then((settings) => sendResponse({ ok: true, settings, workerVersion: WORKER_VERSION }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error), workerVersion: WORKER_VERSION }));
+    return true;
+  }
   if (message?.type === "myfans_quote_refresh_ping") {
     console.debug("[myfans companion background] BACKGROUND_PING_RECEIVED", { source: message.source, bridgeVersion: message.bridgeVersion });
     chrome.storage.local.get([QUOTE_STATE_KEY]).then((stored) => {
@@ -808,8 +1124,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === "myfans_quote_refresh_start") {
     const settings = message.settings || {};
-    runBulkQuoteRefresh(settings);
+    saveCompanionSettings(settings).then(() => saveQuoteSettings(settings)).then(() => runBulkQuoteRefresh(settings)).catch((error) => console.debug("[myfans companion background] start failed", error));
     sendResponse({ ok: true, status: "accepted", workerVersion: WORKER_VERSION, jobId: settings.jobId || null });
+    return true;
+  }
+  if (message?.type === "myfans_diagnostic_status_start") {
+    runDiagnosticStatus(message.settings || {});
+    sendResponse({ ok: true, status: "accepted", workerVersion: WORKER_VERSION });
+    return true;
+  }
+  if (message?.type === "myfans_diagnostic_status_state") {
+    chrome.storage.local.get(["myfansDiagnosticState"]).then((stored) => sendResponse({ ok: true, workerVersion: WORKER_VERSION, state: stored.myfansDiagnosticState || null }));
     return true;
   }
   if (message?.type === "myfans_visual_verification_start") {

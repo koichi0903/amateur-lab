@@ -379,7 +379,55 @@ function collectXQuoteCandidates() {
 }
 
 function baseUrl() {
-  return document.getElementById("baseUrl").value.replace(/\/$/, "");
+  return document.getElementById("baseUrl").value.trim().replace(/\/$/, "");
+}
+
+function saveSettings() {
+  return sendRuntimeMessage({ type: "myfans_companion_settings_save", settings: {
+    baseUrl: baseUrl(),
+    approvedMediaName: document.getElementById("mediaName").value.trim(),
+    approvedMediaId: document.getElementById("mediaId").value.trim(),
+    cooldownDays: Math.min(30, Math.max(1, Math.round(Number(document.getElementById("cooldownDays").value) || 3)))
+  }});
+}
+
+function renderBatchState(state, progress) {
+  const job = progress?.job || state?.job;
+  if (!state && !job) return;
+  const counts = job ? `processed ${job.processed_creators ?? 0}/${job.total_creators ?? 0}, success ${job.success_creators ?? 0}, failed ${job.failed_creators ?? 0}, skipped ${progress?.skippedCreators ?? 0}` : "";
+  document.getElementById("batchStatus").textContent = [
+    job ? `job ${job.id}: ${job.status}` : "",
+    counts,
+    state?.message || "",
+    state?.currentCreator ? `現在: ${state.currentCreator}` : "",
+    state?.stage ? `stage: ${state.stage}` : "",
+    state?.articleCount != null ? `article: ${state.articleCount}` : "",
+    state?.ownPostCount != null ? `own post: ${state.ownPostCount}` : "",
+    state?.candidateCount != null ? `candidate: ${state.candidateCount}` : "",
+    state?.videoCandidates != null ? `video: ${state.videoCandidates}` : "",
+    state?.statusThreadsOpened != null ? `status threads: ${state.statusThreadsOpened}` : "",
+    state?.authorReplyCount != null ? `author replies: ${state.authorReplyCount}` : "",
+    state?.statusThreadMyfansLinkCount != null ? `thread myfans links: ${state.statusThreadMyfansLinkCount}` : "",
+    state?.videoValidation ? `video validation: ${state.videoValidation.verified || 0}/${state.videoValidation.checked || 0} ok, fail ${state.videoValidation.failed || 0}` : "",
+    state?.retryCount != null ? `retry: ${state.retryCount}` : "",
+    state?.finalStatus ? `final: ${state.finalStatus}` : "",
+    state?.errorCode ? `reason: ${state.errorCode}` : "",
+    state?.sessionProcessed != null ? `このセッション: ${state.sessionProcessed}件` : "",
+    state?.lastCandidatesCount != null ? `直近候補: ${state.lastCandidatesCount}件` : "",
+    state?.lastError ? `error: ${state.lastError}` : ""
+  ].filter(Boolean).join("\n");
+}
+
+async function syncCompanionSettings() {
+  const response = await sendRuntimeMessage({ type: "myfans_companion_settings_sync" });
+  if (!response?.ok) return response;
+  const settings = response.settings || {};
+  if (settings.baseUrl) document.getElementById("baseUrl").value = settings.baseUrl;
+  if (settings.approvedMediaName) document.getElementById("mediaName").value = settings.approvedMediaName;
+  if (settings.approvedMediaId) document.getElementById("mediaId").value = settings.approvedMediaId;
+  if (settings.cooldownDays) document.getElementById("cooldownDays").value = settings.cooldownDays;
+  renderBatchState(response.state, response.progress);
+  return response;
 }
 
 function approvedMediaFields() {
@@ -415,18 +463,45 @@ async function runBulkQuoteRefresh() {
   if (!isDailyPageUrl(tab.url)) throw new Error("Daily Page（/admin/myfans）を開いてから実行してください。");
   const probe = await sendRuntimeMessage({ type: "myfans_admin_probe", tabId: tab.id });
   if (!probe?.ok) throw new Error(probe?.error || "Daily PageへのexecuteScript probeに失敗しました。");
-  const batchSize = Math.min(50, Math.max(1, Math.round(Number(document.getElementById("batchSize").value) || 5)));
+  const batchSize = Math.min(50, Math.max(1, Math.round(Number(document.getElementById("batchSize").value) || 10)));
+  const cooldownDays = Math.min(30, Math.max(1, Math.round(Number(document.getElementById("cooldownDays").value) || 3)));
+  const settings = {
+    baseUrl: baseUrl(),
+    approvedMediaName: document.getElementById("mediaName").value.trim(),
+    approvedMediaId: document.getElementById("mediaId").value.trim(),
+    batchSize,
+    queueLimit: batchSize,
+    cooldownDays
+  };
+  if (!settings.baseUrl) throw new Error("Daily Pageのoriginを検出できませんでした。Daily Pageを開いてから実行してください。");
   await chrome.runtime.sendMessage({
     type: "myfans_quote_refresh_start",
-    settings: {
-      baseUrl: baseUrl(),
-      approvedMediaName: document.getElementById("mediaName").value,
-      approvedMediaId: document.getElementById("mediaId").value,
-      batchSize,
-      queueLimit: batchSize
-    }
+    settings
   });
+  await saveSettings();
   document.getElementById("batchStatus").textContent = `probe OK。backgroundで${batchSize} creatorの一括更新を開始しました。`;
+  await syncCompanionSettings();
+}
+
+document.getElementById("diagnosticStatus").addEventListener("click", async () => {
+  const status = document.getElementById("status");
+  const value = document.getElementById("diagnosticStatusUrl").value.trim().replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
+  if (!/^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d+$/i.test(value)) {
+    status.textContent = "診断対象は https://x.com/<handle>/status/<数字> の形式で指定してください。";
+    return;
+  }
+  try {
+    status.textContent = "診断statusを1件処理しています...";
+    await chrome.runtime.sendMessage({ type: "myfans_diagnostic_status_start", settings: { baseUrl: baseUrl(), approvedMediaId: document.getElementById("mediaId").value, approvedMediaName: document.getElementById("mediaName").value, sourceStatusUrl: value, diagnosticRunId: `diag-${Date.now()}` } });
+    status.textContent = "診断を開始しました。完了後にこのpopupを開き直すと結果を確認できます。";
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : "診断の開始に失敗しました。";
+  }
+});
+
+async function stopQuoteContinuation() {
+  await chrome.alarms.clear("myfansQuoteRefreshNext").catch(() => undefined);
+  await chrome.storage.local.remove(["myfansQuoteRefreshSettings"]);
 }
 
 async function legacySendPayload(result) {
@@ -458,6 +533,8 @@ document.getElementById("send").addEventListener("click", async () => {
       ? `クリエイター${payload.creatorsCount}件を登録しました。Xリンク${payload.xUrlCount || 0}件。`
       : payload.importedType === "products"
         ? `商品${payload.productsCount}件を登録しました。`
+        : payload.importedType === "post_product"
+          ? `投稿UUIDを商品DBへ登録しました。product_id ${payload.id} / evidence exact昇格 ${payload.promotedEvidence || 0}件。affiliate URLは未生成です。`
         : `登録しました。Score ${payload.selectionScore}`;
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : "送信に失敗しました";
@@ -494,26 +571,17 @@ document.getElementById("bulkQuoteScan").addEventListener("click", async () => {
   }
 });
 
-chrome.runtime.sendMessage({ type: "myfans_quote_refresh_state" }, (response) => {
-  const state = response?.state;
-  if (!state) return;
-  document.getElementById("batchStatus").textContent = [
-    state.message || "",
-    state.currentCreator ? `現在: ${state.currentCreator}` : "",
-    state.stage ? `stage: ${state.stage}` : "",
-    state.articleCount != null ? `article: ${state.articleCount}` : "",
-    state.ownPostCount != null ? `own post: ${state.ownPostCount}` : "",
-    state.candidateCount != null ? `candidate: ${state.candidateCount}` : "",
-    state.videoCandidates != null ? `video: ${state.videoCandidates}` : "",
-    state.videoValidation ? `video validation: ${state.videoValidation.verified || 0}/${state.videoValidation.checked || 0} ok, fail ${state.videoValidation.failed || 0}` : "",
-    state.retryCount != null ? `retry: ${state.retryCount}` : "",
-    state.finalStatus ? `final: ${state.finalStatus}` : "",
-    state.errorCode ? `reason: ${state.errorCode}` : "",
-    state.sessionProcessed != null ? `このセッション: ${state.sessionProcessed}件` : "",
-    state.lastCandidatesCount != null ? `直近候補: ${state.lastCandidatesCount}件` : "",
-    state.lastError ? `error: ${state.lastError}` : ""
-  ].filter(Boolean).join("\n");
+for (const id of ["baseUrl", "mediaName", "mediaId", "cooldownDays"]) {
+  document.getElementById(id).addEventListener("change", () => saveSettings().catch(() => {}));
+}
+
+syncCompanionSettings().catch((error) => {
+  document.getElementById("status").textContent = error instanceof Error ? error.message : "設定を読み込めませんでした";
 });
+const progressRefreshTimer = window.setInterval(() => {
+  syncCompanionSettings().catch(() => {});
+}, 5000);
+window.addEventListener("unload", () => window.clearInterval(progressRefreshTimer));
 
 document.getElementById("pauseBulk").addEventListener("click", async () => {
   const job = await getActiveQuoteJob();
@@ -522,6 +590,7 @@ document.getElementById("pauseBulk").addEventListener("click", async () => {
     return;
   }
   const payload = await quoteRefreshRequest({ action: "pause", jobId: job.id });
+  await stopQuoteContinuation();
   document.getElementById("batchStatus").textContent = payload.job ? "一時停止しました。" : "一時停止するジョブがありません。";
 });
 
@@ -532,6 +601,7 @@ document.getElementById("cancelBulk").addEventListener("click", async () => {
     return;
   }
   await quoteRefreshRequest({ action: "cancel", jobId: job.id });
+  await stopQuoteContinuation();
   document.getElementById("batchStatus").textContent = "中止しました。";
 });
 

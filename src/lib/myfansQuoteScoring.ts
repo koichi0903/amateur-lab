@@ -10,6 +10,7 @@ export type MyfansQuoteScanCandidate = {
   sourceXHandle: string;
   postedAt?: string | null;
   text?: string | null;
+  myfansUrls?: string[];
   views?: number | null;
   likes?: number | null;
   reposts?: number | null;

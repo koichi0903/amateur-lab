@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { selectCreatorRotation, DEFAULT_CREATOR_COOLDOWN_DAYS } from "@/lib/myfansQuoteRotation";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -17,7 +18,11 @@ function numberValue(value: unknown, fallback: number) {
 }
 
 function normalizeBatchSize(value: unknown) {
-  return Math.min(50, Math.max(1, Math.round(numberValue(value, 25))));
+  return Math.min(50, Math.max(1, Math.round(numberValue(value, 10))));
+}
+
+function normalizeCooldownDays(value: unknown) {
+  return Math.min(30, Math.max(1, Math.round(numberValue(value, DEFAULT_CREATOR_COOLDOWN_DAYS))));
 }
 
 function normalizeQueueLimit(value: unknown) {
@@ -104,7 +109,7 @@ async function progress(jobId: number) {
 async function createJob(payload: Record<string, unknown>) {
   const approvedMediaId = numberValue(payload.approvedMediaId, 0) || null;
   const batchSize = normalizeBatchSize(payload.batchSize);
-  const queueLimit = normalizeQueueLimit(payload.queueLimit);
+  const queueLimit = normalizeQueueLimit(payload.queueLimit) ?? batchSize;
   const existing = await getActiveJob(approvedMediaId);
   if (existing) {
     const existingProgress = await progress(existing.id);
@@ -138,29 +143,23 @@ async function createJob(payload: Record<string, unknown>) {
     .map((creator) => ({ ...creator, creator_x_url: normalizeXProfileUrl(creator.creator_x_url) }))
     .filter((creator) => creator.creator_x_url);
 
-  const { data: candidates, error: candidateError } = await supabaseAdmin
-    .from("myfans_quote_candidates")
-    .select("creator_id,collected_at,score")
-    .in("creator_id", creatorRows.map((creator) => creator.id));
-  if (candidateError) throw candidateError;
+  const cooldownDays = normalizeCooldownDays(payload.cooldownDays);
+  const { data: visits, error: visitError } = await supabaseAdmin
+    .from("myfans_quote_refresh_job_items")
+    .select("creator_id,processed_at")
+    .in("creator_id", creatorRows.map((creator) => creator.id))
+    .not("processed_at", "is", null)
+    .in("status", ["success", "failed", "skipped"])
+    .limit(10000);
+  if (visitError) throw visitError;
 
-  const candidateMap = new Map<number, Array<{ collected_at: string | null; score: number | null }>>();
-  for (const candidate of candidates ?? []) {
-    if (!candidate.creator_id) continue;
-    candidateMap.set(candidate.creator_id, [...(candidateMap.get(candidate.creator_id) ?? []), candidate]);
-  }
-  const sevenDaysAgo = Date.now() - 7 * 86_400_000;
-  const prioritized = creatorRows
-    .map((creator) => {
-      const rows = candidateMap.get(creator.id) ?? [];
-      const lastCollected = rows.map((row) => new Date(row.collected_at ?? 0).getTime()).filter(Number.isFinite).sort((a, b) => b - a)[0] ?? 0;
-      const priority = rows.length === 0 ? 500 : lastCollected < sevenDaysAgo ? 300 : rows.length < 5 ? 200 : 0;
-      return { creator, priority, lastCollected };
-    })
-    .filter((row) => row.priority > 0 || payload.includeFresh === true)
-    .sort((a, b) => b.priority - a.priority || a.lastCollected - b.lastCollected)
-    .map((row) => row.creator)
-    .slice(0, queueLimit ?? undefined);
+  const rotation = selectCreatorRotation(creatorRows, visits ?? [], queueLimit, cooldownDays);
+  const prioritized = rotation.creators;
+  const selectionNote = rotation.selectionMode === "empty"
+    ? "全creatorが前日またはcooldown中のため、同日再利用せず対象なし。"
+    : rotation.selectionMode === "relaxed"
+      ? "全creatorが優先cooldown中のため、前日除外を維持して最古巡回順へ緩和。"
+      : `未巡回・${cooldownDays}日以上未巡回を優先。前日巡回creatorは除外。`;
 
   const { data: job, error: jobError } = await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
@@ -169,6 +168,14 @@ async function createJob(payload: Record<string, unknown>) {
       status: "pending",
       total_creators: prioritized.length,
       batch_size: batchSize,
+      rotation_cooldown_days: rotation.cooldownDays,
+      minimum_rotation_cooldown_days: rotation.minimumCooldownDays,
+      eligible_creators: rotation.eligibleCreators,
+      cooldown_excluded_creators: rotation.cooldownExcludedCreators,
+      selection_mode: rotation.selectionMode,
+      selection_note: selectionNote,
+      sensitive_gate_streak_limit: 3,
+      sensitive_gate_streak: 0,
     })
     .select("*")
     .single();
@@ -185,7 +192,7 @@ async function createJob(payload: Record<string, unknown>) {
     if (itemError) throw itemError;
   }
 
-  return NextResponse.json(await progress(job.id));
+  return NextResponse.json({ ...(await progress(job.id)), rotation: { ...rotation, note: selectionNote } });
 }
 
 async function nextItem(payload: Record<string, unknown>) {

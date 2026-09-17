@@ -36,6 +36,9 @@ const hardFailBodies = [
   "単独の条件より、X側で299万表示まで伸びている。",
   "全体上位まで伸びたの、さすがに一回気になる。",
   "108万回も見られているなら、流れてきた理由がある。\n\nただの条件ではなく、比べた時の違いが残る。",
+  "動画だけでここまで反応が残っているの、少し気になる。\n\n見た人の温度が残っている投稿は、流しにくい。",
+  "動画だけでここまで反応が残っているの、少し気になる。\n\n細かく説明する前に、反応が残った理由だけ確かめたい。",
+  "57万表示まで伸びているなら、先に元投稿の空気を見ておきたい。\n\n見た人の温度が残っている投稿は、流しにくい。",
 ];
 
 const facts: PublicCopyFacts = {
@@ -63,7 +66,7 @@ const facts: PublicCopyFacts = {
 
 const sameHash = publicCopyInputHash(facts);
 const changedHash = publicCopyInputHash({ ...facts, publicMetrics: { ...facts.publicMetrics, likes: 13012 } });
-assert.equal(MYFANS_PUBLIC_COPY_GENERATOR_VERSION, "public-copy-v12-topic-value");
+assert.equal(MYFANS_PUBLIC_COPY_GENERATOR_VERSION, "public-copy-v14-x-native-post-set");
 assert.equal(MYFANS_QUALITY_GATE_MINIMUM, 85);
 assert.equal(publicCopyInputHash(facts), sameHash);
 assert.notEqual(changedHash, sameHash);
@@ -344,7 +347,13 @@ assert.equal(board.recovery.targetPosts, 4);
 assert.ok(board.recovery.attemptedCandidates >= 4);
 assert.ok(board.recovery.history.every((row) => row.score >= 0 && row.score <= 100));
 assert.ok(board.candidates.every((candidate) => candidate.quality.total >= MYFANS_QUALITY_GATE_MINIMUM));
-assert.ok(board.candidates.length >= 1);
+assert.equal(board.candidates.length, 4);
+assert.equal(board.candidateOptions.length, 4);
+assert.ok(board.candidateOptions.every((slot) => slot.candidates.length === 3));
+assert.deepEqual(
+  board.candidates.map((candidate) => candidate.id),
+  board.candidateOptions.map((slot) => slot.candidates.find((candidate) => candidate.optionLabel === "A")?.id),
+);
 assert.ok(board.candidates.some((candidate) => candidate.dailyRole === "DISCOVERY" || candidate.dailyRole === "AUTHORITY"));
 assert.ok(Math.max(...["ATTENTION", "DISCOVERY", "AUTHORITY", "REVENUE"].map((role) => board.candidates.filter((candidate) => candidate.dailyRole === role).length)) <= 2);
 assert.ok(board.recovery.history.some((row) => row.initialRole !== row.recoveryRole || row.recoveryAction.includes("role swap")));
@@ -358,7 +367,13 @@ assert.ok(board.candidates.filter((candidate) => candidate.creativeStrategy === 
 assert.ok(board.candidates.filter((candidate) => candidate.creativeStrategy === "quote_post").every((candidate) => candidate.visualUnderstanding?.visualAnalysisStatus === "verified"));
 assert.ok(board.candidates.every((candidate) => candidate.topicValue?.verdict === "PASS"));
 assert.ok(board.candidates.every((candidate) => candidate.topicValue?.reasonToCare));
-assert.ok(board.candidates.filter((candidate) => candidate.creativeStrategy === "quote_post").every((candidate) => candidate.generatorVersion === "public-copy-v12-topic-value"));
+assert.ok(board.candidates.filter((candidate) => candidate.creativeStrategy === "quote_post").every((candidate) => candidate.generatorVersion === "public-copy-v14-x-native-post-set"));
+assert.ok(board.candidates.every((candidate) => candidate.sourceXUrl));
+assert.ok(board.candidates.every((candidate) => candidate.sourceMediaType));
+assert.ok(board.candidates.every((candidate) => candidate.postMode));
+assert.ok(board.candidates.every((candidate) => candidate.affiliateTargetType));
+assert.ok(board.candidates.every((candidate) => candidate.affiliateTargetUrl));
+assert.ok(board.candidates.filter((candidate) => candidate.affiliateUrl).every((candidate) => candidate.affiliateUrl.startsWith("https://mfco.link/r/")));
 assert.ok(board.candidates.filter((candidate) => candidate.creativeStrategy === "quote_post").every((candidate) => !/(そりゃ伸びるよな|これ流れてきたら一回止まる|あとで見返したくなる入口|刺さるポイントが一瞬で伝わる)/.test(candidate.body)));
 assert.ok(board.candidates.filter((candidate) => candidate.dailyRole === "DISCOVERY").every((candidate) => !/(比較して見る|反応と価格を見て残す|分析|判断材料)/.test(candidate.body)));
 assert.ok(board.candidates.filter((candidate) => candidate.dailyRole === "AUTHORITY").every((candidate) => !/(探す手間を減らします|プロフィールにまとめます)$/.test(candidate.body.trim())));

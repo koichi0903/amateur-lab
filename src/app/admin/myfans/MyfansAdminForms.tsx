@@ -52,12 +52,45 @@ type VisualVerificationProgress = {
   error?: string;
 };
 
-const EXPECTED_COMPANION_VERSION = "0.1.5";
+const EXPECTED_COMPANION_VERSION = "0.1.9";
 const READY_EVENT = "amateur-lab:myfans-quote-refresh:bridge-ready";
 const PING_EVENT = "amateur-lab:myfans-quote-refresh:ping";
 const PONG_EVENT = "amateur-lab:myfans-quote-refresh:pong";
 const VISUAL_REQUEST_EVENT = "amateur-lab:myfans-visual-verification:start";
 const VISUAL_RESPONSE_EVENT = "amateur-lab:myfans-visual-verification:ack";
+const DIAGNOSTIC_REQUEST_EVENT = "amateur-lab:myfans-diagnostic:start";
+const DIAGNOSTIC_RESPONSE_EVENT = "amateur-lab:myfans-diagnostic:ack";
+const DIAGNOSTIC_STATE_REQUEST_EVENT = "amateur-lab:myfans-diagnostic:state";
+const DIAGNOSTIC_STATE_RESPONSE_EVENT = "amateur-lab:myfans-diagnostic:state:ack";
+const DEFAULT_DIAGNOSTIC_STATUS_URL = "https://x.com/lumi_reviw/status/2099793163909202032";
+
+type DiagnosticEvidence = {
+  id?: number;
+  source_status_url?: string;
+  source_author_handle?: string;
+  discovered_myfans_url?: string;
+  final_myfans_url?: string | null;
+  product_id?: number | null;
+  resolution_method?: string;
+  confidence?: string;
+  evidence_source?: string;
+  diagnostic_mode?: boolean;
+  diagnostic_run_id?: string | null;
+};
+type DiagnosticState = {
+  status?: string;
+  diagnosticRunId?: string;
+  sourceStatusUrl?: string;
+  sourceXHandle?: string;
+  sourceAuthorHandle?: string;
+  replyCount?: number;
+  myfansLinkCount?: number;
+  evidenceSaved?: number;
+  replyStatuses?: Array<{ statusUrl?: string; authorHandle?: string; isReply?: boolean; myfansUrls?: string[] }>;
+  savedEvidence?: DiagnosticEvidence[];
+  evidence?: DiagnosticEvidence[];
+  error?: string;
+};
 
 function workerStatusFromDetail(detail: unknown) {
   if (!detail || typeof detail !== "object") return "idle";
@@ -145,6 +178,124 @@ function quoteRefreshFailureLabel(error: string | null) {
 function isBlockedQuoteRefreshItem(item: QuoteRefreshProgress["items"][number]) {
   const failure = quoteRefreshFailureLabel(item.error);
   return Boolean(failure && !failure.retryable && (item.status === "failed" || item.status === "skipped"));
+}
+
+export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: number | null }) {
+  const router = useRouter();
+  const [statusUrl, setStatusUrl] = useState(DEFAULT_DIAGNOSTIC_STATUS_URL);
+  const [state, setState] = useState<DiagnosticState | null>(null);
+  const [dbEvidence, setDbEvidence] = useState<DiagnosticEvidence[]>([]);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const readWorkerState = useCallback(() => {
+    return new Promise<DiagnosticState | null>((resolve) => {
+      const requestId = `diagnostic-state-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const timeout = window.setTimeout(() => {
+        window.removeEventListener(DIAGNOSTIC_STATE_RESPONSE_EVENT, onResponse);
+        resolve(null);
+      }, 5000);
+      const onResponse = (event: Event) => {
+        const detail = event instanceof CustomEvent ? event.detail : null;
+        if (detail?.requestId !== requestId) return;
+        window.clearTimeout(timeout);
+        window.removeEventListener(DIAGNOSTIC_STATE_RESPONSE_EVENT, onResponse);
+        resolve(detail?.state ?? null);
+      };
+      window.addEventListener(DIAGNOSTIC_STATE_RESPONSE_EVENT, onResponse);
+      window.dispatchEvent(new CustomEvent(DIAGNOSTIC_STATE_REQUEST_EVENT, { detail: { requestId } }));
+    });
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    const refresh = async () => {
+      const next = await readWorkerState();
+      if (disposed || !next) return;
+      setState(next);
+      if (next.status === "done" && next.diagnosticRunId) {
+        const response = await fetch(`/api/admin/myfans/companion?diagnostic_run_id=${encodeURIComponent(next.diagnosticRunId)}`, { cache: "no-store" });
+        const payload = (await response.json()) as { evidence?: DiagnosticEvidence[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "診断evidenceの再読込に失敗しました。");
+        if (!disposed) setDbEvidence(payload.evidence ?? []);
+      }
+    };
+    refresh().catch(() => {});
+    const timer = window.setInterval(() => refresh().catch(() => {}), 1500);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [readWorkerState]);
+
+  async function startDiagnostic() {
+    const normalized = statusUrl.trim().replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
+    if (!/^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d+$/i.test(normalized)) {
+      setError("診断対象は https://x.com/<handle>/status/<数字> の形式だけ指定できます。");
+      return;
+    }
+    setPending(true);
+    setError(null);
+    setDbEvidence([]);
+    const diagnosticRunId = `diag-${Date.now()}`;
+    try {
+      const ack = await new Promise<{ ok?: boolean; error?: string }>((resolve) => {
+        const timeout = window.setTimeout(() => {
+          window.removeEventListener(DIAGNOSTIC_RESPONSE_EVENT, onAck);
+          resolve({ ok: false, error: "bridgeから診断開始応答がありません。Companion bridgeを再接続してください。" });
+        }, 5000);
+        const onAck = (event: Event) => {
+          const detail = event instanceof CustomEvent ? event.detail : null;
+          window.clearTimeout(timeout);
+          window.removeEventListener(DIAGNOSTIC_RESPONSE_EVENT, onAck);
+          resolve(detail || {});
+        };
+        window.addEventListener(DIAGNOSTIC_RESPONSE_EVENT, onAck);
+        window.dispatchEvent(new CustomEvent(DIAGNOSTIC_REQUEST_EVENT, { detail: { statusUrl: normalized, diagnosticRunId, diagnosticMode: true, approvedMediaId, approvedMediaName: "@lumi_reviw" } }));
+      });
+      if (!ack.ok) throw new Error(ack.error || "Companion workerの診断開始に失敗しました。");
+      setState({ status: "running", diagnosticRunId, sourceStatusUrl: normalized });
+      router.refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "診断開始に失敗しました。");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const displayEvidence = dbEvidence.length > 0 ? dbEvidence : state?.savedEvidence ?? [];
+  return (
+    <section className="mt-4 rounded-lg border border-amber-800 bg-amber-950/20 p-4" aria-label="single-status diagnostic">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-xs font-black text-amber-300">管理者用 single-status diagnostic</p>
+          <p className="mt-1 text-xs leading-5 text-zinc-400">実Xスレッドの本人self-replyとmfco.linkだけを検証します。Daily / Monetizable / Learning / KPI / Ranking / Opportunity / Revenueから除外します。</p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input aria-label="診断対象status URL" value={statusUrl} onChange={(event) => setStatusUrl(event.target.value)} className={`${inputClass} min-w-[360px]`} placeholder="https://x.com/lumi_reviw/status/123..." />
+          <button type="button" onClick={startDiagnostic} disabled={pending || state?.status === "running"} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-amber-700 px-4 text-sm font-black text-white disabled:cursor-wait disabled:opacity-60">
+            {pending || state?.status === "running" ? <LoaderCircle size={17} className="animate-spin" /> : <MousePointerClick size={17} />}
+            診断開始
+          </button>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+        <p>実行状態: <span className="font-black text-white">{state?.status ?? "idle"}</span></p>
+        <p>source author: <span className="font-black text-white">{state?.sourceAuthorHandle || state?.sourceXHandle ? `@${state.sourceAuthorHandle || state.sourceXHandle}` : "-"}</span></p>
+        <p>本人reply検出数: <span className="font-black text-white">{state?.replyCount ?? "-"}</span></p>
+        <p>myfans/mfco link: <span className="font-black text-white">{state?.myfansLinkCount ?? "-"}</span></p>
+      </div>
+      {state?.replyStatuses?.map((reply, index) => <p key={`${reply.statusUrl}-${index}`} className="mt-2 text-xs text-zinc-300">reply {index + 1}: {reply.statusUrl ?? "-"} / author {reply.authorHandle ? `@${reply.authorHandle.replace(/^@/, "")}` : "-"} / exact reply={String(reply.isReply)} / link {reply.myfansUrls?.join(", ") || "-"}</p>)}
+      {displayEvidence.map((evidence, index) => (
+        <div key={`${evidence.id ?? evidence.source_status_url}-${index}`} className="mt-3 rounded-md bg-zinc-950 p-3 text-xs leading-5">
+          <p>reply: {evidence.source_status_url ?? "-"}</p>
+          <p>link: {evidence.discovered_myfans_url ?? "-"}</p>
+          <p>Resolver: {evidence.confidence ?? "-"} / {evidence.resolution_method ?? "-"} / product_id {evidence.product_id ?? "null"}</p>
+          <p>DB: diagnostic_mode={String(evidence.diagnostic_mode)} / run_id={evidence.diagnostic_run_id ?? state?.diagnosticRunId ?? "-"}</p>
+        </div>
+      ))}
+      {state?.status === "done" && displayEvidence.length === 0 && <p className="mt-3 text-xs text-amber-200">処理完了。本人reply内の保存対象linkはありません。</p>}
+      {state?.status === "error" && <p className="mt-3 text-xs text-red-300">worker error: {state.error ?? "不明なエラー"}</p>}
+      {error && <p className="mt-3 text-xs text-red-300">error: {error}</p>}
+    </section>
+  );
 }
 
 export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: number | null }) {
@@ -606,6 +757,8 @@ export function PostForm({ products }: { products: MyfansProduct[] }) {
 }
 
 type ExecutionCandidate = ReturnType<typeof buildMyfansExecutionBoard>["candidates"][number];
+type CandidateOptionSlot = ReturnType<typeof buildMyfansExecutionBoard>["candidateOptions"][number];
+type CandidateOption = CandidateOptionSlot["candidates"][number];
 
 function publishBody(candidate: ExecutionCandidate) {
   if (candidate.creativeStrategy !== "quote_post" || !candidate.quoteXUrl) return candidate.body;
@@ -621,6 +774,59 @@ function canUseAffiliateLink(candidate: ExecutionCandidate) {
   if (!candidate.product || !needsFreshAffiliateLink(candidate)) return true;
   const status = myfansAffiliateLinkStatus(candidate.product);
   return status === "valid" || status === "expiring_soon";
+}
+
+function linkStrategyLabel(candidate: ExecutionCandidate) {
+  if (candidate.linkStrategy === "reply_link") return "自己リプでリンク";
+  if (candidate.linkStrategy === "body_link") return "本文にリンク";
+  if (candidate.linkStrategy === "profile_cta") return "プロフィールへ誘導";
+  return "リンクなし";
+}
+
+function postModeLabel(candidate: ExecutionCandidate) {
+  if (candidate.postMode === "quote_plus_reply_affiliate") return "引用 + 自己リプアフィ";
+  if (candidate.postMode === "direct_affiliate") return "myfans直リンク";
+  return "引用投稿";
+}
+
+function sourceMediaTypeLabel(candidate: ExecutionCandidate) {
+  if (candidate.sourceMediaType === "video") return "video";
+  if (candidate.sourceMediaType === "image") return "image";
+  return "none";
+}
+
+function affiliateStatusLabel(candidate: ExecutionCandidate) {
+  if (!candidate.product || !candidate.myfansCreator) return "myfans未紐付け";
+  if (candidate.affiliateConnectionStatus === "source_product_mismatch") return "引用元とmyfans商品の同一性未確認";
+  if (candidate.monetizableStatus === "linked_no_affiliate") return "紐付け済み / アフィ未作成";
+  if (candidate.monetizableStatus === "linked_affiliate_ready") return "アフィ利用可能";
+  if (!candidate.affiliateUrl) return "未作成";
+  if (!normalizeMyfansAffiliateUrl(candidate.affiliateUrl)) return "正規mfco.linkではない";
+  return myfansAffiliateLinkStatusLabel(myfansAffiliateLinkStatus(candidate.product));
+}
+
+function monetizableStatusLabel(candidate: ExecutionCandidate) {
+  if (candidate.monetizableStatus === "linked_affiliate_ready") return "アフィ利用可能";
+  if (candidate.monetizableStatus === "linked_no_affiliate") return "紐付け済み / アフィ未作成";
+  return "未紐付け";
+}
+
+function quoteIntentUrl(candidate: ExecutionCandidate) {
+  const url = candidate.quoteXUrl || candidate.sourceXUrl;
+  const text = publishBody(candidate);
+  return `https://x.com/intent/post?text=${encodeURIComponent(text)}${url ? `&url=${encodeURIComponent(url)}` : ""}`;
+}
+
+function postingSteps(candidate: ExecutionCandidate) {
+  if (candidate.postMode === "quote_plus_reply_affiliate") {
+    return ["Xで引用ポストを開く", "本文をコピーして引用投稿", "投稿後、自己リプに#PRとmfco.linkを貼る"];
+  }
+  if (candidate.postMode === "direct_affiliate") {
+    return candidate.linkStrategy === "body_link"
+      ? ["本文をコピー", "正規mfco.link入りで投稿", "OGP表示を確認"]
+      : ["本文を投稿", "投稿後、自己リプに#PRとmfco.linkを貼る"];
+  }
+  return ["Xで引用ポストを開く", "本文をコピーして引用投稿", "メディアは再アップロードしない"];
 }
 
 const POST_RECORD_LEAK_PATTERNS = [
@@ -928,10 +1134,16 @@ export function QuoteCandidateTasks({ tasks }: { tasks: MyfansQuoteCollectionTas
   );
 }
 
-export function XExecutionBoard({ candidates, posts }: { candidates: ExecutionCandidate[]; posts: MyfansXPost[] }) {
+export function XExecutionBoard({ candidates, candidateOptions, selectedOptions, planDate, posts }: { candidates: ExecutionCandidate[]; candidateOptions?: CandidateOptionSlot[]; selectedOptions?: Record<string, string>; planDate: string; posts: MyfansXPost[] }) {
   const router = useRouter();
   const [message, setMessage] = useState<Message>(null);
   const [pendingId, setPendingId] = useState<string | number | null>(null);
+  const [selectedBySlot, setSelectedBySlot] = useState<Record<number, string>>(() =>
+    Object.fromEntries((candidateOptions ?? []).map((slot) => {
+      const selectedLabel = selectedOptions?.[String(slot.postOrder)] ?? "A";
+      return [slot.postOrder, slot.candidates.find((candidate) => candidate.optionLabel === selectedLabel)?.id ?? slot.candidates.find((candidate) => candidate.optionLabel === "A")?.id ?? slot.candidates[0]?.id ?? ""];
+    })),
+  );
 
   async function copy(value: string, label: string) {
     await navigator.clipboard.writeText(value);
@@ -986,6 +1198,27 @@ export function XExecutionBoard({ candidates, posts }: { candidates: ExecutionCa
     }
   }
 
+  async function selectCandidate(slot: CandidateOptionSlot, candidate: CandidateOption) {
+    setPendingId(`select-${slot.postOrder}-${candidate.optionLabel}`);
+    setMessage(null);
+    try {
+      const formData = new FormData();
+      formData.set("action", "daily_plan_select");
+      formData.set("approved_media_id", String(candidate.approvedMediaId ?? ""));
+      formData.set("plan_date", planDate);
+      formData.set("post_order", String(slot.postOrder));
+      formData.set("option_label", candidate.optionLabel);
+      await postFormData(formData);
+      setSelectedBySlot((current) => ({ ...current, [slot.postOrder]: candidate.id }));
+      setMessage({ text: `Slot${slot.postOrder}は候補${candidate.optionLabel}を選択済みにしました。`, error: false });
+      router.refresh();
+    } catch (error) {
+      setMessage({ text: error instanceof Error ? error.message : "候補選択を保存できませんでした。", error: true });
+    } finally {
+      setPendingId(null);
+    }
+  }
+
   async function saveAffiliateLink(candidate: ExecutionCandidate, form: HTMLFormElement) {
     if (!candidate.product) return;
     setPendingId(`affiliate-${candidate.product.id}`);
@@ -1009,8 +1242,13 @@ export function XExecutionBoard({ candidates, posts }: { candidates: ExecutionCa
     }
   }
 
+  const selectedCandidates = (candidateOptions ?? [])
+    .map((slot) => slot.candidates.find((candidate) => selectedBySlot[slot.postOrder] === candidate.id) ?? slot.candidates.find((candidate) => candidate.optionLabel === "A") ?? slot.candidates[0])
+    .filter((candidate): candidate is CandidateOption => Boolean(candidate));
+  const executionCandidates = selectedCandidates.length ? selectedCandidates : candidates;
+
   async function launchTodayCandidates() {
-    const activeCandidates = candidates.filter((candidate) => candidate.product);
+    const activeCandidates = executionCandidates.filter((candidate) => candidate.product);
     if (!activeCandidates.length || pendingId) return;
     const blocked = activeCandidates.filter((candidate) => needsFreshAffiliateLink(candidate) && !canUseAffiliateLink(candidate));
     if (blocked.length) {
@@ -1030,8 +1268,7 @@ export function XExecutionBoard({ candidates, posts }: { candidates: ExecutionCa
       }
       activeCandidates.forEach((candidate, index) => {
         window.setTimeout(() => {
-          const postBody = publishBody(candidate);
-          const url = `https://x.com/intent/post?text=${encodeURIComponent(postBody)}`;
+          const url = quoteIntentUrl(candidate);
           const draftWindow = draftWindows[index];
           if (draftWindow) draftWindow.location.href = url;
           else window.open(url, "_blank", "noopener,noreferrer");
@@ -1080,11 +1317,11 @@ export function XExecutionBoard({ candidates, posts }: { candidates: ExecutionCa
   return (
     <div className="mt-8 space-y-6">
       <StatusMessage message={message} />
-      {!candidates.some((candidate) => candidate.product) && (
+      {!executionCandidates.some((candidate) => candidate.product) && (
         <section className="rounded-xl border border-amber-800 bg-amber-950/30 p-5">
           <p className="text-sm font-black text-amber-200">投稿前に商品候補が必要です</p>
           <p className="mt-2 text-sm leading-6 text-amber-100/80">
-            この画面は承認済みメディアに紐づく商品から投稿文を作ります。myfans管理画面の商品詳細や最近生成したURLをコピーして貼ると、候補登録後に今日の投稿案が生成されます。
+            この画面は選択中の運用メディアに紐づく商品から投稿文を作ります。引用元Xは引用投稿用として扱い、再アップロード用素材とは分けて表示します。myfans管理画面の商品詳細や最近生成したURLをコピーして貼ると、候補登録後に今日の投稿案が生成されます。
           </p>
           <AffiliatePasteImportForm />
           <QuickProductForm />
@@ -1102,7 +1339,7 @@ export function XExecutionBoard({ candidates, posts }: { candidates: ExecutionCa
           <button
             type="button"
             onClick={launchTodayCandidates}
-            disabled={pendingId === "today" || !candidates.some((candidate) => candidate.product)}
+            disabled={pendingId === "today" || !executionCandidates.some((candidate) => candidate.product)}
             className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-white px-5 text-sm font-black text-black transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
           >
             <ExternalLink size={17} />
@@ -1110,8 +1347,95 @@ export function XExecutionBoard({ candidates, posts }: { candidates: ExecutionCa
           </button>
         </div>
       </section>
+      {candidateOptions?.length ? (
+        <section className="grid gap-5">
+          {candidateOptions.map((slot) => (
+            <article key={`${slot.slot}-${slot.postOrder}`} className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-black text-emerald-300">Slot{slot.postOrder} / {slot.slot}</p>
+                  <h2 className="mt-1 text-xl font-black">候補A/B/Cから1つ選ぶ</h2>
+                </div>
+                <p className="text-xs font-black text-zinc-400">システム推奨: 候補A（おすすめ）</p>
+              </div>
+              <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                {slot.candidates.map((candidate) => {
+                  const selected = selectedBySlot[slot.postOrder] === candidate.id;
+                  const linkRequired = needsFreshAffiliateLink(candidate);
+                  const linkReady = canUseAffiliateLink(candidate);
+                  return (
+                    <div key={candidate.id} className={`rounded-lg border p-4 ${selected ? "border-emerald-500 bg-emerald-950/25" : "border-zinc-800 bg-zinc-950"}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-black text-white">候補{candidate.optionLabel}（{candidate.optionName}）</p>
+                          <p className="mt-1 text-xs font-bold text-zinc-500">{candidate.candidateType} / {candidate.dailyRole} / {candidate.postType}</p>
+                        </div>
+                        <span className={`rounded-md px-2 py-1 text-[11px] font-black ${selected ? "bg-emerald-400 text-black" : "bg-zinc-800 text-zinc-300"}`}>
+                          {selected ? "選択済み" : "未選択"}
+                        </span>
+                      </div>
+                      <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+                        <p className="text-xs font-black text-zinc-500">公開本文全文</p>
+                        <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-zinc-100">{publishBody(candidate)}</p>
+                      </div>
+                      <div className="mt-3 grid gap-1 text-xs leading-5 text-zinc-300">
+                        <p><span className="font-black text-zinc-500">post_mode:</span> {postModeLabel(candidate)} / {linkStrategyLabel(candidate)}</p>
+                        <p><span className="font-black text-zinc-500">候補タイプ:</span> {candidate.candidateType}</p>
+                        <p><span className="font-black text-zinc-500">引用元X投稿者:</span> {candidate.sourceAuthorLabel}</p>
+                        <p><span className="font-black text-zinc-500">引用元X:</span> {candidate.quoteXUrl || candidate.sourceXUrl || "-"}</p>
+                        <p><span className="font-black text-zinc-500">引用メディア:</span> {sourceMediaTypeLabel(candidate)} / quote tweetは元Xを引用、再アップロードなし</p>
+                        <p><span className="font-black text-zinc-500">myfansクリエイター:</span> {candidate.myfansCreator?.name || "myfans未紐付け"}</p>
+                        <p><span className="font-black text-zinc-500">myfans作品:</span> {candidate.myfansCreator ? candidate.product?.title ?? "なし" : "なし"}</p>
+                        <p><span className="font-black text-zinc-500">monetizable status:</span> {monetizableStatusLabel(candidate)}</p>
+                        <p><span className="font-black text-zinc-500">Resolver:</span> {candidate.resolverEvidence ? `${candidate.resolverEvidence.confidence} / ${candidate.resolverEvidence.resolution_method} / ${candidate.resolverEvidence.evidence_source}` : "未解決"}</p>
+                        {candidate.resolverEvidence?.confidence === "strong" && <p className="font-bold text-amber-200">strong: myfansリンクは見つかっていますが、人間確認が必要です。</p>}
+                        <p><span className="font-black text-zinc-500">解決product:</span> {candidate.resolverEvidence?.product_id ? `product_id ${candidate.resolverEvidence.product_id}` : candidate.product?.id ? `product_id ${candidate.product.id}` : "-"}</p>
+                        <p><span className="font-black text-zinc-500">myfans送客先:</span> {candidate.affiliateTargetUrl || "-"}</p>
+                        <p><span className="font-black text-zinc-500">アフィリエイト:</span> {affiliateStatusLabel(candidate)} {candidate.affiliateUrl ? `/ ${candidate.affiliateUrl}` : ""}</p>
+                        <p><span className="font-black text-zinc-500">topic:</span> {candidate.topicIdentity || "-"}</p>
+                        <p><span className="font-black text-zinc-500">reason:</span> {candidate.topicValue?.reasonToCare ?? candidate.reason}</p>
+                        <p><span className="font-black text-zinc-500">visual根拠:</span> {candidate.visualUnderstanding?.visualAnalysisStatus ?? "unavailable"} / {candidate.visualUnderstanding?.humanObservation || candidate.visualUnderstanding?.rawVisualEvidence || "visual断定なし"}</p>
+                        <p><span className="font-black text-zinc-500">Quality:</span> {candidate.quality.total}/100 / {candidate.quality.verdict}</p>
+                        <p><span className="font-black text-zinc-500">Topic Value:</span> {candidate.topicValue?.score ?? "-"} / {candidate.topicValue?.verdict ?? "-"}</p>
+                        <p><span className="font-black text-zinc-500">Natural reaction:</span> {candidate.reactionReview?.naturalUserReaction ?? "-"}/100 / analyst risk {candidate.reactionReview?.analystCommentaryRisk ?? "-"}/100 / source specificity {candidate.reactionReview?.sourceSpecificity ?? candidate.sourceSpecificityScore}/100</p>
+                        <p><span className="font-black text-zinc-500">新規性:</span> {candidate.novelty.label} / 同じsource: {candidate.novelty.sameSourceLabel}</p>
+                        <p><span className="font-black text-zinc-500">最後に同じcreatorを使った日:</span> {candidate.novelty.lastSameCreatorDate ?? "未使用"}</p>
+                        <p><span className="font-black text-zinc-500">最後に同じsourceを使った日:</span> {candidate.novelty.lastSameSourceDate ?? "未使用"}</p>
+                        <p><span className="font-black text-zinc-500">過去投稿との近さ:</span> {candidate.novelty.pastBodySimilarityLabel} <span className="text-zinc-500">({candidate.novelty.maxPastSimilarity})</span></p>
+                      </div>
+                      <div className="mt-4 grid gap-2">
+                        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+                          <p className="text-xs font-black text-zinc-500">完成投稿セット</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {(candidate.quoteXUrl || candidate.sourceXUrl) && <a href={candidate.quoteXUrl || candidate.sourceXUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-white"><ExternalLink size={14} />引用元Xを開く</a>}
+                            {(candidate.quoteXUrl || candidate.sourceXUrl) && <a href={quoteIntentUrl(candidate)} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white"><ExternalLink size={14} />引用投稿を開く</a>}
+                            {(candidate.quoteXUrl || candidate.sourceXUrl) && <button type="button" onClick={() => copy(candidate.quoteXUrl || candidate.sourceXUrl, "引用URL")} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-white"><Copy size={14} />引用URLをコピー</button>}
+                            {candidate.affiliateTargetUrl && <a href={candidate.affiliateTargetUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-white"><ExternalLink size={14} />myfansページ</a>}
+                            {candidate.monetizableStatus === "linked_no_affiliate" && candidate.product && <a href={candidate.product.product_url || "https://www.affiliate.myfans.jp/dashboard"} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-amber-600 px-3 text-xs font-black text-black"><ExternalLink size={14} />アフィリンクを作る</a>}
+                            {candidate.affiliateUrl && <button type="button" onClick={() => copy(candidate.affiliateUrl, "アフィリエイトリンク")} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-white"><Copy size={14} />アフィリエイトリンク</button>}
+                          </div>
+                          <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs leading-5 text-zinc-300">
+                            {postingSteps(candidate).map((step) => <li key={step}>{step}</li>)}
+                          </ol>
+                        </div>
+                        <button type="button" onClick={() => selectCandidate(slot, candidate)} disabled={pendingId === `select-${slot.postOrder}-${candidate.optionLabel}`} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:cursor-wait disabled:opacity-60">
+                          {pendingId === `select-${slot.postOrder}-${candidate.optionLabel}` ? <LoaderCircle size={15} className="animate-spin" /> : <Check size={15} />}
+                          {selected ? "選択済み" : "この候補を選ぶ"}
+                        </button>
+                        <button type="button" disabled={!selected || !candidate.product || pendingId === candidate.id || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
+                          <Save size={15} /> 選択候補を投稿ログへ保存
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </article>
+          ))}
+        </section>
+      ) : null}
       <section className="grid gap-4 lg:grid-cols-3">
-        {candidates.map((candidate) => (
+        {executionCandidates.map((candidate) => (
           <article key={candidate.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
             {(() => {
               const linkRequired = needsFreshAffiliateLink(candidate);
@@ -1123,9 +1447,9 @@ export function XExecutionBoard({ candidates, posts }: { candidates: ExecutionCa
               return (
                 <>
             <p className="text-xs font-black text-emerald-300">{candidate.approvedMediaName} / {candidate.plannedSlot}</p>
-            <h2 className="mt-2 text-lg font-black">{candidate.product?.title ?? "商品候補がありません"}</h2>
+            <h2 className="mt-2 text-lg font-black">{candidate.candidateTitle}</h2>
             <p className="mt-2 text-sm font-black text-white">{candidate.role}</p>
-            <p className="mt-2 text-xs text-zinc-500">{candidate.growthStage} / {candidate.dailyRole} / {candidate.postType} / {candidate.linkStrategy} / {candidate.objective}</p>
+            <p className="mt-2 text-xs text-zinc-500">{candidate.growthStage} / {candidate.candidateType} / {candidate.dailyRole} / {candidate.postType} / {candidate.linkStrategy} / {candidate.objective}</p>
             <div className="mt-3 rounded-lg border border-zinc-700 bg-zinc-950 p-4">
               <p className="text-xs font-black text-zinc-500">内部判断</p>
               <div className={`mt-3 rounded-lg border p-3 ${candidate.quality.verdict === "PASS" ? "border-emerald-700 bg-emerald-950/30" : "border-amber-700 bg-amber-950/30"}`}>
@@ -1146,10 +1470,20 @@ export function XExecutionBoard({ candidates, posts }: { candidates: ExecutionCa
                   </div>
                 )}
                 <p><span className="font-black text-zinc-500">今日の目的:</span> {candidate.objective}</p>
+                <p><span className="font-black text-zinc-500">候補タイプ:</span> {candidate.candidateType}</p>
+                <p><span className="font-black text-zinc-500">monetizable status:</span> {monetizableStatusLabel(candidate)}</p>
                 <p><span className="font-black text-zinc-500">role:</span> {candidate.dailyRole}</p>
                 <p><span className="font-black text-zinc-500">投稿型:</span> {candidate.postType}</p>
                 <p><span className="font-black text-zinc-500">link_strategy:</span> {candidate.linkStrategy}</p>
                 <p><span className="font-black text-zinc-500">creative_strategy:</span> {strategyLabels[candidate.creativeStrategy] ?? candidate.creativeStrategy}</p>
+                <p><span className="font-black text-zinc-500">引用元X投稿者:</span> {candidate.sourceAuthorLabel}</p>
+                <p><span className="font-black text-zinc-500">myfansクリエイター:</span> {candidate.myfansCreator?.name || "myfans未紐付け"}</p>
+                <p><span className="font-black text-zinc-500">product creator:</span> {candidate.productCreator?.name || "-"}</p>
+                <p><span className="font-black text-zinc-500">matching:</span> {candidate.sourceProductMatch.confidence} / {candidate.sourceProductMatch.source}</p>
+                <p><span className="font-black text-zinc-500">Resolver:</span> {candidate.resolverEvidence ? `${candidate.resolverEvidence.confidence} / ${candidate.resolverEvidence.resolution_method} / ${candidate.resolverEvidence.evidence_source}` : "未解決"}</p>
+                {candidate.resolverEvidence?.confidence === "strong" && <p className="font-bold text-amber-200">strong: myfansリンクは見つかっていますが、人間確認が必要です。</p>}
+                <p><span className="font-black text-zinc-500">解決product:</span> {candidate.resolverEvidence?.product_id ? `product_id ${candidate.resolverEvidence.product_id}` : candidate.product?.id ? `product_id ${candidate.product.id}` : "-"}</p>
+                <p><span className="font-black text-zinc-500">source specificity:</span> {candidate.sourceSpecificityScore}/100</p>
                 {candidate.visualUnderstanding && (
                   <>
                     <p><span className="font-black text-zinc-500">Visual analysis status:</span> {candidate.visualUnderstanding.visualAnalysisStatus} / {candidate.visualUnderstanding.analyzerVersion}</p>
@@ -1236,6 +1570,23 @@ export function XExecutionBoard({ candidates, posts }: { candidates: ExecutionCa
                 </form>
               </div>
             )}
+            <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+              <p className="text-xs font-black text-zinc-500">完成投稿セット</p>
+              <div className="mt-2 grid gap-1 text-xs leading-5 text-zinc-300">
+                <p><span className="font-black text-zinc-500">投稿方法:</span> {postModeLabel(candidate)} / {linkStrategyLabel(candidate)}</p>
+                <p><span className="font-black text-zinc-500">引用元X投稿者:</span> {candidate.sourceAuthorLabel}</p>
+                <p><span className="font-black text-zinc-500">引用元X:</span> {candidate.quoteXUrl || candidate.sourceXUrl || "-"}</p>
+                <p><span className="font-black text-zinc-500">引用メディア:</span> {sourceMediaTypeLabel(candidate)} / quote tweetは元Xを引用、再アップロードなし</p>
+                <p><span className="font-black text-zinc-500">myfansクリエイター:</span> {candidate.myfansCreator?.name || "myfans未紐付け"}</p>
+                <p><span className="font-black text-zinc-500">myfans作品:</span> {candidate.myfansCreator ? candidate.product?.title ?? "なし" : "なし"}</p>
+                <p><span className="font-black text-zinc-500">monetizable status:</span> {monetizableStatusLabel(candidate)}</p>
+                <p><span className="font-black text-zinc-500">myfans送客先:</span> {candidate.affiliateTargetUrl || "-"}</p>
+                <p><span className="font-black text-zinc-500">アフィリエイト:</span> {affiliateStatusLabel(candidate)} {candidate.affiliateUrl ? `/ ${candidate.affiliateUrl}` : ""}</p>
+              </div>
+              <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs leading-5 text-zinc-300">
+                {postingSteps(candidate).map((step) => <li key={step}>{step}</li>)}
+              </ol>
+            </div>
             <details className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
               <summary className="cursor-pointer text-xs font-black text-zinc-500">内部メモを表示</summary>
               <p className="mt-3 text-sm leading-6 text-zinc-500">{candidate.productReason}</p>
@@ -1251,7 +1602,7 @@ export function XExecutionBoard({ candidates, posts }: { candidates: ExecutionCa
               <button type="button" disabled={!candidate.affiliateUrl || candidate.linkStrategy === "no_link" || candidate.linkStrategy === "profile_cta"} onClick={() => copy(candidate.affiliateUrl, "リンク")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"><Copy size={15} />リンクをコピー</button>
               {candidate.ogpCheckRequired && <span className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-cyan-700 px-3 text-xs font-black text-cyan-200"><ImageIcon size={15} />OGPを確認</span>}
             {candidate.product ? (
-                <a href={`https://x.com/intent/post?text=${encodeURIComponent(publishBody(candidate))}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white"><ExternalLink size={15} />X投稿画面を開く</a>
+                <a href={quoteIntentUrl(candidate)} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white"><ExternalLink size={15} />X投稿画面を開く</a>
               ) : (
                 <button type="button" disabled className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-zinc-500"><ExternalLink size={15} />X投稿画面を開く</button>
               )}

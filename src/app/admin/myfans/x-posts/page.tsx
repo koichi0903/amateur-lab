@@ -12,7 +12,7 @@ export default async function MyfansXPostsPage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <Link href="/admin/myfans" className="inline-flex items-center gap-2 text-sm font-bold text-zinc-400 transition hover:text-white">
+        <Link href="/admin/myfans?media=1" className="inline-flex items-center gap-2 text-sm font-bold text-zinc-400 transition hover:text-white">
           <ArrowLeft size={16} /> myfansへ戻る
         </Link>
         <h1 className="mt-7 text-3xl font-black sm:text-5xl">myfans X投稿候補</h1>

@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import type { MyfansPostProductLinkageEvidence } from "@/lib/myfansProductResolver";
 
 export type MyfansCreator = {
   id: number;
@@ -200,6 +201,15 @@ export type MyfansQuoteCandidate = {
   visual_analyzer_version?: string | null;
 };
 
+export type MyfansDailyPlanHistory = {
+  id: number;
+  plan_date: string;
+  approved_media_id: number | null;
+  strategy_json: Record<string, unknown> | null;
+  updated_at?: string | null;
+  evaluated_at?: string | null;
+};
+
 type MyfansXGrowthDiagnosis =
   | "露出不足"
   | "露出はあるがプロフィール遷移不足"
@@ -259,6 +269,9 @@ const EMPTY_ANALYTICS = {
   media: [] as MyfansApprovedMedia[],
   auditLogs: [] as MyfansAuditLog[],
   quoteCandidates: [] as MyfansQuoteCandidate[],
+  productLinkageEvidence: [] as MyfansPostProductLinkageEvidence[],
+  diagnosticProductLinkageEvidence: [] as MyfansPostProductLinkageEvidence[],
+  dailyPlans: [] as MyfansDailyPlanHistory[],
   quoteCandidateSource: {
     dbCount: 0,
     loadedCount: 0,
@@ -412,6 +425,8 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
       xAccountMetricsResult,
       auditResult,
       quoteCandidatesResult,
+      productLinkageEvidenceResult,
+      dailyPlansResult,
     ] = await Promise.all([
       supabaseAdmin
         .from("myfans_creators")
@@ -453,6 +468,17 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
         .order("created_at", { ascending: false })
         .limit(20),
       fetchAllMyfansQuoteCandidates(),
+      supabaseAdmin
+        .from("myfans_post_product_linkage_evidence")
+        .select("id,approved_media_id,quote_candidate_id,source_status_url,source_author_handle,discovered_myfans_url,final_myfans_url,product_id,resolution_method,confidence,evidence_source,verified_at,metadata,diagnostic_mode,diagnostic_run_id")
+        .order("verified_at", { ascending: false })
+        .limit(1000),
+      supabaseAdmin
+        .from("myfans_daily_plans")
+        .select("id,plan_date,approved_media_id,strategy_json,updated_at,evaluated_at")
+        .gte("plan_date", cutoff.slice(0, 10))
+        .order("plan_date", { ascending: false })
+        .limit(30),
     ]);
 
     const error = [
@@ -466,6 +492,8 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
       xAccountMetricsResult.error,
       auditResult.error,
       quoteCandidatesResult.error,
+      productLinkageEvidenceResult.error && /myfans_post_product_linkage_evidence|schema cache|does not exist/i.test(productLinkageEvidenceResult.error.message) ? null : productLinkageEvidenceResult.error,
+      dailyPlansResult.error,
     ].find(Boolean);
 
     if (error) {
@@ -504,6 +532,12 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
     const products = filterBySelectedMedia(allProducts, selectedMedia);
     const productIds = new Set(products.map((product) => product.id));
     const quoteCandidates = ((quoteCandidatesResult.data ?? []) as MyfansQuoteCandidate[])
+      .filter((row) => !selectedMedia || row.approved_media_id === selectedMedia.id || row.approved_media_id === null);
+    const allProductLinkageEvidence = ((productLinkageEvidenceResult.error ? [] : productLinkageEvidenceResult.data ?? []) as MyfansPostProductLinkageEvidence[])
+      .filter((row) => !selectedMedia || row.approved_media_id === selectedMedia.id || row.approved_media_id === null);
+    const productLinkageEvidence = allProductLinkageEvidence.filter((row) => row.diagnostic_mode !== true);
+    const diagnosticProductLinkageEvidence = allProductLinkageEvidence.filter((row) => row.diagnostic_mode === true);
+    const dailyPlans = ((dailyPlansResult.data ?? []) as MyfansDailyPlanHistory[])
       .filter((row) => !selectedMedia || row.approved_media_id === selectedMedia.id || row.approved_media_id === null);
     const quoteCandidateSource = {
       dbCount: quoteCandidatesResult.count ?? quoteCandidates.length,
@@ -613,7 +647,10 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
       xAccountMetrics,
       auditLogs: (auditResult.data ?? []) as MyfansAuditLog[],
       quoteCandidates,
+      productLinkageEvidence,
+      diagnosticProductLinkageEvidence,
       quoteCandidateSource,
+      dailyPlans,
     };
   } catch (error) {
     return { error: toErrorMessage(error), ...EMPTY_ANALYTICS };

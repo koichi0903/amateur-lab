@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { scoreMyfansQuoteCandidate, type MyfansQuoteScanCandidate } from "@/lib/myfansQuoteScoring";
+import { normalizeMyfansPostUrl, resolveTextEvidence } from "@/lib/myfansProductResolver";
 import { calculateMyfansSelectionScore, myfansLaunchPriority } from "@/lib/myfansScore";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -35,6 +36,11 @@ function cleanXMediaPermalink(value: unknown) {
 
 function cleanValidationStatus(value: unknown) {
   return cleanText(value).replace(/[^a-z0-9_:-]/gi, "").slice(0, 80);
+}
+
+function cleanMyfansUrl(value: unknown) {
+  const raw = cleanText(value);
+  return /^https?:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(raw) ? raw.replace(/[?#].*$/, "") : "";
 }
 
 const RESERVED_X_HANDLES = new Set(["home", "explore", "search", "intent", "share", "i", "notifications", "messages", "settings", "login", "signup"]);
@@ -81,6 +87,9 @@ type QuoteScanPayload = {
   refreshJobItemId?: unknown;
   failureReason?: unknown;
   quoteCandidates?: MyfansQuoteScanCandidate[];
+  diagnosticMode?: boolean;
+  diagnosticRunId?: unknown;
+  sourceStatusUrl?: unknown;
 };
 
 function xHandleFromUrl(value: string) {
@@ -106,6 +115,30 @@ async function updateRefreshProgress(jobId: number) {
       success_creators: success,
       failed_creators: failed,
       completed_at: hasRemaining ? null : new Date().toISOString(),
+    })
+    .eq("id", jobId);
+  if (updateError) throw updateError;
+}
+
+async function updateSensitiveGateStreak(jobId: number, error: string | undefined) {
+  const { data: job, error: jobError } = await supabaseAdmin
+    .from("myfans_quote_refresh_jobs")
+    .select("sensitive_gate_streak,sensitive_gate_streak_limit")
+    .eq("id", jobId)
+    .single();
+  if (jobError) throw jobError;
+  const isGate = quoteRefreshErrorCode(error) === "SENSITIVE_CONTENT_GATE";
+  const streak = isGate ? (job.sensitive_gate_streak ?? 0) + 1 : 0;
+  const shouldStop = isGate && streak >= (job.sensitive_gate_streak_limit ?? 3);
+  const { error: updateError } = await supabaseAdmin
+    .from("myfans_quote_refresh_jobs")
+    .update({
+      sensitive_gate_streak: streak,
+      ...(shouldStop ? {
+        status: "paused",
+        stopped_reason: `SENSITIVE_CONTENT_GATEが${streak}件連続したため停止。未処理creatorは持ち越し。`,
+        last_error: `SENSITIVE_CONTENT_GATEが${streak}件連続したため、安全側で停止しました。`,
+      } : {}),
     })
     .eq("id", jobId);
   if (updateError) throw updateError;
@@ -137,6 +170,7 @@ async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "f
     .eq("id", itemId)
     .eq("job_id", jobId);
   if (error) throw error;
+  await updateSensitiveGateStreak(jobId, detail.error);
   await updateRefreshProgress(jobId);
 }
 
@@ -208,6 +242,22 @@ async function saveQuoteCandidate(record: Record<string, unknown>, productId: nu
   }
   const { error } = await supabaseAdmin.from("myfans_quote_candidates").insert(record);
   if (error) throw error;
+}
+
+let resolverProductsCache: Awaited<ReturnType<typeof fetchResolverProductsFromDb>> | null = null;
+
+async function fetchResolverProductsFromDb() {
+  const { data, error } = await supabaseAdmin
+    .from("myfans_products")
+    .select("id,creator_id,approved_media_id,title,product_url,genre,product_type,status,price,reward_rate,estimated_reward,plan_signup_reward,recurring_reward_rate,popularity_rank,likes_count,saves_count,is_new,source_x_url,creator_x_url,quote_candidate_x_url,affiliate_url,media_permission_status,media_permission_note,selection_reason,approved_media_name,approved_media_url,affiliate_media_id,selection_score,launch_priority,created_at")
+    .limit(1000);
+  if (error) throw error;
+  return data ?? [];
+}
+
+async function fetchResolverProducts() {
+  resolverProductsCache ??= await fetchResolverProductsFromDb();
+  return resolverProductsCache;
 }
 
 async function saveCompanionImport(record: Record<string, unknown>, payloadHash: string) {
@@ -321,6 +371,144 @@ async function saveProduct(record: Record<string, unknown>, productUrl: string) 
   return data.id as number;
 }
 
+function parseObservedPrice(value: unknown) {
+  const parsed = Number(cleanText(value).replace(/[^\d]/g, ""));
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
+}
+
+function isMissingSupplyColumn(error: { message?: string } | null | undefined) {
+  return Boolean(error?.message && /column .* does not exist|schema cache/i.test(error.message));
+}
+
+type SupplyEvidenceRow = {
+  id: number;
+  source_status_url: string;
+  discovered_myfans_url: string;
+  final_myfans_url: string | null;
+  product_id: number | null;
+  resolution_method: string;
+  confidence: string;
+  evidence_source: string;
+  metadata: Record<string, unknown> | null;
+  verified_at: string;
+  resolution_history?: unknown;
+};
+
+async function importObservedMyfansPost(payload: Record<string, unknown>, approvedMediaId: number | null) {
+  const productUrl = normalizeMyfansPostUrl(cleanText(payload.productUrl || payload.pageUrl));
+  const title = cleanText(payload.productTitle || payload.title);
+  if (!productUrl || !title) {
+    return NextResponse.json({ error: "myfans投稿のcanonical URLと表示タイトルが必要です。" }, { status: 400 });
+  }
+  const now = new Date().toISOString();
+  const price = parseObservedPrice(payload.price);
+  const likesCount = Math.round(numberValue(payload.likesCount));
+  const sourceMetadata = {
+    observed_url: productUrl,
+    observed_title: title,
+    observed_creator_name: cleanText(payload.creatorName),
+    observed_genre: cleanText(payload.genre),
+    observed_likes_count: likesCount,
+    observed_published_at: cleanText(payload.publishedAt),
+    observed_price: price || null,
+    creator_linkage: "not_inferred_from_post_url",
+    affiliate_linkage: "not_observed",
+  };
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from("myfans_products")
+    .select("id,title,creator_id,affiliate_url,price,status,likes_count")
+    .eq("product_url", productUrl)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  const record = {
+    ...(existing ? {} : { creator_id: null, affiliate_url: "", source_x_url: "", genre: cleanText(payload.genre), product_type: "single", status: "candidate", price: 0, reward_rate: 0, estimated_reward: 0, plan_signup_reward: 0, recurring_reward_rate: 0, likes_count: 0, saves_count: 0, is_new: false, selection_reason: "通常Chromeで表示確認したmyfans投稿の最小商品レコード。creator/affiliateは未推測。", selection_score: 0, launch_priority: "hold" }),
+    ...(approvedMediaId ? { approved_media_id: approvedMediaId } : {}),
+    title,
+    product_url: productUrl,
+    ...(price > 0 && Number(existing?.price ?? 0) === 0 ? { price } : {}),
+    ...(Number(existing?.likes_count ?? 0) === 0 ? { likes_count: likesCount } : {}),
+    ingest_source: "chrome_observed_myfans_post",
+    source_observed_at: now,
+    source_metadata: sourceMetadata,
+    updated_at: now,
+  };
+  const legacyRecord = Object.fromEntries(Object.entries(record).filter(([key]) => !["ingest_source", "source_observed_at", "source_metadata"].includes(key)));
+  const query = existing
+    ? supabaseAdmin.from("myfans_products").update(record).eq("id", existing.id).select("id").single()
+    : supabaseAdmin.from("myfans_products").insert(record).select("id").single();
+  let { data: saved, error: saveError } = await query;
+  if (isMissingSupplyColumn(saveError)) {
+    const legacyQuery = existing
+      ? supabaseAdmin.from("myfans_products").update(legacyRecord).eq("id", existing.id).select("id").single()
+      : supabaseAdmin.from("myfans_products").insert(legacyRecord).select("id").single();
+    ({ data: saved, error: saveError } = await legacyQuery);
+  }
+  if (saveError) throw saveError;
+  if (!saved) throw new Error("myfans商品の保存結果を取得できませんでした。");
+  const productId = Number(saved.id);
+
+  const evidenceQuery = await supabaseAdmin
+    .from("myfans_post_product_linkage_evidence")
+    .select("id,source_status_url,discovered_myfans_url,final_myfans_url,product_id,resolution_method,confidence,evidence_source,metadata,verified_at,resolution_history")
+    .or(`final_myfans_url.eq.${productUrl},discovered_myfans_url.eq.${productUrl}`);
+  let evidenceSelectError = evidenceQuery.error;
+  let evidenceRows = (evidenceQuery.data ?? []) as SupplyEvidenceRow[];
+  if (isMissingSupplyColumn(evidenceSelectError)) {
+    const fallbackEvidence = await supabaseAdmin
+      .from("myfans_post_product_linkage_evidence")
+      .select("id,source_status_url,discovered_myfans_url,final_myfans_url,product_id,resolution_method,confidence,evidence_source,metadata,verified_at")
+      .or(`final_myfans_url.eq.${productUrl},discovered_myfans_url.eq.${productUrl}`);
+    evidenceRows = (fallbackEvidence.data ?? []) as SupplyEvidenceRow[];
+    evidenceSelectError = fallbackEvidence.error;
+  }
+  if (evidenceSelectError) throw evidenceSelectError;
+  let promotedEvidence = 0;
+  for (const evidence of evidenceRows ?? []) {
+    if (evidence.confidence === "exact" && evidence.product_id === productId) continue;
+    const history = Array.isArray(evidence.resolution_history) ? evidence.resolution_history : [];
+    const nextHistory = [...history, {
+      at: now,
+      from: { product_id: evidence.product_id, confidence: evidence.confidence, resolution_method: evidence.resolution_method, final_myfans_url: evidence.final_myfans_url },
+      reason: "canonical myfans post product upsert",
+    }].slice(-20);
+    const promotion = {
+      final_myfans_url: productUrl,
+      product_id: productId,
+      resolution_method: "exact_product_url",
+      confidence: "exact",
+      metadata: { ...(evidence.metadata && typeof evidence.metadata === "object" ? evidence.metadata : {}), promoted_from_supply_import: true, promoted_at: now },
+      resolution_history: nextHistory,
+      updated_at: now,
+    };
+    let { error: promoteError } = await supabaseAdmin
+      .from("myfans_post_product_linkage_evidence")
+      .update(promotion)
+      .eq("id", evidence.id);
+    if (isMissingSupplyColumn(promoteError)) {
+      const legacyPromotion = Object.fromEntries(Object.entries(promotion).filter(([key]) => key !== "resolution_history"));
+      ({ error: promoteError } = await supabaseAdmin.from("myfans_post_product_linkage_evidence").update(legacyPromotion).eq("id", evidence.id));
+    }
+    if (promoteError) throw promoteError;
+    promotedEvidence += 1;
+    await supabaseAdmin.from("myfans_audit_logs").insert({
+      entity_type: "evidence",
+      entity_id: evidence.id,
+      action: "resolver_exact_promotion",
+      summary: productUrl,
+      metadata: { productId, previousConfidence: evidence.confidence, previousProductId: evidence.product_id, source: "myfans_post_supply_import" },
+    });
+  }
+  await supabaseAdmin.from("myfans_audit_logs").insert({
+    entity_type: "product",
+    entity_id: productId,
+    action: existing ? "myfans_post_supply_refresh" : "myfans_post_supply_import",
+    summary: title,
+    metadata: sourceMetadata,
+  });
+  return NextResponse.json({ ok: true, importedType: "post_product", id: productId, productUrl, promotedEvidence, affiliateReady: Boolean(existing?.affiliate_url) });
+}
+
 async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number | null) {
   const parsedProductId = Number(payload.productId);
   const parsedCreatorId = Number(payload.creatorId);
@@ -364,6 +552,7 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
         mediaCount: Math.max(0, Math.round(Number(candidate.mediaCount ?? 0) || 0)),
         sourceXHandle: cleanText(candidate.sourceXHandle).replace(/^@/, ""),
         text: cleanText(candidate.text).slice(0, 180),
+        myfansUrls: Array.isArray(candidate.myfansUrls) ? candidate.myfansUrls.map(cleanMyfansUrl).filter(Boolean).slice(0, 5) : [],
       };
     })
     .filter((candidate) => candidate.xPostUrl && candidate.sourceXHandle.toLowerCase() === sourceXHandle.toLowerCase());
@@ -426,6 +615,33 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
       collected_at: new Date().toISOString(),
     };
     await saveQuoteCandidate(record, product?.id ?? null, resolvedCreatorId);
+    const evidenceText = [item.candidate.text, ...(item.candidate.myfansUrls ?? [])].filter(Boolean).join(" ");
+    const evidence = resolveTextEvidence({
+      sourceStatusUrl: item.candidate.xPostUrl,
+      sourceAuthorHandle: sourceXHandle,
+      text: evidenceText,
+      products: await fetchResolverProducts(),
+      evidenceSource: item.candidate.isReply ? "author_reply" : "author_post",
+      approvedMediaId: approvedMediaId ?? product?.approved_media_id ?? null,
+    });
+    if (evidence) {
+      const { error: evidenceError } = await supabaseAdmin.from("myfans_post_product_linkage_evidence").upsert({
+        approved_media_id: evidence.approved_media_id,
+        quote_candidate_id: null,
+        source_status_url: evidence.source_status_url,
+        source_author_handle: evidence.source_author_handle,
+        discovered_myfans_url: evidence.discovered_myfans_url,
+        final_myfans_url: evidence.final_myfans_url,
+        product_id: evidence.product_id,
+        resolution_method: evidence.resolution_method,
+        confidence: evidence.confidence,
+        evidence_source: evidence.evidence_source,
+        verified_at: evidence.verified_at,
+        metadata: evidence.metadata ?? {},
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "source_status_url,discovered_myfans_url,evidence_source" });
+      if (evidenceError && !/myfans_post_product_linkage_evidence|schema cache|does not exist/i.test(evidenceError.message)) throw evidenceError;
+    }
   }
 
   if (best && product?.id) {
@@ -454,6 +670,88 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
   });
 }
 
+function cleanDiagnosticStatusUrl(value: unknown) {
+  const raw = cleanText(value).replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
+  const match = raw.match(/^https:\/\/x\.com\/([A-Za-z0-9_]{1,15})\/status\/(\d+)$/i);
+  return match ? `https://x.com/${match[1]}/status/${match[2]}` : "";
+}
+
+async function saveDiagnosticStatusScan(payload: QuoteScanPayload, approvedMediaId: number | null) {
+  const sourceStatusUrl = cleanDiagnosticStatusUrl(payload.sourceStatusUrl);
+  const sourceXHandle = cleanText(payload.sourceXHandle).replace(/^@/, "");
+  const sourceHandleFromStatus = sourceStatusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "";
+  const runId = cleanText(payload.diagnosticRunId).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 80) || createHash("sha256").update(`${sourceStatusUrl}|${Date.now()}`).digest("hex").slice(0, 16);
+  if (!sourceStatusUrl || !sourceXHandle || sourceHandleFromStatus.toLowerCase() !== sourceXHandle.toLowerCase()) {
+    return NextResponse.json({ error: "診断対象はx.comの正規status URLで、source handleと一致する必要があります。" }, { status: 400 });
+  }
+  const products = await fetchResolverProducts();
+  const candidates = (Array.isArray(payload.quoteCandidates) ? payload.quoteCandidates : [])
+    .slice(0, 40)
+    .filter((candidate) => Boolean(candidate.isReply) && cleanText((candidate as MyfansQuoteScanCandidate & { authorHandle?: unknown }).authorHandle).replace(/^@/, "").toLowerCase() === sourceXHandle.toLowerCase())
+    .map((candidate) => ({ ...candidate, xPostUrl: cleanXStatusUrl(candidate.xPostUrl) }))
+    .filter((candidate) => candidate.xPostUrl && candidate.xPostUrl !== sourceStatusUrl);
+  let saved = 0;
+  const savedEvidence: Array<Record<string, unknown>> = [];
+  for (const candidate of candidates) {
+    const evidenceText = [candidate.text, ...(candidate.myfansUrls ?? [])].filter(Boolean).join(" ");
+    const evidence = resolveTextEvidence({ sourceStatusUrl: candidate.xPostUrl, sourceAuthorHandle: sourceXHandle, text: evidenceText, products, evidenceSource: "author_reply", approvedMediaId });
+    if (!evidence) continue;
+    const observedMfcoLink = Boolean((candidate as MyfansQuoteScanCandidate & { observedMfcoLink?: unknown }).observedMfcoLink);
+    if (observedMfcoLink && evidence.confidence === "unresolved") {
+      evidence.confidence = "strong";
+      evidence.resolution_method = "mfco_link_observed";
+      evidence.product_id = null;
+      evidence.final_myfans_url = null;
+      evidence.metadata = { ...(evidence.metadata ?? {}), observed_mfco_link: true, product_resolution: "not_unique" };
+    }
+    const { data: existingEvidence, error: existingError } = await supabaseAdmin
+      .from("myfans_post_product_linkage_evidence")
+      .select("id,diagnostic_mode")
+      .eq("source_status_url", evidence.source_status_url)
+      .eq("discovered_myfans_url", evidence.discovered_myfans_url)
+      .eq("evidence_source", "author_reply")
+      .maybeSingle();
+    if (existingError && !/diagnostic_mode|schema cache|does not exist/i.test(existingError.message)) throw existingError;
+    if (existingEvidence && existingEvidence.diagnostic_mode !== true) continue;
+    const { error } = await supabaseAdmin.from("myfans_post_product_linkage_evidence").upsert({
+      approved_media_id: evidence.approved_media_id,
+      quote_candidate_id: null,
+      source_status_url: evidence.source_status_url,
+      source_author_handle: evidence.source_author_handle,
+      discovered_myfans_url: evidence.discovered_myfans_url,
+      final_myfans_url: evidence.final_myfans_url,
+      product_id: evidence.product_id,
+      resolution_method: evidence.resolution_method,
+      confidence: evidence.confidence,
+      evidence_source: "author_reply",
+      verified_at: evidence.verified_at,
+      metadata: { ...(evidence.metadata ?? {}), diagnostic: true, diagnostic_run_id: runId, diagnostic_source_status_url: sourceStatusUrl, reply_author_handle: sourceXHandle },
+      diagnostic_mode: true,
+      diagnostic_run_id: runId,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "source_status_url,discovered_myfans_url,evidence_source" });
+    if (error && !/schema cache|does not exist/i.test(error.message)) throw error;
+    if (!error) {
+      saved += 1;
+      savedEvidence.push({ sourceStatusUrl: evidence.source_status_url, discoveredMyfansUrl: evidence.discovered_myfans_url, finalMyfansUrl: evidence.final_myfans_url, confidence: evidence.confidence, method: evidence.resolution_method, productId: evidence.product_id, evidenceSource: "author_reply", diagnosticMode: true, diagnosticRunId: runId });
+    }
+  }
+  return NextResponse.json({ ok: true, importedType: "diagnostic_status", diagnostic: true, diagnosticRunId: runId, sourceStatusUrl, sourceXHandle, replyCount: candidates.length, replyStatuses: candidates.map((candidate) => ({ statusUrl: candidate.xPostUrl, authorHandle: cleanText((candidate as MyfansQuoteScanCandidate & { authorHandle?: unknown }).authorHandle), isReply: Boolean(candidate.isReply), myfansUrls: candidate.myfansUrls ?? [] })), evidenceSaved: saved, savedEvidence, myfansLinkCount: candidates.reduce((count, candidate) => count + (candidate.myfansUrls?.length ?? 0), 0) });
+}
+
+export async function GET(request: Request) {
+  const runId = cleanText(new URL(request.url).searchParams.get("diagnostic_run_id")).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 80);
+  if (!runId) return NextResponse.json({ error: "diagnostic_run_idが必要です。" }, { status: 400 });
+  const { data, error } = await supabaseAdmin
+    .from("myfans_post_product_linkage_evidence")
+    .select("id,source_status_url,source_author_handle,discovered_myfans_url,final_myfans_url,product_id,resolution_method,confidence,evidence_source,diagnostic_mode,diagnostic_run_id,metadata,verified_at")
+    .eq("diagnostic_mode", true)
+    .eq("diagnostic_run_id", runId)
+    .order("verified_at", { ascending: false });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, diagnostic: true, diagnosticRunId: runId, evidence: data ?? [] });
+}
+
 export async function POST(request: Request) {
   try {
     const payload = await request.json();
@@ -467,7 +765,9 @@ export async function POST(request: Request) {
         .maybeSingle();
       approvedMediaId = media?.id ?? null;
     }
+    if (payload.type === "x_diagnostic_status_scan" || payload.diagnosticMode === true) return await saveDiagnosticStatusScan(payload, approvedMediaId);
     if (payload.type === "x_quote_scan") return await saveQuoteScan(payload, approvedMediaId);
+    if (normalizeMyfansPostUrl(cleanText(payload.productUrl || payload.pageUrl))) return await importObservedMyfansPost(payload, approvedMediaId);
 
     const creatorName = cleanText(payload.creatorName);
     const productTitle = cleanText(payload.productTitle || payload.title);

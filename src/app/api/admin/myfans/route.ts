@@ -381,6 +381,58 @@ async function savePost(formData: FormData) {
   return { id: data.id };
 }
 
+async function selectDailyPlanCandidate(formData: FormData) {
+  const approvedMediaId = nullableId(formData, "approved_media_id");
+  const planDate = text(formData, "plan_date");
+  const postOrder = intValue(formData, "post_order");
+  const optionLabel = text(formData, "option_label").toUpperCase();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(planDate)) throw new Error("対象日が不正です。");
+  if (!postOrder) throw new Error("投稿枠が不正です。");
+  if (!["A", "B", "C"].includes(optionLabel)) throw new Error("候補はA/B/Cから選んでください。");
+
+  const planQuery = supabaseAdmin
+    .from("myfans_daily_plans")
+    .select("id,strategy_json")
+    .eq("plan_date", planDate);
+  const scopedPlanQuery = approvedMediaId ? planQuery.eq("approved_media_id", approvedMediaId) : planQuery.is("approved_media_id", null);
+  const { data: plan, error: planError } = await scopedPlanQuery.maybeSingle();
+  if (planError) throw planError;
+  if (!plan) throw new Error("今日のDaily Planが見つかりません。先に候補を生成してください。");
+
+  const strategyJson = plan.strategy_json && typeof plan.strategy_json === "object" ? plan.strategy_json as Record<string, unknown> : {};
+  const previousSelection = strategyJson.daily_option_selection && typeof strategyJson.daily_option_selection === "object"
+    ? strategyJson.daily_option_selection as Record<string, string>
+    : {};
+  const nextSelection = { ...previousSelection, [String(postOrder)]: optionLabel };
+  const { error: planUpdateError } = await supabaseAdmin
+    .from("myfans_daily_plans")
+    .update({
+      strategy_json: { ...strategyJson, daily_option_selection: nextSelection },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", plan.id);
+  if (planUpdateError) throw planUpdateError;
+
+  const { error: clearError } = await supabaseAdmin
+    .from("myfans_daily_plan_posts")
+    .update({ is_selected: false, selected_at: null })
+    .eq("daily_plan_id", plan.id)
+    .eq("post_order", postOrder);
+  if (clearError && !/is_selected|selected_at|schema cache|column/i.test(clearError.message)) throw clearError;
+
+  const { data: selected, error: selectError } = await supabaseAdmin
+    .from("myfans_daily_plan_posts")
+    .update({ is_selected: true, selected_at: new Date().toISOString() })
+    .eq("daily_plan_id", plan.id)
+    .eq("post_order", postOrder)
+    .eq("option_label", optionLabel)
+    .select("id")
+    .maybeSingle();
+  if (selectError && !/is_selected|selected_at|option_label|schema cache|column/i.test(selectError.message)) throw selectError;
+  await audit("daily_plan", plan.id, "select_candidate", `slot ${postOrder} option ${optionLabel}`);
+  return { id: selected?.id ?? plan.id };
+}
+
 async function updatePostExecution(formData: FormData) {
   const id = nullableId(formData, "id");
   if (!id) throw new Error("投稿IDがありません。");
@@ -564,6 +616,7 @@ export async function POST(request: Request) {
       action === "affiliate_text_import" ? await importAffiliateText(formData) :
       action === "affiliate_link_update" ? await updateAffiliateLink(formData) :
       action === "post" ? await savePost(formData) :
+      action === "daily_plan_select" ? await selectDailyPlanCandidate(formData) :
       action === "post_execution_update" ? await updatePostExecution(formData) :
       action === "quote_candidate_update" ? await updateQuoteCandidate(formData) :
       action === "click" ? await saveClick(formData) :
