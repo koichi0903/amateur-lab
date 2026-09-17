@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { MYFANS_VISUAL_ANALYZER_VERSION } from "@/lib/myfansXExecution";
 import { runMyfansVisualVerificationBatch, selectVisualVerificationBatch } from "@/lib/myfansVisualVerification";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -27,10 +28,11 @@ function renderStatusValue(value: unknown) {
 }
 
 const GATE_REASONS = /sensitive|login|challenge|blocked/i;
+type ClaimedQueueItem = { id: number; quote_candidate_id: number; source_url: string; media_type: string; attempt_count: number; claim_token: string | null };
 
 async function ensureQueue(payload: Record<string, unknown>) {
   const approvedMediaId = numberValue(payload.approvedMediaId, 0) || null;
-  const batchSize = Math.min(10, Math.max(1, Math.round(numberValue(payload.batchSize, 5))));
+  const batchSize = 5;
   let existingQuery = supabaseAdmin.from("myfans_visual_verification_jobs").select("*").in("status", ["pending", "running", "paused"]).order("created_at", { ascending: false }).limit(1);
   existingQuery = approvedMediaId ? existingQuery.eq("approved_media_id", approvedMediaId) : existingQuery.is("approved_media_id", null);
   const { data: existing } = await existingQuery.maybeSingle();
@@ -96,7 +98,7 @@ async function controlQueue(payload: Record<string, unknown>) {
 
 async function selectCompanionBatch(payload: Record<string, unknown>) {
   const approvedMediaId = numberValue(payload.approvedMediaId, 0) || null;
-  const limit = Math.min(20, Math.max(1, Math.round(numberValue(payload.limit, 10))));
+  const limit = 5;
   let query = supabaseAdmin
     .from("myfans_quote_candidates")
     .select("id,approved_media_id,creator_id,product_id,creator_x_url,source_x_handle,x_post_url,media_permalink,media_type,media_count,quote_visual_ready,media_permalink_validation_status,visual_render_status,visual_score,posted_at,text_excerpt,views,likes,reposts,replies,bookmarks,has_image,has_video,is_pinned,is_reply,is_repost,is_quote,collected_at,score,score_reason,selected,creator_rank,global_score,global_rank,last_used_at,use_count,cooldown_until,selected_for_today,visual_analysis_status,visual_analysis_json,visual_analyzed_at,visual_analyzer_version")
@@ -109,12 +111,18 @@ async function selectCompanionBatch(payload: Record<string, unknown>) {
   const queue = await ensureQueue({ ...payload, batchSize: limit });
   if (["paused", "cancelled", "completed"].includes(queue.status)) return NextResponse.json({ ok: true, analyzerVersion: MYFANS_VISUAL_ANALYZER_VERSION, checked: 0, paused: queue.status === "paused", job: queue, candidates: [] });
   if (queue.status === "pending") await supabaseAdmin.from("myfans_visual_verification_jobs").update({ status: "running", started_at: new Date().toISOString() }).eq("id", queue.id);
-  const { data: queueItems, error: queueError } = await supabaseAdmin.from("myfans_visual_verification_queue").select("id,quote_candidate_id,source_url,media_type,attempt_count").eq("job_id", queue.id).eq("status", "pending").order("id", { ascending: true }).limit(limit);
+  const claimToken = randomUUID();
+  const { data: claimedItems, error: queueError } = await supabaseAdmin.rpc("claim_myfans_visual_verification_batch", { p_job_id: queue.id, p_requested_limit: limit, p_claim_token: claimToken });
   if (queueError) throw queueError;
+  const queueItems = (claimedItems ?? []) as ClaimedQueueItem[];
   const ids = (queueItems ?? []).map((item) => item.quote_candidate_id);
   const candidates = selectVisualVerificationBatch(((data ?? []) as MyfansQuoteCandidate[]).filter((candidate) => ids.includes(candidate.id)), limit);
   const selectedIds = candidates.map((candidate) => candidate.id);
-  for (const item of queueItems ?? []) if (selectedIds.includes(item.quote_candidate_id)) await supabaseAdmin.from("myfans_visual_verification_queue").update({ status: "processing", attempt_count: Number(item.attempt_count ?? 0) + 1 }).eq("id", item.id);
+  const unselectedIds = (queueItems ?? []).filter((item) => !selectedIds.includes(item.quote_candidate_id)).map((item) => item.id);
+  if (unselectedIds.length) {
+    const { error: releaseError } = await supabaseAdmin.from("myfans_visual_verification_queue").update({ status: "pending", claim_token: null, claimed_at: null, claim_expires_at: null, updated_at: new Date().toISOString() }).in("id", unselectedIds).eq("job_id", queue.id).eq("claim_token", claimToken);
+    if (releaseError) throw releaseError;
+  }
   return NextResponse.json({
     ok: true,
     analyzerVersion: MYFANS_VISUAL_ANALYZER_VERSION,
@@ -129,6 +137,7 @@ async function selectCompanionBatch(payload: Record<string, unknown>) {
       mediaCount: candidate.media_count,
       sourceXHandle: candidate.source_x_handle,
       textExcerpt: candidate.text_excerpt,
+      claimToken,
     })),
   });
 }
@@ -170,14 +179,21 @@ async function saveCompanionEvidence(payload: Record<string, unknown>) {
     .eq("id", id);
   if (error) throw error;
   let queuePaused = false;
+  let batchComplete = false;
   if (queueJobId && queueItemId) {
     const reason = cleanText(payload.reason || analysis.failure_reason, 160);
     const { data: job } = await supabaseAdmin.from("myfans_visual_verification_jobs").select("*").eq("id", queueJobId).single();
     const gateFailures = GATE_REASONS.test(reason) ? (job?.consecutive_gate_failures ?? 0) + 1 : 0;
     queuePaused = gateFailures >= 2;
-    await supabaseAdmin.from("myfans_visual_verification_queue").update({ status, visual_render_status: renderStatusValue(payload.visualRenderStatus), result_json: analysis, last_reason: reason, processed_at: new Date().toISOString(), analyzer_version: MYFANS_VISUAL_ANALYZER_VERSION }).eq("id", queueItemId).eq("job_id", queueJobId);
+    const claimToken = cleanText(payload.claimToken, 80);
+    const queueUpdate = supabaseAdmin.from("myfans_visual_verification_queue").update({ status, visual_render_status: renderStatusValue(payload.visualRenderStatus), result_json: analysis, last_reason: reason, processed_at: new Date().toISOString(), analyzer_version: MYFANS_VISUAL_ANALYZER_VERSION, claim_token: null, claimed_at: null, claim_expires_at: null }).eq("id", queueItemId).eq("job_id", queueJobId).eq("status", "processing");
+    const { data: claimedRow, error: queueUpdateError } = claimToken ? await queueUpdate.eq("claim_token", claimToken).select("id").maybeSingle() : await queueUpdate.select("id").maybeSingle();
+    if (queueUpdateError) throw queueUpdateError;
+    if (!claimedRow) return NextResponse.json({ error: "queue claimが期限切れまたは別workerで処理済みです。" }, { status: 409 });
     const { count } = await supabaseAdmin.from("myfans_visual_verification_queue").select("id", { count: "exact", head: true }).eq("job_id", queueJobId).in("status", ["verified", "partial", "unavailable", "skipped"]);
-    const nextStatus = queuePaused ? "paused" : undefined;
+    const batchSize = Math.max(1, Number(job?.batch_size ?? 5));
+    batchComplete = !queuePaused && (count ?? 0) > 0 && (count ?? 0) % batchSize === 0;
+    const nextStatus = queuePaused || batchComplete ? "paused" : undefined;
     await supabaseAdmin.from("myfans_visual_verification_jobs").update({
       ...(status === "verified" ? { verified_count: (job?.verified_count ?? 0) + 1 } : {}),
       ...(status === "partial" ? { partial_count: (job?.partial_count ?? 0) + 1 } : {}),
@@ -185,12 +201,12 @@ async function saveCompanionEvidence(payload: Record<string, unknown>) {
       processed_sources: count ?? 0,
       consecutive_gate_failures: gateFailures,
       status: nextStatus ?? (count === job?.total_sources ? "completed" : "running"),
-      ...(queuePaused ? { paused_at: new Date().toISOString(), stopped_reason: "SENSITIVE_CONTENT_GATE / LOGIN_OR_CHALLENGE が2件連続したため自動pause" } : {}),
+      ...((queuePaused || batchComplete) ? { paused_at: new Date().toISOString(), stopped_reason: queuePaused ? "SENSITIVE_CONTENT_GATE / LOGIN_OR_CHALLENGE が2件連続したため自動pause" : `最大${batchSize}件の1バッチ完了後に自動pause` } : {}),
       ...(count === job?.total_sources ? { completed_at: new Date().toISOString() } : {}),
       updated_at: new Date().toISOString(),
     }).eq("id", queueJobId);
   }
-  return NextResponse.json({ ok: true, id, status, visualRenderStatus: renderStatusValue(payload.visualRenderStatus), analysis, queuePaused });
+  return NextResponse.json({ ok: true, id, status, visualRenderStatus: renderStatusValue(payload.visualRenderStatus), analysis, queuePaused: queuePaused || batchComplete });
 }
 
 export async function POST(request: Request) {
@@ -205,6 +221,7 @@ export async function POST(request: Request) {
     const result = await runMyfansVisualVerificationBatch({ approvedMediaId, limit });
     return NextResponse.json(result);
   } catch (error) {
+    console.error("[MYFANS_VISUAL_QUEUE_ERROR]", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "visual候補分析に失敗しました。" }, { status: 500 });
   }
 }

@@ -845,6 +845,7 @@ async function runVisualVerification(settings) {
         id: candidate.id,
         queueJobId: batch.job?.id || null,
         queueItemId: candidate.queueItemId || null,
+        claimToken: candidate.claimToken || null,
         status: inspection.status,
         visualRenderStatus: inspection.visualRenderStatus,
         reason: inspection.reason,
@@ -855,8 +856,8 @@ async function runVisualVerification(settings) {
       else if (inspection.status === "partial") partial += 1;
       else unavailable += 1;
       await setQuoteState({ visualStatus: "running", visualMessage: `保存しました: ${inspection.status}`, visualChecked: checked, visualVerified: verified, visualPartial: partial, visualUnavailable: unavailable, visualLastReason: inspection.reason });
-      if (saved?.queuePaused) {
-        await setQuoteState({ visualRunning: false, visualStatus: "paused", visualMessage: "安全停止: gateが連続したためvisual queueをpauseしました。", visualLastReason: inspection.reason });
+      if (saved?.queuePaused || checked >= 5) {
+        await setQuoteState({ visualRunning: false, visualStatus: "paused", visualMessage: saved?.queuePaused ? "visual queueを安全pauseしました。" : "1バッチ5件を完了したためvisual queueをpauseしました。", visualLastReason: inspection.reason });
         break;
       }
       await wait(2500);
