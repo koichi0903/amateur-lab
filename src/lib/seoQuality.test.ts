@@ -15,6 +15,7 @@ test("掲載情報が揃った作品はインデックス対象にする", () =>
 
 test("スコア、価格、画像、紹介先の不足はインデックス対象外にする", () => {
   for (const work of [
+    { ...qualityWork, stage: "DISCONTINUED" },
     { ...qualityWork, score: 0 },
     { ...qualityWork, price: 0 },
     { ...qualityWork, image_url: null },

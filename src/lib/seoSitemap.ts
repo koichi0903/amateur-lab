@@ -89,6 +89,7 @@ const getQualityWorkCount = unstable_cache(
     const { count, error } = await supabase
       .from("works")
       .select("id", { count: "exact", head: true })
+      .neq("stage", "DISCONTINUED")
       .gte("score", WORK_INDEX_MIN_SCORE)
       .gte("price", WORK_INDEX_MIN_PRICE)
       .not("image_url", "is", null)
@@ -124,6 +125,7 @@ export async function getWorkSitemapEntries(
       const { data, error } = await supabase
         .from("works")
         .select("id, created_at, updated_at")
+        .neq("stage", "DISCONTINUED")
         .gte("score", WORK_INDEX_MIN_SCORE)
         .gte("price", WORK_INDEX_MIN_PRICE)
         .not("image_url", "is", null)

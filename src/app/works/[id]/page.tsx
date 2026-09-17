@@ -25,7 +25,11 @@ import PriceTypes from "@/app/components/PriceTypes";
 import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
 import { analyzePurchaseDecision } from "@/lib/analyzers/purchaseDecisionAnalyzer";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
-import { isWorkIndexable } from "@/lib/seoQuality";
+import {
+  isWorkIndexable,
+  WORK_INDEX_MIN_PRICE,
+  WORK_INDEX_MIN_SCORE,
+} from "@/lib/seoQuality";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
@@ -73,9 +77,12 @@ const WORK_DETAIL_COLUMNS = [
   "sample_movie_url", "long_hit_rank", "url",
 ].join(",");
 
-// Work data changes at most a few times per day. Reusing the rendered page keeps
-// crawler traffic from issuing the same group of Supabase queries on every hit.
-export const revalidate = 86400;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+function isValidWorkId(id: string): boolean {
+  return /^\d{1,10}$/.test(id);
+}
 
 export async function generateStaticParams() {
   return [];
@@ -91,6 +98,13 @@ const getWork = cache(
           .from("works")
           .select(WORK_DETAIL_COLUMNS)
           .eq("id", id)
+          .neq("stage", "DISCONTINUED")
+          .gte("score", WORK_INDEX_MIN_SCORE)
+          .gte("price", WORK_INDEX_MIN_PRICE)
+          .not("image_url", "is", null)
+          .neq("image_url", "")
+          .not("affiliate_url", "is", null)
+          .neq("affiliate_url", "")
           .maybeSingle();
 
         if (error) {
@@ -272,6 +286,15 @@ export async function generateMetadata(
 
   const { id } = await params;
 
+  if (!isValidWorkId(id)) {
+    return pageMetadata({
+      title: "作品情報 | 発掘LAB",
+      description: "指定された作品は見つかりませんでした。",
+      canonical: `/works/${encodeURIComponent(id)}`,
+      robots: { index: false, follow: false },
+    });
+  }
+
   const work = await getWork(id);
 
   if (!work) {
@@ -333,6 +356,8 @@ export default async function WorkDetailPage(
   }
 ) {
   const { id } = await params;
+
+  if (!isValidWorkId(id)) notFound();
 
   const work = await getWork(id);
 

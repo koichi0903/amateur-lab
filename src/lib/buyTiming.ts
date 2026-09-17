@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { unstable_cache } from "next/cache";
 
 const DAY_MS = 86_400_000;
 const MIN_RELIABLE_PAGE_VIEWS = 20;
@@ -81,30 +82,38 @@ export function calculateAdjustedCtr(pageViews: number, fanzaClicks: number) {
   };
 }
 
-export async function getBuyTimingFunnelStats(workId: number, days = 30) {
-  const cutoff = new Date(Date.now() - Math.max(1, days) * DAY_MS).toISOString();
-  const [viewResult, clickResult] = await Promise.all([
-    supabaseAdmin
-      .from("work_page_views")
-      .select("id", { count: "exact", head: true })
-      .eq("work_id", workId)
-      .gte("viewed_at", cutoff),
-    supabaseAdmin
-      .from("affiliate_clicks")
-      .select("id", { count: "exact", head: true })
-      .eq("work_id", workId)
-      .gte("clicked_at", cutoff),
-  ]);
+const getCachedBuyTimingFunnelStats = unstable_cache(
+  async (workId: number, days: number) => {
+    const cutoff = new Date(Date.now() - Math.max(1, days) * DAY_MS).toISOString();
+    const [viewResult, clickResult] = await Promise.all([
+      supabaseAdmin
+        .from("work_page_views")
+        .select("id", { count: "exact", head: true })
+        .eq("work_id", workId)
+        .gte("viewed_at", cutoff),
+      supabaseAdmin
+        .from("affiliate_clicks")
+        .select("id", { count: "exact", head: true })
+        .eq("work_id", workId)
+        .gte("clicked_at", cutoff),
+    ]);
 
-  const pageViews = viewResult.error ? 0 : viewResult.count ?? 0;
-  const fanzaClicks = clickResult.error ? 0 : clickResult.count ?? 0;
-  const ctr = calculateAdjustedCtr(pageViews, fanzaClicks);
+    const pageViews = viewResult.error ? 0 : viewResult.count ?? 0;
+    const fanzaClicks = clickResult.error ? 0 : clickResult.count ?? 0;
+    const ctr = calculateAdjustedCtr(pageViews, fanzaClicks);
 
-  return {
-    pageViews,
-    fanzaClicks,
-    ...ctr,
-  };
+    return {
+      pageViews,
+      fanzaClicks,
+      ...ctr,
+    };
+  },
+  ["buy-timing-funnel-v1"],
+  { revalidate: 300 },
+);
+
+export function getBuyTimingFunnelStats(workId: number, days = 30) {
+  return getCachedBuyTimingFunnelStats(workId, Math.max(1, days));
 }
 
 export function calculateBuyTimingScore({

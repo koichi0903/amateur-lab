@@ -32,6 +32,10 @@ export default function robots(): MetadataRoute.Robots {
         userAgent,
         disallow: "/",
       })),
+      ...["AhrefsBot", "AwarioBot", "SemrushBot"].map((userAgent) => ({
+        userAgent,
+        disallow: "/works/",
+      })),
     ],
     sitemap: `${SITE_URL}/sitemap.xml`,
     host: SITE_URL,
