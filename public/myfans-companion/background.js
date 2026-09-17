@@ -3,7 +3,7 @@ const QUOTE_SETTINGS_KEY = "myfansQuoteRefreshSettings";
 const COMPANION_SETTINGS_KEY = "myfansCompanionSettings";
 const QUOTE_ALARM_NAME = "myfansQuoteRefreshNext";
 const WORKER_TAB_KEY = "myfansQuoteWorkerTabId";
-const WORKER_VERSION = "0.1.9";
+const WORKER_VERSION = "0.1.10";
 const ADMIN_BRIDGE_FILE = "myfans-admin-bridge.js";
 const ADMIN_HOSTS = new Set(["localhost", "127.0.0.1"]);
 let diagnosticRunning = false;
@@ -822,6 +822,7 @@ async function runVisualVerification(settings) {
     let verified = 0;
     let partial = 0;
     let unavailable = 0;
+    let pausedAfterBatch = false;
     for (const candidate of batch.candidates || []) {
       const targetUrl = candidate.mediaPermalink || candidate.xPostUrl;
       let inspection = targetUrl ? null : {
@@ -863,12 +864,15 @@ async function runVisualVerification(settings) {
       else unavailable += 1;
       await setQuoteState({ visualStatus: "running", visualMessage: `保存しました: ${inspection.status}`, visualChecked: checked, visualVerified: verified, visualPartial: partial, visualUnavailable: unavailable, visualLastReason: inspection.reason });
       if (saved?.queuePaused || checked >= 5) {
+        pausedAfterBatch = true;
         await setQuoteState({ visualRunning: false, visualStatus: "paused", visualMessage: saved?.queuePaused ? "visual queueを安全pauseしました。" : "1バッチ5件を完了したためvisual queueをpauseしました。", visualLastReason: inspection.reason });
         break;
       }
       await wait(2500);
     }
-    await setQuoteState({ visualRunning: false, visualStatus: "done", visualMessage: "visual verificationが完了しました。", visualChecked: checked, visualVerified: verified, visualPartial: partial, visualUnavailable: unavailable });
+    if (!pausedAfterBatch) {
+      await setQuoteState({ visualRunning: false, visualStatus: "done", visualMessage: "visual verificationが完了しました。", visualChecked: checked, visualVerified: verified, visualPartial: partial, visualUnavailable: unavailable });
+    }
   } catch (error) {
     await setQuoteState({ visualRunning: false, visualStatus: "error", visualMessage: error instanceof Error ? error.message : "visual verificationを実行できませんでした。", visualLastError: error instanceof Error ? error.message : String(error) });
   } finally {
