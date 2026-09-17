@@ -28,6 +28,24 @@ import { getXMediaSupplyStatus, getRightsReviewQueue, isPostableOfficialSampleMo
 import { buildVisualVideoFacts, primaryUsableVisualFact, type XVisualVideoFacts, visualFactScores } from "@/lib/xVisualVideoFacts";
 
 export type XGrowthIntent = "REACH" | "AUTHORITY" | "FOLLOW" | "CONVERSATION" | "MONEY";
+export type XMoneyGateReason = "missing_affiliate_url" | "price_truth_unavailable" | "last_mile_ng" | "native_x_voice_ng" | "unsafe_or_too_explicit" | "duplicate_or_posted" | "stale_or_expired" | "media_mismatch" | "other";
+export type XSemanticHookCategory = "motion_shift" | "brightness_shift" | "jacket_video_mismatch" | "opening_change" | "pacing_change" | "visual_contrast" | "hidden_find" | "actress_focus" | "price_reason" | "social_proof" | "comparison" | "dry_observation" | "changed_mind" | "generic_reaction";
+export const SEMANTIC_CATEGORY_QUOTA: Record<XSemanticHookCategory, number> = {
+  actress_focus: 2,
+  motion_shift: 2,
+  brightness_shift: 2,
+  jacket_video_mismatch: 2,
+  opening_change: 2,
+  pacing_change: 2,
+  visual_contrast: 2,
+  hidden_find: 2,
+  dry_observation: 2,
+  changed_mind: 2,
+  social_proof: 2,
+  price_reason: 2,
+  comparison: 2,
+  generic_reaction: 1,
+};
 export type XOpportunityEvent =
   | "price_anomaly"
   | "ranking_velocity"
@@ -135,6 +153,12 @@ export type XDailyTopPick = XGrowthOpportunity & {
       linkStrategy: string;
       endingPhrase: string;
       numberPlacement: string;
+      semanticHookCategory: XSemanticHookCategory;
+      reactionType: string;
+      judgmentShape: string;
+      primaryFactKind: string;
+      abstractFallback: boolean;
+      semanticMappingReason?: string;
     };
     reasons: string[];
   };
@@ -209,6 +233,9 @@ export type XGrowthOS = {
     target: "3slot × 最大3候補" | "候補不足";
     sourcePoolTotal: number;
     sourcePoolAfterPosted: number;
+    prefilterCount: number;
+    humanVoiceTargetCount: number;
+    diversityTargetCount: number;
     postedExcluded: number;
     postedOverlap: number;
     urlOrMediaAvailable: number;
@@ -229,6 +256,17 @@ export type XGrowthOS = {
     reachGenerated: number;
     reachGateOk: number;
     shortages: string[];
+    moneyGenerated: number;
+    moneyHardGatePassed: number;
+    moneyAllocationEligible: number;
+    moneyPlaced: number;
+    moneyGateReasons: Array<{ workId: number; candidateId: string | null; reasons: XMoneyGateReason[] }>;
+    moneyTopFailureReason: XMoneyGateReason | null;
+    semanticSupply: Record<XSemanticHookCategory, number>;
+    semanticSelected: Record<XSemanticHookCategory, number>;
+    semanticQuota: Record<XSemanticHookCategory, number>;
+    semanticQuotaOverflowReasons: string[];
+    semanticMappingReasons: Record<string, number>;
   };
   nativeXLearning: {
     overusedPatterns: string[];
@@ -603,6 +641,31 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
   };
 }
 
+/** Cheap, deterministic narrowing before the expensive Human Voice matrix. */
+export function cheapCandidatePrefilter(items: XGrowthOpportunity[], limit = 120) {
+  const ranked = [...items].sort((a, b) => {
+    const visual = (candidate: XGrowthOpportunity) => candidate.visualScoring.videoHookStrength + candidate.visualScoring.visualSpecificity;
+    const score = (candidate: XGrowthOpportunity) => Math.max(candidate.reachScore, candidate.followScore, candidate.authorityScore, candidate.revenueScore) + visual(candidate) * 0.08;
+    return score(b) - score(a);
+  });
+  const selected = new Map<string, XGrowthOpportunity>();
+  const add = (item: XGrowthOpportunity) => { if (selected.size < limit) selected.set(item.key, item); };
+  for (const item of ranked.filter((candidate) => candidate.sourceType === "MONEY").slice(0, 30)) add(item);
+  for (const role of ["REACH", "FOLLOW", "AUTHORITY", "MONEY"] as const) {
+    [...ranked].sort((a, b) => {
+      const score = (item: XGrowthOpportunity) => role === "REACH" ? item.reachScore : role === "FOLLOW" ? item.followScore : role === "AUTHORITY" ? item.authorityScore : item.revenueScore;
+      return score(b) - score(a);
+    }).slice(0, 30).forEach(add);
+  }
+  const perSource = new Map<string, number>();
+  for (const item of ranked) {
+    if ((perSource.get(item.sourceType) ?? 0) >= 3) continue;
+    add(item);
+    perSource.set(item.sourceType, (perSource.get(item.sourceType) ?? 0) + 1);
+  }
+  return ranked.filter((item) => selected.has(item.key)).slice(0, limit);
+}
+
 function applyRankingHistory(opportunities: XGrowthOpportunity[], histories: Map<number, { observations: number; previousRanking: number | null }>) {
   return opportunities.map((item) => {
     const history = histories.get(item.workId);
@@ -763,6 +826,13 @@ function sentenceStructure(text: string) {
   }).join(">");
 }
 
+function concreteFactPhrase(text: string) {
+  return text
+    .replaceAll("入り方が少し予想と違う。", "冒頭の展開が予想と少し違う。")
+    .replaceAll("ジャケとサンプルで印象が違う。", "ジャケとサンプルで見え方が違う.")
+    .replaceAll("ジャケとサンプルで見え方が違う.", "ジャケとサンプルで見え方が違う。");
+}
+
 function endingPhrase(text: string) {
   return (text.split("\n").map((line) => line.trim()).filter(Boolean).at(-1) ?? "")
     .replace(/[0-9０-９]+/g, "#")
@@ -805,7 +875,75 @@ function sourceRoleLabel(sourceType: XOpportunitySourceType) {
   return labels[sourceType];
 }
 
+export type XSemanticAssignment = { category: XSemanticHookCategory; fact: ReturnType<typeof primaryUsableVisualFact>; reason: string };
+
+export function assignSemanticHook(item: Pick<XGrowthOpportunity, "sourceType" | "actress" | "visualFacts">, variant: Pick<XCreativeVariant, "hookDirection" | "bodyText">): XSemanticAssignment {
+  const facts = item.visualFacts?.usableFacts ?? [];
+  const first = (test: (fact: NonNullable<typeof facts[number]>) => boolean) => facts.find(test) ?? null;
+  const selected = [
+    { category: "jacket_video_mismatch" as const, fact: first((fact) => fact.kind === "jacket_sample_mismatch"), reason: "ジャケットと動画の双方で差分Factを確認" },
+    { category: "brightness_shift" as const, fact: first((fact) => fact.kind === "brightness"), reason: "動画フレーム間の明るさ差を確認" },
+    { category: "opening_change" as const, fact: first((fact) => fact.kind === "first_visual_change_sec" || (fact.kind === "notable_video_hook" && fact.value === "opening_change")), reason: "冒頭から最初の有意な画面変化を確認" },
+    { category: "pacing_change" as const, fact: first((fact) => fact.kind === "pacing"), reason: "フレーム変化の回数から切替ペースを確認" },
+    { category: "motion_shift" as const, fact: first((fact) => fact.kind === "motion_level" || fact.kind === "mood_shift_detected" || (fact.kind === "notable_video_hook" && fact.value === "first_seconds_attention")), reason: "動画内の動きの強さを確認" },
+    { category: "visual_contrast" as const, fact: first((fact) => fact.kind === "visual_style" && fact.value === "color_contrast"), reason: "明るさ差ではない色味の変化を確認" },
+  ].find((candidate) => candidate.fact);
+  if (selected) return selected;
+  if (item.sourceType === "COMPARISON") return { category: "comparison", fact: null, reason: "比較ソース由来" };
+  if (item.sourceType === "PRICE_EVENT" || item.sourceType === "MONEY") return { category: "price_reason", fact: null, reason: "価格イベント/MONEYソース由来" };
+  if (item.sourceType === "ACTRESS_TREND") return { category: "actress_focus", fact: null, reason: "女優トレンドソース由来" };
+  if (variant.hookDirection === "social_proof") return { category: "social_proof", fact: null, reason: "レビュー/評価Hook由来" };
+  if (variant.hookDirection === "hot_take") return { category: "changed_mind", fact: null, reason: "判断変化を表すHook由来" };
+  if (variant.hookDirection === "comparison" || variant.hookDirection === "pattern_break") return { category: "dry_observation", fact: null, reason: "比較/パターン観察Hook由来" };
+  if (item.sourceType === "HIDDEN_GEM" || variant.hookDirection === "missed" || variant.hookDirection === "curiosity") return { category: "hidden_find", fact: null, reason: "見落とし/発見Hook由来" };
+  if (/雰囲気|空気|気になる|引っかか|見落とし/.test(variant.bodyText)) return { category: "generic_reaction", fact: null, reason: "抽象的な反応本文へfallback" };
+  return { category: "dry_observation", fact: null, reason: "確定Factなし。本文の具体的な観察へfallback" };
+}
+
+export function semanticHookCategory(item: Pick<XGrowthOpportunity, "sourceType" | "actress" | "visualFacts">, variant: Pick<XCreativeVariant, "hookDirection" | "bodyText">): XSemanticHookCategory {
+  const assignment = assignSemanticHook(item, variant);
+  return assignment.category;
+}
+
+function semanticCategoryForSlot(slotId: "slot_1" | "slot_2" | "slot_3", role: XGrowthIntent, category: XSemanticHookCategory) {
+  const priority = slotId === "slot_1"
+    ? ["jacket_video_mismatch", "brightness_shift", "opening_change", "pacing_change", "motion_shift", "visual_contrast", "hidden_find", "dry_observation"]
+    : slotId === "slot_2"
+      ? ["changed_mind", "visual_contrast", "hidden_find", "dry_observation", "motion_shift"]
+      : role === "MONEY"
+        ? ["price_reason", "social_proof", "comparison"]
+        : ["brightness_shift", "opening_change", "pacing_change", "motion_shift", "visual_contrast", "hidden_find", "dry_observation", "changed_mind"];
+  const index = priority.indexOf(category);
+  return index < 0 ? 0 : priority.length - index;
+}
+
+function reactionType(variant: XCreativeVariant) {
+  const reactions: Record<XCreativeVariant["hookDirection"], string> = {
+    curiosity: "discovery", contradiction: "tension", hot_take: "changed_mind", follow_up: "conversation",
+    comparison: "comparison", social_proof: "social_proof", confession: "confession", missed: "missed_then_noticed",
+    surprise: "surprise", empathy: "empathy", question: "question", surprising_concentration: "market_pattern",
+    contrast: "contrast", curation: "curation", anti_obvious: "anti_obvious", pattern_break: "pattern_break", selection_tension: "selection_tension",
+  };
+  return reactions[variant.hookDirection];
+}
+
+function judgmentShape(text: string, direction?: XCreativeVariant["hookDirection"]) {
+  if (direction === "follow_up" || direction === "question") return "conversation_open";
+  if (direction === "comparison" || direction === "contrast") return "compare_then_choose";
+  if (direction === "hot_take" || direction === "anti_obvious") return "reject_obvious";
+  if (direction === "missed" || direction === "confession") return "reconsider";
+  if (direction === "social_proof") return "trust_signal";
+  if (direction === "surprise" || direction === "pattern_break") return "notice_change";
+  if (/見送|急がなくて|即決/.test(text)) return "defer";
+  if (/見ておきたい|見たい|戻りそう/.test(text)) return "watch_next";
+  if (/止める|残る|気になる/.test(text)) return "stop_on_reaction";
+  if (/決め|選び|比べ/.test(text)) return "choose";
+  return "open_observation";
+}
+
 function diversitySignature(item: XGrowthOpportunity, role: XGrowthIntent, variant: XCreativeVariant) {
+  const semantic = assignSemanticHook(item, variant);
+  const primaryFact = semantic.fact ?? primaryUsableVisualFact(item.visualFacts);
   return {
     openingPattern: openingPattern(variant.bodyText),
     sentenceStructure: sentenceStructure(variant.bodyText),
@@ -820,6 +958,12 @@ function diversitySignature(item: XGrowthOpportunity, role: XGrowthIntent, varia
     linkStrategy: variant.linkPlan,
     endingPhrase: endingPhrase(variant.bodyText),
     numberPlacement: numberPlacement(variant.bodyText),
+    semanticHookCategory: semantic.category,
+    reactionType: reactionType(variant),
+    judgmentShape: judgmentShape(variant.bodyText, variant.hookDirection),
+    primaryFactKind: primaryFact?.kind ?? "none",
+    abstractFallback: !primaryFact && /雰囲気|空気|印象|入り方/.test(variant.bodyText),
+    semanticMappingReason: semantic.reason,
   };
 }
 
@@ -854,6 +998,21 @@ function diversityConflicts(
   }
   for (const pick of picked) {
     const other = pick.setDiversity.signature;
+    if (picked.filter((entry) => entry.setDiversity.signature.semanticHookCategory === signature.semanticHookCategory).length >= 2) {
+      reasons.push(`semantic_hook_category上限: ${signature.semanticHookCategory}`);
+    }
+    if (signature.semanticHookCategory === "generic_reaction" && picked.some((entry) => entry.setDiversity.signature.semanticHookCategory === "generic_reaction")) {
+      reasons.push("generic_reactionは1件まで");
+    }
+    if (signature.abstractFallback && picked.some((entry) => entry.setDiversity.signature.abstractFallback)) {
+      reasons.push("abstract fallbackは1件まで");
+    }
+    if (picked.filter((entry) => entry.setDiversity.signature.reactionType === signature.reactionType).length >= 2) {
+      reasons.push(`reaction_type上限: ${signature.reactionType}`);
+    }
+    if (picked.filter((entry) => entry.setDiversity.signature.judgmentShape === signature.judgmentShape).length >= 2) {
+      reasons.push(`judgment_shape上限: ${signature.judgmentShape}`);
+    }
     const sameShape = [
       signature.openingPattern === other.openingPattern,
       signature.sentenceStructure === other.sentenceStructure,
@@ -1012,6 +1171,12 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
   ];
   const rankLabels = ["A", "B", "C"] as const;
   const workUseCount = new Map<number, number>();
+  const semanticVariantCache = new Map<string, ReturnType<typeof selectCandidateVariant>>();
+  const getCachedVariant = (item: XGrowthOpportunity, role: XGrowthIntent) => {
+    const key = `${item.key}:${role}`;
+    if (!semanticVariantCache.has(key)) semanticVariantCache.set(key, selectCandidateVariant(item, role, [], logs));
+    return semanticVariantCache.get(key) ?? null;
+  };
   for (const slot of slots) {
     const slotPicked: XDailyTopPick[] = [];
     for (const role of slot.roles) {
@@ -1031,12 +1196,21 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
         .filter((item) => passesLinklessQualityGate(item, role))
         .filter((item) => hasRealConversationSource(item, role))
         .map((item) => {
-          const selected = selectCandidateVariant(item, role, [...picked, ...slotPicked], logs);
+           const selected = getCachedVariant(item, role);
           const tier = role === "REACH" && selected?.variant.mediaType === "sample_movie" ? reachVideoTier(item) : null;
           const sourceIndex = sourcePriority.indexOf(item.sourceType);
           const sourceBonus = sourceIndex >= 0 ? Math.max(0, 12 - sourceIndex) : 0;
+          const semanticCategory = selected?.audit.signature.semanticHookCategory;
+          const usedSemanticCount = semanticCategory
+            ? [...picked, ...slotPicked].filter((pick) => pick.setDiversity.signature.semanticHookCategory === semanticCategory).length
+            : 0;
+          const quota = semanticCategory ? SEMANTIC_CATEGORY_QUOTA[semanticCategory] : 0;
+          const diversityBonus = semanticCategory
+            ? usedSemanticCount < quota ? (usedSemanticCount === 0 ? 24 : 9) : -18
+            : 0;
+          const slotPriorityBonus = semanticCategory ? semanticCategoryForSlot(slot.slotId, role, semanticCategory) * 3 : 0;
           const repetitionPenalty = hasDiversityConflict(item, [...picked, ...slotPicked], logs) ? 10 : 0;
-          const score = selected ? roleScore(item, role) + selected.score * 0.2 + sourceBonus + (tier?.score ?? 0) * 0.18 - repetitionPenalty : -1;
+          const score = selected ? roleScore(item, role) + selected.score * 0.2 + sourceBonus + (tier?.score ?? 0) * 0.18 + diversityBonus + slotPriorityBonus - repetitionPenalty : -1;
           return { item, selected, tier, score };
         })
         .filter((entry): entry is typeof entry & { selected: NonNullable<typeof entry.selected> } => Boolean(entry.selected))
@@ -1046,13 +1220,21 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
           const tags = item.mediaAsset?.manual_tags ?? [];
           return item.canNativeVideo && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable && !tags.includes("too_explicit_for_reach") && item.mediaAsset?.media_quality !== "weak";
         })
-        .sort((a, b) => b.score - a.score);
+        .sort((a, b) => {
+          const categoryA = a.selected.audit.signature.semanticHookCategory;
+          const categoryB = b.selected.audit.signature.semanticHookCategory;
+          const slotPriority = semanticCategoryForSlot(slot.slotId, role, categoryB) - semanticCategoryForSlot(slot.slotId, role, categoryA);
+          return slotPriority || b.score - a.score;
+        });
       const addCandidates = (allowCreativeReuse = false) => {
         for (const entry of candidateEntries(allowCreativeReuse)) {
           if (slotPicked.length >= 3) break;
           if (!isDistinctCandidate(entry.item, slotPicked)) continue;
           if (!allowCreativeReuse && !isDistinctCandidate(entry.item, picked)) continue;
           if (allowCreativeReuse && (workUseCount.get(entry.item.workId) ?? 0) >= 3) continue;
+          const category = entry.selected.audit.signature.semanticHookCategory;
+          const usedCategoryCount = [...picked, ...slotPicked].filter((pick) => pick.setDiversity.signature.semanticHookCategory === category).length;
+          if (usedCategoryCount >= SEMANTIC_CATEGORY_QUOTA[category]) continue;
         const rank = rankLabels[slotPicked.length];
         const reason = rank === "A"
           ? "システム推奨1位。Hard Gate通過候補の中でこの枠の狙いに最も近い"
@@ -1085,6 +1267,64 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
       picked.push(pick);
       workUseCount.set(pick.workId, (workUseCount.get(pick.workId) ?? 0) + 1);
       usedWorkIds.add(pick.workId);
+    }
+  }
+  // Last-mile allocator: fill only genuinely missing candidates after the
+  // normal role/source pass. Hard gates and identity uniqueness remain strict;
+  // only soft diversity preferences are relaxed in this pass.
+  for (const allowSemanticQuotaOverflow of [false, true]) {
+    if (allowSemanticQuotaOverflow && picked.length >= slots.length * 3) break;
+    for (const slot of slots) {
+      const slotPicks = picked.filter((pick) => pick.slotId === slot.slotId);
+      if (slotPicks.length >= 3) continue;
+      const fallbackRoles: XGrowthIntent[] = slot.slotId === "slot_1"
+        ? ["REACH", "FOLLOW", "AUTHORITY"]
+        : slot.roles;
+      for (const role of fallbackRoles) {
+        for (const item of pool
+        .filter((candidate) => !usedWorkIds.has(candidate.workId))
+        .filter((candidate) => !picked.some((pick) => pick.workId === candidate.workId || pick.productId === candidate.productId))
+        .filter((candidate) => isDistinctCandidate(candidate, picked))
+        .filter((candidate) => role === "MONEY" || candidate.sourceType !== "MONEY")
+        .filter((candidate) => passesLinklessQualityGate(candidate, role))
+        .filter((candidate) => hasRealConversationSource(candidate, role))
+        .map((candidate) => ({ candidate, selected: getCachedVariant(candidate, role) }))
+        .filter((entry): entry is { candidate: XGrowthOpportunity; selected: NonNullable<ReturnType<typeof selectCandidateVariant>> } => Boolean(entry.selected))
+        .sort((a, b) => {
+          const categoryA = a.selected.audit.signature.semanticHookCategory;
+          const categoryB = b.selected.audit.signature.semanticHookCategory;
+          const usedA = picked.filter((pick) => pick.setDiversity.signature.semanticHookCategory === categoryA).length;
+          const usedB = picked.filter((pick) => pick.setDiversity.signature.semanticHookCategory === categoryB).length;
+          return usedA - usedB || b.selected.score - a.selected.score;
+        })) {
+        if (slotPicks.length >= 3) break;
+        if (role === "MONEY" && !item.candidate.creativeVariants.some((variant) => variant.intent === "MONEY" && variant.quality.passed && Boolean(variant.url))) continue;
+        const category = item.selected.audit.signature.semanticHookCategory;
+        const usedCategoryCount = picked.filter((pick) => pick.setDiversity.signature.semanticHookCategory === category).length;
+        if (!allowSemanticQuotaOverflow && usedCategoryCount >= SEMANTIC_CATEGORY_QUOTA[category]) continue;
+        const rank = rankLabels[slotPicks.length];
+        const pick = buildTopPickCandidate({
+          item: item.candidate,
+          role,
+          variant: item.selected.variant,
+          audit: item.selected.audit,
+          score: clamp(item.selected.score),
+          pickOrder: slots.indexOf(slot) + 1,
+          slotId: slot.slotId,
+          slotRole: slot.slotRole,
+          slotLabel: slot.slotLabel,
+          candidateRank: rank,
+          reason: allowSemanticQuotaOverflow && usedCategoryCount >= SEMANTIC_CATEGORY_QUOTA[category]
+            ? `供給不足の最終補充。${category}のquotaを超えるが、9候補維持のためHard Gate内で許可`
+            : "不足枠の補充候補。別work・別素材を優先し、Hard Gateは維持",
+        });
+        slotPicks.push(pick);
+        picked.push(pick);
+        usedWorkIds.add(pick.workId);
+        workUseCount.set(pick.workId, (workUseCount.get(pick.workId) ?? 0) + 1);
+        }
+        if (slotPicks.length >= 3) break;
+      }
     }
   }
   const reason = picked.length ? null : "今日の候補は鮮度、Creative Gate、素材可否、直近投稿との重複のいずれかで基準未達です。投稿しない判断が安全です。";
@@ -1134,7 +1374,14 @@ function finalDiversityGate(picks: XDailyTopPick[], logs: XPostLog[]) {
   const conflict = (pick: XDailyTopPick) => {
     const candidate = dailyDiversityKey(pick.postText);
     const prior = accepted.map((item) => dailyDiversityKey(item.postText));
-    return prior.some((key) => key.exactText === candidate.exactText)
+    const semantic = pick.setDiversity.signature;
+    const priorSignatures = accepted.map((item) => item.setDiversity.signature);
+    return priorSignatures.filter((key) => key.semanticHookCategory === semantic.semanticHookCategory).length >= 2
+      || (semantic.semanticHookCategory === "generic_reaction" && priorSignatures.some((key) => key.semanticHookCategory === "generic_reaction"))
+      || (semantic.abstractFallback && priorSignatures.some((key) => key.abstractFallback))
+      || priorSignatures.filter((key) => key.reactionType === semantic.reactionType).length >= 2
+      || priorSignatures.filter((key) => key.judgmentShape === semantic.judgmentShape).length >= 2
+      || prior.some((key) => key.exactText === candidate.exactText)
       || prior.filter((key) => key.opening === candidate.opening).length >= 2
       || prior.filter((key) => key.sentencePattern === candidate.sentencePattern).length >= 2
       || prior.filter((key) => key.ending === candidate.ending).length >= 2;
@@ -1209,11 +1456,12 @@ function finalDiversityGate(picks: XDailyTopPick[], logs: XPostLog[]) {
         "今日はここで止める。",
         "気になるなら、まずサンプルだけ。",
       ];
-      const visualPhrase = primaryUsableVisualFact(current.visualFacts)?.safePhrase;
+      const visualPhrase = concreteFactPhrase(primaryUsableVisualFact(current.visualFacts)?.safePhrase ?? "");
       const oldLines = current.postText.split("\n").map((line) => line.trim()).filter(Boolean).filter((line) => !/^https?:\/\//.test(line));
       const middle = visualPhrase && !oldLines.includes(visualPhrase) ? visualPhrase : oldLines[1] ?? "";
       const rewrittenBody = [openings[accepted.length % openings.length], middle, endings[accepted.length % endings.length]].filter(Boolean).join("\n");
       const rewritten = applyTopPickLinkPolicy({ ...current, postText: rewrittenBody });
+      rewritten.setDiversity.signature = diversitySignature(rewritten, rewritten.role, rewritten.creativeVariants.find((variant) => variant.id === rewritten.creativeVariantId) ?? rewritten.creativeVariants[0]);
       if (!conflict(rewritten)) {
         const selectedId = rewritten.creativeVariantId;
         accepted.push({
@@ -1238,7 +1486,14 @@ function finalDiversityGate(picks: XDailyTopPick[], logs: XPostLog[]) {
     while (attempt < 8) {
       const key = dailyDiversityKey(next.postText);
       const prior = hardened.map((item) => dailyDiversityKey(item.postText));
-      const conflict = prior.some((item) => item.exactText === key.exactText)
+      const semantic = next.setDiversity.signature;
+      const priorSignatures = hardened.map((item) => item.setDiversity.signature);
+      const conflict = priorSignatures.filter((item) => item.semanticHookCategory === semantic.semanticHookCategory).length >= 2
+        || (semantic.semanticHookCategory === "generic_reaction" && priorSignatures.some((item) => item.semanticHookCategory === "generic_reaction"))
+        || (semantic.abstractFallback && priorSignatures.some((item) => item.abstractFallback))
+        || priorSignatures.filter((item) => item.reactionType === semantic.reactionType).length >= 2
+        || priorSignatures.filter((item) => item.judgmentShape === semantic.judgmentShape).length >= 2
+        || prior.some((item) => item.exactText === key.exactText)
         || prior.filter((item) => item.opening === key.opening).length >= 2
         || prior.filter((item) => item.sentencePattern === key.sentencePattern).length >= 2
         || prior.filter((item) => item.ending === key.ending).length >= 2;
@@ -1247,7 +1502,7 @@ function finalDiversityGate(picks: XDailyTopPick[], logs: XPostLog[]) {
       const openings = [`${subject}で、先に残ったのはこの空気。`, `流し見の中で、${subject}だけ少し引っかかった。`, `先に気になったのは、${subject}の入り方。`, `数字より先に、${subject}の空気が残る。`, `今日は一覧より、${subject}から見たくなる。`];
       const endings = ["こういう見つけ方もある。", "これは先に見ておきたい。", "この一本はあとで戻りそう。", "今日はここで止める。", "気になるなら、まずサンプルだけ。"];
       const lines = current.postText.split("\n").map((line) => line.trim()).filter(Boolean).filter((line) => !/^https?:\/\//.test(line));
-      const middle = primaryUsableVisualFact(current.visualFacts)?.safePhrase ?? lines[1] ?? "";
+       const middle = concreteFactPhrase(primaryUsableVisualFact(current.visualFacts)?.safePhrase ?? lines[1] ?? "");
       const shape = (index + attempt) % 5;
       const bodyLines = shape === 0
         ? [openings[(index + attempt) % openings.length], endings[(index + attempt) % endings.length]]
@@ -1260,6 +1515,7 @@ function finalDiversityGate(picks: XDailyTopPick[], logs: XPostLog[]) {
               : [openings[(index + attempt) % openings.length], middle, endings[(index + attempt) % endings.length]];
       const body = bodyLines.filter(Boolean).join("\n");
       next = applyTopPickLinkPolicy({ ...current, postText: body });
+      next.setDiversity.signature = diversitySignature(next, next.role, next.creativeVariants.find((variant) => variant.id === next.creativeVariantId) ?? next.creativeVariants[0]);
       next = { ...next, creativeVariants: next.creativeVariants.map((variant) => variant.id === next.creativeVariantId ? { ...variant, bodyText: next.postText } : variant) };
       attempt += 1;
     }
@@ -1332,10 +1588,51 @@ function applyTopPickLinkPolicy(item: XDailyTopPick): XDailyTopPick {
   };
 }
 
+function emptySemanticCounts() {
+  return Object.keys(SEMANTIC_CATEGORY_QUOTA).reduce((counts, category) => {
+    counts[category as XSemanticHookCategory] = 0;
+    return counts;
+  }, {} as Record<XSemanticHookCategory, number>);
+}
+
+function semanticSupplyDiagnostics(opportunities: XGrowthOpportunity[], picks: XDailyTopPick[]) {
+  const supply = emptySemanticCounts();
+  const mappingReasons: Record<string, number> = {};
+  for (const item of opportunities) {
+    const categories = new Set(item.creativeVariants
+      .filter((variant) => variant.quality.passed)
+      .map((variant) => {
+        const assignment = assignSemanticHook(item, variant);
+        const key = `${assignment.category}: ${assignment.reason}`;
+        mappingReasons[key] = (mappingReasons[key] ?? 0) + 1;
+        return assignment.category;
+      }));
+    for (const category of categories) supply[category] += 1;
+  }
+  const selected = emptySemanticCounts();
+  for (const pick of picks) selected[pick.setDiversity.signature.semanticHookCategory] += 1;
+  const selectedTotal = Object.values(selected).reduce((sum, count) => sum + count, 0);
+  const quotaCapacity = Object.entries(supply).reduce((sum, [category, count]) => {
+    const typedCategory = category as XSemanticHookCategory;
+    return sum + Math.min(count, SEMANTIC_CATEGORY_QUOTA[typedCategory]);
+  }, 0);
+  const overflowReasons = Object.entries(selected)
+    .filter(([category, count]) => count > SEMANTIC_CATEGORY_QUOTA[category as XSemanticHookCategory])
+    .map(([category, count]) => {
+      const typedCategory = category as XSemanticHookCategory;
+      return supply[typedCategory] < count
+        ? `${typedCategory}: supply ${supply[typedCategory]}件 / required slots ${count}件 / quota ${SEMANTIC_CATEGORY_QUOTA[typedCategory]}件 / supply不足でoverflow`
+        : selectedTotal > quotaCapacity
+          ? `${typedCategory}: supply ${supply[typedCategory]}件 / required slots ${count}件 / quota ${SEMANTIC_CATEGORY_QUOTA[typedCategory]}件 / 利用可能categoryのquota容量${quotaCapacity}件/${selectedTotal}件でoverflow（供給不足）`
+          : `${typedCategory}: supply ${supply[typedCategory]}件 / required slots ${count}件 / quota ${SEMANTIC_CATEGORY_QUOTA[typedCategory]}件 / quota超過`;
+    });
+  return { supply, selected, overflowReasons, mappingReasons };
+}
+
 function buildSupplyDiagnostics(
   opportunities: XGrowthOpportunity[],
   picks: XDailyTopPick[],
-  candidateDiagnostics: { sourcePoolTotal?: number; sourcePoolAfterPosted?: number; postedExcluded?: number } | undefined,
+  candidateDiagnostics: { sourcePoolTotal?: number; sourcePoolAfterPosted?: number; postedExcluded?: number; prefilterCount?: number; humanVoiceTargetCount?: number; diversityTargetCount?: number } | undefined,
   postedWorkIds: ReadonlySet<number>,
 ) {
   const gateOkBySource: Record<string, number> = {};
@@ -1386,6 +1683,34 @@ function buildSupplyDiagnostics(
     return counts;
   }, {} as Record<string, number>);
   const postedOverlap = picks.filter((pick) => postedWorkIds.has(pick.workId)).length;
+  const moneyGenerated = opportunities.filter((item) => item.sourceType === "MONEY").length;
+  const moneyHardGatePassed = opportunities.filter((item) => item.sourceType === "MONEY" && item.creativeVariants.some((variant) => variant.intent === "MONEY" && variant.quality.passed)).length;
+  const moneyAllocationEligible = eligibleByIntent.MONEY;
+  const moneyPlaced = picks.filter((pick) => pick.role === "MONEY").length;
+  const moneyGateReasons = opportunities
+    .filter((item) => item.sourceType === "MONEY")
+    .map((item) => {
+      const reasons = new Set<XMoneyGateReason>();
+      const moneyVariants = item.creativeVariants.filter((variant) => variant.intent === "MONEY");
+      if (!moneyVariants.some((variant) => Boolean(variant.url))) reasons.add("missing_affiliate_url");
+      if (item.freshness.status === "expired") reasons.add("stale_or_expired");
+      if (!item.currentPrice && !item.previousPrice && !item.discountRate) reasons.add("price_truth_unavailable");
+      if (item.mediaUsage === "not_available") reasons.add("media_mismatch");
+      if (postedWorkIds.has(item.workId)) reasons.add("duplicate_or_posted");
+      if (moneyVariants.some((variant) => !variant.quality.lastMile.passed)) {
+        const lastMile = moneyVariants.find((variant) => !variant.quality.lastMile.passed)?.quality.lastMile;
+        if (lastMile?.humanVoice.passed === false) reasons.add("last_mile_ng");
+        if (lastMile?.nativeXVoice.passed === false) reasons.add("native_x_voice_ng");
+        if (lastMile?.reasons.some((reason) => /explicit|unsafe|露出|安全/.test(reason))) reasons.add("unsafe_or_too_explicit");
+      }
+      if (!reasons.size && !moneyVariants.some((variant) => variant.quality.passed)) reasons.add("other");
+      return { workId: item.workId, candidateId: moneyVariants[0]?.id ?? null, reasons: [...reasons] };
+    })
+    .filter((entry) => entry.reasons.length > 0);
+  const reasonCounts = new Map<XMoneyGateReason, number>();
+  for (const entry of moneyGateReasons) for (const reason of entry.reasons) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+  const moneyTopFailureReason = [...reasonCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const semantic = semanticSupplyDiagnostics(opportunities, picks);
   const target = picks.length >= 9 ? "3slot × 最大3候補" as const : "候補不足" as const;
   const shortages = [
     reachGenerated < 5 ? `REACH供給目標5件に対して${reachGenerated}件` : "",
@@ -1403,6 +1728,9 @@ function buildSupplyDiagnostics(
     target,
     sourcePoolTotal: candidateDiagnostics?.sourcePoolTotal ?? opportunities.length,
     sourcePoolAfterPosted: candidateDiagnostics?.sourcePoolAfterPosted ?? opportunities.length,
+    prefilterCount: candidateDiagnostics?.prefilterCount ?? opportunities.length,
+    humanVoiceTargetCount: candidateDiagnostics?.humanVoiceTargetCount ?? opportunities.length,
+    diversityTargetCount: candidateDiagnostics?.diversityTargetCount ?? picks.length,
     postedExcluded: candidateDiagnostics?.postedExcluded ?? 0,
     postedOverlap,
     urlOrMediaAvailable: opportunities.filter((item) => Boolean(item.sampleMovieUrl || item.imageUrl || item.recommendedMediaUrl)).length,
@@ -1423,6 +1751,17 @@ function buildSupplyDiagnostics(
     reachGenerated,
     reachGateOk,
     shortages,
+    moneyGenerated,
+    moneyHardGatePassed,
+    moneyAllocationEligible,
+    moneyPlaced,
+    moneyGateReasons,
+    moneyTopFailureReason,
+    semanticSupply: semantic.supply,
+    semanticSelected: semantic.selected,
+    semanticQuota: SEMANTIC_CATEGORY_QUOTA,
+    semanticQuotaOverflowReasons: semantic.overflowReasons,
+    semanticMappingReasons: semantic.mappingReasons,
   };
 }
 
@@ -1533,15 +1872,32 @@ export async function buildXGrowthOS({
     timings.video_analysis_assets = analysis.analyzed;
     timings.video_analysis_reused = analysis.reused;
   }
+  const rightsApplied = applyMediaRights(scored, media.assets);
+  const rankedOpportunities = applyRankingHistory(rightsApplied, rankingHistories.histories);
+  const prefilterStarted = Date.now();
+  // 90 quality candidates are enough for the three-slot allocator while
+  // avoiding Human Voice work on the long tail.
+  const narrowedOpportunities = cheapCandidatePrefilter(rankedOpportunities, 90);
+  timings.cheap_prefilter_ms = Date.now() - prefilterStarted;
+  timings.prefilter_input_count = rankedOpportunities.length;
+  timings.prefilter_output_count = narrowedOpportunities.length;
   const qualityStarted = Date.now();
-  const opportunities = applyRankingHistory(applyMediaRights(scored, media.assets), rankingHistories.histories).map((item) => withCreativeQuality(item, logs));
+  const opportunities = narrowedOpportunities.map((item) => withCreativeQuality(item, logs));
   timings.creative_quality_ms = Date.now() - qualityStarted;
+  timings.human_voice_target_count = opportunities.length;
   const mission = buildStrategicMission(growth, logs, creativeLearning);
   const recentDailyPickWorkIds = await mark("recent_daily_pick_cooldown_ms", fetchRecentDailyPickWorkIds());
   const postedWorkIds = new Set([...recentPostedWorkIds(logs), ...postedWorkResult.workIds]);
+  const allocatorStarted = Date.now();
   const dailySelection = selectDailyTopPicks(opportunities, mission, logs, recentDailyPickWorkIds, postedWorkIds);
+  timings.bucket_allocation_ms = Date.now() - allocatorStarted;
+  timings.fallback_allocator_ms = timings.bucket_allocation_ms;
+  const diversityStarted = Date.now();
   const diversityResult = finalDiversityGate(dailySelection.picks, logs);
-  const supplyDiagnostics = buildSupplyDiagnostics(opportunities, diversityResult.picks, candidateResult.diagnostics, postedWorkIds);
+  timings.final_diversity_check_ms = Date.now() - diversityStarted;
+  timings.diversity_pass_ms = timings.final_diversity_check_ms;
+  timings.diversity_target_count = dailySelection.picks.length;
+  const supplyDiagnostics = buildSupplyDiagnostics(opportunities, diversityResult.picks, { ...candidateResult.diagnostics, prefilterCount: narrowedOpportunities.length, humanVoiceTargetCount: opportunities.length, diversityTargetCount: dailySelection.picks.length }, postedWorkIds);
   const nativeXLearning = buildNativeXLearning(logs, outcomes);
   const persistedTopPicks = await mark("persisted_top_picks_ms", persistDailyTopPicks({
     mission,

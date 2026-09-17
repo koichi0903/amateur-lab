@@ -26,5 +26,17 @@ export async function POST() {
     topPicks: os.dailyTopPicks.length,
     elapsedMs: Date.now() - started,
     target: os.supplyDiagnostics.target,
+    slotAllocation: os.supplyDiagnostics.slotAllocation,
+    semanticSupply: os.supplyDiagnostics.semanticSupply,
+    semanticSelected: os.supplyDiagnostics.semanticSelected,
+    semanticQuotaOverflowReasons: os.supplyDiagnostics.semanticQuotaOverflowReasons,
+    money: {
+      generated: os.supplyDiagnostics.moneyGenerated,
+      hardGatePassed: os.supplyDiagnostics.moneyHardGatePassed,
+      eligible: os.supplyDiagnostics.moneyAllocationEligible,
+      placed: os.supplyDiagnostics.moneyPlaced,
+      topFailureReason: os.supplyDiagnostics.moneyTopFailureReason,
+    },
+    performanceTimings: os.performanceTimings,
   });
 }
