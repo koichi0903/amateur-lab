@@ -63,6 +63,19 @@ export async function analyzeSampleMovie(input: { sourceUrl: string; trimStartSe
       { kind: "motion_level", value: motion, confidence: 0.8, safePhrase: motion === "high" ? "画面の変化が大きい。" : motion === "medium" ? "画面はゆっくり変わる。" : "画面の変化は控えめ。" },
       { kind: "pacing", value: pacing, confidence: 0.8, safePhrase: pacing === "fast" ? "切り替わりが早め。" : pacing === "slow" ? "入り方はゆっくり。" : "切り替わりは中くらい。" },
     ];
+    const openingBrightness = frames[0]?.brightness ?? 0;
+    const closingBrightness = frames.at(-1)?.brightness ?? openingBrightness;
+    const brightnessDelta = closingBrightness - openingBrightness;
+    if (Math.abs(brightnessDelta) >= 0.08) evidence.push({
+      kind: "brightness",
+      value: brightnessDelta > 0 ? "brighter" : "darker",
+      confidence: 0.8,
+      safePhrase: brightnessDelta > 0 ? "最初より途中の方が明るく見える。" : "最初より途中の方が暗く見える。",
+    });
+    const colorDelta = frames.length > 1
+      ? (Math.abs((frames.at(-1)?.red ?? 0) - (frames[0]?.red ?? 0)) + Math.abs((frames.at(-1)?.green ?? 0) - (frames[0]?.green ?? 0)) + Math.abs((frames.at(-1)?.blue ?? 0) - (frames[0]?.blue ?? 0))) / 3
+      : 0;
+    if (colorDelta >= 0.12 && Math.abs(brightnessDelta) < 0.08) evidence.push({ kind: "visual_style", value: "color_contrast", confidence: 0.78, safePhrase: "前半と途中で色味の見え方が変わる。" });
     if (firstChange !== null && opening >= 0.1) evidence.push({ kind: "first_visual_change_sec", value: firstChange, confidence: opening >= 0.18 ? 0.82 : 0.7, timeSec: firstChange, safePhrase: `冒頭${firstChange.toFixed(1)}秒付近で画面が変わる。` });
     if (opening >= 0.18) evidence.push({ kind: "opening_strength", value: "strong", confidence: 0.78, timeSec: times[1], safePhrase: "冒頭から画面の変化がある。" }, { kind: "notable_video_hook", value: "opening_change", confidence: 0.78, timeSec: times[1], safePhrase: "入り方が少し予想と違う。" });
     else if (opening < 0.07) evidence.push({ kind: "opening_strength", value: "weak", confidence: 0.78, timeSec: times[1], safePhrase: "冒頭は静かに始まる。" }, { kind: "notable_video_hook", value: "calm_opening", confidence: 0.78, timeSec: times[0], safePhrase: "最初は静かに始まる。" });

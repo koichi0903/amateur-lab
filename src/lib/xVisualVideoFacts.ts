@@ -66,20 +66,20 @@ export function buildVisualVideoFacts(input: XVisualFactInput, generatedAt = new
   if (input.sampleMovieUrl) facts.push(fact({ kind: "notable_video_hook", value: "sample_available", source: "metadata", confidence: 0 }));
 
   if (tags.has("first_seconds_strong")) {
-    facts.push(fact({ kind: "notable_video_hook", value: "first_seconds_attention", source: "manual_tag", safePhrase: "開いてすぐ、少し目が止まった。" }));
+    facts.push(fact({ kind: "notable_video_hook", value: "first_seconds_attention", source: "manual_tag", safePhrase: "開いてすぐ、画面の変化に目が止まる。" }));
   }
   if (tags.has("scene_surprise")) {
-    facts.push(fact({ kind: "notable_video_hook", value: "opening_change", source: "manual_tag", safePhrase: "入り方が少し予想と違う。" }));
+    facts.push(fact({ kind: "notable_video_hook", value: "opening_change", source: "manual_tag", safePhrase: "冒頭の展開が予想と少し違う。" }));
   }
   if (tags.has("safe_preview")) {
-    facts.push(fact({ kind: "notable_video_hook", value: "safe_preview", source: "manual_tag", safePhrase: "サンプルだけでも空気は分かる。" }));
+    facts.push(fact({ kind: "notable_video_hook", value: "safe_preview", source: "manual_tag", safePhrase: "サンプルの冒頭だけでも確認できる。" }));
   }
   if (tags.has("actress_fit")) {
-    facts.push(fact({ kind: "notable_video_hook", value: "actress_fit", source: "manual_tag", safePhrase: "この空気だと、いつもと見え方が少し違う。" }));
+    facts.push(fact({ kind: "notable_video_hook", value: "actress_fit", source: "manual_tag", safePhrase: "この動画では、いつもと見え方が少し違う。" }));
   }
   if (tags.has("visual_mismatch")) {
     // A single tag is not dual evidence. Keep it as a rejected candidate.
-    facts.push(fact({ kind: "jacket_sample_mismatch", value: true, source: "manual_tag", safePhrase: "ジャケとサンプルで印象が違う。" }));
+    facts.push(fact({ kind: "jacket_sample_mismatch", value: true, source: "manual_tag", safePhrase: "ジャケとサンプルで見え方が違う。" }));
   }
 
   for (const evidence of input.videoEvidence ?? []) {
@@ -99,7 +99,7 @@ export function buildVisualVideoFacts(input: XVisualFactInput, generatedAt = new
   const hasDualMismatchEvidence = facts.some((candidate) => candidate.kind === "jacket_sample_mismatch" && (candidate.source === "jacket" || candidate.source === "sample_image"))
     && facts.some((candidate) => candidate.kind === "jacket_sample_mismatch" && candidate.source === "sample_video");
   const usableFacts = facts.filter((candidate) => candidate.kind === "jacket_sample_mismatch"
-    ? hasDualMismatchEvidence && isUsableVisualFact({ ...candidate, kind: "notable_video_hook", value: "opening_change" })
+    ? hasDualMismatchEvidence && isUsableVisualFact({ ...candidate, kind: "visual_style", value: "jacket_video_mismatch" })
     : isUsableVisualFact(candidate));
   const diagnostics = facts.length === 0
     ? ["画像/動画の確定Factなし。メタデータfallbackを使用"]

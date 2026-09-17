@@ -23,6 +23,18 @@ const intentStyle: Record<XGrowthIntent, string> = {
   MONEY: "border-emerald-700 bg-emerald-950/40 text-emerald-200",
 };
 
+const moneyGateReasonLabel: Record<string, string> = {
+  missing_affiliate_url: "affiliate URL不足",
+  price_truth_unavailable: "価格根拠不足",
+  last_mile_ng: "Last-Mile NG",
+  native_x_voice_ng: "Native X Voice NG",
+  unsafe_or_too_explicit: "安全/素材基準NG",
+  duplicate_or_posted: "重複/投稿済み",
+  stale_or_expired: "期限切れ/鮮度不足",
+  media_mismatch: "素材不一致",
+  other: "その他",
+};
+
 function yen(value: number | null) {
   return value ? `¥${value.toLocaleString("ja-JP")}` : "-";
 }
@@ -225,6 +237,7 @@ function TopPickCard({ item }: { item: XDailyTopPick }) {
           <p className={`rounded-lg border px-3 py-2 ${item.intent === "MONEY" ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-sky-800 bg-sky-950/30 text-sky-200"}`}>{linkStrategy.label}</p>
           {hookReason && <p className="rounded-lg border border-cyan-800 bg-cyan-950/30 px-3 py-2 text-cyan-100">動画Hook根拠: {hookReason}</p>}
           <p className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-300">文面根拠: {factBasisLabel(item.visualFacts)}</p>
+          <p className="rounded-lg border border-violet-800 bg-violet-950/20 px-3 py-2 text-violet-100">Fact→semantic: {item.setDiversity.signature.primaryFactKind} → {item.setDiversity.signature.semanticHookCategory}{item.setDiversity.signature.semanticMappingReason ? ` / ${item.setDiversity.signature.semanticMappingReason}` : ""}</p>
           {item.mediaType === "sample_movie" && trimStartSeconds > 0 && <p className="rounded-lg border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-emerald-100">冒頭トリム: {trimStartSeconds.toFixed(1)}秒</p>}
         </div>
         <LinkStrategyPanel strategy={linkStrategy} replyText={displayReplyText} />
@@ -327,6 +340,7 @@ function PersistedTopPickCard({ item }: { item: PersistedTopPick }) {
         <p className={`rounded-lg border px-3 py-2 ${item.role === "MONEY" ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-sky-800 bg-sky-950/30 text-sky-200"}`}>{linkStrategy.label}</p>
         {hookReason && <p className="rounded-lg border border-cyan-800 bg-cyan-950/30 px-3 py-2 text-cyan-100">動画Hook根拠: {hookReason}</p>}
         <p className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-300">文面根拠: {factBasisLabel(item.visualFacts)}</p>
+        <p className="rounded-lg border border-violet-800 bg-violet-950/20 px-3 py-2 text-violet-100">Fact→semantic: {item.setDiversity.signature.primaryFactKind} → {item.setDiversity.signature.semanticHookCategory}{item.setDiversity.signature.semanticMappingReason ? ` / ${item.setDiversity.signature.semanticMappingReason}` : ""}</p>
         {item.mediaType === "sample_movie" && trimStartSeconds > 0 && <p className="rounded-lg border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-emerald-100">冒頭トリム: {trimStartSeconds.toFixed(1)}秒</p>}
       </div>
       <LinkStrategyPanel strategy={linkStrategy} replyText={displayReplyText} />
@@ -546,6 +560,15 @@ async function XGrowthPageContent() {
       gateOkByRole?: Record<string, number>;
       shortagesByRole?: Record<string, number>;
       eligibleByIntent?: Record<string, number>;
+      moneyGenerated?: number;
+      moneyHardGatePassed?: number;
+      moneyAllocationEligible?: number;
+      moneyPlaced?: number;
+      moneyTopFailureReason?: string | null;
+      semanticSupply?: Record<string, number>;
+      semanticSelected?: Record<string, number>;
+      semanticQuotaOverflowReasons?: string[];
+      semanticMappingReasons?: Record<string, number>;
       nativeVoiceNgBySource?: Record<string, number>;
       crossPostDiversityRejected?: number;
     };
@@ -616,6 +639,10 @@ async function XGrowthPageContent() {
               <p className={moneyCandidateCount > 0 ? "text-emerald-200" : "text-amber-200"}>
                 {moneyCandidateCount > 0 ? `本日の収益候補: ${moneyCandidateCount}件 / Slot3にMONEYを最低1件配置` : "本日の収益候補: 0件 / 本日はリンク投稿なし"}
               </p>
+              <p>MONEY診断: generated {supply.moneyGenerated ?? "-"} / Hard Gate passed {supply.moneyHardGatePassed ?? "-"} / allocation eligible {supply.moneyAllocationEligible ?? "-"} / Slot3 placed {supply.moneyPlaced ?? "-"} / 主な落ち理由: {moneyGateReasonLabel[supply.moneyTopFailureReason ?? ""] ?? "なし"}</p>
+              <p>Semantic: supply {Object.entries(supply.semanticSupply ?? {}).map(([category, count]) => `${category} ${count}`).join(" / ") || "未記録"} / selected {Object.entries(supply.semanticSelected ?? {}).filter(([, count]) => count > 0).map(([category, count]) => `${category} ${count}`).join(" / ") || "未記録"}</p>
+              <p>Quota超過: {supply.semanticQuotaOverflowReasons?.length ? supply.semanticQuotaOverflowReasons.join(" / ") : "なし"}</p>
+              <p>Fact→semantic: {Object.entries(supply.semanticMappingReasons ?? {}).map(([reason, count]) => `${reason} ${count}`).join(" / ") || "未記録"}</p>
               <p>REACH供給: 生成 {supply.reachGenerated ?? "-"}件 / Gate OK {supply.reachGateOk ?? "-"}件</p>
               <p>{supply.shortages?.length ? `不足: ${supply.shortages.join(" / ")}` : "供給不足ログ: 主要レーンにGate OK候補あり"}</p>
               <p>保存済み読込: OK / stale {plan.stale_reason ?? "なし"}</p>
@@ -846,6 +873,11 @@ async function XGrowthPageContent() {
                 ? `本日の収益候補: ${os.supplyDiagnostics.eligibleByIntent.MONEY}件 / Slot3にMONEYを最低1件配置`
                 : "本日の収益候補: 0件 / 本日はリンク投稿なし"}
             </p>
+            <p>MONEY診断: generated {os.supplyDiagnostics.moneyGenerated} / Hard Gate passed {os.supplyDiagnostics.moneyHardGatePassed} / allocation eligible {os.supplyDiagnostics.moneyAllocationEligible} / Slot3 placed {os.supplyDiagnostics.moneyPlaced} / 主な落ち理由: {moneyGateReasonLabel[os.supplyDiagnostics.moneyTopFailureReason ?? ""] ?? "なし"}</p>
+            <p>Semantic: supply {Object.entries(os.supplyDiagnostics.semanticSupply).map(([category, count]) => `${category} ${count}`).join(" / ")} / selected {Object.entries(os.supplyDiagnostics.semanticSelected).filter(([, count]) => count > 0).map(([category, count]) => `${category} ${count}`).join(" / ") || "なし"}</p>
+            <p>Quota超過: {os.supplyDiagnostics.semanticQuotaOverflowReasons.length ? os.supplyDiagnostics.semanticQuotaOverflowReasons.join(" / ") : "なし"}</p>
+            <p>Fact→semantic: {Object.entries(os.supplyDiagnostics.semanticMappingReasons ?? {}).map(([reason, count]) => `${reason} ${count}`).join(" / ") || "未記録"}</p>
+            <p>再生成絞り込み: source pool {os.supplyDiagnostics.sourcePoolAfterPosted} → prefilter {os.supplyDiagnostics.prefilterCount} → Human Voice {os.supplyDiagnostics.humanVoiceTargetCount} → diversity {os.supplyDiagnostics.diversityTargetCount}</p>
             <p>REACH供給: 生成 {os.supplyDiagnostics.reachGenerated}件 / Gate OK {os.supplyDiagnostics.reachGateOk}件</p>
             <p>source pool {os.supplyDiagnostics.sourcePoolTotal}件 → posted除外後の別work {os.supplyDiagnostics.sourcePoolAfterPosted}件（除外 {os.supplyDiagnostics.postedExcluded}件） / URL・素材あり {os.supplyDiagnostics.urlOrMediaAvailable}件 / Hard Gate通過 {os.supplyDiagnostics.hardGatePassed}件 / posted overlap {os.supplyDiagnostics.postedOverlap}件</p>
             <p>slot allocation: {Object.entries(os.supplyDiagnostics.slotAllocation).map(([slot, count]) => `${slot} ${count}`).join(" / ") || "なし"}</p>

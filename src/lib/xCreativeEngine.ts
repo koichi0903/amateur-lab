@@ -16,6 +16,8 @@ export type XSourceType = "WORK" | "MARKET" | "FOLLOW_UP" | "COMPARISON" | "JUDG
 export type XVideoManualTag = "first_seconds_strong" | "visual_mismatch" | "actress_fit" | "scene_surprise" | "safe_preview" | "too_explicit_for_reach" | "weak_visual";
 export type XHumanVoiceArchetype = "spontaneous_reaction" | "changed_mind" | "quiet_recommendation" | "surprise_mismatch" | "actress_fit" | "hidden_find" | "social_proof_light" | "price_reason" | "conversational" | "dry_observation";
 
+export type XCopyGrammarValidation = { passed: boolean; reasons: string[] };
+
 export type XQualityDimension =
   | "scrollStop" | "curiosity" | "proof" | "judgment" | "followValue"
   | "specificity" | "novelty" | "adSmell" | "ctaFit" | "mediaFit"
@@ -216,14 +218,16 @@ function evidenceLines(input: XCreativeInput) {
 
 function strongestFacts(input: XCreativeInput) {
   const trend = rankingTrendLine(input);
-  return [
+  const facts = [
     trend ? `${trend}` : "",
     input.reviewAverage && input.reviewAverage >= 4.7 ? `評価${input.reviewAverage.toFixed(1)}` : "",
     input.ranking && !trend && input.ranking <= 80 ? `ランキング${input.ranking}位` : "",
     input.isNinetyDayLow ? `過去90日最安級` : "",
     input.discountRate >= 30 ? `${pct(input.discountRate)}OFF` : "",
     input.reviewCount >= 20 ? `レビュー${input.reviewCount}件` : "",
-  ].filter(Boolean).slice(0, STRONG_FACT_LIMIT);
+  ];
+  if (input.sourceType === "MONEY" && input.currentPrice) facts.push(`現在${yen(input.currentPrice)}`);
+  return facts.filter(Boolean).slice(0, STRONG_FACT_LIMIT);
 }
 
 function primaryActress(input: XCreativeInput) {
@@ -282,11 +286,20 @@ function primaryVideoTag(input: XCreativeInput): XVideoManualTag | null {
   return VIDEO_TAG_PRIORITY.find((tag) => tags.includes(tag)) ?? null;
 }
 
+function concreteVisualPhrase(fact: NonNullable<ReturnType<typeof primaryUsableVisualFact>>) {
+  if (fact.kind === "jacket_sample_mismatch" || /ジャケとサンプルで印象/.test(fact.safePhrase ?? "")) return "ジャケとサンプルで見え方が違う。";
+  if (/入り方が少し予想と違う/.test(fact.safePhrase ?? "") || fact.value === "opening_change") return "冒頭の展開が予想と少し違う。";
+  if (fact.value === "first_seconds_attention") return "開いてすぐ、画面の変化に目が止まる。";
+  if (fact.value === "safe_preview") return "サンプルの冒頭だけでも確認できる。";
+  return fact.safePhrase ?? "";
+}
+
 function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPlan: XLinkPlan) {
   const visualFact = primaryUsableVisualFact(input.visualFacts);
-  if (visualFact?.safePhrase) {
+  const concretePhrase = visualFact ? concreteVisualPhrase(visualFact) : "";
+  if (concretePhrase) {
     const link = linkPlan === "body_link" ? input.url : "";
-    return [visualFact.safePhrase, intent === "MONEY" ? humanProofLine(input, intent) : "", link].filter(Boolean);
+    return [concretePhrase, intent === "MONEY" ? humanProofLine(input, intent) : "", link].filter(Boolean);
   }
   const tag = primaryVideoTag(input);
   if (!tag || tag === "too_explicit_for_reach" || tag === "weak_visual") return null;
@@ -311,6 +324,17 @@ function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPl
     safe_preview: "強く言わなくても、これで十分。",
   };
   return [lineByTag[tag], second, closingByTag[tag], link].filter(Boolean);
+}
+
+/** Reject copy whose grammar implies facts or comparisons the source does not support. */
+export function validateXCopyGrammar(input: Pick<XCreativeInput, "sourceType">, text: string): XCopyGrammarValidation {
+  const reasons: string[] = [];
+  if (/AI生成作品\s*の一本|作品\s+の一本|ジャンル\s*の一本/.test(text)) reasons.push("機械的なカテゴリ主語");
+  if (/迷う人は|同じ\d+%?OFFでも|似た条件でも|安さで並べても/.test(text) && input.sourceType !== "COMPARISON") {
+    reasons.push("比較対象が確定していない比較文");
+  }
+  if (/雰囲気だけ|空気だけ|入り方が少し予想と違う/.test(text)) reasons.push("抽象Factだけの表現");
+  return { passed: reasons.length === 0, reasons };
 }
 
 function hookOpenings(input: XCreativeInput, intent: XGrowthIntent): Array<{ direction: XHookDirection; opening: string; score: number }> {
@@ -491,6 +515,7 @@ function buildBody(input: XCreativeInput, intent: XGrowthIntent, structure: XCre
 
 function sanitizePublicText(text: string) {
   return FORBIDDEN_PUBLIC_WORDS.reduce((current, word) => current.replaceAll(word, ""), text)
+    .replaceAll("こういうを", "これを")
     .replace(/[.…]{2,}/g, "")
     .replace(/\s+寄り/g, "寄り")
     .replace(/\n{3,}/g, "\n\n")
@@ -539,7 +564,7 @@ function finalNativeXVoiceGate(input: XCreativeInput, variant: { intent: XGrowth
   const startsWithActressEveryTime = Boolean(primaryActress(input) && first.startsWith(primaryActress(input) ?? ""));
   const reviewSiteTone = /確認|判断|価値|優先|採用|根拠|訴求|導線|おすすめ/.test(joined);
   const operatorVoice = /止まる理由|読まれ|使う|投稿|本文|Hook|動画を置く|運用|REACH|クリック/.test(joined);
-  const emotionalFirstLine = /気になる|止ま|好き|違う|ズレ|迷う|見落|空気|こっち|正直|なんか|意外|早い|もったいない|外しそう|引っか|流して|弱い|強い|合う|寄って|印象|ジャケ|決めない|半額だけ|数字より|選び方|差が|差あり/.test(first);
+  const emotionalFirstLine = /気になる|止ま|好き|違う|ズレ|迷う|見落|空気|こっち|正直|なんか|意外|早い|もったいない|外しそう|引っか|流して|弱い|強い|合う|寄って|印象|ジャケ|表紙|中身|決めない|半額だけ|数字より|選び方|差が|差あり/.test(first);
   const tooPolished = lines.length >= 3 && lines.every((line) => /です。|ます。|ました。|ます$|です$/.test(line));
   const brokenText = /、です|で、。|。、|^、|。\s*、/.test(joined);
   const checks = {
@@ -566,7 +591,7 @@ function finalNativeXVoiceGate(input: XCreativeInput, variant: { intent: XGrowth
   return { passed: reasons.length === 0, checks, forbiddenHits: [...forbiddenHits, ...softTemplateHits, ...frequentPhraseHits], reasons };
 }
 
-function finalHumanVoiceGate(input: XCreativeInput, variant: { intent: XGrowthIntent; linkPlan: XLinkPlan; text: string }) {
+function finalHumanVoiceGate(input: XCreativeInput, variant: { intent: XGrowthIntent; mediaType: XCreativeMedia; linkPlan: XLinkPlan; text: string }) {
   const lines = variant.text.split("\n").map((line) => line.trim()).filter(Boolean);
   const first = lines[0] ?? "";
   const forbiddenHits = FORBIDDEN_PUBLIC_WORDS.filter((word) => variant.text.includes(word));
@@ -574,6 +599,13 @@ function finalHumanVoiceGate(input: XCreativeInput, variant: { intent: XGrowthIn
   const hasReaderVerb = /見る|見て|迷|決め|止ま|流|拾|比べ|買|見送|気にな|刺さ|引っかか|伝わ/.test(variant.text);
   const internalMetricLeak = /発掘指数|買い時|CTR|PV|FANZA|Opportunity|Freshness|score|スコア|候補/.test(variant.text);
   const abstractOpening = /^(強い|弱い|良い|悪い|自然|安全|価値|候補|判断|確認)/.test(first) || first.length < 12;
+  const grammar = validateXCopyGrammar(input, variant.text);
+  const primaryFact = primaryUsableVisualFact(input.visualFacts);
+  const concreteVisualFact = variant.intent === "MONEY"
+    || variant.mediaType !== "sample_movie"
+    || !primaryFact
+    || !input.visualFacts?.usableFacts.length
+    || Boolean(primaryFact && variant.text.includes(concreteVisualPhrase(primaryFact)));
   const checks = {
     xNative: lines.length >= 1 && lines.length <= 5 && !/[。\.].*[。\.].*[。\.]/.test(first),
     audienceClear: Boolean(primaryActress(input) || input.genre || first.includes("今日") || first.includes("同じ") || first.includes("半額") || first.includes("ランキング")),
@@ -581,6 +613,7 @@ function finalHumanVoiceGate(input: XCreativeInput, variant: { intent: XGrowthIn
     noInternalMetric: !internalMetricLeak && forbiddenHits.length === 0,
     noRepeatedFact: repeatedFacts.length === 0,
     concreteOpening: !abstractOpening && !lineStartsWithNumber(variant.text),
+    concreteVisualFact,
   };
   const reasons = [
     !checks.xNative ? "普通のX投稿より説明文に寄っている" : "",
@@ -589,6 +622,8 @@ function finalHumanVoiceGate(input: XCreativeInput, variant: { intent: XGrowthIn
     !checks.noInternalMetric ? `内部/運用者語が残っている${forbiddenHits.length ? `: ${forbiddenHits.join(", ")}` : ""}` : "",
     !checks.noRepeatedFact ? `同じ事実を繰り返している: ${repeatedFacts.join(", ")}` : "",
     !checks.concreteOpening ? "1行目が抽象判断または数字始まり" : "",
+    !checks.concreteVisualFact ? "観測されたVisual/Video Factが本文に残っていない" : "",
+    ...grammar.reasons,
   ].filter(Boolean);
   return { passed: reasons.length === 0, checks, forbiddenHits, reasons };
 }
@@ -702,7 +737,7 @@ function qualityFor(input: XCreativeInput, variant: { intent: XGrowthIntent; str
     scrollStop: clamp(42 + reachSourceSignal + reachTextHook + firstSecondsBoost + (input.ranking && input.ranking <= 50 ? 10 : 0) + (input.isNinetyDayLow ? 8 : 0) + (input.discoveryScore ?? 0) / 6),
     curiosity: clamp(45 + reachTextHook + (variant.text.includes("なぜ") || variant.text.includes("ズレ") || variant.text.includes("不自然") || variant.text.includes("印象") || variant.text.includes("流して") || variant.text.includes("偏り") ? 24 : 0) + proofCount * 5),
     proof: clamp(30 + proofCount * 16 + (input.seriesObservationCount ?? 0) * 2),
-    judgment: clamp(variant.text.includes("近い") || variant.text.includes("見落と") || variant.text.includes("サンプル") || variant.text.includes("決め") || variant.text.includes("外し") || variant.text.includes("迷う") || variant.text.includes("差") ? 80 : 48),
+    judgment: clamp(variant.text.includes("近い") || variant.text.includes("見落と") || variant.text.includes("サンプル") || variant.text.includes("中身") || variant.text.includes("見たい") || variant.text.includes("決め") || variant.text.includes("外し") || variant.text.includes("迷う") || variant.text.includes("差") ? 80 : 48),
     followValue: clamp(variant.intent === "FOLLOW" ? 62 + proofCount * 8 : variant.intent === "AUTHORITY" ? 58 + proofCount * 6 : 42 + proofCount * 4),
     specificity: clamp(36 + proofCount * 14 + (input.currentPrice ? 8 : 0) + (input.reviewCount ? 8 : 0)),
     novelty: clamp(82 - noveltyPenalty + (variant.structure === "question" ? 6 : 0) + historicalWinnerBonus),
