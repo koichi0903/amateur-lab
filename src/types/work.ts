@@ -43,6 +43,8 @@ long_hit_point: number;
 
   image_url: string | null;
 
+  sample_movie_url: string | null;
+
   affiliate_url: string | null;
 
   url: string | null;

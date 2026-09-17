@@ -52,19 +52,6 @@ const WORK_DETAIL_REVALIDATE_SECONDS = 60 * 60 * 24;
 const workDetailCacheTag = (workId: string | number) => `work-detail:${String(workId)}`;
 const workDetailProductCacheTag = (productId: string) => `work-detail-product:${productId}`;
 
-// The official share page nests this DMM player in a minimum 476px-wide iframe.
-// Use the same official player directly so its viewport can match narrow phones.
-function getOfficialSampleEmbedUrl(work: WorkDetail): string | null {
-  if (!work.product_id || !work.sample_movie_url) return null;
-
-  const base = `https://www.dmm.co.jp/service/digitalapi/-/html5_player/=/cid=${encodeURIComponent(work.product_id)}/mtype=AhRVShI_/service=litevideo/mode=part/width=260/height=167`;
-  const affiliateId = process.env.DMM_AFFILIATE_ID?.trim();
-
-  return affiliateId
-    ? `${base}/affi_id=${encodeURIComponent(affiliateId)}/`
-    : `${base}/`;
-}
-
 const WORK_DETAIL_COLUMNS = [
   "id", "product_id", "title", "actress", "genre", "maker", "series",
   "score", "actress_score", "genre_score", "maker_score", "series_score",
@@ -508,7 +495,6 @@ const buyTiming = calculateBuyTimingScore({
   work={work}
   sampleImages={sampleImages ?? []}
   sampleMovieUrl={work.sample_movie_url}
-  officialSampleEmbedUrl={getOfficialSampleEmbedUrl(work)}
 />
       </section>
 
