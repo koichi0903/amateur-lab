@@ -816,7 +816,7 @@ async function runVisualVerification(settings) {
   await setQuoteState({ visualRunning: true, visualStatus: "starting", visualMessage: "visual verificationを開始します。", visualChecked: 0, visualVerified: 0, visualPartial: 0, visualUnavailable: 0 });
   try {
     const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const batch = await visualVerificationRequest(settings, { action: "select_companion_batch", limit: settings.batchSize || 10 });
+    const batch = await visualVerificationRequest(settings, { action: "select_companion_batch", limit: Math.min(5, settings.batchSize || 5) });
     const workerTabId = await ensureWorkerTab(currentTab?.id);
     let checked = 0;
     let verified = 0;
@@ -840,9 +840,11 @@ async function runVisualVerification(settings) {
           evidence: { failureReason: error instanceof Error ? error.message : String(error || "visual確認に失敗しました"), confidence: "low", inspectedUrl: targetUrl, mediaType: candidate.mediaType || "" }
         };
       }
-      await visualVerificationRequest(settings, {
+      const saved = await visualVerificationRequest(settings, {
         action: "save_companion_evidence",
         id: candidate.id,
+        queueJobId: batch.job?.id || null,
+        queueItemId: candidate.queueItemId || null,
         status: inspection.status,
         visualRenderStatus: inspection.visualRenderStatus,
         reason: inspection.reason,
@@ -853,6 +855,10 @@ async function runVisualVerification(settings) {
       else if (inspection.status === "partial") partial += 1;
       else unavailable += 1;
       await setQuoteState({ visualStatus: "running", visualMessage: `保存しました: ${inspection.status}`, visualChecked: checked, visualVerified: verified, visualPartial: partial, visualUnavailable: unavailable, visualLastReason: inspection.reason });
+      if (saved?.queuePaused) {
+        await setQuoteState({ visualRunning: false, visualStatus: "paused", visualMessage: "安全停止: gateが連続したためvisual queueをpauseしました。", visualLastReason: inspection.reason });
+        break;
+      }
       await wait(2500);
     }
     await setQuoteState({ visualRunning: false, visualStatus: "done", visualMessage: "visual verificationが完了しました。", visualChecked: checked, visualVerified: verified, visualPartial: partial, visualUnavailable: unavailable });

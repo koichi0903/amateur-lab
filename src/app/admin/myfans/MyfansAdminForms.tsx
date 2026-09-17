@@ -51,6 +51,20 @@ type VisualVerificationProgress = {
   unavailable: number;
   error?: string;
 };
+type VisualQueueState = {
+  job: {
+    id: number;
+    status: string;
+    total_sources: number;
+    processed_sources: number;
+    verified_count: number;
+    partial_count: number;
+    unavailable_count: number;
+    stopped_reason: string | null;
+    analyzer_version: string | null;
+  } | null;
+  items?: Array<{ status: string }>;
+};
 
 const EXPECTED_COMPANION_VERSION = "0.1.9";
 const READY_EVENT = "amateur-lab:myfans-quote-refresh:bridge-ready";
@@ -306,6 +320,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
   const [batchSize, setBatchSize] = useState(25);
   const [visualBatchSize, setVisualBatchSize] = useState(10);
   const [visualProgress, setVisualProgress] = useState<VisualVerificationProgress | null>(null);
+  const [visualQueue, setVisualQueue] = useState<VisualQueueState | null>(null);
   const [bridgeStatus, setBridgeStatus] = useState<CompanionBridgeStatus>({
     scriptInjected: false,
     runtimeConnected: false,
@@ -398,6 +413,11 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
     setMessage(null);
     try {
       await pingCompanionBridge();
+      const queueResponse = await fetch("/api/admin/myfans/visual-verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "queue_status", approvedMediaId, batchSize: visualBatchSize }), cache: "no-store" });
+      const queuePayload = (await queueResponse.json()) as VisualQueueState & { error?: string };
+      if (!queueResponse.ok) throw new Error(queuePayload.error ?? "visual確認キューを作成できませんでした。");
+      setVisualQueue(queuePayload);
+      if (["paused", "cancelled", "completed"].includes(queuePayload.job?.status ?? "")) throw new Error(`visual確認キューは${queuePayload.job?.status}です。状態を確認してから再開してください。`);
       const ack = await new Promise<{ ok?: boolean; error?: string; status?: string; workerVersion?: string }>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
           window.removeEventListener(VISUAL_RESPONSE_EVENT, onAck);
@@ -414,7 +434,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
           detail: {
             approvedMediaId,
             approvedMediaName: "@lumi_reviw",
-            batchSize: visualBatchSize,
+          batchSize: Math.min(5, visualBatchSize),
           },
         }));
       });
@@ -423,6 +443,30 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
       setMessage({ text: `ログイン済みChromeでvisual分析を開始しました。worker ${ack.workerVersion ?? "-"}`, error: false });
     } catch (error) {
       setMessage({ text: error instanceof Error ? error.message : "visual候補分析に失敗しました。", error: true });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const loadVisualQueue = useCallback(async () => {
+    const response = await fetch("/api/admin/myfans/visual-verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "queue_status", approvedMediaId, batchSize: visualBatchSize }), cache: "no-store" });
+    const payload = (await response.json()) as VisualQueueState & { error?: string };
+    if (!response.ok) throw new Error(payload.error ?? "visual確認キューを読み込めませんでした。");
+    setVisualQueue(payload);
+    return payload;
+  }, [approvedMediaId, visualBatchSize]);
+
+  async function controlVisualQueue(queueAction: "pause" | "resume" | "cancel") {
+    if (!visualQueue?.job?.id) return;
+    setPending(true);
+    try {
+      const response = await fetch("/api/admin/myfans/visual-verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "queue_control", jobId: visualQueue.job.id, queueAction }), cache: "no-store" });
+      const payload = (await response.json()) as { job?: VisualQueueState["job"]; error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "visual確認キューを操作できませんでした。");
+      setVisualQueue((current) => current ? { ...current, job: payload.job ?? current.job } : current);
+      setMessage({ text: queueAction === "pause" ? "visual確認キューを一時停止しました。" : queueAction === "resume" ? "visual確認キューを再開できます。Companionの開始を押してください。" : "visual確認キューを停止しました。", error: false });
+    } catch (error) {
+      setMessage({ text: error instanceof Error ? error.message : "visual確認キューの操作に失敗しました。", error: true });
     } finally {
       setPending(false);
     }
@@ -453,7 +497,14 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
 
   useEffect(() => {
     loadProgress().catch(() => {});
-  }, [approvedMediaId, loadProgress]);
+    loadVisualQueue().catch(() => {});
+  }, [loadProgress, loadVisualQueue]);
+
+  useEffect(() => {
+    if (!visualQueue?.job?.id || !["pending", "running", "paused"].includes(visualQueue.job.status)) return;
+    const timer = window.setInterval(() => loadVisualQueue().catch(() => {}), 4000);
+    return () => window.clearInterval(timer);
+  }, [loadVisualQueue, visualQueue?.job?.id, visualQueue?.job?.status]);
 
   useEffect(() => {
     const markFromDom = () => {
@@ -554,8 +605,6 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <select value={visualBatchSize} onChange={(event) => setVisualBatchSize(Number(event.target.value))} className={inputClass}>
               <option value={5}>5件</option>
-              <option value={10}>10件</option>
-              <option value={20}>20件</option>
             </select>
             <button type="button" onClick={runVisualVerification} disabled={pending} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-4 text-sm font-black text-white disabled:cursor-wait disabled:opacity-60">
               {pending ? <LoaderCircle size={17} className="animate-spin" /> : <ImageIcon size={17} />}
@@ -567,6 +616,18 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
           <p className="mt-2 text-xs font-bold text-cyan-100">
             checked {visualProgress.checked} / verified {visualProgress.verified} / partial {visualProgress.partial} / unavailable {visualProgress.unavailable}
           </p>
+        )}
+        {visualQueue?.job && (
+          <div className="mt-3 rounded-md border border-cyan-900 bg-zinc-950 p-3 text-xs leading-5 text-cyan-100">
+            <p className="font-black">Visual確認キュー #{visualQueue.job.id} / {visualQueue.job.status} / analyzer {visualQueue.job.analyzer_version ?? "-"}</p>
+            <p>unique source {visualQueue.job.processed_sources} / {visualQueue.job.total_sources} ・ verified {visualQueue.job.verified_count} ・ partial {visualQueue.job.partial_count} ・ unavailable {visualQueue.job.unavailable_count}</p>
+            {visualQueue.job.stopped_reason && <p className="text-amber-200">停止理由: {visualQueue.job.stopped_reason}</p>}
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" onClick={() => controlVisualQueue("pause")} disabled={pending || visualQueue.job.status !== "running"} className="h-8 rounded-md bg-amber-700 px-3 font-black text-white disabled:opacity-50">一時停止</button>
+              <button type="button" onClick={() => controlVisualQueue("resume")} disabled={pending || visualQueue.job.status !== "paused"} className="h-8 rounded-md bg-emerald-700 px-3 font-black text-white disabled:opacity-50">再開準備</button>
+              <button type="button" onClick={() => controlVisualQueue("cancel")} disabled={pending || ["completed", "cancelled"].includes(visualQueue.job.status)} className="h-8 rounded-md bg-red-700 px-3 font-black text-white disabled:opacity-50">停止</button>
+            </div>
+          </div>
         )}
         {(bridgeStatus.workerStatus === "running" || bridgeStatus.workerStatus === "done" || bridgeStatus.workerStatus === "error") && (
           <p className="mt-2 text-xs leading-5 text-cyan-100">

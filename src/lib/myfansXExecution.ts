@@ -2549,9 +2549,10 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
   };
 
   const quoteForAttempt = (product: MyfansProduct | null, postType: string, index: number, attempt: number) => {
-    if (!product || !["discovery_interest", "ranking_note", "profile_cta", "comparison_review"].includes(postType)) return null;
+    if (!product || !["discovery_interest", "ranking_note", "profile_cta", "comparison_review", "reply_link_sales", "body_link_sales"].includes(postType)) return null;
     const productCreatorKey = creatorKeyFromProduct(product);
     const matchesProduct = (candidate: MyfansQuoteCandidate) => candidate.product_id === product.id || creatorKeyFromQuote(candidate) === productCreatorKey;
+    const exactSourceQuote = resolverExactQuotes.find((candidate) => productionLinkageEvidence.some((evidence) => evidence.product_id === product.id && normalizeSourceUrl(evidence.source_status_url) === normalizeSourceUrl(candidate.x_post_url)));
     const quoteAllowedByHistory = (candidate: MyfansQuoteCandidate) => {
       const sourceUsage = pastUsage.latestSource(candidate.x_post_url) ?? pastUsage.latestSource(quoteUrlFromCandidate(candidate));
       const sourceAge = sourceUsage ? daysBetweenDates(planDate, sourceUsage.date) : null;
@@ -2564,6 +2565,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     };
     const direct = attempt === 0 ? quoteBySlot.get(`${postType}:${index}`) : null;
     if (direct && quoteAllowedByHistory(direct) && (matchesProduct(direct) || postType === "discovery_interest")) return direct;
+    if (exactSourceQuote && quoteAllowedByHistory(exactSourceQuote) && !exactSourceQuote.last_used_at) return exactSourceQuote;
     const directProductQuote = attempt <= 1 ? analytics.quoteCandidates
       .filter((candidate) => candidate.product_id === product.id && !candidate.last_used_at && quoteAllowedByHistory(candidate) && (visualPriority(candidate) >= 1 || (candidate.views ?? 0) >= 50_000))
       .sort((a, b) => (b.views ?? 0) - (a.views ?? 0) || b.score - a.score)[0] ?? null : null;
