@@ -115,7 +115,7 @@ async function selectCompanionBatch(payload: Record<string, unknown>) {
   const queueItems = (claimedItems ?? []) as ClaimedQueueItem[];
   queueLog("claim", { jobId: queue.id, claimed: queueItems.length, claimMs: Date.now() - claimStartedAt });
   const ids = (queueItems ?? []).map((item) => item.quote_candidate_id);
-  let candidateQuery = supabaseAdmin
+  const candidateQuery = supabaseAdmin
     .from("myfans_quote_candidates")
     .select("id,approved_media_id,creator_id,product_id,creator_x_url,source_x_handle,x_post_url,media_permalink,media_type,media_count,quote_visual_ready,media_permalink_validation_status,visual_render_status,visual_score,posted_at,text_excerpt,views,likes,reposts,replies,bookmarks,has_image,has_video,is_pinned,is_reply,is_repost,is_quote,collected_at,score,score_reason,selected,creator_rank,global_score,global_rank,last_used_at,use_count,cooldown_until,selected_for_today,visual_analysis_status,visual_analysis_json,visual_analyzed_at,visual_analyzer_version")
     .in("id", ids);

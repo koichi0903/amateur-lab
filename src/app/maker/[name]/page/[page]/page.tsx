@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import CatalogDetailPage, { catalogMetadata, decodeCatalogName } from "@/components/catalog/CatalogDetailPage";
 
 export const revalidate = 86400;
+export const dynamic = "force-static";
 
 export async function generateMetadata({ params }: { params: Promise<{ name: string; page: string }> }): Promise<Metadata> {
   const { name, page } = await params;
