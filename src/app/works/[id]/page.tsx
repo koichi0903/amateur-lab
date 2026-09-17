@@ -64,8 +64,7 @@ const WORK_DETAIL_COLUMNS = [
   "sample_movie_url", "long_hit_rank", "url",
 ].join(",");
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 86400;
 
 function isValidWorkId(id: string): boolean {
   return /^\d{1,10}$/.test(id);

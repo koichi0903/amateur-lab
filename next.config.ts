@@ -22,6 +22,28 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async headers() {
+    return [
+      {
+        source: "/:section(actress|genre|maker|series)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, s-maxage=900, stale-while-revalidate=86400",
+          },
+        ],
+      },
+      {
+        source: "/:section(actress|genre|maker|series)/:name",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, s-maxage=900, stale-while-revalidate=86400",
+          },
+        ],
+      },
+    ];
+  },
   serverExternalPackages: [
     "@sparticuz/chromium",
     "playwright-core",

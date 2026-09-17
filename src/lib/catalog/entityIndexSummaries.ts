@@ -21,46 +21,30 @@ export type EntityIndexSummary = {
   imageUrl: string | null;
 };
 
-type EntityIndexSummaryMap = Record<EntityIndexKind, EntityIndexSummary[]>;
-
-const kinds: EntityIndexKind[] = ["actress", "maker", "series", "genre"];
-
-async function loadEntityIndexSummaries(): Promise<EntityIndexSummaryMap> {
+async function loadEntityIndexSummaries(kind: EntityIndexKind): Promise<EntityIndexSummary[]> {
   const { data, error } = await supabase.rpc("get_entity_index_summaries");
   if (error) {
     throw error;
   }
 
-  const result: EntityIndexSummaryMap = {
-    actress: [],
-    maker: [],
-    series: [],
-    genre: [],
-  };
-
   const grouped = (data ?? {}) as Partial<Record<EntityIndexKind, EntitySummaryRow[]>>;
 
-  for (const kind of kinds) {
-    result[kind] = (grouped[kind] ?? []).map((row) => ({
-      name: row.name,
-      count: Number(row.work_count),
-      maxScore: Number(row.max_score),
-      imageUrl: row.image_url,
-    }));
-  }
-
-  return result;
+  return (grouped[kind] ?? []).map((row) => ({
+    name: row.name,
+    count: Number(row.work_count),
+    maxScore: Number(row.max_score),
+    imageUrl: row.image_url,
+  }));
 }
 
 const getCachedEntityIndexSummaries = unstable_cache(
   loadEntityIndexSummaries,
-  ["entity-index-summaries-v1"],
+  ["entity-index-summaries-v2"],
   { revalidate: 3600 }
 );
 
 export async function getEntityIndexSummaries(kind: EntityIndexKind) {
-  const summaries = await getCachedEntityIndexSummaries();
-  return summaries[kind];
+  return getCachedEntityIndexSummaries(kind);
 }
 
 export async function getEntityIndexSummary(
