@@ -13,6 +13,7 @@ export type XCreativeMedia = "existing_link_image" | "sample_movie" | "data_card
 export type XLinkPlan = "no_link" | "profile_only" | "reply_link" | "body_link";
 export type XSourceType = "WORK" | "MARKET" | "FOLLOW_UP" | "COMPARISON" | "JUDGMENT" | "ACTRESS_TREND" | "GENRE_TREND" | "MAKER_TREND" | "PRICE_EVENT" | "HIDDEN_GEM" | "MONEY";
 export type XVideoManualTag = "first_seconds_strong" | "visual_mismatch" | "actress_fit" | "scene_surprise" | "safe_preview" | "too_explicit_for_reach" | "weak_visual";
+export type XHumanVoiceArchetype = "spontaneous_reaction" | "changed_mind" | "quiet_recommendation" | "surprise_mismatch" | "actress_fit" | "hidden_find" | "social_proof_light" | "price_reason" | "conversational" | "dry_observation";
 
 export type XQualityDimension =
   | "scrollStop" | "curiosity" | "proof" | "judgment" | "followValue"
@@ -95,6 +96,7 @@ export type XCreativeVariant = {
     reason: string;
   };
   hookDirection: XHookDirection;
+  archetype: XHumanVoiceArchetype;
   hookAlternatives: Array<{ direction: XHookDirection; opening: string; score: number }>;
   creativeGenome: {
     topic: string;
@@ -288,14 +290,14 @@ function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPl
   const link = linkPlan === "body_link" ? input.url : "";
   const second = proof && (tag === "first_seconds_strong" || tag === "visual_mismatch") ? proof : "";
   const lineByTag: Record<Exclude<XVideoManualTag, "too_explicit_for_reach" | "weak_visual">, string> = {
-    first_seconds_strong: "これ、冒頭でちょっと止まった。",
+    first_seconds_strong: "開いてすぐ、目が止まった。",
     visual_mismatch: `${subject}、ジャケより動画の方が気になる。`,
     actress_fit: actress ? `${actress}、この空気だと見え方が変わる。` : `${title}、動画の空気が合ってる。`,
     scene_surprise: "入り方が少し予想とズレます。",
     safe_preview: proof ? `${subject}、数字より先に動画で分かる。` : `${subject}、雰囲気だけ先に見える。`,
   };
   const closingByTag: Record<Exclude<XVideoManualTag, "too_explicit_for_reach" | "weak_visual">, string> = {
-    first_seconds_strong: actress ? `${actress}、この雰囲気かなり合ってる。` : "この雰囲気、かなり合ってる。",
+    first_seconds_strong: actress ? `${actress}、この空気はかなり好み。` : "この空気、かなり好み。",
     visual_mismatch: "こっちの雰囲気の方が好きな人いそう。",
     actress_fit: "名前だけで流すの、少しもったいない。",
     scene_surprise: "この入り方、少し気になる。",
@@ -333,14 +335,14 @@ function hookOpenings(input: XCreativeInput, intent: XGrowthIntent): Array<{ dir
     ] : []),
     ...(input.sourceType === "JUDGMENT" ? [
       { direction: "hot_take" as const, opening: input.discountRate >= 30 ? `${pct(input.discountRate)}OFFだけど、これは今日は見送っていいかもしれません。` : "売れてそうに見えても、今日は急がなくてよさそうです。", score: 95 },
-      { direction: "contradiction" as const, opening: "安さより先に、見送る理由を確認したい一本です。", score: 88 },
+      { direction: "contradiction" as const, opening: "安さより先に、見送る理由を見ておきたい。", score: 88 },
     ] : []),
     ...(input.sourceType === "FOLLOW_UP" ? [
-      { direction: "follow_up" as const, opening: hasTrend ? `前回${input.previousRanking}位から今日${input.ranking}位。これは続報で拾えます。` : input.seriesName ? `${input.seriesName}周辺、今日も追う理由があります。` : "昨日の注目枠として、もう一度だけ見ておきたい一本です。", score: hasTrend ? 96 : 82 },
+      { direction: "follow_up" as const, opening: hasTrend ? `前回${input.previousRanking}位から今日${input.ranking}位。これは続報で見たい。` : input.seriesName ? `${input.seriesName}周辺、今日も少し気になります。` : "昨日の注目枠、もう一度だけ見ておきたい。", score: hasTrend ? 96 : 82 },
     ] : []),
     ...(input.sourceType === "ACTRESS_TREND" ? [
       { direction: "curiosity" as const, opening: actress ? `${actress}は、こういう静かな作品の方が強く見える日があります。` : "女優軸で見ると、今日はこの候補が残ります。", score: 92 },
-      { direction: "social_proof" as const, opening: actress ? `${actress}目当てで追うなら、評価より先に型を見たい一本です。` : "女優名だけで追うと、少し見方が変わります。", score: 88 },
+      { direction: "social_proof" as const, opening: actress ? `${actress}目当てなら、評価より先に空気を見たい。` : "女優名だけで追うと、少し見方が変わります。", score: 88 },
     ] : []),
     ...(input.sourceType === "GENRE_TREND" ? [
       { direction: "comparison" as const, opening: input.genre ? `${input.genre.split(/[,、/]/)[0]}で探すなら、今日はランキング順だけで決めない方がよさそうです。` : "ジャンル軸で見ると、今日はランキング順だけでは決めにくいです。", score: 90 },
@@ -355,7 +357,7 @@ function hookOpenings(input: XCreativeInput, intent: XGrowthIntent): Array<{ dir
     ] : []),
     { direction: "missed", opening: `${topic}、最初は通りすぎてました。`, score: 78 + (input.imageUrl ? 4 : 0) },
     { direction: "curiosity", opening: `${topic}、数字より先に雰囲気で気になります。`, score: 76 + (input.reviewAverage ?? 0) * 3 },
-    { direction: "contradiction", opening: fact && !fact.includes("ランキング") ? `${fact}まであるのに、押し出しは意外と静かです。` : "強く押されていないのに、妙に気になる一本です。", score: 70 + (facts.length * 7) },
+    { direction: "contradiction", opening: fact && !fact.includes("ランキング") ? `${fact}まであるのに、押し出しは意外と静かです。` : "強く押されていないのに、妙に気になる。", score: 70 + (facts.length * 7) },
     { direction: "comparison", opening: "ランキングだけ見ていると、こういう候補を落としがちです。", score: 68 + (input.ranking && input.ranking <= 80 ? 10 : 0) },
     { direction: "social_proof", opening: input.reviewAverage ? `知らない作品でも、ここまで評価が高いと少し見方が変わります。` : "知らない作品ほど、最初のひっかかりで決めたいです。", score: 66 + Math.min(input.reviewCount, 60) / 3 },
     { direction: "confession", opening: "正直、最初は通りすぎていました。", score: 68 + (input.imageUrl ? 4 : 0) },
@@ -363,7 +365,7 @@ function hookOpenings(input: XCreativeInput, intent: XGrowthIntent): Array<{ dir
     { direction: "surprise", opening: `${topic}、思ったより静かな顔をしてます。`, score: 76 + (facts.length * 5) },
     { direction: "empathy", opening: `セール欄を流し見してる人ほど、${topic}は一回止まっていいと思います。`, score: intent === "MONEY" ? 84 : 72 },
     { direction: "question", opening: `${topic}、まだ見てない人は多そうです。`, score: 80 },
-    { direction: "follow_up", opening: hasTrend ? `前回${input.previousRanking}位から今日${input.ranking}位。これは続報で拾えます。` : subject ? `${subject}周辺は、もう少し追っていい気がします。` : "これは次も追っていい一本です。", score: hasTrend ? 92 : 50 },
+    { direction: "follow_up", opening: hasTrend ? `前回${input.previousRanking}位から今日${input.ranking}位。これは続報で見たい。` : subject ? `${subject}周辺は、もう少し追っていい気がします。` : "これは次も追っていい。", score: hasTrend ? 92 : 50 },
   ];
   return openings.sort((a, b) => b.score - a.score).slice(0, 6);
 }
@@ -377,6 +379,26 @@ function hookLine(input: XCreativeInput, intent: XGrowthIntent, direction: XHook
   return input.isNinetyDayLow ? "安いから買う、ではまだ弱いです。" : "クリック前に、見る理由だけ先に確認します。";
 }
 
+function voiceProof(input: XCreativeInput, intent: XGrowthIntent, direction: XHookDirection) {
+  // A lived-in X reaction does not need a stat on every post.
+  if (["missed", "confession", "surprise", "empathy", "question"].includes(direction)) return "";
+  return humanProofLine(input, intent);
+}
+
+function voiceArchetype(direction: XHookDirection, index: number): XHumanVoiceArchetype {
+  if (direction === "confession" || direction === "missed") return "spontaneous_reaction";
+  if (direction === "surprise" || direction === "contrast") return "surprise_mismatch";
+  if (direction === "social_proof") return "social_proof_light";
+  if (direction === "follow_up" || direction === "question") return "conversational";
+  if (direction === "curation" || direction === "anti_obvious") return "quiet_recommendation";
+  if (direction === "hot_take") return "changed_mind";
+  if (direction === "comparison" || direction === "pattern_break") return "dry_observation";
+  if (direction === "empathy") return "actress_fit";
+  if (index % 3 === 0) return "hidden_find";
+  if (index % 3 === 1) return "price_reason";
+  return "spontaneous_reaction";
+}
+
 function judgmentLine(input: XCreativeInput, intent: XGrowthIntent) {
   if (input.sourceType === "JUDGMENT") {
     if (input.reviewAverage && input.reviewAverage < 4.2) return "値引きより、評価の低さが先に引っかかります。";
@@ -387,20 +409,20 @@ function judgmentLine(input: XCreativeInput, intent: XGrowthIntent) {
   if (input.sourceType === "MARKET") return "一覧を流す前に、一回止まる理由だけ残せば十分です。";
   if (input.sourceType === "COMPARISON") return "安さで並べても、最後は見たい空気がある方に寄ります。";
   if (input.sourceType === "HIDDEN_GEM") {
-    if (input.discountRate >= 30) return "セール目的じゃなくても、一度サンプルまで見てほしい一本です。";
+    if (input.discountRate >= 30) return "セール目的じゃなくても、一度サンプルまで見てほしい。";
     if (input.reviewAverage && input.reviewAverage >= 4.6) return "ランキングだけなら見落とすけど、評価まで見ると少し残ります。";
-    return "ジャケだけで判断しない方がいいタイプです。";
+    return "表紙より中身を先に見たい。";
   }
   if (input.sourceType === "ACTRESS_TREND") {
-    if (primaryActress(input)) return "女優目当てなら、タイトルより中身寄りで一度見ていい一本です。";
-    return "タイトルより中身寄りで、一度見方を変えていい一本です。";
+    if (primaryActress(input)) return "女優目当てなら、タイトルより中身を先に見たい。";
+    return "タイトルより中身を先に見たい。";
   }
   if (input.sourceType === "PRICE_EVENT") return "半額だけでなく評価も高いので、気になっていたなら今日は見ていいと思います。";
   if (intent === "REACH") return input.hasRightsCheckedMovie ? "動画で一瞬止められるなら、今日はこの形が一番自然です。" : "派手に煽るより、違和感だけ置いた方が読まれそうです。";
   if (intent === "FOLLOW") return "タイトルより中身寄りで見る方が合っています。";
   if (intent === "AUTHORITY") {
     if (input.ranking && input.ranking <= 80 && input.reviewAverage) return "数字を少し添えるだけで、流すには惜しい理由が出ます。";
-    return input.reviewAverage ? "サンプルの方が強いかどうかまで見ると判断しやすいです。" : "評価と価格を分けて見ると、判断しやすい一本です。";
+    return input.reviewAverage ? "サンプルの方が強いかどうか、そこまで見たい。" : "評価と価格を分けて見ると、選びやすい。";
   }
   if (intent === "CONVERSATION") return "外の投稿に乗るなら、断定より一つだけ事実を添える方がよさそうです。";
   return input.discountRate >= 30 || input.isNinetyDayLow ? "気になっていたなら、価格とサンプルを見て決めていい日です。" : "急がず、他の一本と比べてからでよさそうです。";
@@ -442,7 +464,7 @@ function variantPlan(intent: XGrowthIntent): { structure: XCreativeStructure; li
 }
 
 function buildBody(input: XCreativeInput, intent: XGrowthIntent, structure: XCreativeStructure, linkPlan: XLinkPlan, direction: XHookDirection) {
-  const proofLine = humanProofLine(input, intent);
+  const proofLine = voiceProof(input, intent, direction);
   const judgment = intent === "MONEY" ? moneyClickReason(input) : judgmentLine(input, intent);
   const lines = [
     hookLine(input, intent, direction),
@@ -618,7 +640,7 @@ function lastMileGate(input: XCreativeInput, variant: { intent: XGrowthIntent; m
     !hasConcreteEntry ? "作品を知らない人の入口が弱い" : "",
     titleTooForced || variant.text.includes("…") ? "長い作品名の機械的処理が残っている" : "",
     variant.intent === "MONEY" && variant.linkPlan === "body_link" && !hasUrl ? "MONEYなのに本文リンクがない" : "",
-    variant.intent === "MONEY" && variant.linkPlan !== "body_link" ? "MONEYの自己リプリンクはA/Bテスト明示時だけ使う" : "",
+    variant.intent === "MONEY" && variant.linkPlan !== "body_link" && variant.linkPlan !== "reply_link" ? "MONEYのリンク戦略が不正" : "",
     variant.intent !== "MONEY" && (variant.linkPlan === "body_link" || hasUrl) ? "認知投稿に直リンクが強すぎる" : "",
     mediaWeak ? "テキストのみのHookが弱い" : "",
     ...reachApprovalFailures,
@@ -725,7 +747,7 @@ function buildLastMileBodies(input: XCreativeInput, intent: XGrowthIntent, linkP
   const actress = primaryActress(input);
   const topic = actress ? `${actress}のこれ` : safeTitleFragment(input);
   const naturalTopic = actress ? `${actress}でこれ` : safeTitleFragment(input);
-  const proof = humanProofLine(input, intent);
+  const proof = voiceProof(input, intent, direction);
   const proofSentence = proof ? proof.startsWith("評価") ? `でも${proof}。` : `${proof}です。` : "";
   const link = linkPlan === "body_link" ? input.url : "";
   const moneyReason = moneyClickReason(input);
@@ -740,8 +762,8 @@ function buildLastMileBodies(input: XCreativeInput, intent: XGrowthIntent, linkP
   if (input.sourceType === "PRICE_EVENT") {
     return [...new Set([
       buildBody(input, intent, variantPlan(intent).structure, linkPlan, direction),
-      formatText([input.discountRate >= 30 ? "半額だけでなく、評価まで高いのが少し気になります。" : "今日は価格より、サンプルで刺さるかを先に見たいです。", proofSentence || proof, "気になっていたなら、今日は見ていいと思います。", link].filter(Boolean), input.title),
-      formatText(["安いから即決、までは言いません。", proof, "でもサンプルで刺さるなら、今日見ておきたい一本です。", link].filter(Boolean), input.title),
+      formatText([input.discountRate >= 30 ? "半額だけでなく、評価まで高いのが少し気になります。" : "今日は価格より、サンプルで刺さるかを先に見たいです。", proofSentence || proof, "気になっていた人は、今日はサンプルまで。", link].filter(Boolean), input.title),
+      formatText(["安いから即決、までは言いません。", proof, "でもサンプルで刺さるなら、今日は見ておきたい。", link].filter(Boolean), input.title),
     ].map(sanitizePublicText))];
   }
   if (input.hasRightsCheckedMovie && input.sampleMovieUrl && intent !== "MONEY") {
@@ -749,9 +771,9 @@ function buildLastMileBodies(input: XCreativeInput, intent: XGrowthIntent, linkP
     const topic = actress ? `${actress}のこれ` : safeTitleFragment(input);
     return [...new Set([
       buildBody(input, intent, variantPlan(intent).structure, linkPlan, direction),
-      formatText([`${topic}、最初は通りすぎてました。`, proof || "", "動画で見た方が早い一本です。"].filter(Boolean), input.title),
+      formatText([`${topic}、最初は通りすぎてました。`, proof || "", "動画で見た方が早い。"].filter(Boolean), input.title),
       formatText([actress ? `${actress}でこれ、少し見落としてました。` : `${topic}、少し見落としてました。`, proof || "", "今日は動画だけで止めます。"].filter(Boolean), input.title),
-      formatText([`${topic}、派手に煽るよりそのまま見た方が早いです。`, proof || "", "今日は見ていい一本だと思います。"].filter(Boolean), input.title),
+      formatText([`${topic}、派手に煽るよりそのまま見た方が早い。`, proof || "", "今日はこれだけ見ておきたい。"].filter(Boolean), input.title),
     ].map(sanitizePublicText))];
   }
   if (input.sourceType === "MARKET") {
@@ -780,9 +802,9 @@ function buildLastMileBodies(input: XCreativeInput, intent: XGrowthIntent, linkP
   const bodies = [
     buildBody(input, intent, variantPlan(intent).structure, linkPlan, direction),
     formatText([`${naturalTopic}、最初は見落としてました。`, proofSentence, intent === "MONEY" ? moneyReason : judgmentLine(input, intent), link].filter(Boolean), input.title),
-    formatText([`${topic}は、ジャケだけで決めない方がよさそうです。`, proof, intent === "MONEY" ? moneyReason : reachReason, link].filter(Boolean), input.title),
-    formatText([`セール欄を流し見してる人ほど、${topic}は一回止まっていいと思います。`, proof, intent === "MONEY" ? moneyReason : "派手に煽るより、この違和感だけで十分です。", link].filter(Boolean), input.title),
-    formatText([`${topic}、まだ見てない人は多そうです。`, proof, intent === "MONEY" ? moneyReason : "知らなかった人でも、サンプルから入れば分かりやすい一本です。", link].filter(Boolean), input.title),
+      formatText([`${topic}は、表紙より中身を先に見たい。`, proof, intent === "MONEY" ? moneyReason : reachReason, link].filter(Boolean), input.title),
+      formatText([`${topic}、流し見で終わらせるには少し惜しい。`, proof, intent === "MONEY" ? moneyReason : "派手に押さなくても、この違和感だけ残る。", link].filter(Boolean), input.title),
+      formatText([`${topic}、まだ知らない人の方が多そう。`, proof, intent === "MONEY" ? moneyReason : "知らないまま流すには、少しもったいない。", link].filter(Boolean), input.title),
   ];
   return [...new Set(bodies.map(sanitizePublicText))];
 }
@@ -803,17 +825,18 @@ export function buildXCreativeVariants(input: XCreativeInput, hookScore = calcul
     const mediaType = mediaFor(input, intent);
     const alternatives = hookOpenings(input, intent);
     return alternatives.slice(0, 5).map((alternative, alternativeIndex) => {
-      const reviewed = buildLastMileBodies(input, intent, plan.linkPlan, alternative.direction)
+      const linkPlan = intent === "MONEY" && alternativeIndex === 4 ? "reply_link" as const : plan.linkPlan;
+      const reviewed = buildLastMileBodies(input, intent, linkPlan, alternative.direction)
         .map((text, index) => ({
           text,
-          quality: qualityFor(input, { intent, structure: plan.structure, mediaType, linkPlan: plan.linkPlan, text }),
+          quality: qualityFor(input, { intent, structure: plan.structure, mediaType, linkPlan, text }),
           rewriteCount: index,
         }))
         .sort((a, b) => Number(b.quality.passed) - Number(a.quality.passed) || b.quality.total - a.quality.total)[0];
       const text = reviewed.text;
       const quality = {
         ...reviewed.quality,
-        lastMile: { ...lastMileGate(input, { intent, mediaType, linkPlan: plan.linkPlan, text }, reviewed.rewriteCount), rewriteCount: reviewed.rewriteCount },
+        lastMile: { ...lastMileGate(input, { intent, mediaType, linkPlan, text }, reviewed.rewriteCount), rewriteCount: reviewed.rewriteCount },
       };
       const length = getXWeightedLength(text);
       const proof = strongestFacts(input).join(" / ") || "story_only";
@@ -842,17 +865,18 @@ export function buildXCreativeVariants(input: XCreativeInput, hookScore = calcul
       structure: plan.structure,
       mediaType,
       imageStrategy: mediaType === "existing_link_image" ? "original_work_image" as const : "branded_data_card" as const,
-      linkStrategy: plan.linkPlan === "body_link" ? "body_link" as const : "reply_link" as const,
-      linkPlan: plan.linkPlan,
+      linkStrategy: linkPlan === "body_link" ? "body_link" as const : "reply_link" as const,
+      linkPlan,
       ctaStrategy: plan.cta,
       bodyText: text,
-      replyText: plan.linkPlan === "reply_link" ? formatText(["必要な時だけ確認用です。", input.url], input.title) : null,
+      replyText: linkPlan === "reply_link" ? formatText(["必要な時だけ確認用です。", input.url], input.title) : null,
       url: input.url,
       rationale: `${hookScore.bestHook.label}: ${hookScore.bestHook.evidence} / ${intent}向け`,
       weightedLength: length,
       quality,
       buzzPotential,
       hookDirection: alternative.direction,
+      archetype: voiceArchetype(alternative.direction, alternativeIndex),
       hookAlternatives: alternatives,
       creativeGenome: {
         topic: input.category,

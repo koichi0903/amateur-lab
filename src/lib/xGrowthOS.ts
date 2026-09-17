@@ -129,6 +129,8 @@ export type XDailyTopPick = XGrowthOpportunity & {
       mediaType: XGrowthOpportunity["mediaType"];
       ctaStrategy: string;
       linkStrategy: string;
+      endingPhrase: string;
+      numberPlacement: string;
     };
     reasons: string[];
   };
@@ -738,6 +740,18 @@ function sentenceStructure(text: string) {
   }).join(">");
 }
 
+function endingPhrase(text: string) {
+  return (text.split("\n").map((line) => line.trim()).filter(Boolean).at(-1) ?? "")
+    .replace(/[0-9０-９]+/g, "#")
+    .slice(0, 18);
+}
+
+function numberPlacement(text: string) {
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const positions = lines.map((line, index) => /[0-9０-９]/.test(line) ? String(index + 1) : "").filter(Boolean);
+  return positions.length ? positions.join(",") : "none";
+}
+
 function subjectStructure(item: XGrowthOpportunity, text: string) {
   const opening = firstLine(text);
   const actress = item.actress?.split(/[,、/]/)[0]?.trim();
@@ -781,6 +795,8 @@ function diversitySignature(item: XGrowthOpportunity, role: XGrowthIntent, varia
     mediaType: variant.mediaType === "sample_movie" && !item.canNativeVideo ? item.imageUrl ? "data_card" as const : "text" as const : variant.mediaType,
     ctaStrategy: variant.ctaStrategy,
     linkStrategy: variant.linkPlan,
+    endingPhrase: endingPhrase(variant.bodyText),
+    numberPlacement: numberPlacement(variant.bodyText),
   };
 }
 
@@ -825,12 +841,14 @@ function diversityConflicts(
       signature.emotionalAngle === other.emotionalAngle,
       signature.mediaType === other.mediaType,
       signature.linkStrategy === other.linkStrategy,
+      signature.endingPhrase === other.endingPhrase,
+      signature.numberPlacement === other.numberPlacement,
     ].filter(Boolean).length;
     if (sameShape >= 5) reasons.push(`当日セット類似: ${pick.pickOrder}件目と構造が近い`);
     if (textSimilarity(variant.bodyText, pick.postText) >= 0.58) reasons.push(`当日セット本文類似: ${pick.pickOrder}件目と近い`);
   }
-  const sevenDaysAgo = Date.now() - 7 * DAY_MS;
-  const recentPhraseReuse = logs.filter((log) => new Date(log.posted_at).getTime() >= sevenDaysAgo)
+  const thirtyDaysAgo = Date.now() - 30 * DAY_MS;
+  const recentPhraseReuse = logs.filter((log) => new Date(log.posted_at).getTime() >= thirtyDaysAgo)
     .filter((log) => openingPattern(log.post_text) === signature.openingPattern || judgmentPhrase(log.post_text) === signature.judgmentPhrase)
     .length;
   if (recentPhraseReuse >= 2) reasons.push(`直近7日Novelty減点: opening/judgment同型 ${recentPhraseReuse}件`);

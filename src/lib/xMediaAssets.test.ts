@@ -36,5 +36,5 @@ assert.equal(isUsableXMediaAsset(officialSample).usable, false);
 assert.equal(isPostableOfficialSampleMovie(officialSample).usable, true);
 assert.equal(isPostableOfficialSampleMovie({ ...officialSample, fetch_status: "dead" }).usable, false);
 assert.equal(isPostableOfficialSampleMovie({ ...officialSample, media_quality: "weak" }).usable, false);
-assert.equal(canTrimOfficialSampleMovie(officialSample).usable, false);
-assert.equal(canTrimOfficialSampleMovie({ ...officialSample, trim_modify_confirmed: true }).usable, true);
+assert.equal(canTrimOfficialSampleMovie(officialSample).usable, true);
+assert.equal(canTrimOfficialSampleMovie({ ...officialSample, fetch_status: "forbidden" }).usable, false);

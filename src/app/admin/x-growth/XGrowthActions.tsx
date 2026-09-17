@@ -283,6 +283,7 @@ export function ManualPostActions({
   pickOrder,
   trimStartSeconds = 0,
   canModify = false,
+  trimAllowed = false,
 }: {
   postText: string;
   replyText?: string | null;
@@ -302,6 +303,7 @@ export function ManualPostActions({
   pickOrder?: number;
   trimStartSeconds?: number;
   canModify?: boolean;
+  trimAllowed?: boolean;
 }) {
   const [message, setMessage] = useState("");
   const encodedText = encodeURIComponent(postText);
@@ -351,7 +353,7 @@ export function ManualPostActions({
     setMessage("");
     try {
       await navigator.clipboard.writeText(postText);
-      if (trimStartSeconds > 0 && !canModify) throw new Error("この動画は冒頭カット許可が未確認のため、トリム済み動画は保存できません。");
+      if (trimStartSeconds > 0 && !trimAllowed && !canModify) throw new Error("この動画は冒頭カット許可が未確認のため、トリム済み動画は保存できません。");
       const response = await fetch(downloadUrl, { cache: "no-store" });
       const errorBody = await response.clone().json().catch(() => null) as { error?: string } | null;
       if (!response.ok) throw new Error(errorBody?.error ?? "動画を取得できませんでした。");
@@ -391,7 +393,7 @@ export function ManualPostActions({
     <div className="mt-4">
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={copy} className="h-10 rounded-lg bg-emerald-500 px-3 text-xs font-black text-black">{linkPlan === "self_reply" ? "本投稿をコピー" : "完成文をコピー"}</button>
-        {linkPlan === "body" && affiliateUrl && (
+        {affiliateUrl && (
           <button type="button" onClick={copyLink} className="h-10 rounded-lg border border-emerald-700 bg-emerald-950/40 px-3 text-xs font-black text-emerald-100">リンクをコピー</button>
         )}
         {linkPlan === "self_reply" && (
@@ -429,6 +431,7 @@ export function XVideoTrimControls({
   initialTrimNote,
   canModify,
   trimModifyConfirmed,
+  trimAllowed = false,
   compact = false,
   onSaved,
 }: {
@@ -438,6 +441,7 @@ export function XVideoTrimControls({
   initialTrimNote?: string | null;
   canModify?: boolean | null;
   trimModifyConfirmed?: boolean | null;
+  trimAllowed?: boolean;
   compact?: boolean;
   onSaved?: (value: { trimStartSeconds: number; trimModifyConfirmed: boolean; trimNote: string }) => void;
 }) {
@@ -490,8 +494,8 @@ export function XVideoTrimControls({
         <span>保存済み {savedSeconds.toFixed(1)}秒</span>
         {dirty && <span className="text-amber-200">未保存</span>}
         {savedSeconds > 0 && <span className="text-emerald-200">冒頭トリム: {savedSeconds.toFixed(1)}秒</span>}
-        {savedSeconds > 0 && !canModify && !modifyConfirmed && <span className="text-rose-200">冒頭カット許可未確認のためトリム投稿不可</span>}
-        <span className={modifyConfirmed ? "text-emerald-200" : "text-amber-200"}>{modifyConfirmed ? "冒頭カット許可確認済み" : "冒頭カット許可未確認"}</span>
+        {!trimAllowed && savedSeconds > 0 && !canModify && !modifyConfirmed && <span className="text-rose-200">冒頭カット許可未確認のためトリム投稿不可</span>}
+        {!trimAllowed && <span className={modifyConfirmed ? "text-emerald-200" : "text-amber-200"}>{modifyConfirmed ? "冒頭カット許可確認済み" : "冒頭カット許可未確認"}</span>}
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
         <input
@@ -508,7 +512,7 @@ export function XVideoTrimControls({
         <button type="button" disabled={pending} onClick={save} className="min-h-9 rounded-lg bg-emerald-500 px-3 py-2 text-center text-[11px] font-black leading-4 text-black disabled:opacity-50">開始位置を保存</button>
       </div>
       {!compact && <textarea suppressHydrationWarning value={note} onChange={(event) => setNote(event.target.value)} placeholder="トリムメモ" className="h-16 resize-none rounded-lg border border-zinc-700 bg-black p-2 text-xs text-zinc-100" />}
-      <label className="flex items-center gap-2 text-[11px] font-bold text-zinc-300">
+      {!trimAllowed && <label className="flex items-center gap-2 text-[11px] font-bold text-zinc-300">
         <input
           suppressHydrationWarning
           type="checkbox"
@@ -517,7 +521,7 @@ export function XVideoTrimControls({
           className="h-4 w-4 accent-emerald-400"
         />
         冒頭カット許可確認済み
-      </label>
+      </label>}
       <button
         type="button"
         onClick={(event) => {
@@ -557,6 +561,7 @@ export function TopPickVideoActions({
   intent,
   pickOrder,
   mediaType,
+  trimAllowed = false,
 }: {
   postText: string;
   replyText?: string | null;
@@ -574,6 +579,7 @@ export function TopPickVideoActions({
   intent?: string;
   pickOrder?: number;
   mediaType: XGrowthMediaType;
+  trimAllowed?: boolean;
 }) {
   const [trimStartSeconds, setTrimStartSeconds] = useState(Number(mediaAsset?.trim_start_seconds ?? 0));
   const [trimModifyConfirmed, setTrimModifyConfirmed] = useState(Boolean(mediaAsset?.trim_modify_confirmed));
@@ -609,6 +615,7 @@ export function TopPickVideoActions({
         replyText={replyText}
         trimStartSeconds={trimStartSeconds}
         canModify={canModify}
+        trimAllowed={trimAllowed}
       />
     );
   }
@@ -620,9 +627,9 @@ export function TopPickVideoActions({
           <div className="flex flex-wrap items-center gap-2 text-[11px] font-black">
             <span className="rounded-lg border border-cyan-800 bg-cyan-950/30 px-3 py-2 text-cyan-100">現在の投稿動画: asset {mediaAsset?.id}</span>
             <span className="rounded-lg border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-emerald-100">冒頭トリム: {trimStartSeconds.toFixed(1)}秒</span>
-            <span className={`rounded-lg border px-3 py-2 ${canModify ? "border-emerald-800 bg-emerald-950/30 text-emerald-100" : "border-amber-800 bg-amber-950/30 text-amber-100"}`}>
+            {!trimAllowed && <span className={`rounded-lg border px-3 py-2 ${canModify ? "border-emerald-800 bg-emerald-950/30 text-emerald-100" : "border-amber-800 bg-amber-950/30 text-amber-100"}`}>
               {canModify ? "冒頭カット許可確認済み" : "冒頭カット許可未確認のためトリム投稿不可"}
-            </span>
+            </span>}
             <span className="min-w-0 break-all rounded-lg border border-zinc-700 bg-black/30 px-3 py-2 text-zinc-300">一時ファイル名: {filename}</span>
           </div>
           <XVideoTrimControls
@@ -633,6 +640,7 @@ export function TopPickVideoActions({
             initialTrimNote={mediaAsset?.trim_note}
             canModify={mediaAsset?.can_modify}
             trimModifyConfirmed={trimModifyConfirmed}
+            trimAllowed={trimAllowed}
             onSaved={(value) => {
               setTrimStartSeconds(value.trimStartSeconds);
               setTrimModifyConfirmed(value.trimModifyConfirmed);
@@ -664,6 +672,7 @@ export function TopPickVideoActions({
         replyText={replyText}
         trimStartSeconds={trimStartSeconds}
         canModify={canModify}
+        trimAllowed={trimAllowed}
       />
     </div>
   );

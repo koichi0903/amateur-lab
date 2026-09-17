@@ -7,7 +7,7 @@ import { getFanzaXAccountGrowth } from "@/lib/fanzaXAccountGrowth";
 import { buildXGrowthOS, getRightsCheckedMediaCount, type XDailyTopPick, type XGrowthIntent, type XGrowthOpportunity } from "@/lib/xGrowthOS";
 import { getPersistedTodayTopPicks, type PersistedXDailyPlan } from "@/lib/xGrowthOperations";
 import { getXCreativeLearning, getXPostOutcomes, getRecentXPostLogs } from "@/lib/xPostLogs";
-import { getRightsReviewQueue } from "@/lib/xMediaAssets";
+import { getRightsReviewQueue, isOfficialFanzaDmmSampleUrl } from "@/lib/xMediaAssets";
 import { buildTopPickSlotsViewModel } from "@/lib/xGrowthTopPicks";
 import { CandidateSelectAction, DeferredXGrowthSections, MediaPipelineActions, MetricSyncActions, OpportunityActions, RegenerateTopPicksAction, RightsReviewActions, TempFolderStatus, TopPickVideoActions, TrimReviewActions } from "./XGrowthActions";
 
@@ -95,7 +95,7 @@ function editorialVerdict(item: XGrowthOpportunity) {
 
 type LinkStrategyView = {
   plan: "none" | "body" | "self_reply";
-  label: "リンク: なし" | "リンク: 本文内" | "リンク: 自己リプ";
+  label: "投稿戦略: リンクなし" | "投稿戦略: リンク本文内" | "投稿戦略: 自己リプリンク";
   affiliateUrl: string | null;
   reason: string;
   cta: string;
@@ -128,17 +128,17 @@ function linkStrategyFor(item: {
   if (role !== "MONEY") {
     return {
       plan: "none",
-      label: "リンク: なし",
-      affiliateUrl: null,
+      label: "投稿戦略: リンクなし",
+      affiliateUrl,
       reason: "REACH / FOLLOW / AUTHORITY / CONVERSATIONは、リンクを貼らず認知・保存・フォロー導線を優先します。",
       cta: ctaLabel(item.ctaStrategy ?? selected?.ctaStrategy),
-      instruction: "この投稿にはリンクを入れない",
+      instruction: "完成文にはリンクを入れない。必要なら後から手動追加できます。",
     } satisfies LinkStrategyView;
   }
   if (explicitPlan === "reply_link") {
     return {
       plan: "self_reply",
-      label: "リンク: 自己リプ",
+      label: "投稿戦略: 自己リプリンク",
       affiliateUrl,
       reason: "A/Bテストで自己リプvariantが明示されたため、本投稿からリンクを外して投稿後の自己リプに入れます。",
       cta: ctaLabel(item.ctaStrategy ?? selected?.ctaStrategy),
@@ -147,7 +147,7 @@ function linkStrategyFor(item: {
   }
   return {
     plan: "body",
-    label: "リンク: 本文内",
+    label: "投稿戦略: リンク本文内",
     affiliateUrl,
     reason: "MONEY投稿のデフォルトです。本文末にリンクを入れ、クリック導線を投稿内で完結させます。",
     cta: ctaLabel(item.ctaStrategy ?? selected?.ctaStrategy),
@@ -161,14 +161,13 @@ function LinkStrategyPanel({ strategy, replyText }: { strategy: LinkStrategyView
     <div className={`mt-3 rounded-lg border p-3 ${strategy.plan === "none" ? "border-sky-800 bg-sky-950/20" : "border-emerald-700 bg-emerald-950/25"}`}>
       <p className={`text-2xl font-black ${strategy.plan === "none" ? "text-sky-100" : "text-emerald-100"}`}>{strategy.label}</p>
       <p className="mt-1 text-sm font-black text-white">{strategy.instruction}</p>
-      {isMoney && (
-        <div className="mt-3 space-y-2 text-xs leading-5 text-emerald-50/80">
-          <p>affiliate URL: <span className="break-all font-bold text-emerald-100">{strategy.affiliateUrl ?? "未取得"}</span></p>
-          <p>link strategy理由: {strategy.reason}</p>
-          <p>CTA strategy: {strategy.cta}</p>
-          {strategy.plan === "self_reply" && <p>自己リプ文: <span className="text-emerald-100">{replyText ?? "未生成"}</span></p>}
-        </div>
-      )}
+      <div className={`mt-3 space-y-2 text-xs leading-5 ${isMoney ? "text-emerald-50/80" : "text-sky-50/80"}`}>
+        <p>{isMoney ? "affiliate URL" : "後付け用リンク"}: <span className="break-all font-bold text-white">{strategy.affiliateUrl ?? "未取得"}</span></p>
+        {!isMoney && <p>このURLは完成文には含まれていません。必要なら本文または自己リプへ手動追加できます。</p>}
+        <p>link strategy理由: {strategy.reason}</p>
+        <p>CTA strategy: {strategy.cta}</p>
+        {strategy.plan === "self_reply" && <p>自己リプ文: <span className="text-emerald-100">{replyText ?? "未生成"}</span></p>}
+      </div>
     </div>
   );
 }
@@ -246,6 +245,7 @@ function TopPickCard({ item }: { item: XDailyTopPick }) {
         mediaType={item.mediaType}
         quoteUrl={item.mediaType === "quote" ? item.recommendedMediaUrl : null}
         workId={item.workId}
+        trimAllowed={isOfficialFanzaDmmSampleUrl(item.mediaAsset?.source_url ?? item.recommendedMediaUrl)}
         mediaAsset={item.mediaAsset?.id ? {
           id: item.mediaAsset.id,
           can_modify: item.mediaAsset.can_modify,
@@ -339,6 +339,7 @@ function PersistedTopPickCard({ item }: { item: PersistedTopPick }) {
         mediaType={item.mediaType}
         quoteUrl={item.mediaType === "quote" ? item.recommendedMediaUrl : null}
         workId={item.workId}
+        trimAllowed={isOfficialFanzaDmmSampleUrl(item.mediaAsset?.source_url ?? item.recommendedMediaUrl)}
         mediaAsset={item.mediaAsset?.id ? {
           id: item.mediaAsset.id,
           can_modify: item.mediaAsset.can_modify,
@@ -534,6 +535,7 @@ async function XGrowthPageContent() {
       generatedByRole?: Record<string, number>;
       gateOkByRole?: Record<string, number>;
       shortagesByRole?: Record<string, number>;
+      eligibleByIntent?: Record<string, number>;
       nativeVoiceNgBySource?: Record<string, number>;
       crossPostDiversityRejected?: number;
     };
@@ -546,6 +548,7 @@ async function XGrowthPageContent() {
     }));
     const legacyTopPicks = plan.top_picks.some((item) => !item.slotId) ? plan.top_picks : [];
     const postableSlots = slotGroups.filter((slot) => slot.items.length > 0).length;
+    const moneyCandidateCount = supply.eligibleByIntent?.MONEY ?? plan.top_picks.filter((item) => item.role === "MONEY").length;
     return (
       <main className="min-h-screen bg-zinc-950 text-white">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -600,6 +603,9 @@ async function XGrowthPageContent() {
             </div>
             <div className="mt-3 grid gap-2 text-xs leading-5 text-emerald-100/70 md:grid-cols-2">
               <p>供給方針: 3投稿枠 × 各最大3候補。Hard Gate通過候補だけをA/B/Cに残します。</p>
+              <p className={moneyCandidateCount > 0 ? "text-emerald-200" : "text-amber-200"}>
+                {moneyCandidateCount > 0 ? `本日の収益候補: ${moneyCandidateCount}件 / Slot3にMONEYを最低1件配置` : "本日の収益候補: 0件 / 本日はリンク投稿なし"}
+              </p>
               <p>REACH供給: 生成 {supply.reachGenerated ?? "-"}件 / Gate OK {supply.reachGateOk ?? "-"}件</p>
               <p>{supply.shortages?.length ? `不足: ${supply.shortages.join(" / ")}` : "供給不足ログ: 主要レーンにGate OK候補あり"}</p>
               <p>保存済み読込: OK / stale {plan.stale_reason ?? "なし"}</p>
@@ -668,6 +674,7 @@ async function XGrowthPageContent() {
                     initialTrimNote={asset.trim_note}
                     canModify={asset.can_modify}
                     trimModifyConfirmed={asset.trim_modify_confirmed}
+                    trimAllowed={isOfficialFanzaDmmSampleUrl(asset.source_url)}
                   />
                   <RightsReviewActions assetId={asset.id} />
                 </div>
@@ -734,7 +741,7 @@ async function XGrowthPageContent() {
           <p className="mt-2 text-sm leading-6 text-cyan-100/80">
             mp4候補 {os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / synced {os.mediaSupply.synced.toLocaleString("ja-JP")} / rights確認待ち {(os.mediaSupply.unknown + os.mediaSupply.review).toLocaleString("ja-JP")} / 使用可 {os.mediaSupply.allowed.toLocaleString("ja-JP")} / blocked {os.mediaSupply.blocked.toLocaleString("ja-JP")} / URL失効 {os.mediaSupply.dead.toLocaleString("ja-JP")}
           </p>
-          <p className="mt-1 text-xs leading-5 text-cyan-100/60">FANZA/DMM公式 sample_movie_url は無加工投稿用の候補です。冒頭トリムだけ個別の編集許可を確認します。</p>
+          <p className="mt-1 text-xs leading-5 text-cyan-100/60">FANZA/DMM公式 sample_movie_url は、無加工投稿と冒頭トリムの両方に使用できます。残るのはURL・取得・品質・公開安全性の確認だけです。</p>
           {os.mediaSupply.error && <p className="mt-2 text-xs font-bold text-rose-200">{os.mediaSupply.error}</p>}
           <MediaPipelineActions />
         </Panel>
@@ -824,6 +831,11 @@ async function XGrowthPageContent() {
           </div>
           <div className="mt-3 grid gap-2 text-xs leading-5 text-emerald-100/70 md:grid-cols-2">
             <p>供給方針: Slot1 REACH / Slot2 FOLLOW・AUTHORITY / Slot3 MONEY・REACH。各slotは別work・別素材を優先します。</p>
+            <p className={os.supplyDiagnostics.eligibleByIntent.MONEY > 0 ? "text-emerald-200" : "text-amber-200"}>
+              {os.supplyDiagnostics.eligibleByIntent.MONEY > 0
+                ? `本日の収益候補: ${os.supplyDiagnostics.eligibleByIntent.MONEY}件 / Slot3にMONEYを最低1件配置`
+                : "本日の収益候補: 0件 / 本日はリンク投稿なし"}
+            </p>
             <p>REACH供給: 生成 {os.supplyDiagnostics.reachGenerated}件 / Gate OK {os.supplyDiagnostics.reachGateOk}件</p>
             <p>source pool {os.supplyDiagnostics.sourcePoolTotal}件 → posted除外後の別work {os.supplyDiagnostics.sourcePoolAfterPosted}件（除外 {os.supplyDiagnostics.postedExcluded}件） / URL・素材あり {os.supplyDiagnostics.urlOrMediaAvailable}件 / Hard Gate通過 {os.supplyDiagnostics.hardGatePassed}件 / posted overlap {os.supplyDiagnostics.postedOverlap}件</p>
             <p>slot allocation: {Object.entries(os.supplyDiagnostics.slotAllocation).map(([slot, count]) => `${slot} ${count}`).join(" / ") || "なし"}</p>
@@ -888,7 +900,7 @@ async function XGrowthPageContent() {
               <div className="mt-4 space-y-3 text-sm leading-6 text-zinc-400">
                 <p><ShieldCheck className="mr-1 inline text-emerald-300" size={15} />既存リンク画像はMONEYレーンで継続使用。</p>
                 <p>REACH/FOLLOW/AUTHORITYは、公式サンプル動画、作品画像、データカード、テキストのみを投稿意図ごとに選びます。ジャケ写固定にはしません。</p>
-                <p>sample_movie_url は無加工投稿と冒頭トリムを分離。トリムは編集許可確認済みだけ使います。</p>
+                <p>FANZA/DMM公式 sample_movie_url は、保存した開始位置からの冒頭トリムにも使用できます。外部動画の権限制限は別途維持します。</p>
                 <p>画像はコピー優先。動画はFANZA/DMM公式mp4だけ開く/保存して手動添付します。</p>
               </div>
             </Panel>
@@ -923,6 +935,7 @@ async function XGrowthPageContent() {
                       initialTrimNote={asset.trim_note}
                       canModify={asset.can_modify}
                       trimModifyConfirmed={asset.trim_modify_confirmed}
+                      trimAllowed={isOfficialFanzaDmmSampleUrl(asset.source_url)}
                     />
                     <RightsReviewActions assetId={asset.id} />
                   </div>

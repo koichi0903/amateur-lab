@@ -144,9 +144,7 @@ export function canTrimXMediaAsset(asset: Partial<XMediaAsset> | null | undefine
 
 export function canTrimOfficialSampleMovie(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null) {
   const usability = isPostableOfficialSampleMovie(asset, sampleMovieUrl);
-  const reasons = [...usability.reasons];
-  if (asset?.can_modify !== true && asset?.trim_modify_confirmed !== true) reasons.push("can_modifyまたは冒頭カット許可が未確認");
-  return { usable: usability.usable && (asset?.can_modify === true || asset?.trim_modify_confirmed === true), reasons: [...new Set(reasons)] };
+  return { usable: usability.usable, reasons: [...new Set(usability.reasons)] };
 }
 
 export async function getXMediaSupplyStatus() {
