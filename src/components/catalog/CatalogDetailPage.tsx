@@ -75,7 +75,7 @@ export async function catalogMetadata(kind: CatalogKind, name: string, page = 1)
     description: kind === "genre" || kind === "maker" || kind === "series"
       ? `${subject}のおすすめ作品をBEST10形式で比較。埋もれ度、価格判断、レビュー件数、価格条件から選べます。`
       : `${subject}のおすすめ・人気作品を、発掘スコア、レビュー件数、現在価格で比較。${label}別の買い時と関連条件から作品を探せます。`,
-    canonical: `/${kind}/${encodeURIComponent(name)}${page > 1 ? `?page=${page}` : ""}`,
+    canonical: `/${kind}/${encodeURIComponent(name)}${page > 1 ? `/page/${page}` : ""}`,
     robots,
   });
 }
@@ -103,7 +103,7 @@ function WorkCard({ work, rank, kind }: { work: Work; rank: number; kind: Catalo
 
 function JsonLd({ kind, name, works, page, pageSize }: { kind: CatalogKind; name: string; works: Work[]; page: number; pageSize: number }) {
   const baseUrl = SITE_URL;
-  const pageUrl = `${baseUrl}/${kind}/${encodeURIComponent(name)}${page > 1 ? `?page=${page}` : ""}`;
+  const pageUrl = `${baseUrl}/${kind}/${encodeURIComponent(name)}${page > 1 ? `/page/${page}` : ""}`;
   const data = [
     {
       "@context": "https://schema.org",
@@ -214,7 +214,7 @@ export default async function CatalogDetailPage({ kind, name, page = 1 }: { kind
   const offset = (currentPage - 1) * ENTITY_PAGE_SIZE;
   const displayedWorks = works;
   const pageHref = (targetPage: number) => targetPage > 1
-    ? `/${kind}/${encodeURIComponent(name)}?page=${targetPage}`
+    ? `/${kind}/${encodeURIComponent(name)}/page/${targetPage}`
     : `/${kind}/${encodeURIComponent(name)}`;
   const Icon = config.icon;
   const intentAnalysis = currentPage === 1
