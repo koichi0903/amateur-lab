@@ -1,8 +1,8 @@
 import { unstable_cache } from "next/cache";
 import { supabase } from "@/lib/supabase";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sortByRevenuePotential } from "@/lib/revenueWeightedWorks";
 import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
+import { isOfficialSampleMovieUrl } from "@/lib/officialSampleMovie";
 
 export type AiDiscovery = {
   id: number;
@@ -31,66 +31,6 @@ export type AiDiscovery = {
 };
 
 const columns = "id,product_id,title,genre,image_url,sample_movie_url,price,sale_price,list_price,lowest_price,is_bottom_price,is_on_sale,discount_rate,review_average,review_count,score,ranking,realtime_rank,previous_realtime_rank,sale_end_at";
-
-function isOfficialSampleMovieUrl(value: string | null | undefined) {
-  if (!value) return false;
-  try {
-    const hostname = new URL(value).hostname.toLowerCase();
-    return hostname.endsWith("dmm.co.jp") || hostname.endsWith("fanza.co.jp");
-  } catch {
-    return false;
-  }
-}
-
-async function getAllowedSampleMovieKeys(works: Array<{ id: number; product_id: string; sample_movie_url: string | null }>) {
-  const ids = works.map((work) => work.id);
-  const productIds = works.map((work) => work.product_id).filter(Boolean);
-  if (!ids.length) return new Set<string>();
-
-  const [byWork, byProduct] = await Promise.all([
-    supabaseAdmin
-      .from("x_media_assets")
-      .select("work_id,product_id,source_url,fetch_status,rights_status")
-      .eq("account_handle", "hakkutsu_lab")
-      .in("media_type", ["video", "sample_movie"])
-      .in("work_id", ids),
-    productIds.length
-      ? supabaseAdmin
-        .from("x_media_assets")
-        .select("work_id,product_id,source_url,fetch_status,rights_status")
-        .eq("account_handle", "hakkutsu_lab")
-        .in("media_type", ["video", "sample_movie"])
-        .in("product_id", productIds)
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-
-  if (byWork.error || byProduct.error) {
-    console.warn("[home] sample movie rights lookup unavailable; using image fallback");
-    return new Set<string>();
-  }
-
-  const assets = [...(byWork.data ?? []), ...(byProduct.data ?? [])] as Array<{
-    work_id: number | null;
-    product_id: string | null;
-    source_url: string;
-    fetch_status: string | null;
-    rights_status: string | null;
-  }>;
-  const allowed = new Set<string>();
-
-  for (const work of works) {
-    const url = work.sample_movie_url?.trim();
-    if (!isOfficialSampleMovieUrl(url)) continue;
-    const matchingAssets = assets.filter((asset) =>
-      (asset.work_id === work.id || asset.product_id === work.product_id) && asset.source_url === url,
-    );
-    const usable = matchingAssets.length === 0 || matchingAssets.some((asset) =>
-      asset.rights_status === "allowed" && asset.fetch_status !== "dead" && asset.fetch_status !== "forbidden",
-    );
-    if (usable) allowed.add(String(work.id));
-  }
-  return allowed;
-}
 
 function price(work: AiDiscovery) { return work.sale_price > 0 ? work.sale_price : work.price; }
 
@@ -132,13 +72,14 @@ async function fetchAiDiscoveries() {
     .sort((a, b) => b.score - a.score || a.id - b.id)
     .slice(0, 80);
   const revenueWeightedWorks = await sortByRevenuePotential(works, { limit: 80 });
-  const allowedSampleMovieKeys = await getAllowedSampleMovieKeys(revenueWeightedWorks as AiDiscovery[]);
   const used = new Set<string>();
   return revenueWeightedWorks.map((work) => ({
     ...work,
-    sample_movie_allowed: allowedSampleMovieKeys.has(String(work.id)),
+    // Web playback uses the same official sample URL as the work detail page.
+    // X posting rights in x_media_assets are intentionally not a web-display gate.
+    sample_movie_allowed: isOfficialSampleMovieUrl(work.sample_movie_url),
     ...reason(work as AiDiscovery, used),
   })) as AiDiscovery[];
 }
 
-export const getAiDiscoveries = unstable_cache(fetchAiDiscoveries, ["ai-discoveries-v4-non-vr-revenue-weighted"], { revalidate: 3600, tags: ["ai-discoveries", "home-daily-discovery"] });
+export const getAiDiscoveries = unstable_cache(fetchAiDiscoveries, ["ai-discoveries-v5-non-vr-revenue-weighted"], { revalidate: 3600, tags: ["ai-discoveries", "home-daily-discovery"] });

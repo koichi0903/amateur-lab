@@ -1,12 +1,13 @@
 import { unstable_cache } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
+import { isOfficialSampleMovieUrl } from "@/lib/officialSampleMovie";
 
 export type DailyDiscoveryWork = Pick<
   Work,
   | "id" | "product_id" | "title" | "image_url" | "price" | "sale_price" | "list_price"
   | "discount_rate" | "review_average" | "review_count" | "score"
-  | "ranking" | "realtime_rank" | "previous_realtime_rank"
+  | "ranking" | "realtime_rank" | "previous_realtime_rank" | "sample_movie_url"
 >;
 
 export type DailyDiscoveryWithMedia = DailyDiscoveryWork & {
@@ -15,7 +16,7 @@ export type DailyDiscoveryWithMedia = DailyDiscoveryWork & {
 };
 
 type DailyDiscovery = {
-  work: DailyDiscoveryWork | null;
+  work: DailyDiscoveryWithMedia | null;
   eyebrow: string;
   reason: string;
 };
@@ -62,7 +63,14 @@ function buildReason(work: DailyDiscoveryWork, themeIndex: number) {
   ][themeIndex] ?? "価格・評価・人気のバランスから選定しています。";
 }
 
-const WORK_COLUMNS = "id,product_id,title,image_url,price,sale_price,list_price,discount_rate,review_average,review_count,score,ranking,realtime_rank,previous_realtime_rank";
+const WORK_COLUMNS = "id,product_id,title,image_url,price,sale_price,list_price,discount_rate,review_average,review_count,score,ranking,realtime_rank,previous_realtime_rank,sample_movie_url";
+
+function withSampleMovieAccess(work: DailyDiscoveryWork): DailyDiscoveryWithMedia {
+  return {
+    ...work,
+    sample_movie_allowed: isOfficialSampleMovieUrl(work.sample_movie_url),
+  };
+}
 
 export const getDailyDiscovery = unstable_cache(
   async (dateKey: string): Promise<DailyDiscovery> => {
@@ -87,12 +95,12 @@ export const getDailyDiscovery = unstable_cache(
 
     const result = await query.range(offset, offset).maybeSingle();
     if (result.data) {
-      return { work: result.data, eyebrow: themes[themeIndex], reason: buildReason(result.data, themeIndex) };
+      return { work: withSampleMovieAccess(result.data), eyebrow: themes[themeIndex], reason: buildReason(result.data, themeIndex) };
     }
 
     const fallback = await supabase.from("works").select(WORK_COLUMNS).order("score", { ascending: false }).limit(1).maybeSingle();
     return {
-      work: fallback.data ?? null,
+      work: fallback.data ? withSampleMovieAccess(fallback.data) : null,
       eyebrow: "TODAY'S PICK",
       reason: fallback.data ? buildReason(fallback.data, 0) : "価格・評価・人気のバランスから選定しています。",
     };
