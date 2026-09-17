@@ -9,6 +9,11 @@ export type DailyDiscoveryWork = Pick<
   | "ranking" | "realtime_rank" | "previous_realtime_rank"
 >;
 
+export type DailyDiscoveryWithMedia = DailyDiscoveryWork & {
+  sample_movie_url?: string | null;
+  sample_movie_allowed?: boolean;
+};
+
 type DailyDiscovery = {
   work: DailyDiscoveryWork | null;
   eyebrow: string;

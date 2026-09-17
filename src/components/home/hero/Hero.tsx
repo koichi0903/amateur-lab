@@ -1,7 +1,7 @@
 import Link from "next/link";
-import type { DailyDiscoveryWork } from "@/lib/getDailyDiscovery";
+import type { DailyDiscoveryWithMedia } from "@/lib/getDailyDiscovery";
 import type { HomePriceInsightWork } from "@/lib/getHomePriceInsights";
-import WorkImage from "../WorkImage";
+import HeroMedia from "./HeroMedia";
 import MiniPriceHistoryChart from "../MiniPriceHistoryChart";
 import { workDetailHref } from "@/lib/affiliateTracking";
 
@@ -43,7 +43,7 @@ export default function Hero({
   reason,
   priceInsight,
 }: {
-  work: DailyDiscoveryWork | null;
+  work: DailyDiscoveryWithMedia | null;
   eyebrow?: string;
   reason?: string;
   priceInsight?: HomePriceInsightWork | null;
@@ -85,19 +85,11 @@ export default function Hero({
                 className="group relative block h-full cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-pink-300"
               >
                 <div className="absolute inset-0">
-                {work.image_url ? (
-                  <WorkImage
-                    src={work.image_url}
-                    alt={work.title}
-                    priority
-                    className="object-cover object-top opacity-80 transition duration-500 group-hover:scale-[1.02]"
-                    sizes="(max-width: 1024px) 100vw, 680px"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-sm font-bold text-white/55">
-                    AI発掘作品を準備中
-                  </div>
-                )}
+                <HeroMedia
+                  imageUrl={work.image_url ?? null}
+                  videoUrl={work.sample_movie_allowed ? work.sample_movie_url ?? null : null}
+                  title={work.title}
+                />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#142438] via-[#142438]/20 to-[#142438]/5" />
                 <div className={`absolute inset-x-0 bottom-0 p-5 text-white sm:p-7 ${priceInsight ? "lg:max-w-[55%]" : ""}`}>
                   <p className="text-xs font-black tracking-[.18em] text-pink-300">{eyebrow}</p>
@@ -108,19 +100,7 @@ export default function Hero({
               </Link>
             ) : (
               <>
-                {work?.image_url ? (
-                  <WorkImage
-                    src={work.image_url}
-                    alt={work.title}
-                    priority
-                    className="object-cover object-top opacity-80 transition duration-500 hover:scale-[1.02]"
-                    sizes="(max-width: 1024px) 100vw, 680px"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-sm font-bold text-white/55">
-                    AI発掘作品を準備中
-                  </div>
-                )}
+                <HeroMedia imageUrl={work?.image_url ?? null} videoUrl={null} title={work?.title ?? ""} />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#142438] via-[#142438]/20 to-[#142438]/5" />
                 {work && (
                   <div className="absolute inset-x-0 bottom-0 p-5 text-white sm:p-7">
