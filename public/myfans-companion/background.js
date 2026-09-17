@@ -824,21 +824,27 @@ async function runVisualVerification(settings) {
     let unavailable = 0;
     for (const candidate of batch.candidates || []) {
       const targetUrl = candidate.mediaPermalink || candidate.xPostUrl;
-      if (!targetUrl) continue;
-      await setQuoteState({ visualStatus: "running", visualMessage: `visual確認中: ${targetUrl}`, visualChecked: checked, visualVerified: verified, visualPartial: partial, visualUnavailable: unavailable });
-      let inspection = null;
-      try {
-        await chrome.tabs.update(workerTabId, { url: targetUrl, active: false });
-        await waitForTabComplete(workerTabId, 45000);
-        await wait(3000);
-        inspection = await executeMain(workerTabId, inspectVisibleVisual, [candidate]);
-      } catch (error) {
+      let inspection = targetUrl ? null : {
+        status: "unavailable",
+        visualRenderStatus: "unknown",
+        reason: "missing_media_url",
+        evidence: { failureReason: "visual確認対象のmedia URLがありません。", confidence: "low", mediaType: candidate.mediaType || "" }
+      };
+      if (targetUrl) {
+        await setQuoteState({ visualStatus: "running", visualMessage: `visual確認中: ${targetUrl}`, visualChecked: checked, visualVerified: verified, visualPartial: partial, visualUnavailable: unavailable });
+        try {
+          await chrome.tabs.update(workerTabId, { url: targetUrl, active: false });
+          await waitForTabComplete(workerTabId, 45000);
+          await wait(3000);
+          inspection = await executeMain(workerTabId, inspectVisibleVisual, [candidate]);
+        } catch (error) {
         inspection = {
           status: "unavailable",
           visualRenderStatus: "blocked",
           reason: categoryFromError(error) || "dom_mismatch",
           evidence: { failureReason: error instanceof Error ? error.message : String(error || "visual確認に失敗しました"), confidence: "low", inspectedUrl: targetUrl, mediaType: candidate.mediaType || "" }
         };
+        }
       }
       const saved = await visualVerificationRequest(settings, {
         action: "save_companion_evidence",
