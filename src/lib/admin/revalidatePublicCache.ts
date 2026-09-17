@@ -60,6 +60,7 @@ export async function revalidatePublicCacheForTasks(
     }
     tags.add("home-catalog");
     tags.add("home-daily-discovery");
+    tags.add("entity-works");
   }
   if (knownTasks.some((task) => PRICE_TASKS.has(task))) {
     paths.add("/");
@@ -67,6 +68,7 @@ export async function revalidatePublicCacheForTasks(
     tags.add("home-price-insights");
     tags.add("hero-price-drop");
     tags.add("deals");
+    tags.add("entity-works");
   }
   if (knownTasks.some((task) => DISCOVERY_TASKS.has(task))) {
     paths.add("/");
@@ -74,6 +76,7 @@ export async function revalidatePublicCacheForTasks(
     tags.add("home-ranking");
     tags.add("ai-discoveries");
     tags.add("latest-daily-update");
+    tags.add("entity-works");
   }
 
   for (const path of paths) revalidatePath(path);
