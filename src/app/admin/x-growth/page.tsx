@@ -639,8 +639,15 @@ async function XGrowthPageContent() {
           </Panel>
 
           <Panel className="mt-6">
-            <div className="flex items-center gap-2"><ShieldCheck className="text-emerald-300" size={20} /><h2 className="text-lg font-black">Media Rights Review</h2></div>
-            <div className="mt-4 space-y-3">
+            <details>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+                <span>
+                  <span className="flex items-center gap-2"><ShieldCheck className="text-emerald-300" size={20} /><span className="text-lg font-black">素材管理 / Media Rights Review</span></span>
+                  <span className="mt-1 block text-sm leading-6 text-zinc-400">通常運用では閉じています。必要な時だけ動画素材の権利確認とtrim編集を開きます。</span>
+                </span>
+                <span className="shrink-0 rounded-lg border border-zinc-700 px-3 py-2 text-xs font-black text-zinc-200">素材管理を開く</span>
+              </summary>
+              <div className="mt-4 space-y-3">
               {mediaReview.rows.map((asset) => (
                 <div key={asset.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
                   <div className="flex flex-wrap items-center gap-2">
@@ -667,7 +674,8 @@ async function XGrowthPageContent() {
               ))}
               {!mediaReview.rows.length && <p className="text-sm text-zinc-500">レビュー対象の動画候補はまだ同期されていません。</p>}
               {mediaReview.error && <p className="text-sm font-bold text-rose-200">{mediaReview.error}</p>}
-            </div>
+              </div>
+            </details>
           </Panel>
 
           <DeferredXGrowthSections />
@@ -806,7 +814,7 @@ async function XGrowthPageContent() {
             <div>
               <div className="flex items-center gap-2"><Sparkles className="text-emerald-300" size={20} /><h2 className="text-2xl font-black">今日の投稿</h2></div>
               <p className="mt-2 text-sm leading-6 text-emerald-100/80">
-                基本は最低2件、通常3件。弱い投稿で埋めず、Gate OKの供給元だけで本数を決めます。
+                3投稿枠 × 各A/B/Cの最大9候補。弱い投稿や同じ作品の水増しはせず、Hard Gate通過候補だけを残します。
               </p>
               <RegenerateTopPicksAction />
             </div>
@@ -815,8 +823,10 @@ async function XGrowthPageContent() {
             </div>
           </div>
           <div className="mt-3 grid gap-2 text-xs leading-5 text-emerald-100/70 md:grid-cols-2">
-            <p>供給方針: REACH 1件 / AUTHORITY or FOLLOW 1件 / MONEY 0〜1件。MONEYが弱い日は認知・信頼系で補完。</p>
+            <p>供給方針: Slot1 REACH / Slot2 FOLLOW・AUTHORITY / Slot3 MONEY・REACH。各slotは別work・別素材を優先します。</p>
             <p>REACH供給: 生成 {os.supplyDiagnostics.reachGenerated}件 / Gate OK {os.supplyDiagnostics.reachGateOk}件</p>
+            <p>source pool {os.supplyDiagnostics.sourcePoolTotal}件 → posted除外後の別work {os.supplyDiagnostics.sourcePoolAfterPosted}件（除外 {os.supplyDiagnostics.postedExcluded}件） / URL・素材あり {os.supplyDiagnostics.urlOrMediaAvailable}件 / Hard Gate通過 {os.supplyDiagnostics.hardGatePassed}件 / posted overlap {os.supplyDiagnostics.postedOverlap}件</p>
+            <p>slot allocation: {Object.entries(os.supplyDiagnostics.slotAllocation).map(([slot, count]) => `${slot} ${count}`).join(" / ") || "なし"}</p>
             <p>{os.supplyDiagnostics.shortages.length ? `不足: ${os.supplyDiagnostics.shortages.join(" / ")}` : "供給不足ログ: 主要レーンにGate OK候補あり"}</p>
             <p>Human Voice NG: {Object.entries(os.supplyDiagnostics.humanVoiceNgBySource).length ? Object.entries(os.supplyDiagnostics.humanVoiceNgBySource).map(([source, count]) => `${source} ${count}件`).join(" / ") : "なし"}</p>
           </div>
@@ -830,6 +840,9 @@ async function XGrowthPageContent() {
                 ))}
                 <p>Native X NG: {Object.entries(os.supplyDiagnostics.nativeVoiceNgBySource).length ? Object.entries(os.supplyDiagnostics.nativeVoiceNgBySource).map(([source, count]) => `${source} ${count}`).join(" / ") : "なし"}</p>
                 <p>Cross-Post Diversity除外推定: {os.supplyDiagnostics.crossPostDiversityRejected}</p>
+                <p>media: {Object.entries(os.supplyDiagnostics.mediaTypeCounts).map(([type, count]) => `${type} ${count}`).join(" / ") || "なし"}</p>
+                <p>source: {Object.entries(os.supplyDiagnostics.sourceTypeCounts).map(([type, count]) => `${type} ${count}`).join(" / ") || "なし"}</p>
+                <p>angle: {Object.entries(os.supplyDiagnostics.creativeAngleCounts).map(([type, count]) => `${type} ${count}`).join(" / ") || "なし"}</p>
               </div>
               <div>
                 <p className="font-black text-zinc-200">Native X Learning</p>
@@ -881,8 +894,15 @@ async function XGrowthPageContent() {
             </Panel>
 
             <Panel>
-              <div className="flex items-center gap-2"><ShieldCheck className="text-emerald-300" size={20} /><h2 className="text-lg font-black">Media Rights Review</h2></div>
-              <div className="mt-4 space-y-3">
+              <details>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+                  <span>
+                    <span className="flex items-center gap-2"><ShieldCheck className="text-emerald-300" size={20} /><span className="text-lg font-black">素材管理 / Media Rights Review</span></span>
+                    <span className="mt-1 block text-sm leading-6 text-zinc-400">通常運用では閉じています。必要な時だけ動画素材の権利確認とtrim編集を開きます。</span>
+                  </span>
+                  <span className="shrink-0 rounded-lg border border-zinc-700 px-3 py-2 text-xs font-black text-zinc-200">素材管理を開く</span>
+                </summary>
+                <div className="mt-4 space-y-3">
                 {os.rightsReviewQueue.map((asset) => (
                   <div key={asset.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
                     <div className="flex flex-wrap items-center gap-2">
@@ -908,7 +928,8 @@ async function XGrowthPageContent() {
                   </div>
                 ))}
                 {!os.rightsReviewQueue.length && <p className="text-sm text-zinc-500">rights確認待ちの動画候補はまだ同期されていません。</p>}
-              </div>
+                </div>
+              </details>
             </Panel>
 
             <Panel>

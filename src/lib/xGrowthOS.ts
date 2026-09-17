@@ -134,6 +134,41 @@ export type XDailyTopPick = XGrowthOpportunity & {
   };
 };
 
+type CandidateIdentity = Pick<XGrowthOpportunity, "workId" | "productId" | "sampleMovieUrl" | "mediaAsset"> & {
+  candidateId?: string | null;
+  imageUrl?: string | null;
+};
+
+/** Stable identity used by all daily candidate diversity checks. */
+export function candidateDedupeKey(candidate: CandidateIdentity) {
+  const mediaAssetId = Number(candidate.mediaAsset?.id);
+  if (Number.isSafeInteger(mediaAssetId) && mediaAssetId > 0) return `media_asset:${mediaAssetId}`;
+  const sampleMovieUrl = candidate.sampleMovieUrl?.trim();
+  if (sampleMovieUrl) return `sample_movie_url:${sampleMovieUrl}`;
+  if (Number.isSafeInteger(candidate.workId) && candidate.workId > 0) return `work:${candidate.workId}`;
+  if (candidate.candidateId) return `candidate:${candidate.candidateId}`;
+  return `product:${candidate.productId}`;
+}
+
+export function candidateMediaDedupeKey(candidate: CandidateIdentity) {
+  const mediaAssetId = Number(candidate.mediaAsset?.id);
+  if (Number.isSafeInteger(mediaAssetId) && mediaAssetId > 0) return `media_asset:${mediaAssetId}`;
+  const sampleMovieUrl = candidate.sampleMovieUrl?.trim();
+  if (sampleMovieUrl) return `sample_movie_url:${sampleMovieUrl}`;
+  return candidate.imageUrl?.trim() ? `image_url:${candidate.imageUrl.trim()}` : null;
+}
+
+/** Enforces media/url uniqueness first, then work uniqueness for a candidate set. */
+export function isDistinctCandidate(candidate: CandidateIdentity, selectedSet: CandidateIdentity[]) {
+  const mediaKey = candidateMediaDedupeKey(candidate);
+  return !selectedSet.some((selected) => {
+    const selectedMediaKey = candidateMediaDedupeKey(selected);
+    return (mediaKey && selectedMediaKey === mediaKey)
+      || selected.workId === candidate.workId
+      || (candidate.sampleMovieUrl?.trim() && selected.sampleMovieUrl?.trim() === candidate.sampleMovieUrl.trim());
+  });
+}
+
 export type XDailyMission = {
   bottleneck: "Reach不足" | "Profile Visit不足" | "Follow不足" | "Site Visit不足" | "Affiliate Click不足" | "収益導線不足" | "会話接点不足" | "最適化段階";
   title: string;
@@ -165,7 +200,18 @@ export type XGrowthOS = {
   mediaSupply: Awaited<ReturnType<typeof getXMediaSupplyStatus>>;
   rightsReviewQueue: Awaited<ReturnType<typeof getRightsReviewQueue>>["rows"];
   supplyDiagnostics: {
-  target: "3slot × 最大3候補" | "候補不足";
+    target: "3slot × 最大3候補" | "候補不足";
+    sourcePoolTotal: number;
+    sourcePoolAfterPosted: number;
+    postedExcluded: number;
+    postedOverlap: number;
+    urlOrMediaAvailable: number;
+    hardGatePassed: number;
+    eligibleByIntent: Record<XGrowthIntent, number>;
+    mediaTypeCounts: Record<string, number>;
+    sourceTypeCounts: Record<string, number>;
+    creativeAngleCounts: Record<string, number>;
+    slotAllocation: Record<string, number>;
     gateOkBySource: Record<string, number>;
     generatedBySource: Record<string, number>;
     humanVoiceNgBySource: Record<string, number>;
@@ -904,7 +950,6 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
   ));
   const picked: XDailyTopPick[] = [];
   const usedWorkIds = new Set<number>();
-  const usedMediaIds = new Set<number>();
   const reachVideoTier = (item: XGrowthOpportunity) => {
     const asset = item.mediaAsset;
     const tags = asset?.manual_tags ?? [];
@@ -933,14 +978,10 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
       const candidateEntries = (allowCreativeReuse = false) => pool
         .filter((item) => allowCreativeReuse || !usedWorkIds.has(item.workId))
         .filter((item) => !slotPicked.some((pick) => pick.workId === item.workId || pick.productId === item.productId))
-        .filter((item) => !allowCreativeReuse || !picked.some((pick) => pick.workId === item.workId && pick.creativeAngle === item.creativeAngle))
+        .filter((item) => allowCreativeReuse
+          ? ![...picked, ...slotPicked].some((pick) => candidateMediaDedupeKey(pick) === candidateMediaDedupeKey(item))
+          : isDistinctCandidate(item, [...picked, ...slotPicked]))
         .filter((item) => !slotPicked.some((pick) => pick.key === item.key && pick.role === role))
-        .filter((item) => {
-          const mediaId = Number(item.mediaAsset?.id);
-          return allowCreativeReuse
-            ? true
-            : !Number.isSafeInteger(mediaId) || (!usedMediaIds.has(mediaId) && !slotPicked.some((pick) => Number(pick.mediaAsset?.id) === mediaId));
-        })
         .filter((item) => role === "MONEY" || item.sourceType !== "MONEY")
         .filter((item) => passesLinklessQualityGate(item, role))
         .filter((item) => hasRealConversationSource(item, role))
@@ -964,10 +1005,9 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
       const addCandidates = (allowCreativeReuse = false) => {
         for (const entry of candidateEntries(allowCreativeReuse)) {
           if (slotPicked.length >= 3) break;
-          if (slotPicked.some((pick) => pick.workId === entry.item.workId || pick.productId === entry.item.productId)) continue;
+          if (!isDistinctCandidate(entry.item, slotPicked)) continue;
+          if (!allowCreativeReuse && !isDistinctCandidate(entry.item, picked)) continue;
           if (allowCreativeReuse && (workUseCount.get(entry.item.workId) ?? 0) >= 3) continue;
-        const mediaId = Number(entry.item.mediaAsset?.id);
-        if (Number.isSafeInteger(mediaId) && slotPicked.some((pick) => Number(pick.mediaAsset?.id) === mediaId)) continue;
         const rank = rankLabels[slotPicked.length];
         const reason = rank === "A"
           ? "システム推奨1位。Hard Gate通過候補の中でこの枠の狙いに最も近い"
@@ -991,9 +1031,8 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
         }
       };
       addCandidates();
-      // Reusing a work is a last-resort supply fallback only. A different
-      // creative angle is required, and the same work can appear at most three times
-      // across the day's slots so the set does not collapse onto one work.
+      // A work may be reused only as a last-resort cross-slot fallback. Media identity
+      // remains unique, and same-slot work reuse is always rejected.
       if (slotPicked.length < 3) addCandidates(true);
       if (slotPicked.length >= 3) break;
     }
@@ -1001,8 +1040,6 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
       picked.push(pick);
       workUseCount.set(pick.workId, (workUseCount.get(pick.workId) ?? 0) + 1);
       usedWorkIds.add(pick.workId);
-      const mediaId = Number(pick.mediaAsset?.id);
-      if (Number.isSafeInteger(mediaId)) usedMediaIds.add(mediaId);
     }
   }
   const reason = picked.length ? null : "今日の候補は鮮度、Creative Gate、素材可否、直近投稿との重複のいずれかで基準未達です。投稿しない判断が安全です。";
@@ -1073,11 +1110,28 @@ function applyTopPickLinkPolicy(item: XDailyTopPick): XDailyTopPick {
   };
 }
 
-function buildSupplyDiagnostics(opportunities: XGrowthOpportunity[], picks: XDailyTopPick[]) {
+function buildSupplyDiagnostics(
+  opportunities: XGrowthOpportunity[],
+  picks: XDailyTopPick[],
+  candidateDiagnostics: { sourcePoolTotal?: number; sourcePoolAfterPosted?: number; postedExcluded?: number } | undefined,
+  postedWorkIds: ReadonlySet<number>,
+) {
   const gateOkBySource: Record<string, number> = {};
   const generatedBySource: Record<string, number> = {};
   const humanVoiceNgBySource: Record<string, number> = {};
   const nativeVoiceNgBySource: Record<string, number> = {};
+  const eligibleByIntent: Record<XGrowthIntent, number> = { REACH: 0, FOLLOW: 0, AUTHORITY: 0, CONVERSATION: 0, MONEY: 0 };
+  const mediaTypeCounts: Record<string, number> = {};
+  const sourceTypeCounts: Record<string, number> = {};
+  const creativeAngleCounts: Record<string, number> = {};
+  for (const item of opportunities) {
+    mediaTypeCounts[item.mediaType] = (mediaTypeCounts[item.mediaType] ?? 0) + 1;
+    sourceTypeCounts[item.sourceType] = (sourceTypeCounts[item.sourceType] ?? 0) + 1;
+    creativeAngleCounts[item.creativeAngle] = (creativeAngleCounts[item.creativeAngle] ?? 0) + 1;
+    for (const role of ["REACH", "FOLLOW", "AUTHORITY", "MONEY"] as const) {
+      if (passesLinklessQualityGate(item, role) && hasRealConversationSource(item, role)) eligibleByIntent[role] += 1;
+    }
+  }
   const generatedByRole: Record<XGrowthIntent, number> = { REACH: 0, FOLLOW: 0, AUTHORITY: 0, CONVERSATION: 0, MONEY: 0 };
   const gateOkByRole: Record<XGrowthIntent, number> = { REACH: 0, FOLLOW: 0, AUTHORITY: 0, CONVERSATION: 0, MONEY: 0 };
   for (const item of opportunities) {
@@ -1104,7 +1158,13 @@ function buildSupplyDiagnostics(opportunities: XGrowthOpportunity[], picks: XDai
     return acc;
   }, {} as Record<XGrowthIntent, number>);
   const crossPostDiversityRejected = opportunities.filter((item) => item.creativeVariants.some((variant) => variant.quality.passed) && !picks.some((pick) => pick.workId === item.workId || pick.sourceType === item.sourceType)).length;
-  const target = picks.length >= 3 ? "3slot × 最大3候補" as const : "候補不足" as const;
+  const slotAllocation = picks.reduce((counts, pick) => {
+    const slot = pick.slotId ?? "unassigned";
+    counts[slot] = (counts[slot] ?? 0) + 1;
+    return counts;
+  }, {} as Record<string, number>);
+  const postedOverlap = picks.filter((pick) => postedWorkIds.has(pick.workId)).length;
+  const target = picks.length >= 9 ? "3slot × 最大3候補" as const : "候補不足" as const;
   const shortages = [
     reachGenerated < 5 ? `REACH供給目標5件に対して${reachGenerated}件` : "",
     (generatedByRole.FOLLOW + generatedByRole.AUTHORITY) < 5 ? `FOLLOW/AUTHORITY供給目標5件に対して${generatedByRole.FOLLOW + generatedByRole.AUTHORITY}件` : "",
@@ -1115,8 +1175,33 @@ function buildSupplyDiagnostics(opportunities: XGrowthOpportunity[], picks: XDai
     (gateOkBySource.MARKET ?? 0) + (gateOkBySource.COMPARISON ?? 0) + (gateOkBySource.JUDGMENT ?? 0) + (gateOkBySource.FOLLOW_UP ?? 0) === 0 ? "市場/比較/判断/続報のGate OK候補が不足" : "",
     (gateOkBySource.MONEY ?? 0) + (gateOkBySource.PRICE_EVENT ?? 0) === 0 ? "MONEY/価格イベントのGate OK候補が不足" : "",
     picks.length >= 2 && !picks.some((pick) => pick.role === "REACH") ? "FOLLOW+FOLLOW系になった理由: REACH候補が全Gate NG、または当日セット重複で不採用" : "",
+    picks.length < 9 ? `3slot×3の目標に対して${picks.length}件` : "",
   ].filter(Boolean);
-  return { target, gateOkBySource, generatedBySource, humanVoiceNgBySource, nativeVoiceNgBySource, crossPostDiversityRejected, generatedByRole, gateOkByRole, shortagesByRole, reachGenerated, reachGateOk, shortages };
+  return {
+    target,
+    sourcePoolTotal: candidateDiagnostics?.sourcePoolTotal ?? opportunities.length,
+    sourcePoolAfterPosted: candidateDiagnostics?.sourcePoolAfterPosted ?? opportunities.length,
+    postedExcluded: candidateDiagnostics?.postedExcluded ?? 0,
+    postedOverlap,
+    urlOrMediaAvailable: opportunities.filter((item) => Boolean(item.sampleMovieUrl || item.imageUrl || item.recommendedMediaUrl)).length,
+    hardGatePassed: opportunities.filter((item) => item.creativeVariants.some((variant) => variant.quality.passed)).length,
+    eligibleByIntent,
+    mediaTypeCounts,
+    sourceTypeCounts,
+    creativeAngleCounts,
+    slotAllocation,
+    gateOkBySource,
+    generatedBySource,
+    humanVoiceNgBySource,
+    nativeVoiceNgBySource,
+    crossPostDiversityRejected,
+    generatedByRole,
+    gateOkByRole,
+    shortagesByRole,
+    reachGenerated,
+    reachGateOk,
+    shortages,
+  };
 }
 
 function normalizedOpening(text: string) {
@@ -1203,15 +1288,15 @@ export async function buildXGrowthOS({
     timings[label] = Date.now() - started;
     return result;
   };
-  const candidateResult = await mark("candidate_generation_ms", getXPostCandidates(performance, logs));
   const postedWorkResult = await mark("posted_work_ids_ms", getPostedWorkIds());
+  const candidateResult = await mark("candidate_generation_ms", getXPostCandidates(performance, logs, postedWorkResult.workIds));
   const expandedCandidates = expandCreativeSupply(candidateResult.candidates);
   const scoredAll = expandedCandidates.map(scoreOpportunity).sort((a, b) => {
     const aMax = Math.max(a.reachScore, a.followScore, a.authorityScore, a.revenueScore);
     const bMax = Math.max(b.reachScore, b.followScore, b.authorityScore, b.revenueScore);
     return bMax - aMax;
   });
-  const baseLimit = includeDeferred ? 120 : 48;
+  const baseLimit = includeDeferred ? 500 : 500;
   const mustKeepWorkIds = new Set([56714]);
   const scored = [
     ...scoredAll.filter((item) => mustKeepWorkIds.has(item.workId)),
@@ -1228,7 +1313,7 @@ export async function buildXGrowthOS({
   const recentDailyPickWorkIds = await mark("recent_daily_pick_cooldown_ms", fetchRecentDailyPickWorkIds());
   const postedWorkIds = new Set([...recentPostedWorkIds(logs), ...postedWorkResult.workIds]);
   const dailySelection = selectDailyTopPicks(opportunities, mission, logs, recentDailyPickWorkIds, postedWorkIds);
-  const supplyDiagnostics = buildSupplyDiagnostics(opportunities, dailySelection.picks);
+  const supplyDiagnostics = buildSupplyDiagnostics(opportunities, dailySelection.picks, candidateResult.diagnostics, postedWorkIds);
   const nativeXLearning = buildNativeXLearning(logs, outcomes);
   const persistedTopPicks = await mark("persisted_top_picks_ms", persistDailyTopPicks({
     mission,

@@ -96,7 +96,10 @@ const SELECT_COLUMNS = [
 const DAY_MS = 86_400_000;
 const HISTORY_BATCH_SIZE = 20;
 const HISTORY_PAGE_SIZE = 1000;
-const CANDIDATE_WORK_LIMIT = 120;
+// Candidate generation is intentionally wider than the daily 9-pick target.
+// Hard Gates and cross-slot diversity are applied later, after all source pools
+// have had a chance to contribute distinct works.
+const CANDIDATE_WORK_LIMIT = 500;
 const ABSOLUTE_COOLDOWN_DAYS = 3;
 const databaseDateTime = (value: string) => parseDatabaseDate(value)?.getTime() ?? Number.NaN;
 
@@ -628,7 +631,11 @@ async function fetchHistory(productIds: string[]) {
   return rows;
 }
 
-export async function getXPostCandidates(performance: AffiliatePerformanceRow[], logs: XPostLog[] = []) {
+export async function getXPostCandidates(
+  performance: AffiliatePerformanceRow[],
+  logs: XPostLog[] = [],
+  postedWorkIds: ReadonlySet<number> = new Set(),
+) {
   const salesIds = performance.filter((row) => row.salesCount > 0).slice(0, 30).map((row) => row.workId);
   const base = () => supabaseAdmin.from("works").select(SELECT_COLUMNS).not("product_id", "is", null).neq("product_id", "");
   const [dealResult, scoreResult, newResult, salesResult, hiddenGemResult, actressResult, genreResult, makerResult, seriesResult, judgmentResult, reviewGapResult] = await Promise.all([
@@ -664,9 +671,14 @@ export async function getXPostCandidates(performance: AffiliatePerformanceRow[],
     ["maker_best", (makerResult.data ?? []) as unknown as CandidateWork[]],
     ["series_best", (seriesResult.data ?? []) as unknown as CandidateWork[]],
   ];
+  const sourcePoolTotal = pools.reduce((sum, [, works]) => sum + works.length, 0);
+  const sourcePoolByCategory = Object.fromEntries(pools.map(([category, works]) => [category, works.length]));
+  const postedExcluded = pools.reduce((sum, [, works]) => sum + works.filter((work) => postedWorkIds.has(work.id)).length, 0);
+  const sourcePoolAfterPosted = new Set(pools.flatMap(([, works]) => works.filter((work) => !postedWorkIds.has(work.id)).map((work) => work.id))).size;
+  const eligibleWorks = (works: CandidateWork[]) => works.filter((work) => !postedWorkIds.has(work.id));
   const selectedGroups = pools.map(([category, works]) => ({
     category,
-    ...selectWithDiversity(works, logs, category === "deal" || category === "hidden_gem" || category === "today_buy" || category === "today_discovery" ? 60 : 24, `${todayKey()}:${category}`),
+    ...selectWithDiversity(eligibleWorks(works), logs, category === "deal" || category === "hidden_gem" || category === "today_buy" || category === "today_discovery" ? 120 : 48, `${todayKey()}:${category}`),
   }));
   const reviewedVideoAssets = await supabaseAdmin
     .from("x_media_assets")
@@ -681,7 +693,7 @@ export async function getXPostCandidates(performance: AffiliatePerformanceRow[],
     .limit(3);
   const reviewedVideoWorkIds = [...new Set(((reviewedVideoAssets.data ?? []) as Array<{ work_id: number | null }>).map((asset) => asset.work_id).filter((id): id is number => Number.isSafeInteger(id)))];
   const reviewedVideoWorks = reviewedVideoWorkIds.length
-    ? await base().in("id", reviewedVideoWorkIds)
+    ? await base().in("id", reviewedVideoWorkIds.filter((id) => !postedWorkIds.has(id)))
     : { data: [] as CandidateWork[], error: null };
   if (reviewedVideoWorks.error) errors.push(reviewedVideoWorks.error.message);
   const allSelected = [...new Map([
@@ -699,6 +711,7 @@ export async function getXPostCandidates(performance: AffiliatePerformanceRow[],
     const used = new Set<number>();
     const candidates: XPostCandidate[] = [];
     for (const work of (reviewedVideoWorks.data ?? []) as unknown as CandidateWork[]) {
+      if (postedWorkIds.has(work.id)) continue;
       const chart = chartForWork(work, rowsByProduct.get(work.product_id) ?? []);
       const candidate = makeCandidate(
         work,
@@ -714,6 +727,7 @@ export async function getXPostCandidates(performance: AffiliatePerformanceRow[],
     for (const group of selectedGroups) {
       let groupCount = 0;
       for (const work of group.selected) {
+        if (postedWorkIds.has(work.id)) continue;
         if (used.has(work.id)) continue;
         const chart = chartForWork(work, rowsByProduct.get(work.product_id) ?? []);
         if ((group.category === "deal" || group.category === "today_buy") && !chart?.hadPriceDrop) continue;
@@ -736,8 +750,13 @@ export async function getXPostCandidates(performance: AffiliatePerformanceRow[],
     return {
       candidates: candidates.sort((a, b) => b.funnelScore - a.funnelScore),
       error: errors.length ? errors.join(" / ") : null,
+      diagnostics: { sourcePoolTotal, sourcePoolByCategory, postedExcluded, sourcePoolAfterPosted, selectedWorkCount: allSelected.length },
     };
   } catch (error) {
-    return { candidates: [], error: error instanceof Error ? error.message : "価格履歴を取得できませんでした" };
+    return {
+      candidates: [],
+      error: error instanceof Error ? error.message : "価格履歴を取得できませんでした",
+      diagnostics: { sourcePoolTotal, sourcePoolByCategory, postedExcluded, sourcePoolAfterPosted, selectedWorkCount: allSelected.length },
+    };
   }
 }
