@@ -19,7 +19,7 @@ async function main() {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
   page.on("pageerror", (error) => pageErrors.push(error.message));
-  const adminResponse = await page.goto("http://localhost:3000/admin", { waitUntil: "networkidle", timeout: 60_000 });
+  const adminResponse = await page.goto("http://localhost:3001/admin", { waitUntil: "networkidle", timeout: 60_000 });
   await page.getByRole("link", { name: /myfans X運用/ }).click();
   await page.waitForURL("**/admin/myfans?media=1", { timeout: 30_000 });
   const response = await page.waitForLoadState("networkidle", { timeout: 60_000 }).then(() => page.goto(page.url(), { waitUntil: "networkidle", timeout: 60_000 }));

@@ -1,20 +1,16 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-## Getting Started
+## Local admin development
 
-First, run the development server:
+The current myfans admin runs on port 3001. Start it with:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run dev:myfans
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3001/admin](http://localhost:3001/admin) and use the `myfans X運用` card. The canonical myfans command center is [http://localhost:3001/admin/myfans?media=1](http://localhost:3001/admin/myfans?media=1).
+
+The old `/admin/myfans/x-growth` path is retained only as a permanent server redirect to the canonical command center; it does not render the former UI.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
