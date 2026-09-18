@@ -462,7 +462,7 @@ const buyTiming = calculateBuyTimingScore({
 });
 
   return (
-  <main className="min-h-screen bg-gray-100 py-8 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-8">
+  <main className="min-h-screen bg-gray-100 py-8 pb-24 md:pb-8">
     <WorkPageViewTracker
       workId={work.id}
       price={mobileDisplayPrice ?? null}
