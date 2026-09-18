@@ -23,11 +23,24 @@ function slotValue(value: unknown, index: number, pickOrder: unknown): Canonical
 export function normalizeTopPickCandidates(input: unknown, postedWorkIds: ReadonlySet<number> = new Set()) {
   if (!Array.isArray(input)) return [] as CanonicalTopPick[];
   const slotCounts = new Map<string, number>();
+  const workIds = new Set<number>();
+  const mediaIds = new Set<number>();
+  const movieUrls = new Set<string>();
   return input.flatMap((value, index) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return [];
     const raw = value as Record<string, unknown>;
     const workId = numberValue(raw.workId ?? raw.work_id);
     if (!workId || postedWorkIds.has(workId)) return [];
+    const rawAsset = raw.mediaAsset;
+    const mediaId = rawAsset && typeof rawAsset === "object" && !Array.isArray(rawAsset)
+      ? numberValue((rawAsset as Record<string, unknown>).id)
+      : null;
+    const movieUrl = typeof raw.sampleMovieUrl === "string" ? raw.sampleMovieUrl.trim()
+      : typeof raw.recommendedMediaUrl === "string" && raw.mediaType === "sample_movie" ? raw.recommendedMediaUrl.trim() : "";
+    if (workIds.has(workId) || (mediaId && mediaIds.has(mediaId)) || (movieUrl && movieUrls.has(movieUrl))) return [];
+    workIds.add(workId);
+    if (mediaId) mediaIds.add(mediaId);
+    if (movieUrl) movieUrls.add(movieUrl);
     const slotId = slotValue(raw.slotId ?? raw.slot_id, index, raw.pickOrder ?? raw.pick_order);
     const count = slotCounts.get(slotId) ?? 0;
     slotCounts.set(slotId, count + 1);

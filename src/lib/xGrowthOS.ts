@@ -25,6 +25,7 @@ import {
   type XGrowthSystemStatus,
 } from "@/lib/xGrowthOperations";
 import { getXMediaSupplyStatus, getRightsReviewQueue, isPostableOfficialSampleMovie, type XMediaAsset } from "@/lib/xMediaAssets";
+import { isVideoCandidate } from "@/lib/xVideoCandidate";
 import { buildVisualVideoFacts, primaryUsableVisualFact, type XVisualVideoFacts, visualFactScores } from "@/lib/xVisualVideoFacts";
 
 export type XGrowthIntent = "REACH" | "AUTHORITY" | "FOLLOW" | "CONVERSATION" | "MONEY";
@@ -268,9 +269,12 @@ export type XGrowthOS = {
     semanticQuotaOverflowReasons: string[];
     semanticMappingReasons: Record<string, number>;
     mediaMix: {
+      totalVideoCandidates: number;
       eligibleStrongVideos: number;
       selectedVideos: number;
       selectedVideosBySlot: Record<string, number>;
+      rejectionReasons: Record<string, number>;
+      uniqueAudit: ReturnType<typeof auditCandidateUniqueness>;
       targetVideos: number;
       unmetReason: string | null;
     };
@@ -650,21 +654,73 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
 
 /** A video is strong only when the existing safety, quality, and visual evidence agree. */
 export function isStrongSafeVideoCandidate(
-  item: Pick<XGrowthOpportunity, "canNativeVideo" | "mediaAsset" | "sampleMovieUrl" | "visualFacts" | "visualScoring">,
+  item: Pick<XGrowthOpportunity, "canNativeVideo" | "mediaAsset" | "sampleMovieUrl" | "visualFacts" | "visualScoring" | "mediaType" | "recommendedMediaUrl">,
   variant?: Pick<XCreativeVariant, "mediaType" | "quality"> | null,
 ) {
+  return videoEligibilityReasons(item, variant).length === 0;
+}
+
+export function auditCandidateUniqueness(candidates: readonly CandidateIdentity[], postedWorkIds: ReadonlySet<number> = new Set()) {
+  const workIds = new Set<number>();
+  const mediaIds = new Set<number>();
+  const urls = new Set<string>();
+  const duplicateWorkIds = new Set<number>();
+  const duplicateMediaIds = new Set<number>();
+  const duplicateUrls = new Set<string>();
+  let postedOverlap = 0;
+  for (const candidate of candidates) {
+    if (postedWorkIds.has(candidate.workId)) postedOverlap += 1;
+    if (workIds.has(candidate.workId)) duplicateWorkIds.add(candidate.workId);
+    workIds.add(candidate.workId);
+    const mediaId = Number(candidate.mediaAsset?.id);
+    if (Number.isSafeInteger(mediaId) && mediaId > 0) {
+      if (mediaIds.has(mediaId)) duplicateMediaIds.add(mediaId);
+      mediaIds.add(mediaId);
+    }
+    const url = candidate.sampleMovieUrl?.trim();
+    if (url) {
+      if (urls.has(url)) duplicateUrls.add(url);
+      urls.add(url);
+    }
+  }
+  return {
+    workDuplicateCount: duplicateWorkIds.size,
+    mediaDuplicateCount: duplicateMediaIds.size,
+    urlDuplicateCount: duplicateUrls.size,
+    postedOverlap,
+    duplicateWorkIds: [...duplicateWorkIds],
+    duplicateMediaIds: [...duplicateMediaIds],
+    duplicateUrls: [...duplicateUrls],
+    passed: duplicateWorkIds.size === 0 && duplicateMediaIds.size === 0 && duplicateUrls.size === 0 && postedOverlap === 0,
+  };
+}
+
+export function videoEligibilityReasons(
+  item: Pick<XGrowthOpportunity, "canNativeVideo" | "mediaAsset" | "sampleMovieUrl" | "visualFacts" | "visualScoring" | "mediaType" | "recommendedMediaUrl">,
+  variant?: Pick<XCreativeVariant, "mediaType" | "quality"> | null,
+) {
+  const reasons: string[] = [];
   const asset = item.mediaAsset;
   const tags = asset?.manual_tags ?? [];
-  if (!item.canNativeVideo || variant?.mediaType !== "sample_movie") return false;
-  if (!isPostableOfficialSampleMovie(asset, item.sampleMovieUrl).usable) return false;
-  if (asset?.media_quality !== "strong" || tags.includes("too_explicit_for_reach") || tags.includes("weak_visual")) return false;
-  if (!variant.quality.passed || !variant.quality.lastMile.humanVoice.passed || !variant.quality.lastMile.nativeXVoice.passed) return false;
+  const candidate = { ...item, mediaType: variant?.mediaType ?? item.mediaType };
+  if (!isVideoCandidate(candidate)) reasons.push("video media/sample_movie_urlなし");
+  if (variant?.mediaType !== "sample_movie") reasons.push("creative variantが動画ではない");
+  if (!item.canNativeVideo) reasons.push("rightsまたはX使用可否未確認");
+  if (!isPostableOfficialSampleMovie(asset, item.sampleMovieUrl).usable) reasons.push("official sample / fetch / safety gate NG");
+  if (asset?.media_quality === "weak") reasons.push("media_quality=weak");
+  // null/undefined and unreviewed are intentionally not weak.
+  if (tags.includes("too_explicit_for_reach")) reasons.push("too_explicit_for_reach");
+  if (tags.includes("weak_visual")) reasons.push("weak_visual");
+  if (!variant?.quality.passed) reasons.push("creative quality gate NG");
+  if (variant && !variant.quality.lastMile.humanVoice.passed) reasons.push("human voice gate NG");
+  if (variant && !variant.quality.lastMile.nativeXVoice.passed) reasons.push("native X voice gate NG");
   const hasUsableVideoFact = (item.visualFacts?.usableFacts ?? []).some((fact) =>
     fact.source === "sample_video" || fact.source === "manual_tag" || fact.kind === "notable_video_hook",
   );
-  return item.visualScoring.videoHookStrength >= 80 || hasUsableVideoFact || tags.some((tag) =>
+  if (!(item.visualScoring.videoHookStrength >= 80 || hasUsableVideoFact || tags.some((tag) =>
     ["first_seconds_strong", "scene_surprise", "actress_fit", "visual_mismatch", "safe_preview"].includes(tag),
-  );
+  ))) reasons.push("video hook / fact strength不足");
+  return [...new Set(reasons)];
 }
 
 /** Cheap, deterministic narrowing before the expensive Human Voice matrix. */
@@ -1363,7 +1419,7 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
     .filter(({ selected }) => isStrongSafeVideoCandidate(item, selected.variant))
     .sort((a, b) => Number(b.selected.audit.ok) - Number(a.selected.audit.ok) || b.selected.score - a.selected.score)[0] ?? null;
   const slotRoles = (slotId: NonNullable<XDailyTopPick["slotId"]>) => slotId === "slot_1"
-    ? ["REACH" as const]
+    ? ["REACH" as const, "FOLLOW" as const, "AUTHORITY" as const]
     : slotId === "slot_2"
       ? [mission.bottleneck === "Follow不足" ? "FOLLOW" as const : "AUTHORITY" as const, "FOLLOW" as const, "AUTHORITY" as const, "REACH" as const]
       : ["REACH" as const, "FOLLOW" as const, "AUTHORITY" as const];
@@ -1371,16 +1427,17 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
     const entry = strongVideoVariant(item, ["REACH", "FOLLOW", "AUTHORITY"]);
     if (entry) strongVideoSupply.set(candidateMediaDedupeKey(item) ?? `work:${item.workId}`, item);
   }
+  const isVideoPick = (pick: XDailyTopPick) => isVideoCandidate(pick);
   const isStrongVideoPick = (pick: XDailyTopPick) => {
     const variant = pick.creativeVariants.find((candidate) => candidate.id === pick.creativeVariantId);
     return isStrongSafeVideoCandidate(pick, variant);
   };
-  const selectedVideosBySlot = () => picked.reduce((counts, pick) => {
+  const selectedStrongVideosBySlot = () => picked.reduce((counts, pick) => {
     if (isStrongVideoPick(pick)) counts[pick.slotId ?? "unassigned"] = (counts[pick.slotId ?? "unassigned"] ?? 0) + 1;
     return counts;
   }, {} as Record<string, number>);
   const swapStrongVideoIntoSlot = (slotId: NonNullable<XDailyTopPick["slotId"]>, minimum: number) => {
-    while ((selectedVideosBySlot()[slotId] ?? 0) < minimum) {
+    while ((selectedStrongVideosBySlot()[slotId] ?? 0) < minimum) {
       const slotPicks = picked.filter((pick) => pick.slotId === slotId && !isStrongVideoPick(pick));
       const replacement = [...strongVideoSupply.values()]
         .filter((item) => !picked.some((pick) => pick.workId === item.workId || pick.productId === item.productId))
@@ -1396,10 +1453,9 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
         const rest = picked.filter((_, index) => index !== victimIndex);
         for (const entry of replacement) {
           if (!isDistinctCandidate(entry.item, rest)) continue;
-          const category = entry.selected.audit.signature.semanticHookCategory;
-          if (rest.filter((pick) => pick.setDiversity.signature.semanticHookCategory === category).length >= SEMANTIC_CATEGORY_QUOTA[category]) continue;
+          // Media Mix is a soft target: semantic quotas may be exceeded here
+          // when needed, while identity, rights, truth, and video safety stay hard.
           const audit = diversityConflicts(entry.item, entry.role, entry.selected.variant, rest, logs);
-          if (!audit.ok) continue;
           picked[victimIndex] = buildTopPickCandidate({
             item: entry.item,
             role: entry.role,
@@ -1430,12 +1486,55 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
       swapStrongVideoIntoSlot(slot, slot === "slot_3" && picked.some((pick) => pick.slotId === "slot_3" && pick.role === "MONEY") ? 0 : 3);
     }
   }
-  const selectedVideos = picked.filter(isStrongVideoPick).length;
-  const selectedBySlot = selectedVideosBySlot();
+  // Media Mix and fallback swaps are allowed to change identity. Repair any
+  // collision immediately before diagnostics/persistence, using only hard-gated
+  // unused candidates and never relaxing rights or truth constraints.
+  for (let index = 0; index < picked.length; index += 1) {
+    const current = picked[index];
+    const rest = picked.filter((_, candidateIndex) => candidateIndex !== index);
+    if (isDistinctCandidate(current, rest) && !postedWorkIds.has(current.workId)) continue;
+    const replacement = pool
+      .filter((candidate) => !postedWorkIds.has(candidate.workId) && isDistinctCandidate(candidate, rest))
+      .map((candidate) => ({ candidate, selected: getCachedVariant(candidate, current.role) }))
+      .filter((entry): entry is { candidate: XGrowthOpportunity; selected: NonNullable<ReturnType<typeof selectCandidateVariant>> } => Boolean(entry.selected))
+      .sort((a, b) => b.selected.score - a.selected.score)[0];
+    if (!replacement) continue;
+    const audit = diversityConflicts(replacement.candidate, current.role, replacement.selected.variant, rest, logs);
+    picked[index] = buildTopPickCandidate({
+      item: replacement.candidate,
+      role: current.role,
+      variant: replacement.selected.variant,
+      audit,
+      score: clamp(replacement.selected.score),
+      pickOrder: current.pickOrder,
+      slotId: current.slotId,
+      slotRole: current.slotRole ?? "REACH",
+      slotLabel: current.slotLabel ?? "",
+      candidateRank: current.candidateRank ?? "C",
+      reason: "最終Unique Audit: duplicate work/media/urlをhard gate内で修復",
+    });
+  }
+  const uniqueAudit = auditCandidateUniqueness(picked, postedWorkIds);
+  const selectedVideos = picked.filter(isVideoPick).length;
+  const selectedBySlot = picked.reduce((counts, pick) => {
+    if (isVideoPick(pick)) counts[pick.slotId ?? "unassigned"] = (counts[pick.slotId ?? "unassigned"] ?? 0) + 1;
+    return counts;
+  }, {} as Record<string, number>);
+  const rejectionReasons: Record<string, number> = {};
+  for (const item of pool) {
+    const videoVariants = item.creativeVariants.filter((variant) => variant.mediaType === "sample_movie");
+    const variant = [...videoVariants].sort((a, b) => b.quality.total - a.quality.total)[0] ?? null;
+    for (const reason of videoEligibilityReasons({ ...item, mediaType: "sample_movie" }, variant)) {
+      rejectionReasons[reason] = (rejectionReasons[reason] ?? 0) + 1;
+    }
+  }
   const mediaMix = {
+    totalVideoCandidates: pool.filter((item) => isVideoCandidate({ ...item, mediaType: "sample_movie" })).length,
     eligibleStrongVideos: strongVideoSupply.size,
     selectedVideos,
     selectedVideosBySlot: selectedBySlot,
+    rejectionReasons,
+    uniqueAudit,
     targetVideos: totalVideoTarget,
     unmetReason: totalVideoTarget > selectedVideos
       ? "strong/safe動画は存在するが、semantic diversityまたはduplicate/work制約を壊さずswapできる候補が不足"
@@ -1751,9 +1850,12 @@ function buildSupplyDiagnostics(
   candidateDiagnostics: { sourcePoolTotal?: number; sourcePoolAfterPosted?: number; postedExcluded?: number; prefilterCount?: number; humanVoiceTargetCount?: number; diversityTargetCount?: number } | undefined,
   postedWorkIds: ReadonlySet<number>,
   mediaMix?: {
+    totalVideoCandidates: number;
     eligibleStrongVideos: number;
     selectedVideos: number;
     selectedVideosBySlot: Record<string, number>;
+    rejectionReasons: Record<string, number>;
+    uniqueAudit: ReturnType<typeof auditCandidateUniqueness>;
     targetVideos: number;
     unmetReason: string | null;
   },
@@ -1886,9 +1988,12 @@ function buildSupplyDiagnostics(
     semanticQuotaOverflowReasons: semantic.overflowReasons,
     semanticMappingReasons: semantic.mappingReasons,
     mediaMix: mediaMix ?? {
+      totalVideoCandidates: 0,
       eligibleStrongVideos: 0,
       selectedVideos: picks.filter((pick) => pick.mediaType === "sample_movie").length,
       selectedVideosBySlot: {},
+      rejectionReasons: {},
+      uniqueAudit: auditCandidateUniqueness(picks),
       targetVideos: 0,
       unmetReason: null,
     },
@@ -2030,9 +2135,10 @@ export async function buildXGrowthOS({
   timings.diversity_target_count = dailySelection.picks.length;
   const finalMediaMix = {
     ...dailySelection.mediaMix,
-    selectedVideos: diversityResult.picks.filter((pick) => isStrongSafeVideoCandidate(pick, pick.creativeVariants.find((variant) => variant.id === pick.creativeVariantId))).length,
+    uniqueAudit: auditCandidateUniqueness(diversityResult.picks, postedWorkIds),
+    selectedVideos: diversityResult.picks.filter((pick) => isVideoCandidate(pick)).length,
     selectedVideosBySlot: diversityResult.picks.reduce((counts, pick) => {
-      if (isStrongSafeVideoCandidate(pick, pick.creativeVariants.find((variant) => variant.id === pick.creativeVariantId))) {
+      if (isVideoCandidate(pick)) {
         const slot = pick.slotId ?? "unassigned";
         counts[slot] = (counts[slot] ?? 0) + 1;
       }
