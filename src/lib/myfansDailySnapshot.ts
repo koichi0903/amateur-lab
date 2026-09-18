@@ -259,8 +259,7 @@ async function saveSupplyAudit(dailyPlanId: number, revision: number, board: Myf
   }
 }
 
-export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard): Promise<MyfansDailySnapshotResult> {
-  const approvedMediaId = board.candidates[0]?.approvedMediaId ?? null;
+export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard, approvedMediaId: number | null = board.candidates[0]?.approvedMediaId ?? null): Promise<MyfansDailySnapshotResult> {
   const strategyJson = {
     plan_key: board.planKey,
     day: board.day,
