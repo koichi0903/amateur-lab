@@ -125,6 +125,52 @@ export type MyfansTopicValue = {
   };
 };
 
+export type MyfansSupplyAuditStage =
+  | "source_discovery"
+  | "freshness_cooldown"
+  | "identity"
+  | "visual"
+  | "topic_value"
+  | "reason_to_care"
+  | "role_fit"
+  | "copy"
+  | "duplicate_similarity"
+  | "quality_last_mile"
+  | "selected";
+
+export type MyfansSupplyAuditRow = {
+  candidate_id: string;
+  source_id: string | number | null;
+  slot: string | null;
+  stage: MyfansSupplyAuditStage;
+  status: "passed" | "rejected" | "selected";
+  reason_code: string;
+  detail: string;
+  score: number | null;
+  threshold: number | null;
+  source_url: string | null;
+  source_author: string | null;
+  product_id: number | null;
+  role: string | null;
+};
+
+export type MyfansSupplyAudit = {
+  version: 1;
+  stages: Array<{
+    stage: MyfansSupplyAuditStage;
+    input: number;
+    passed: number;
+    rejected: number;
+    top_reasons: Array<{ reason_code: string; count: number }>;
+  }>;
+  by_slot: Array<{
+    slot: string;
+    counts: Array<{ stage: MyfansSupplyAuditStage; input: number; passed: number; rejected: number }>;
+    top_reasons: Array<{ stage: MyfansSupplyAuditStage; reason_code: string; count: number }>;
+  }>;
+  rows: MyfansSupplyAuditRow[];
+};
+
 export type PublicCopyFacts = {
   sourceText: string;
   creatorName: string;
@@ -3539,6 +3585,54 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     },
   };
 
+  const supplyAuditRows: MyfansSupplyAuditRow[] = [];
+  const addAudit = (row: MyfansSupplyAuditRow) => supplyAuditRows.push(row);
+  const sourceRows = analytics.quoteCandidates;
+  for (const quote of sourceRows) {
+    const sourceId = quote.id ?? quote.x_post_url;
+    const sourceUrl = quote.x_post_url || quote.media_permalink || null;
+    const candidateId = `source:${sourceId}`;
+    addAudit({ candidate_id: candidateId, source_id: sourceId, slot: null, stage: "source_discovery", status: "passed", reason_code: "SOURCE_DISCOVERED", detail: "DBに保存済みのquote candidate", score: quote.score ?? null, threshold: null, source_url: sourceUrl, source_author: quote.source_x_handle ?? null, product_id: quote.product_id ?? null, role: null });
+    const age = daysSinceIso(quote.collected_at);
+    const freshnessRejected = quote.is_repost || (age !== null && age > QUOTE_FRESH_DAYS);
+    const sourceUsage = pastUsage.latestSource(quote.x_post_url) ?? pastUsage.latestSource(quoteUrlFromCandidate(quote));
+    const sourceAge = sourceUsage ? daysBetweenDates(planDate, sourceUsage.date) : null;
+    const cooldownRejected = Boolean(quote.last_used_at || quote.cooldown_until || (sourceUsage && sourceAge !== null && sourceAge < POSTED_SOURCE_COOLDOWN_DAYS));
+    const freshnessReason = freshnessRejected ? (quote.is_repost ? "REPOST_SOURCE" : "STALE_SOURCE") : cooldownRejected ? "SOURCE_COOLDOWN" : "FRESH_COOLDOWN_PASS";
+    addAudit({ candidate_id: candidateId, source_id: sourceId, slot: null, stage: "freshness_cooldown", status: freshnessRejected || cooldownRejected ? "rejected" : "passed", reason_code: freshnessReason, detail: freshnessRejected ? "freshness/repost条件未達" : cooldownRejected ? "sourceまたは使用履歴のcooldown" : "freshかつcooldown通過", score: null, threshold: QUOTE_FRESH_DAYS, source_url: sourceUrl, source_author: quote.source_x_handle ?? null, product_id: quote.product_id ?? null, role: null });
+    const visualPass = visualPriority(quote) >= 1 || (quote.views ?? 0) >= 50_000;
+    addAudit({ candidate_id: candidateId, source_id: sourceId, slot: null, stage: "visual", status: visualPass ? "passed" : "rejected", reason_code: visualPass ? "VISUAL_OR_SIGNAL_PASS" : "VISUAL_OR_PUBLIC_SIGNAL_MISSING", detail: visualPass ? "visualまたは公開反応シグナルあり" : "visual/公開反応シグナル不足", score: quote.score ?? null, threshold: QUOTE_MIN_SCORE, source_url: sourceUrl, source_author: quote.source_x_handle ?? null, product_id: quote.product_id ?? null, role: null });
+  }
+  for (const row of topicRows) {
+    const candidateId = `topic:${row.productId}:${row.role}`;
+    const passed = row.topicValue.verdict === "PASS";
+    addAudit({ candidate_id: candidateId, source_id: row.quoteCandidateId, slot: null, stage: "topic_value", status: passed ? "passed" : "rejected", reason_code: passed ? "TOPIC_VALUE_PASS" : "LOW_TOPIC_VALUE", detail: passed ? "Topic Value threshold通過" : row.topicValue.whyRejected.join(" / ") || "Topic Value threshold未達", score: row.topicValue.score, threshold: topicThresholdFor(row.role), source_url: row.sourceCandidate || null, source_author: null, product_id: row.productId, role: row.role });
+    addAudit({ candidate_id: candidateId, source_id: row.quoteCandidateId, slot: null, stage: "reason_to_care", status: row.topicValue.reasonToCare ? "passed" : "rejected", reason_code: row.topicValue.reasonToCare ? "REASON_TO_CARE_PRESENT" : "REASON_TO_CARE_MISSING", detail: row.topicValue.reasonToCare ? row.topicValue.reasonToCare : "公開文にできるreason_to_careなし", score: row.topicValue.score, threshold: null, source_url: row.sourceCandidate || null, source_author: null, product_id: row.productId, role: row.role });
+  }
+  for (const attempt of recoveryHistory) {
+    const rejected = attempt.verdict !== "PASS" || attempt.score < MYFANS_QUALITY_GATE_MINIMUM;
+    const stage: MyfansSupplyAuditStage = /同じ|similar|duplicate|重複|sameness/i.test(attempt.holdReason) ? "duplicate_similarity" : "quality_last_mile";
+    addAudit({ candidate_id: attempt.candidateId, source_id: attempt.quoteCandidateId, slot: attempt.slot, stage, status: rejected ? "rejected" : "passed", reason_code: rejected ? attempt.holdReason || "QUALITY_GATE_HOLD" : "QUALITY_GATE_PASS", detail: attempt.qualityReasons.join(" / ") || attempt.recoveryAction, score: attempt.score, threshold: MYFANS_QUALITY_GATE_MINIMUM, source_url: null, source_author: null, product_id: attempt.productId, role: attempt.recoveryRole });
+  }
+  for (const candidate of finalPublishableCandidates) {
+    addAudit({ candidate_id: candidate.id, source_id: candidate.quoteXUrl || candidate.sourceXUrl || null, slot: candidate.plannedSlot, stage: "selected", status: "selected", reason_code: "SELECTED", detail: "quality gate通過後にslotへ採用", score: candidate.quality.total, threshold: MYFANS_QUALITY_GATE_MINIMUM, source_url: candidate.quoteXUrl || candidate.sourceXUrl || null, source_author: candidate.sourceAuthorHandle || null, product_id: candidate.product?.id ?? null, role: candidate.dailyRole });
+  }
+  const reasonCounts = (rows: MyfansSupplyAuditRow[]) => Object.entries(rows.reduce<Record<string, number>>((acc, row) => { acc[row.reason_code] = (acc[row.reason_code] ?? 0) + 1; return acc; }, {})).map(([reason_code, count]) => ({ reason_code, count })).sort((a, b) => b.count - a.count).slice(0, 5);
+  const auditStages = (["source_discovery", "freshness_cooldown", "identity", "visual", "topic_value", "reason_to_care", "role_fit", "copy", "duplicate_similarity", "quality_last_mile", "selected"] as MyfansSupplyAuditStage[]).map((stage) => {
+    const rows = supplyAuditRows.filter((row) => row.stage === stage);
+    const passed = rows.filter((row) => row.status === "passed" || row.status === "selected").length;
+    return { stage, input: rows.length, passed, rejected: rows.filter((row) => row.status === "rejected").length, top_reasons: reasonCounts(rows) };
+  });
+  const auditSlots = rotation.map((item) => {
+    const rows = supplyAuditRows.filter((row) => row.slot === item.slot);
+    const counts = (["copy", "duplicate_similarity", "quality_last_mile", "selected"] as MyfansSupplyAuditStage[]).map((stage) => {
+      const stageRows = rows.filter((row) => row.stage === stage);
+      return { stage, input: stageRows.length, passed: stageRows.filter((row) => row.status !== "rejected").length, rejected: stageRows.filter((row) => row.status === "rejected").length };
+    });
+    return { slot: item.slot, counts, top_reasons: counts.flatMap((count) => reasonCounts(rows.filter((row) => row.stage === count.stage)).map((reason) => ({ stage: count.stage, ...reason }))).slice(0, 5) };
+  });
+  const supplyAudit: MyfansSupplyAudit = { version: 1, stages: auditStages, by_slot: auditSlots, rows: supplyAuditRows.slice(0, 5000) };
+
   return {
     day,
     planDate,
@@ -3549,6 +3643,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     candidates: finalPublishableCandidates,
     candidateOptions: fullDailyOptions,
     linkedCandidateFunnel,
+    supplyAudit,
     heldCandidates,
     linkedCount: finalLinkedCount,
     noDirectLinkCount: finalNoDirectLinkCount,

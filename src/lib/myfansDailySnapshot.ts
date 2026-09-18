@@ -247,6 +247,18 @@ async function insertDailyPlanPosts(dailyPlanId: number, board: MyfansExecutionB
   return selectedResult.error;
 }
 
+async function saveSupplyAudit(dailyPlanId: number, board: MyfansExecutionBoard) {
+  const result = await supabaseAdmin.from("myfans_daily_plan_funnel_audit").insert({
+    daily_plan_id: dailyPlanId,
+    plan_date: board.planDate,
+    revision: null,
+    audit_json: board.supplyAudit,
+  });
+  if (result.error && !/myfans_daily_plan_funnel_audit|relation|schema cache|does not exist/i.test(result.error.message)) {
+    console.error("myfans supply audit save failed", result.error.message);
+  }
+}
+
 export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard): Promise<MyfansDailySnapshotResult> {
   const approvedMediaId = board.candidates[0]?.approvedMediaId ?? null;
   const strategyJson = {
@@ -262,6 +274,7 @@ export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard): Pr
     held_candidates: board.heldCandidates,
     recovery: board.recovery,
     quote_candidate_funnel: board.quotePool.funnel,
+    supply_funnel_audit: board.supplyAudit,
     linked_candidate_funnel: board.linkedCandidateFunnel,
     topic_value_funnel: board.topicValue.funnel,
     topic_value_top10: board.topicValue.top10,
@@ -316,6 +329,8 @@ export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard): Pr
     if (board.candidates.length) {
       await insertDailyPlanPosts(existing.id, board);
     }
+    await supabaseAdmin.from("myfans_daily_plan_funnel_audit").delete().eq("daily_plan_id", existing.id);
+    await saveSupplyAudit(existing.id, board);
     await syncProductLinkageEvidence(board);
     await syncAttentionCandidates(approvedMediaId, board);
     return {
@@ -380,6 +395,8 @@ export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard): Pr
       };
     }
   }
+
+  await saveSupplyAudit(plan.id, board);
 
   await syncAttentionCandidates(approvedMediaId, board);
   await syncProductLinkageEvidence(board);

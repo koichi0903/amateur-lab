@@ -220,6 +220,34 @@ export default async function MyfansDailyPage({
               主要落選理由はcreatorごとに1つだけ数え、各条件該当数とは分けています。
             </p>
           </details>
+          <details className="mt-4 rounded-lg border border-fuchsia-800 bg-zinc-950 p-4" open>
+            <summary className="cursor-pointer text-sm font-black text-fuchsia-100">Supply Funnel / 空き枠の理由</summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+              {board.supplyAudit.stages.filter((stage) => ["source_discovery", "freshness_cooldown", "visual", "topic_value", "quality_last_mile", "selected"].includes(stage.stage)).map((stage) => (
+                <Card key={stage.stage} label={stage.stage} value={`${stage.passed}/${stage.input}`} note={stage.top_reasons[0] ? `${stage.top_reasons[0].reason_code}: ${stage.top_reasons[0].count}` : "理由なし"} />
+              ))}
+            </div>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              {board.supplyAudit.by_slot.map((slot) => (
+                <div key={slot.slot} className="rounded-lg border border-zinc-800 p-4">
+                  <p className="font-black text-white">{slot.slot}</p>
+                  <p className="mt-2 text-xs leading-5 text-zinc-400">{slot.counts.filter((row) => row.input > 0).map((row) => `${row.stage} ${row.passed}/${row.input}`).join(" → ") || "候補監査レコードなし"}</p>
+                  <p className="mt-2 text-xs leading-5 text-fuchsia-200">{slot.top_reasons.length ? slot.top_reasons.slice(0, 3).map((row) => `${row.reason_code} ${row.count}件`).join(" / ") : "slot固有の落選理由なし"}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-5 text-zinc-500">候補単位の監査はsnapshotのstrategy_jsonと専用監査テーブルに保存。数値はGateを緩めず、生成時点の実データから再構成しています。</p>
+          </details>
+          <details className="mt-4 rounded-lg border border-rose-800 bg-zinc-950 p-4">
+            <summary className="cursor-pointer text-sm font-black text-rose-100">Revenue Supply Funnel</summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <Card label="exact product resolved" value={`${analytics.products.filter((product) => analytics.productLinkageEvidence.some((evidence) => evidence.product_id === product.id && evidence.confidence === "exact")).length}件`} note="exact evidenceのみ" />
+              <Card label="own affiliate ready" value={`${analytics.products.filter((product) => Boolean(product.affiliate_url)).length}件`} note="本人発行URLのみ" />
+              <Card label="exact source X ready" value={`${analytics.productLinkageEvidence.filter((evidence) => evidence.confidence === "exact" && Boolean(evidence.source_status_url)).length}件`} note="source/status URLあり" />
+              <Card label="Topic pass" value={`${board.topicValue.funnel.topicValuePass}件`} note="role別Topic Value" />
+              <Card label="final Revenue ready" value={`${board.candidates.filter((candidate) => candidate.dailyRole === "REVENUE" && candidate.monetizableStatus === "linked_affiliate_ready").length}件`} note="exact + affiliate + source" />
+            </div>
+          </details>
           <div className="mt-4 rounded-lg border border-cyan-800 bg-zinc-950 p-4">
             <p className="text-sm font-black text-cyan-100">Visual Verification</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
