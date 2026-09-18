@@ -85,7 +85,7 @@ type HookType =
   | "SCARCITY_DEADLINE";
 
 type AudienceIntent = "broad_curiosity" | "creator_interest" | "category_interest" | "comparison_shopper" | "purchase_intent" | "returning_follower";
-export const MYFANS_PUBLIC_COPY_GENERATOR_VERSION = "public-copy-v15-natural-reaction";
+export const MYFANS_PUBLIC_COPY_GENERATOR_VERSION = "public-copy-v16-complete-source-phrases";
 export const MYFANS_VISUAL_ANALYZER_VERSION = "visual-understanding-v3-logged-in-chrome";
 export const MYFANS_PUBLIC_COPY_V9_GENERATOR_VERSION = "public-copy-v9-visual-grounded";
 export const MYFANS_PUBLIC_COPY_V10_GENERATOR_VERSION = "public-copy-v10-human-observation";
@@ -370,6 +370,13 @@ function quoteInsight(quote: MyfansQuoteCandidate | null) {
 
 function compactSourceText(text: string, max = 34) {
   return text.replace(/\s+/g, " ").replace(/https?:\/\/\S+/g, "").trim().slice(0, max);
+}
+
+function completeSourcePhrase(text: string, max = 34) {
+  const normalized = text.replace(/\s+/g, " ").replace(/https?:\/\/\S+/g, "").trim();
+  if (normalized.length <= max) return normalized;
+  const firstSentence = normalized.match(/^.{6,80}?[。！？!?]/u)?.[0] ?? "";
+  return firstSentence.length <= max ? firstSentence : "";
 }
 
 function stringField(value: unknown) {
@@ -1513,7 +1520,7 @@ function quotePublicDiscoveryLine(quote: MyfansQuoteCandidate | null, topicValue
   const visual = visualAnalysisForQuote(quote);
   if (visual?.status === "verified") return "";
   const media = quote.has_video ? "動画" : quote.has_image ? "画像" : "投稿";
-  const excerpt = compactSourceText(quote.text_excerpt ?? "", 18);
+  const excerpt = completeSourcePhrase(quote.text_excerpt ?? "", 34);
   const subject = media === "動画" ? "この動画" : media === "画像" ? "この画像" : "この投稿";
   const lines = [
     `${subject}、最初の置き方がうまい。`,
@@ -2178,7 +2185,7 @@ function humanObservationVariants(understanding: VisualUnderstanding, facts: Pub
 function buildPublicCopyV8(facts: PublicCopyFacts, postType: string, linkStrategy: MyfansLinkStrategy, variant = 0) {
   const understanding = visualUnderstandingFor(facts);
   const reactionType = reactionTypeFor(facts, variant);
-  const sourceSnippet = compactSourceText(facts.sourceText, 28);
+  const sourceSnippet = completeSourcePhrase(facts.sourceText, 34);
   if (facts.sourceText && sourceSnippet.length >= 6) {
     const sourceLines = [
       [`「${sourceSnippet}」って出てきたら、普通に二度見する。`, facts.visualContext === "video" ? "続きがあるなら見に行く人多そう。" : "この一言だけで好みが分かれる。"],
@@ -3332,7 +3339,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       const resolverSource = normalizeSourceUrl(resolverCandidate.quoteXUrl || resolverCandidate.sourceXUrl);
       const hasExactResolver = resolverCandidate.resolverEvidence?.confidence === "exact" && Boolean(resolverCandidate.resolverEvidence.product_id);
       const resolverLeak = detectPublicCopyLeak(resolverCandidate.body);
-      if (hasExactResolver && resolverCandidate.body && resolverCandidate.quality.total >= 70 && !resolverLeak.hasLeak && resolverNovelty.verdict !== "blocked" && resolverSource && !usedOptionSourcesAcrossDay.has(resolverSource) && optionDiverseEnough(resolverCandidate, options)) {
+      if (hasExactResolver && resolverCandidate.body && resolverCandidate.quality.verdict === "PASS" && resolverCandidate.quality.total >= MYFANS_QUALITY_GATE_MINIMUM && !resolverLeak.hasLeak && resolverNovelty.verdict !== "blocked" && resolverSource && !usedOptionSourcesAcrossDay.has(resolverSource) && optionDiverseEnough(resolverCandidate, options)) {
         usedOptionSourcesAcrossDay.add(resolverSource);
         const optionIndex = options.length;
         const optionLabel = (["A", "B", "C"] as const)[optionIndex];
@@ -3371,7 +3378,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
         const source = normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl);
         if (!source || usedOptionSourcesAcrossDay.has(source)) continue;
         if (!candidate.body || leak.hasLeak || novelty.verdict === "blocked") continue;
-        if (candidate.quality.total < 70) continue;
+        if (candidate.quality.verdict !== "PASS" || candidate.quality.total < MYFANS_QUALITY_GATE_MINIMUM) continue;
         if (!optionDiverseEnough(candidate, options)) continue;
         usedOptionSourcesAcrossDay.add(source);
         const optionIndex = options.length;

@@ -66,7 +66,7 @@ const facts: PublicCopyFacts = {
 
 const sameHash = publicCopyInputHash(facts);
 const changedHash = publicCopyInputHash({ ...facts, publicMetrics: { ...facts.publicMetrics, likes: 13012 } });
-assert.equal(MYFANS_PUBLIC_COPY_GENERATOR_VERSION, "public-copy-v14-x-native-post-set");
+assert.equal(MYFANS_PUBLIC_COPY_GENERATOR_VERSION, "public-copy-v16-complete-source-phrases");
 assert.equal(MYFANS_QUALITY_GATE_MINIMUM, 85);
 assert.equal(publicCopyInputHash(facts), sameHash);
 assert.notEqual(changedHash, sameHash);
@@ -367,7 +367,7 @@ assert.ok(board.candidates.filter((candidate) => candidate.creativeStrategy === 
 assert.ok(board.candidates.filter((candidate) => candidate.creativeStrategy === "quote_post").every((candidate) => candidate.visualUnderstanding?.visualAnalysisStatus === "verified"));
 assert.ok(board.candidates.every((candidate) => candidate.topicValue?.verdict === "PASS"));
 assert.ok(board.candidates.every((candidate) => candidate.topicValue?.reasonToCare));
-assert.ok(board.candidates.filter((candidate) => candidate.creativeStrategy === "quote_post").every((candidate) => candidate.generatorVersion === "public-copy-v14-x-native-post-set"));
+assert.ok(board.candidates.filter((candidate) => candidate.creativeStrategy === "quote_post").every((candidate) => candidate.generatorVersion === "public-copy-v16-complete-source-phrases"));
 assert.ok(board.candidates.every((candidate) => candidate.sourceXUrl));
 assert.ok(board.candidates.every((candidate) => candidate.sourceMediaType));
 assert.ok(board.candidates.every((candidate) => candidate.postMode));
