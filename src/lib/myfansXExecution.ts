@@ -95,6 +95,10 @@ export const MYFANS_TOPIC_VALUE_THRESHOLDS: Record<DailyRole, number> = { ATTENT
 const MYFANS_SLOT_RECOVERY_MAX_ATTEMPTS = 12;
 const MYFANS_MULTI_ANGLE_ATTEMPTS_PER_TOPIC = 6;
 const MYFANS_DAILY_AVERAGE_QUALITY_MINIMUM = 90;
+export const MYFANS_DAILY_SLOT_COUNT = 4;
+export const MYFANS_DAILY_CANDIDATES_PER_SLOT = 3;
+export const MYFANS_DAILY_SELECTED_MIN = 2;
+export const MYFANS_DAILY_SELECTED_MAX = 3;
 
 export type MyfansReasonToCare =
   | "unexpected_popularity"
@@ -321,6 +325,7 @@ const ROTATION: Record<MyfansGrowthStage, RotationItem[]> = {
     { postType: "winner_reuse", linkStrategy: "reply_link", objective: "conversion", cta: "前に反応がよかった型で再掲", slot: "12:10", role: "勝ち型を再利用する" },
     { postType: "comparison_review", linkStrategy: "body_link", objective: "click", cta: "詳細を見る", slot: "20:30", role: "クリック効率を取りにいく" },
     { postType: "profile_cta", linkStrategy: "profile_cta", objective: "follow", cta: "今後の発掘メモはプロフィールから", slot: "23:00", role: "フォロー導線を残す" },
+    { postType: "discovery_interest", linkStrategy: "no_link", objective: "impression", cta: "保存用の発見メモ", slot: "17:40", role: "露出の土台を残す" },
   ],
 };
 
@@ -3517,9 +3522,16 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       return picked;
     })
     .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
-  const finalPublishableCandidates = selectedPublishableCandidates.length >= rotation.length
-    ? selectedPublishableCandidates.slice(0, rotation.length)
-    : publishableCandidates;
+  const rankedSelectedCandidates = [...selectedPublishableCandidates]
+    .sort((a, b) => b.quality.total - a.quality.total || a.plannedSlot.localeCompare(b.plannedSlot));
+  const selectedCount = rankedSelectedCandidates.length >= MYFANS_DAILY_SELECTED_MIN
+    ? Math.min(MYFANS_DAILY_SELECTED_MAX, rankedSelectedCandidates.length)
+    : rankedSelectedCandidates.length;
+  const finalPublishableCandidates = rankedSelectedCandidates.slice(0, selectedCount);
+  const selectedOptions = Object.fromEntries(finalPublishableCandidates.map((candidate) => {
+    const postOrder = fullDailyOptions.find((slot) => slot.candidates.some((option) => option.id === candidate.id))?.postOrder;
+    return postOrder ? [String(postOrder), candidate.optionLabel ?? "A"] : null;
+  }).filter((entry): entry is [string, string] => Boolean(entry)));
   const finalLinkedCount = finalPublishableCandidates.filter((candidate) => candidate.linkStrategy === "body_link" || candidate.linkStrategy === "reply_link").length;
   const finalNoDirectLinkCount = finalPublishableCandidates.length - finalLinkedCount;
   const allDailyOptions = fullDailyOptions.flatMap((slot) => slot.candidates);
@@ -3662,6 +3674,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     day,
     planDate,
     planKey,
+    selectedOptions,
     stage,
     strategy,
     profileGuide: MYFANS_PROFILE_GUIDE,
@@ -3684,12 +3697,19 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     recovery: {
       targetPosts: rotation.length,
       passCount: finalPublishableCandidates.length,
+      candidateOptions: allDailyOptions.length,
+      candidateOptionsTarget: MYFANS_DAILY_SLOT_COUNT * MYFANS_DAILY_CANDIDATES_PER_SLOT,
+      selectedMinimum: MYFANS_DAILY_SELECTED_MIN,
+      selectedMaximum: MYFANS_DAILY_SELECTED_MAX,
+      selectedStatus: allDailyOptions.length >= MYFANS_DAILY_SLOT_COUNT * MYFANS_DAILY_CANDIDATES_PER_SLOT && finalPublishableCandidates.length >= MYFANS_DAILY_SELECTED_MIN ? "READY" : "SUPPLY_INSUFFICIENT",
       attemptedCandidates: recoveryHistory.length,
       initialAttempts,
       history: recoveryHistory,
-      summary: publishableCandidates.length >= rotation.length
-        ? `目標${rotation.length}本すべてQuality Gate ${MYFANS_QUALITY_GATE_MINIMUM}+で通過`
-        : `目標${rotation.length}本中${finalPublishableCandidates.length}本PASS。候補不足またはGate未達`,
+      summary: allDailyOptions.length < MYFANS_DAILY_SLOT_COUNT * MYFANS_DAILY_CANDIDATES_PER_SLOT
+        ? `候補${allDailyOptions.length}/${MYFANS_DAILY_SLOT_COUNT * MYFANS_DAILY_CANDIDATES_PER_SLOT}。枠別A/B/C供給不足`
+        : finalPublishableCandidates.length >= MYFANS_DAILY_SELECTED_MIN
+          ? `候補${allDailyOptions.length}/${MYFANS_DAILY_SLOT_COUNT * MYFANS_DAILY_CANDIDATES_PER_SLOT}、selected ${finalPublishableCandidates.length}/${MYFANS_DAILY_SELECTED_MIN}-${MYFANS_DAILY_SELECTED_MAX}`
+          : `候補${allDailyOptions.length}/${MYFANS_DAILY_SLOT_COUNT * MYFANS_DAILY_CANDIDATES_PER_SLOT}、selected ${finalPublishableCandidates.length}/${MYFANS_DAILY_SELECTED_MIN} minimum。SUPPLY_INSUFFICIENT`,
       roleSwaps: recoveryHistory.filter((row) => /→/.test(row.recoveryAction) || /Recovery/.test(row.candidateId)),
     },
     outboundTasks: buildOutboundTasks(analytics, quotePool),

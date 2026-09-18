@@ -141,8 +141,8 @@ function dailyPlanPostRecord(dailyPlanId: number, board: MyfansExecutionBoard, c
     option_label: option?.optionLabel ?? "A",
     option_name: option?.optionName ?? "おすすめ",
     option_rank: option?.optionRank ?? 1,
-    is_selected: (option?.optionLabel ?? "A") === "A",
-    selected_at: (option?.optionLabel ?? "A") === "A" ? new Date().toISOString() : null,
+    is_selected: Boolean(option && board.selectedOptions?.[String(index + 1)] === option.optionLabel),
+    selected_at: option && board.selectedOptions?.[String(index + 1)] === option.optionLabel ? new Date().toISOString() : null,
     novelty_json: option?.novelty ?? {},
   };
 }
@@ -279,7 +279,7 @@ export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard): Pr
     topic_value_funnel: board.topicValue.funnel,
     topic_value_top10: board.topicValue.top10,
     candidate_options: summarizeCandidateOptions(board),
-    daily_option_selection: {},
+    daily_option_selection: board.selectedOptions,
   };
   const evaluatedAt = new Date().toISOString();
 
@@ -295,14 +295,12 @@ export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard): Pr
       planKey: board.planKey,
       revision: null,
       evaluatedAt: null,
-      selectedOptions: {},
+      selectedOptions: board.selectedOptions,
     };
   }
 
   if (existing?.id) {
-    const selectedOptions = (existing.strategy_json?.daily_option_selection && typeof existing.strategy_json.daily_option_selection === "object"
-      ? existing.strategy_json.daily_option_selection
-      : {}) as Record<string, string>;
+    const selectedOptions = board.selectedOptions as Record<string, string>;
     const nextRevision = (existing.revision ?? 0) + 1;
     const updateRecord = {
       operation_day: board.day,
@@ -374,7 +372,7 @@ export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard): Pr
       planKey: board.planKey,
       revision: null,
       evaluatedAt: null,
-      selectedOptions: {},
+      selectedOptions: board.selectedOptions,
     };
   }
 
@@ -390,7 +388,7 @@ export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard): Pr
         planKey: board.planKey,
         revision: 1,
         evaluatedAt,
-        selectedOptions: {},
+        selectedOptions: board.selectedOptions,
       };
     }
   }
@@ -422,7 +420,7 @@ export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard): Pr
     planKey: board.planKey,
     revision: supportsRevisionColumns ? 1 : null,
     evaluatedAt,
-    selectedOptions: {},
+    selectedOptions: board.selectedOptions,
   };
 }
 

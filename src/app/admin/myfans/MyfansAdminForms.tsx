@@ -1238,8 +1238,8 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
   const [pendingId, setPendingId] = useState<string | number | null>(null);
   const [selectedBySlot, setSelectedBySlot] = useState<Record<number, string>>(() =>
     Object.fromEntries((candidateOptions ?? []).map((slot) => {
-      const selectedLabel = selectedOptions?.[String(slot.postOrder)] ?? "A";
-      return [slot.postOrder, slot.candidates.find((candidate) => candidate.optionLabel === selectedLabel)?.id ?? slot.candidates.find((candidate) => candidate.optionLabel === "A")?.id ?? slot.candidates[0]?.id ?? ""];
+      const selectedLabel = selectedOptions?.[String(slot.postOrder)] ?? "";
+      return [slot.postOrder, selectedLabel ? slot.candidates.find((candidate) => candidate.optionLabel === selectedLabel)?.id ?? "" : ""];
     })),
   );
 
@@ -1341,7 +1341,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
   }
 
   const selectedCandidates = (candidateOptions ?? [])
-    .map((slot) => slot.candidates.find((candidate) => selectedBySlot[slot.postOrder] === candidate.id) ?? slot.candidates.find((candidate) => candidate.optionLabel === "A") ?? slot.candidates[0])
+    .map((slot) => slot.candidates.find((candidate) => selectedBySlot[slot.postOrder] === candidate.id))
     .filter((candidate): candidate is CandidateOption => Boolean(candidate));
   const executionCandidates = selectedCandidates.length ? selectedCandidates : candidates;
 

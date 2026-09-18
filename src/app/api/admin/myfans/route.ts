@@ -4,6 +4,7 @@ import { saveMyfansAffiliateTextImport } from "@/lib/myfansAffiliateTextImport";
 import { parseMyfansReportCsv } from "@/lib/myfansCsv";
 import { calculateMyfansSelectionScore, myfansLaunchPriority } from "@/lib/myfansScore";
 import { MYFANS_AFFILIATE_URL_SOURCE_MANUAL, normalizeMyfansAffiliateUrl } from "@/lib/myfansAffiliateLink";
+import { MYFANS_DAILY_SELECTED_MAX } from "@/lib/myfansXExecution";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -403,6 +404,10 @@ async function selectDailyPlanCandidate(formData: FormData) {
   const previousSelection = strategyJson.daily_option_selection && typeof strategyJson.daily_option_selection === "object"
     ? strategyJson.daily_option_selection as Record<string, string>
     : {};
+  const selectingNewSlot = !previousSelection[String(postOrder)];
+  if (selectingNewSlot && Object.keys(previousSelection).length >= MYFANS_DAILY_SELECTED_MAX) {
+    throw new Error(`selectedは${MYFANS_DAILY_SELECTED_MAX}件までです。4枠目を選ぶには、既存のselectedを見直してください。`);
+  }
   const nextSelection = { ...previousSelection, [String(postOrder)]: optionLabel };
   const { error: planUpdateError } = await supabaseAdmin
     .from("myfans_daily_plans")

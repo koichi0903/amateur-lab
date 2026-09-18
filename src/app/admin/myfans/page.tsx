@@ -187,7 +187,7 @@ export default async function MyfansDailyPage({
                 Snapshot: {snapshot ? `${snapshot.message} / ID ${snapshot.id ?? "-"} / revision ${snapshot.revision ?? "-"} / ${snapshot.postCount}本` : "未確認"}
               </p>
               <p className="mt-1 text-xs leading-5 text-zinc-400">最終再評価: {dateTime(snapshot?.evaluatedAt)}</p>
-              <p className="mt-3 text-sm font-black text-emerald-100">目標{board.recovery.targetPosts}本 / 現在{board.recovery.passCount}本PASS</p>
+              <p className="mt-3 text-sm font-black text-emerald-100">候補 {board.recovery.candidateOptions}/{board.recovery.candidateOptionsTarget} / selected {board.recovery.passCount}/{board.recovery.selectedMinimum}〜{board.recovery.selectedMaximum} / {board.recovery.selectedStatus}</p>
               <p className="mt-1 text-xs leading-5 text-zinc-400">再探索: {board.recovery.attemptedCandidates}候補試行 / {board.recovery.summary}</p>
             </div>
             <div className="rounded-lg bg-zinc-950 p-4">
@@ -206,7 +206,8 @@ export default async function MyfansDailyPage({
             <Card label="品質条件通過" value={`${board.quotePool.funnel.qualified}件`} note="visual/score/creator rank" />
             <Card label="verified visual" value={`${verifiedVisualQuotes.length}件`} note={`creator ${verifiedVisualCreators.size} / video ${verifiedVisualVideos} / image ${verifiedVisualImages}`} />
             <Card label="Topic Value通過" value={`${board.topicValue.funnel.topicValuePass}件`} note="話す価値あり" />
-            <Card label="最終採用" value={`${board.candidates.filter((candidate) => candidate.creativeStrategy === "quote_post").length}件`} note="Daily Planner最終採用" />
+            <Card label="候補 options" value={`${board.recovery.candidateOptions}/${board.recovery.candidateOptionsTarget}`} note="4 slots × A/B/C" />
+            <Card label="最終selected" value={`${board.recovery.passCount}/${board.recovery.selectedMinimum}〜${board.recovery.selectedMaximum}`} note={board.recovery.selectedStatus === "READY" ? "Daily Planner採用" : "SUPPLY不足"} />
           </div>
           <p className="mt-3 text-xs leading-5 text-zinc-500">
             最新候補取得: {dateTime(board.quotePool.funnel.latestCollectedAt)} / Companion selected_for_today は推奨印、Daily Planner採用はsnapshotのselectedとして別記録します。
@@ -219,7 +220,7 @@ export default async function MyfansDailyPage({
               <Card label="quote接続" value={`${board.linkedCandidateFunnel.quoteCandidateExactConnected}件`} note="creator Xと接続" />
               <Card label="fresh quote" value={`${board.linkedCandidateFunnel.currentFreshQuoteSource}件`} note="当日候補化可能" />
               <Card label="eligible product" value={`${board.linkedCandidateFunnel.publicEligibleProduct}件`} note="公開/送客可能" />
-              <Card label="Daily 12 / selected" value={`${board.linkedCandidateFunnel.daily12} / ${board.linkedCandidateFunnel.selected4}`} note={`linked_no_affiliate ${board.linkedCandidateFunnel.linkedNoAffiliate} / ready ${board.linkedCandidateFunnel.linkedAffiliateReady}`} />
+              <Card label="Daily 12 / selected 2–3" value={`${board.linkedCandidateFunnel.daily12} / ${board.linkedCandidateFunnel.selected4}`} note={`linked_no_affiliate ${board.linkedCandidateFunnel.linkedNoAffiliate} / ready ${board.linkedCandidateFunnel.linkedAffiliateReady}`} />
             </div>
             <div className="mt-3 grid gap-2 lg:grid-cols-2">
               {board.linkedCandidateFunnel.primaryDropReasons.slice(0, 8).map((row) => (
