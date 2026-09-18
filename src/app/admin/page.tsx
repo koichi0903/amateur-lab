@@ -33,6 +33,11 @@ const menus = [
     description: "@lumi_reviwのDaily Growth Command Centerを開く",
     href: "/admin/myfans?media=1",
   },
+  {
+    title: "𝕏 @bijyo1010 予約作品 手動投稿",
+    description: "毎日4件 / 動画・本文・自己リプ準備済み",
+    href: "/admin/bijyo-reserved",
+  },
 ];
 
 export default function AdminDashboard() {
