@@ -1,6 +1,7 @@
 import { calculateAdjustedCtr, calculateBuyTimingScore, type BuyTimingResult } from "@/lib/buyTiming";
 import { calculateDiscoveryScore, type DiscoveryScoreResult } from "@/lib/discoveryScore";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
 
 type PriceHistoryRow = {
@@ -154,7 +155,7 @@ function buildSummary(name: string, items: EntityBest10Item[], entityLabel: stri
   return parts.join("。") + "。";
 }
 
-export async function getEntityBest10(
+async function calculateEntityBest10(
   name: string,
   works: Work[],
   options: { entityLabel?: string } = {},
@@ -241,6 +242,20 @@ export async function getEntityBest10(
     buyNow,
     summary: buildSummary(name, enriched, options.entityLabel ?? "カタログ"),
   };
+}
+
+export async function getEntityBest10(
+  name: string,
+  works: Work[],
+  options: { entityLabel?: string } = {},
+): Promise<EntityBest10Sections> {
+  const cached = unstable_cache(
+    () => calculateEntityBest10(name, works, options),
+    ["entity-best10-v1", name, options.entityLabel ?? "catalog"],
+    { revalidate: 900, tags: ["entity-best10"] },
+  );
+
+  return cached();
 }
 
 export async function getActressBest10(name: string, works: Work[]): Promise<ActressBest10Sections> {

@@ -2,13 +2,12 @@ import type { Metadata } from "next";
 import CatalogDetailPage, { catalogMetadata, decodeCatalogName } from "@/components/catalog/CatalogDetailPage";
 
 export const revalidate = 86400;
+export const dynamic = "force-static";
 
-export async function generateMetadata({ params, searchParams }: { params: Promise<{ name: string }>; searchParams: Promise<{ page?: string }> }): Promise<Metadata> {
-  const page = Math.max(1, Number.parseInt((await searchParams).page ?? "1", 10) || 1);
-  return catalogMetadata("series", decodeCatalogName((await params).name), page);
+export async function generateMetadata({ params }: { params: Promise<{ name: string }> }): Promise<Metadata> {
+  return catalogMetadata("series", decodeCatalogName((await params).name), 1);
 }
 
-export default async function SeriesDetailPage({ params, searchParams }: { params: Promise<{ name: string }>; searchParams: Promise<{ page?: string }> }) {
-  const requestedPage = Number.parseInt((await searchParams).page ?? "1", 10);
-  return <CatalogDetailPage kind="series" name={decodeCatalogName((await params).name)} page={Number.isFinite(requestedPage) ? requestedPage : 1} />;
+export default async function SeriesDetailPage({ params }: { params: Promise<{ name: string }> }) {
+  return <CatalogDetailPage kind="series" name={decodeCatalogName((await params).name)} page={1} />;
 }

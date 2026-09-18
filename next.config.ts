@@ -22,6 +22,46 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async rewrites() {
+    return [
+      {
+        source: "/:section(actress|series|maker|genre)/:name",
+        has: [{ type: "query", key: "page", value: "(?<page>\\d+)" }],
+        destination: "/:section/:name/page/:page",
+      },
+    ];
+  },
+  async headers() {
+    return [
+      {
+        source: "/:section(actress|genre|maker|series)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, s-maxage=900, stale-while-revalidate=86400",
+          },
+        ],
+      },
+      {
+        source: "/:section(actress|genre|maker|series)/:name",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, s-maxage=900, stale-while-revalidate=86400",
+          },
+        ],
+      },
+      {
+        source: "/:section(actress|genre|maker|series)/:name/page/:page",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, s-maxage=900, stale-while-revalidate=86400",
+          },
+        ],
+      },
+    ];
+  },
   serverExternalPackages: [
     "@sparticuz/chromium",
     "playwright-core",
