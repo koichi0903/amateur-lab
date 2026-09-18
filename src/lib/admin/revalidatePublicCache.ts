@@ -40,16 +40,21 @@ export async function revalidatePublicCacheForTasks(
       .filter(Boolean);
   const workTags = new Set<string>();
   if (productIds.length > 0) {
-    const { data, error } = await supabaseAdmin
-      .from("works")
-      .select("id, product_id")
-      .in("product_id", productIds);
-    if (error) throw error;
-    for (const work of data ?? []) {
-      const workId = String(work.id);
-      const productId = String(work.product_id);
-      workTags.add(`work-detail:${workId}`);
-      workTags.add(`work-detail-product:${productId}`);
+    // Keep the REST query URL below Supabase/undici header limits when a
+    // scheduled update touches many works at once.
+    for (let index = 0; index < productIds.length; index += 200) {
+      const batch = productIds.slice(index, index + 200);
+      const { data, error } = await supabaseAdmin
+        .from("works")
+        .select("id, product_id")
+        .in("product_id", batch);
+      if (error) throw error;
+      for (const work of data ?? []) {
+        const workId = String(work.id);
+        const productId = String(work.product_id);
+        workTags.add(`work-detail:${workId}`);
+        workTags.add(`work-detail-product:${productId}`);
+      }
     }
   }
 
