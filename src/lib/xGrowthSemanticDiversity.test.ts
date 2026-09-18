@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { validateXCopyGrammar } from "@/lib/xCreativeEngine";
-import { assignSemanticHook, semanticHookCategory } from "@/lib/xGrowthOS";
+import { assignSemanticHook, semanticHookCategory } from "./xGrowthSemantic";
 import { buildVisualVideoFacts } from "@/lib/xVisualVideoFacts";
 
 assert.equal(validateXCopyGrammar({ sourceType: "WORK" }, "AI生成作品 の一本、気になります。").passed, false);

@@ -161,6 +161,8 @@ export type MyfansSupplyAudit = {
     input: number;
     passed: number;
     rejected: number;
+    unique_candidates: number;
+    unique_passed: number;
     top_reasons: Array<{ reason_code: string; count: number }>;
   }>;
   by_slot: Array<{
@@ -1295,6 +1297,14 @@ function buildTopicBaselines(analytics: MyfansAnalytics): MyfansTopicBaselines {
 
 function topicThresholdFor(role: DailyRole) {
   return MYFANS_TOPIC_VALUE_THRESHOLDS[role];
+}
+
+function hasConcreteSourceContext(quote: MyfansQuoteCandidate | null) {
+  const text = quote?.text_excerpt?.replace(/\s+/g, " ").trim() ?? "";
+  if (text.length < 24) return false;
+  if (/^[\d\s.,、。!?！？%％¥￥円+-]+$/.test(text)) return false;
+  return /(新着|新作|更新|公開|発売|解禁|追加|再販|固定|本人|投稿|返信|リプ|変化|急上昇|ランキング|セール|キャンペーン|初めて|続編)/.test(text)
+    || /[。！？!?]/.test(text);
 }
 
 export function evaluateMyfansTopicValue(input: {
@@ -2674,7 +2684,9 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     const quoteForSlot = directGrowthQuote && postType === "discovery_interest"
       ? directGrowthQuote
       : quoteForAttempt(product, postType, index, attempt);
-    const quoteXUrl = quoteForSlot && (postType === "discovery_interest" || postType === "profile_cta" || postType === "comparison_review") ? quoteForSlot.x_post_url : "";
+    const quoteVisualStatus = quoteForSlot?.visual_analysis_status;
+    const quoteVisualUsable = quoteVisualStatus === "verified";
+    const quoteXUrl = quoteForSlot && quoteVisualUsable && (postType === "discovery_interest" || postType === "profile_cta" || postType === "comparison_review") ? quoteForSlot.x_post_url : "";
     const creative = product ? decideCreativeStrategy(product, postType, linkStrategy, quoteXUrl) : null;
     const evidenceQuote = creative?.strategy === "quote_post" ? quoteForSlot : (quoteForSlot ?? null);
     const dailyRole = roleFor(postType, linkStrategy, creative?.strategy ?? "text_only");
@@ -2687,40 +2699,48 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     const copyInputHash = publicCopyFacts ? publicCopyInputHash(publicCopyFacts) : "";
     const rawTopicValue = product ? evaluateMyfansTopicValue({ product, quote: evidenceQuote, role: dailyRole, baselines: topicBaselines }) : null;
     const visualStatus = visualUnderstanding?.visualAnalysisStatus ?? "unavailable";
-    const quoteHasPublicSignal = Boolean(evidenceQuote && ((evidenceQuote.views ?? 0) >= 10_000 || (evidenceQuote.likes ?? 0) >= 20 || evidenceQuote.score >= QUOTE_MIN_SCORE));
-    const quoteHasUsableTopic = Boolean(evidenceQuote && (visualStatus === "verified" || visualStatus === "partial" || quoteHasPublicSignal || evidenceQuote.text_excerpt));
-    const topicValue = rawTopicValue?.verdict === "LOW_TOPIC_VALUE" && quoteHasUsableTopic
+    const topicEvidencePresent = Boolean(evidenceQuote && (visualStatus === "verified" || hasConcreteSourceContext(evidenceQuote)));
+    const guardedTopicValue = rawTopicValue && !topicEvidencePresent
       ? {
         ...rawTopicValue,
-        score: Math.max(rawTopicValue.score, visualStatus === "verified" ? 86 : visualStatus === "partial" ? 80 : 76),
+        verdict: "LOW_TOPIC_VALUE" as const,
+        reasonToCare: null,
+        evidence: [],
+        whyRejected: ["metrics-only/price-only: source本文・verified visual・具体的文脈がありません"],
+      }
+      : rawTopicValue;
+    const topicValue = guardedTopicValue?.verdict === "LOW_TOPIC_VALUE" && topicEvidencePresent
+      ? {
+        ...guardedTopicValue,
+        score: Math.max(guardedTopicValue.score, visualStatus === "verified" ? 86 : 80),
         verdict: "PASS" as const,
-        reasonToCare: (dailyRole === "AUTHORITY" ? "clear_comparison" : visualStatus === "verified" ? "rare_visual_moment" : quoteHasPublicSignal ? "conversation_worthy" : "clear_comparison") as MyfansReasonToCare,
+        reasonToCare: (dailyRole === "AUTHORITY" ? "clear_comparison" : visualStatus === "verified" ? "rare_visual_moment" : "conversation_worthy") as MyfansReasonToCare,
         evidence: [
-          visualUnderstanding?.humanObservation || visualUnderstanding?.rawVisualEvidence || "",
+          visualStatus === "verified" ? (visualUnderstanding?.humanObservation || visualUnderstanding?.rawVisualEvidence || "") : "",
           evidenceQuote?.text_excerpt ? compactSourceText(evidenceQuote.text_excerpt, 28) : "",
-          quoteInsight(evidenceQuote),
+          hasConcreteSourceContext(evidenceQuote) ? quoteInsight(evidenceQuote) : "",
         ].filter(Boolean),
         whyRejected: [],
         breakdown: {
-          ...rawTopicValue.breakdown,
-          humanCuriosity: Math.max(rawTopicValue.breakdown.humanCuriosity, 16),
-          visualStoryValue: Math.max(rawTopicValue.breakdown.visualStoryValue, visualStatus === "verified" ? 20 : visualStatus === "partial" ? 14 : 8),
-          explainability: Math.max(rawTopicValue.breakdown.explainability, 14),
+          ...guardedTopicValue.breakdown,
+          humanCuriosity: Math.max(guardedTopicValue.breakdown.humanCuriosity, 16),
+          visualStoryValue: Math.max(guardedTopicValue.breakdown.visualStoryValue, visualStatus === "verified" ? 20 : visualStatus === "partial" ? 14 : 8),
+          explainability: Math.max(guardedTopicValue.breakdown.explainability, 14),
         },
       }
-      : rawTopicValue;
+      : guardedTopicValue;
     const topicIdentity = product ? topicIdentityFor(product, evidenceQuote, topicValue?.reasonToCare) : "";
     const topicSemanticKey = product ? topicSemanticKeyFor(product, evidenceQuote, topicValue) : "";
     const copyAngle = copySearchAngleFor(topicValue?.reasonToCare, angleVariant);
     const topicCopyFitFailed = topicValue?.verdict === "PASS" && !roleFitsReasonToCare(dailyRole, topicValue.reasonToCare);
     const body = product && topicValue?.verdict === "PASS" && !topicCopyFitFailed ? bodyFor(product, postType, linkStrategy, creative?.strategy ?? "text_only", evidenceQuote, topicValue, angleVariant) : "";
     const sourceSpecificity = sourceSpecificityScore(body, evidenceQuote, visualUnderstanding);
-    const lowTopicQuality = rawTopicValue?.verdict === "LOW_TOPIC_VALUE" && topicValue?.verdict !== "PASS"
+    const lowTopicQuality = guardedTopicValue?.verdict === "LOW_TOPIC_VALUE" && topicValue?.verdict !== "PASS"
       ? {
-        total: Math.min(74, rawTopicValue.score),
+        total: Math.min(74, guardedTopicValue.score),
         verdict: "HOLD",
-        breakdown: { stopPower: 0, firstLineStop: 0, visualLeverage: 0, visual: rawTopicValue.breakdown.visualStoryValue, specificity: rawTopicValue.breakdown.concreteDifference, proof: rawTopicValue.breakdown.socialProofMomentum, broadCuriosity: rawTopicValue.breakdown.humanCuriosity, audience: 0, followReason: 0, attentionValue: attention?.score ?? 0, naturalUserReaction: 0, analystCommentaryRisk: 100, sourceSpecificity: 0, roleDifferentiation: 0, spamSalesSmell: 0, repetitionPenalty: 0 },
-        reasons: [`LOW_TOPIC_VALUE: ${rawTopicValue.whyRejected.join(" / ")}`],
+        breakdown: { stopPower: 0, firstLineStop: 0, visualLeverage: 0, visual: guardedTopicValue.breakdown.visualStoryValue, specificity: guardedTopicValue.breakdown.concreteDifference, proof: guardedTopicValue.breakdown.socialProofMomentum, broadCuriosity: guardedTopicValue.breakdown.humanCuriosity, audience: 0, followReason: 0, attentionValue: attention?.score ?? 0, naturalUserReaction: 0, analystCommentaryRisk: 100, sourceSpecificity: 0, roleDifferentiation: 0, spamSalesSmell: 0, repetitionPenalty: 0 },
+        reasons: [`LOW_TOPIC_VALUE: ${guardedTopicValue.whyRejected.join(" / ")}`],
       }
       : null;
     const fitQuality = topicCopyFitFailed
@@ -3618,10 +3638,15 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     addAudit({ candidate_id: candidate.id, source_id: candidate.quoteXUrl || candidate.sourceXUrl || null, slot: candidate.plannedSlot, stage: "selected", status: "selected", reason_code: "SELECTED", detail: "quality gate通過後にslotへ採用", score: candidate.quality.total, threshold: MYFANS_QUALITY_GATE_MINIMUM, source_url: candidate.quoteXUrl || candidate.sourceXUrl || null, source_author: candidate.sourceAuthorHandle || null, product_id: candidate.product?.id ?? null, role: candidate.dailyRole });
   }
   const reasonCounts = (rows: MyfansSupplyAuditRow[]) => Object.entries(rows.reduce<Record<string, number>>((acc, row) => { acc[row.reason_code] = (acc[row.reason_code] ?? 0) + 1; return acc; }, {})).map(([reason_code, count]) => ({ reason_code, count })).sort((a, b) => b.count - a.count).slice(0, 5);
+  const uniqueCandidateCounts = (rows: MyfansSupplyAuditRow[]) => {
+    const candidates = new Set(rows.map((row) => row.candidate_id));
+    const passed = new Set(rows.filter((row) => row.status === "passed" || row.status === "selected").map((row) => row.candidate_id));
+    return { unique_candidates: candidates.size, unique_passed: passed.size };
+  };
   const auditStages = (["source_discovery", "freshness_cooldown", "identity", "visual", "topic_value", "reason_to_care", "role_fit", "copy", "duplicate_similarity", "quality_last_mile", "selected"] as MyfansSupplyAuditStage[]).map((stage) => {
     const rows = supplyAuditRows.filter((row) => row.stage === stage);
     const passed = rows.filter((row) => row.status === "passed" || row.status === "selected").length;
-    return { stage, input: rows.length, passed, rejected: rows.filter((row) => row.status === "rejected").length, top_reasons: reasonCounts(rows) };
+    return { stage, input: rows.length, passed, rejected: rows.filter((row) => row.status === "rejected").length, ...uniqueCandidateCounts(rows), top_reasons: reasonCounts(rows) };
   });
   const auditSlots = rotation.map((item) => {
     const rows = supplyAuditRows.filter((row) => row.slot === item.slot);

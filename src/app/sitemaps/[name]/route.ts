@@ -8,6 +8,7 @@ import {
 } from "@/lib/seoSitemap";
 
 export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 type SitemapRouteContext = {
   params: Promise<{ name: string }>;

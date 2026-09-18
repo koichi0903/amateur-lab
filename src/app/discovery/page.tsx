@@ -9,6 +9,8 @@ import { getTodayDiscovery } from "@/lib/getTodayDiscovery";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 
 export const revalidate = 1800;
+// Discovery data is fetched from Supabase at request time.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = pageMetadata({
   title: "今日の発掘作品 | 評価と価格で見つける候補 | 発掘LAB",

@@ -1,4 +1,3 @@
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { MYFANS_VISUAL_ANALYZER_VERSION } from "@/lib/myfansXExecution";
 import type { MyfansQuoteCandidate } from "@/lib/myfansAnalytics";
 
@@ -141,6 +140,7 @@ export function selectVisualVerificationBatch(candidates: MyfansQuoteCandidate[]
 }
 
 export async function runMyfansVisualVerificationBatch(options: { approvedMediaId?: number | null; limit?: number }) {
+  const { supabaseAdmin } = await import("@/lib/supabaseAdmin");
   const limit = Math.min(20, Math.max(1, Math.round(options.limit ?? 10)));
   let query = supabaseAdmin
     .from("myfans_quote_candidates")

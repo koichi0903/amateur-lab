@@ -18,6 +18,9 @@ import { getAiDiscoveries } from "@/lib/getAiDiscoveries";
 import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
 
 export const revalidate = 1800;
+// Home aggregates live catalog, ranking, and price data. Render it at runtime
+// so a deployment build never depends on Supabase connectivity.
+export const dynamic = "force-dynamic";
 
 const EMPTY_PRICE_INSIGHTS: Awaited<ReturnType<typeof getHomePriceInsights>> = {
   priceDrops: [],

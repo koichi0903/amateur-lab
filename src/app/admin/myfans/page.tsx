@@ -234,7 +234,7 @@ export default async function MyfansDailyPage({
             <summary className="cursor-pointer text-sm font-black text-fuchsia-100">Supply Funnel / 空き枠の理由</summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
               {board.supplyAudit.stages.filter((stage) => ["source_discovery", "freshness_cooldown", "visual", "topic_value", "quality_last_mile", "selected"].includes(stage.stage)).map((stage) => (
-                <Card key={stage.stage} label={stage.stage} value={`${stage.passed}/${stage.input}`} note={stage.top_reasons[0] ? `${stage.top_reasons[0].reason_code}: ${stage.top_reasons[0].count}` : "理由なし"} />
+                <Card key={stage.stage} label={stage.stage} value={`${stage.passed}/${stage.input}`} note={`unique ${stage.unique_passed}/${stage.unique_candidates}${stage.top_reasons[0] ? ` / ${stage.top_reasons[0].reason_code}: ${stage.top_reasons[0].count}` : ""}`} />
               ))}
             </div>
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
@@ -246,7 +246,7 @@ export default async function MyfansDailyPage({
                 </div>
               ))}
             </div>
-            <p className="mt-3 text-xs leading-5 text-zinc-500">候補単位の監査はsnapshotのstrategy_jsonと専用監査テーブルに保存。数値はGateを緩めず、生成時点の実データから再構成しています。</p>
+            <p className="mt-3 text-xs leading-5 text-zinc-500">input/passedはrole・attemptを含むイベント数、uniqueはcandidate_id単位です。各stageは同じ母数の直列漏斗ではなく、stage-independentな監査集計です。</p>
           </details>
           <details className="mt-4 rounded-lg border border-rose-800 bg-zinc-950 p-4">
             <summary className="cursor-pointer text-sm font-black text-rose-100">Revenue Supply Funnel</summary>

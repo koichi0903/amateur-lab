@@ -8,6 +8,9 @@ import { supabase } from "@/lib/supabase";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 
 export const revalidate = 1800;
+// VR rankings come from the runtime catalog; keep the page server-rendered
+// without requiring Supabase connectivity during `next build`.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = pageMetadata({
   title: "VR作品ランキング | VR専用のおすすめ・セール | 発掘LAB",
