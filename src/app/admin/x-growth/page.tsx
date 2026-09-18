@@ -571,6 +571,7 @@ async function XGrowthPageContent() {
       semanticMappingReasons?: Record<string, number>;
       nativeVoiceNgBySource?: Record<string, number>;
       crossPostDiversityRejected?: number;
+      mediaMix?: { eligibleStrongVideos?: number; selectedVideos?: number; selectedVideosBySlot?: Record<string, number>; targetVideos?: number; unmetReason?: string | null };
     };
     const native = plan.native_x_learning as { overusedPatterns?: string[]; winningPatterns?: string[]; avoidConstructions?: string[] };
     const mediaReview = await getRightsReviewQueue(12);
@@ -643,6 +644,7 @@ async function XGrowthPageContent() {
               <p>Semantic: supply {Object.entries(supply.semanticSupply ?? {}).map(([category, count]) => `${category} ${count}`).join(" / ") || "未記録"} / selected {Object.entries(supply.semanticSelected ?? {}).filter(([, count]) => count > 0).map(([category, count]) => `${category} ${count}`).join(" / ") || "未記録"}</p>
               <p>Quota超過: {supply.semanticQuotaOverflowReasons?.length ? supply.semanticQuotaOverflowReasons.join(" / ") : "なし"}</p>
               <p>Fact→semantic: {Object.entries(supply.semanticMappingReasons ?? {}).map(([reason, count]) => `${reason} ${count}`).join(" / ") || "未記録"}</p>
+              <p>Media Mix: strong/safe動画供給 {supply.mediaMix?.eligibleStrongVideos ?? "-"} / selected {supply.mediaMix?.selectedVideos ?? "-"} / slot別 {Object.entries(supply.mediaMix?.selectedVideosBySlot ?? {}).map(([slot, count]) => `${slot} ${count}`).join(" / ") || "なし"} / 目標 {supply.mediaMix?.targetVideos ?? "-"} / {supply.mediaMix?.unmetReason ?? "達成"}</p>
               <p>REACH供給: 生成 {supply.reachGenerated ?? "-"}件 / Gate OK {supply.reachGateOk ?? "-"}件</p>
               <p>{supply.shortages?.length ? `不足: ${supply.shortages.join(" / ")}` : "供給不足ログ: 主要レーンにGate OK候補あり"}</p>
               <p>保存済み読込: OK / stale {plan.stale_reason ?? "なし"}</p>
@@ -875,6 +877,7 @@ async function XGrowthPageContent() {
             </p>
             <p>MONEY診断: generated {os.supplyDiagnostics.moneyGenerated} / Hard Gate passed {os.supplyDiagnostics.moneyHardGatePassed} / allocation eligible {os.supplyDiagnostics.moneyAllocationEligible} / Slot3 placed {os.supplyDiagnostics.moneyPlaced} / 主な落ち理由: {moneyGateReasonLabel[os.supplyDiagnostics.moneyTopFailureReason ?? ""] ?? "なし"}</p>
             <p>Semantic: supply {Object.entries(os.supplyDiagnostics.semanticSupply).map(([category, count]) => `${category} ${count}`).join(" / ")} / selected {Object.entries(os.supplyDiagnostics.semanticSelected).filter(([, count]) => count > 0).map(([category, count]) => `${category} ${count}`).join(" / ") || "なし"}</p>
+            <p>Media Mix: strong/safe動画供給 {os.supplyDiagnostics.mediaMix.eligibleStrongVideos} / selected {os.supplyDiagnostics.mediaMix.selectedVideos} / slot別 {Object.entries(os.supplyDiagnostics.mediaMix.selectedVideosBySlot).map(([slot, count]) => `${slot} ${count}`).join(" / ") || "なし"} / 目標 {os.supplyDiagnostics.mediaMix.targetVideos} / {os.supplyDiagnostics.mediaMix.unmetReason ?? "達成"}</p>
             <p>Quota超過: {os.supplyDiagnostics.semanticQuotaOverflowReasons.length ? os.supplyDiagnostics.semanticQuotaOverflowReasons.join(" / ") : "なし"}</p>
             <p>Fact→semantic: {Object.entries(os.supplyDiagnostics.semanticMappingReasons ?? {}).map(([reason, count]) => `${reason} ${count}`).join(" / ") || "未記録"}</p>
             <p>再生成絞り込み: source pool {os.supplyDiagnostics.sourcePoolAfterPosted} → prefilter {os.supplyDiagnostics.prefilterCount} → Human Voice {os.supplyDiagnostics.humanVoiceTargetCount} → diversity {os.supplyDiagnostics.diversityTargetCount}</p>
