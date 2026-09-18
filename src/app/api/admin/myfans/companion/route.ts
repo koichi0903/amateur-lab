@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { scoreMyfansQuoteCandidate, type MyfansQuoteScanCandidate } from "@/lib/myfansQuoteScoring";
 import { normalizeMyfansPostUrl, resolveTextEvidence } from "@/lib/myfansProductResolver";
+import { extractMyfansSourceText } from "@/lib/myfansSourceText";
 import { calculateMyfansSelectionScore, myfansLaunchPriority } from "@/lib/myfansScore";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -551,7 +552,7 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
         mediaType: (mediaType === "image" || mediaType === "video" ? mediaType : "none") as "image" | "video" | "none",
         mediaCount: Math.max(0, Math.round(Number(candidate.mediaCount ?? 0) || 0)),
         sourceXHandle: cleanText(candidate.sourceXHandle).replace(/^@/, ""),
-        text: cleanText(candidate.text).slice(0, 180),
+        text: extractMyfansSourceText(candidate.text, candidate.articleText),
         myfansUrls: Array.isArray(candidate.myfansUrls) ? candidate.myfansUrls.map(cleanMyfansUrl).filter(Boolean).slice(0, 5) : [],
       };
     })

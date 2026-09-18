@@ -8,6 +8,18 @@ const ADMIN_BRIDGE_FILE = "myfans-admin-bridge.js";
 const ADMIN_HOSTS = new Set(["localhost", "127.0.0.1"]);
 let diagnosticRunning = false;
 
+function extractSourceText(tweetText, articleText) {
+  const direct = String(tweetText || "").replace(/\s+/g, " ").trim();
+  if (direct) return direct.slice(0, 180);
+  return String(articleText || "").split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line.length >= 3)
+    .filter((line) => !/^(返信先:|Replying to|リポストしました|reposted|いいね|返信|リポスト|ブックマーク|共有|表示|Views?|Likes?|Reposts?|Replies?)(?:\s|$)/i.test(line))
+    .filter((line) => !/^[\d\s.,、。!?！？%％¥￥円+\-/:]+$/u.test(line))
+    .filter((line) => !/^https?:\/\//i.test(line))
+    .join(" ").slice(0, 180);
+}
+
 function isMyfansAdminUrl(value) {
   try {
     const url = new URL(String(value || ""));
@@ -528,7 +540,7 @@ function collectXQuoteCandidates() {
       quoteVisualReady: media.quoteVisualReady,
       sourceXHandle,
       postedAt: article.querySelector("time")?.getAttribute("datetime") || null,
-      text: article.querySelector('[data-testid="tweetText"]')?.textContent || "",
+      text: extractSourceText(article.querySelector('[data-testid="tweetText"]')?.textContent || "", rawText),
       myfansUrls,
       views: parseCount(analytics?.getAttribute("aria-label") || analytics?.textContent || ""),
       likes: metric("like"),
@@ -674,7 +686,7 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
       sourceXHandle,
       authorHandle,
       postedAt: article.querySelector("time")?.getAttribute("datetime") || null,
-      text: article.querySelector('[data-testid="tweetText"]')?.textContent || "",
+      text: extractSourceText(article.querySelector('[data-testid="tweetText"]')?.textContent || "", rawText),
       myfansUrls,
       views: null,
       likes: metric("like"),

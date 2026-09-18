@@ -1,5 +1,10 @@
 async function collectFromPage() {
   const text = document.body.innerText || "";
+  const extractSourceText = (tweetText, articleText) => {
+    const direct = String(tweetText || "").replace(/\s+/g, " ").trim();
+    if (direct) return direct.slice(0, 180);
+    return String(articleText || "").split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter((line) => line.length >= 3).filter((line) => !/^(返信先:|Replying to|リポストしました|reposted|いいね|返信|リポスト|ブックマーク|共有|表示|Views?|Likes?|Reposts?|Replies?)(?:\s|$)/i.test(line)).filter((line) => !/^[\d\s.,、。!?！？%％¥￥円+\-/:]+$/u.test(line)).filter((line) => !/^https?:\/\//i.test(line)).join(" ").slice(0, 180);
+  };
   const reservedXHandles = new Set(["home", "explore", "search", "intent", "share", "i", "notifications", "messages", "settings", "login", "signup"]);
   const normalizeXProfileUrl = (value) => {
     try {
@@ -347,7 +352,7 @@ function collectXQuoteCandidates() {
       quoteVisualReady: media.quoteVisualReady,
       sourceXHandle,
       postedAt: article.querySelector("time")?.getAttribute("datetime") || null,
-      text: article.querySelector('[data-testid="tweetText"]')?.textContent || "",
+      text: extractSourceText(article.querySelector('[data-testid="tweetText"]')?.textContent || "", rawText),
       views: parseCount(analytics?.getAttribute("aria-label") || analytics?.textContent || ""),
       likes: metric("like"),
       reposts: metric("retweet"),

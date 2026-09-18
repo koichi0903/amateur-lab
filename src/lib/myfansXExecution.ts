@@ -1312,6 +1312,12 @@ function hasConcreteSourceContext(quote: MyfansQuoteCandidate | null) {
     || /[。！？!?]/.test(text);
 }
 
+function hasFreshTopicEvidence(quote: MyfansQuoteCandidate) {
+  const age = daysSinceIso(quote.collected_at);
+  return !quote.is_repost && !quote.last_used_at && !quote.cooldown_until && age !== null && age <= QUOTE_FRESH_DAYS
+    && (hasConcreteSourceContext(quote) || hasVerifiedVisualAnalysis(quote) || (quote.views ?? 0) >= 50_000);
+}
+
 export function evaluateMyfansTopicValue(input: {
   product: MyfansProduct;
   quote: MyfansQuoteCandidate | null;
@@ -2485,10 +2491,10 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     return quote ? creatorKeyFromQuote(quote) : candidate.product ? creatorKeyFromProduct(candidate.product) : "";
   };
   const topicQuoteFor = (row: (typeof products)[number]) => {
-    const direct = analytics.quoteCandidates.find((candidate) => candidate.product_id === row.product.id && (hasVerifiedVisualAnalysis(candidate) || (candidate.views ?? 0) >= 50_000));
+    const direct = analytics.quoteCandidates.find((candidate) => candidate.product_id === row.product.id && hasFreshTopicEvidence(candidate));
     if (direct) return direct;
     const creatorKey = creatorKeyFromProduct(row.product);
-    const sameCreator = analytics.quoteCandidates.find((candidate) => (hasVerifiedVisualAnalysis(candidate) || (candidate.views ?? 0) >= 50_000) && creatorKeyFromQuote(candidate) === creatorKey);
+    const sameCreator = analytics.quoteCandidates.find((candidate) => hasFreshTopicEvidence(candidate) && creatorKeyFromQuote(candidate) === creatorKey);
     if (sameCreator) return sameCreator;
     return null;
   };

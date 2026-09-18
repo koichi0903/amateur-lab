@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:myfans-public-copy": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfansPublicCopy.test.ts",
+    "test:myfans-source-text": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfansSourceText.test.ts",
     "test:x-growth-semantic-diversity": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/xGrowthSemanticDiversity.test.ts",
     "update:playwright:local": "node scripts/local-playwright-update.mjs",
     "update:local": "node scripts/local-admin-update.mjs",
