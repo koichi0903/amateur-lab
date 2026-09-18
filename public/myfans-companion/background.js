@@ -672,6 +672,7 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
     // the opening post and a reply; author ownership remains an exact handle match.
     const isReply = Boolean(statusUrl && statusId && statusId !== targetStatusId);
     const media = mediaInfo(article, statusUrl);
+    const rawText = article.innerText || "";
     const myfansUrls = extractMyfansUrls(article);
     const metric = (testId) => parseCount(article.querySelector(`[data-testid="${testId}"]`)?.getAttribute("aria-label") || "");
     return {

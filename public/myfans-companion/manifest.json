@@ -8,6 +8,16 @@
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/admin/myfans*",
+        "http://127.0.0.1/admin/myfans*"
+      ],
+      "js": ["myfans-admin-bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
   "action": {
     "default_popup": "popup.html"
   }

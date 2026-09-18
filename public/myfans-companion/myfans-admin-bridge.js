@@ -96,7 +96,7 @@ function writeBridgeMarker(extra = {}) {
     bridgeVersion: BRIDGE_DIAGNOSTIC_VERSION,
     at: new Date().toISOString(),
     listenerVersion: BRIDGE_DIAGNOSTIC_VERSION,
-    cleanup: window.__MYFANS_COMPANION_BRIDGE__?.cleanup,
+    cleanup: window.__MYFANS_COMPANION_BRIDGE_CLEANUP__,
     ...extra
   };
   document.documentElement.dataset.myfansCompanionBridge = "connected";

@@ -563,7 +563,15 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
     return NextResponse.json({ error: "creator本人の表示中投稿が見つかりませんでした。" }, { status: 400 });
   }
 
-  const scored = normalized
+  const sourceTextMissingCount = normalized.filter((candidate) => !candidate.text).length;
+  const sourceReady = normalized.filter((candidate) => Boolean(candidate.text));
+  if (sourceReady.length === 0) {
+    const message = "SOURCE_TEXT_MISSING: 表示中投稿に安全に紐付けられる本文がありません。空本文は保存しません。";
+    await markRefreshItem(payload, "failed", { collectedCount: 0, error: message });
+    return NextResponse.json({ error: message, diagnostics: { candidateCount: normalized.length, sourceTextMissingCount } }, { status: 400 });
+  }
+
+  const scored = sourceReady
     .map((candidate) => ({ candidate, result: scoreMyfansQuoteCandidate(candidate) }))
     .sort((a, b) => b.result.score - a.result.score);
   const ranked = scored.map((item, index) => ({ ...item, creatorRank: index + 1 }));
@@ -667,6 +675,7 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
     ok: true,
     importedType: "quote_candidates",
     candidatesCount: scored.length,
+    sourceTextMissingCount,
     selected: best ? { xPostUrl: best.candidate.xPostUrl, mediaPermalink: best.candidate.mediaPermalink || null, mediaType: best.candidate.mediaType || "none", quoteVisualReady: Boolean(best.candidate.quoteVisualReady), validationStatus: best.candidate.validationStatus || null, score: best.result.score, creatorRank: best.creatorRank, reason: best.result.reason } : null,
   });
 }
