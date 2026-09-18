@@ -3,7 +3,6 @@ import { ExternalLink } from "lucide-react";
 import { getMyfansAnalytics } from "@/lib/myfansAnalytics";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildMyfansAcquisitionPlanner } from "@/lib/myfansAcquisitionPlanner";
-import { ensureMyfansDailySnapshot } from "@/lib/myfansDailySnapshot";
 import { buildCreatorPartnershipCandidates, buildMyfansExecutionBoard, buildQuoteCandidateCollectionTasks, compareByStrategy, summarizeTodayActions } from "@/lib/myfansXExecution";
 import { AffiliatePasteImportForm, DailyPlanReevaluateButton, DiagnosticStatusPanel, QuoteCandidateTasks, QuoteRefreshBatchPanel, XAccountMetricForm, XExecutionBoard } from "./MyfansAdminForms";
 import { permanentRedirect } from "next/navigation";
@@ -65,7 +64,18 @@ export default async function MyfansDailyPage({
   ];
   const planner = buildMyfansAcquisitionPlanner(analytics);
   const board = buildMyfansExecutionBoard(analytics, planDate ? { planDate } : {});
-  const snapshot = analytics.error ? null : await ensureMyfansDailySnapshot(board);
+  const currentPlan = analytics.dailyPlans.find((plan) => plan.plan_date === board.planDate && plan.approved_media_id === selectedMediaId)
+    ?? analytics.dailyPlans.find((plan) => plan.plan_date === board.planDate && plan.approved_media_id === null)
+    ?? null;
+  const savedSelection = currentPlan?.strategy_json?.daily_option_selection;
+  const snapshot = currentPlan ? {
+    message: "保存済みDaily Snapshot",
+    id: currentPlan.id,
+    revision: currentPlan.revision ?? null,
+    postCount: board.candidates.length,
+    evaluatedAt: currentPlan.evaluated_at ?? currentPlan.updated_at ?? null,
+    selectedOptions: savedSelection && typeof savedSelection === "object" ? savedSelection as Record<string, string> : {},
+  } : null;
   const todayActions = summarizeTodayActions(analytics);
   const quoteTasks = buildQuoteCandidateCollectionTasks(analytics);
   const creatorsWithX = analytics.creators.filter((creator) => creator.is_active && creator.creator_x_url);
@@ -186,7 +196,7 @@ export default async function MyfansDailyPage({
                 Quote {board.todayStrategy.composition.quote} / Discovery {board.todayStrategy.composition.discovery} / Authority {board.todayStrategy.composition.authority} / Revenue {board.todayStrategy.composition.revenue}
               </p>
               <p className="mt-3 text-xs leading-5 text-zinc-400">Quality Gate通過 {board.todayStrategy.composition.total}本。未達候補は無理に採用しません。</p>
-              <div className="mt-4"><DailyPlanReevaluateButton /></div>
+            <div className="mt-4"><DailyPlanReevaluateButton approvedMediaId={selectedMediaId ?? 1} /></div>
             </div>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-7">

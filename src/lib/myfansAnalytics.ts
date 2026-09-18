@@ -205,6 +205,7 @@ export type MyfansDailyPlanHistory = {
   id: number;
   plan_date: string;
   approved_media_id: number | null;
+  revision?: number | null;
   strategy_json: Record<string, unknown> | null;
   updated_at?: string | null;
   evaluated_at?: string | null;
@@ -475,7 +476,7 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
         .limit(1000),
       supabaseAdmin
         .from("myfans_daily_plans")
-        .select("id,plan_date,approved_media_id,strategy_json,updated_at,evaluated_at")
+        .select("id,plan_date,approved_media_id,revision,strategy_json,updated_at,evaluated_at")
         .gte("plan_date", cutoff.slice(0, 10))
         .order("plan_date", { ascending: false })
         .limit(30),

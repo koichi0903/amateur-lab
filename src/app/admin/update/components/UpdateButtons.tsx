@@ -26,7 +26,10 @@ onFillSampleMovies?: () => void;
 
 onUpdateReserve?: () => void;
 
+onRefreshPublicCache?: () => void;
+
   isUpdating?: boolean;
+  isRefreshingCache?: boolean;
   runningJobs?: string[];
   onStop?: (jobName: string) => void;
 };
@@ -59,7 +62,10 @@ onFillSampleMovies,
 
 onUpdateReserve,
 
+onRefreshPublicCache,
+
 isUpdating = false,
+isRefreshingCache = false,
 runningJobs = [],
 onStop,
 }: UpdateButtonsProps)
@@ -149,6 +155,19 @@ onStop,
 
   return (
   <div className="space-y-8">
+
+    <section>
+      <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-400">
+        公開ページ
+      </h3>
+      <button
+        onClick={onRefreshPublicCache}
+        disabled={isRefreshingCache}
+        className="flex h-16 w-full items-center justify-center rounded-xl bg-blue-600 font-bold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {isRefreshingCache ? "🔄 キャッシュ更新中..." : "🔄 公開ページのキャッシュ更新"}
+      </button>
+    </section>
 
     <section>
       <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-400">

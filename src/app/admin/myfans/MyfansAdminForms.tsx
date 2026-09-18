@@ -723,14 +723,23 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
   );
 }
 
-export function DailyPlanReevaluateButton() {
+export function DailyPlanReevaluateButton({ approvedMediaId }: { approvedMediaId: number }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
 
   async function reevaluate() {
     setPending(true);
-    router.refresh();
-    window.setTimeout(() => setPending(false), 900);
+    try {
+      const response = await fetch("/api/admin/myfans/daily-plan/reevaluate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ approvedMediaId }),
+      });
+      if (!response.ok) throw new Error("再評価に失敗しました。");
+      router.refresh();
+    } finally {
+      setPending(false);
+    }
   }
 
   return (

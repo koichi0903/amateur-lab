@@ -31,10 +31,26 @@ type UpdateResponse = {
   totalCount?: number;
 };
 
+const PUBLIC_CACHE_TASKS = [
+  "reserve",
+  "new",
+  "semi-new",
+  "old",
+  "sale",
+  "ended-sale",
+  "stage",
+  "review",
+  "ranking",
+  "score",
+  "missing-prices",
+  "sample-movie",
+];
+
 export default function UpdatePage() {
 const [jobs, setJobs] = useState<Job[]>([]);
 const [loading, setLoading] = useState(true);
 const [runningAll, setRunningAll] = useState(false);
+const [refreshingCache, setRefreshingCache] = useState(false);
 
 const [showIdleJobs, setShowIdleJobs] = useState(false);
 
@@ -50,6 +66,24 @@ const [showIdleJobs, setShowIdleJobs] = useState(false);
     } | null;
     if (!response.ok || result?.success === false) {
       throw new Error(result?.message ?? "本番キャッシュの更新に失敗しました");
+    }
+  }
+
+  async function handleRefreshPublicCache() {
+    setRefreshingCache(true);
+
+    try {
+      await revalidateAfterManualUpdate(PUBLIC_CACHE_TASKS);
+      alert("公開ページのキャッシュ更新が完了しました。");
+    } catch (error) {
+      console.error(error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "公開ページのキャッシュ更新に失敗しました。",
+      );
+    } finally {
+      setRefreshingCache(false);
     }
   }
 
@@ -682,7 +716,9 @@ onUpdateReview={handleUpdateReview}
 onUpdateMissingPrices={handleUpdateMissingPrices}
 onFillSampleMovies={handleFillSampleMovies}
 onUpdateReserve={handleUpdateReserve}
+onRefreshPublicCache={handleRefreshPublicCache}
   isUpdating={isUpdating}
+  isRefreshingCache={refreshingCache}
   runningJobs={[
     ...jobs
       .filter((job) => job.status === "running")
