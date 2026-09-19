@@ -2,6 +2,7 @@ import type { MyfansAnalytics, MyfansProduct, MyfansQuoteCandidate, MyfansXPost 
 import { bestResolverEvidence, buildDbExistingEvidence, resolveTextEvidence } from "@/lib/myfansProductResolver";
 import { calculateMyfansOpportunityScores } from "@/lib/myfansScore";
 import { getXWeightedLength } from "@/lib/xText";
+import { evaluateMyfansSourceValue, type MyfansSourceValue } from "@/lib/myfansSourceValue";
 
 export type MyfansLinkStrategy = "body_link" | "reply_link" | "profile_cta" | "no_link";
 export type MyfansGrowthStage = "day_1_7" | "day_8_14" | "day_15_30";
@@ -131,6 +132,7 @@ export type MyfansTopicValue = {
 
 export type MyfansSupplyAuditStage =
   | "source_discovery"
+  | "source_value"
   | "freshness_cooldown"
   | "identity"
   | "visual"
@@ -1306,20 +1308,39 @@ function topicThresholdFor(role: DailyRole) {
 
 function hasConcreteSourceContext(quote: MyfansQuoteCandidate | null) {
   const text = quote?.text_excerpt?.replace(/\s+/g, " ").trim() ?? "";
-  if (text.length < 24) return false;
+  if (!text) return false;
   if (/^[\d\s.,、。!?！？%％¥￥円+-]+$/.test(text)) return false;
-  return /(新着|新作|更新|公開|発売|解禁|追加|再販|固定|本人|投稿|返信|リプ|変化|急上昇|ランキング|セール|キャンペーン|初めて|続編)/.test(text)
-    || /[。！？!?]/.test(text);
+  return /(新着|新作|更新|公開|発売|解禁|追加|再販|固定|本人|投稿|返信|リプ|変化|急上昇|ランキング|価格|続編|表情|衣装|シーン)/.test(text)
+    && (/(変わ|違|出|上が|下が|伸び|残|見え|始ま|終わ|気にな|分かれ)/.test(text) || /[。！？!?]/.test(text));
 }
 
 function hasGroundedSourceText(quote: MyfansQuoteCandidate | null) {
-  return hasConcreteSourceContext(quote);
+  return Boolean(quote && sourceValueForQuote(quote).verdict === "PASS");
+}
+
+function sourceValueForQuote(quote: MyfansQuoteCandidate): MyfansSourceValue {
+  return evaluateMyfansSourceValue({
+    text: quote.text_excerpt,
+    postedAt: quote.posted_at,
+    collectedAt: quote.collected_at,
+    mediaType: quote.media_type,
+    mediaPermalink: quote.media_permalink,
+    quoteVisualReady: quote.quote_visual_ready,
+    visualAnalysisStatus: quote.visual_analysis_status,
+    views: quote.views,
+    likes: quote.likes,
+    reposts: quote.reposts,
+    replies: quote.replies,
+    isRepost: quote.is_repost,
+    isReply: quote.is_reply,
+    isQuote: quote.is_quote,
+  });
 }
 
 function hasFreshTopicEvidence(quote: MyfansQuoteCandidate) {
   const age = daysSinceIso(quote.collected_at);
   return !quote.is_repost && !quote.last_used_at && !quote.cooldown_until && age !== null && age <= QUOTE_FRESH_DAYS
-    && (hasConcreteSourceContext(quote) || hasVerifiedVisualAnalysis(quote) || (quote.views ?? 0) >= 50_000);
+    && sourceValueForQuote(quote).verdict === "PASS";
 }
 
 export function evaluateMyfansTopicValue(input: {
@@ -1797,7 +1818,8 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = curr
   });
   const qualified = baseEligible.filter((candidate) => {
     const visual = visualPriority(candidate);
-    return visual >= 1 &&
+    return sourceValueForQuote(candidate).verdict === "PASS" &&
+      visual >= 1 &&
       ((candidate.creator_rank ?? 99) <= 5 || hasVerifiedVisualAnalysis(candidate) || (candidate.views ?? 0) >= 10_000) &&
       candidate.score >= QUOTE_MIN_SCORE;
   });
@@ -1868,6 +1890,7 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = curr
       mediaScoped,
       baseEligible: baseEligible.length,
       qualified: qualified.length,
+      sourceValuePass: analytics.quoteCandidates.filter((candidate) => sourceValueForQuote(candidate).verdict === "PASS").length,
       attentionShortlist: attentionShortlistCount,
       selected: selected.length,
       loadedAll: analytics.quoteCandidateSource.loadedAll,
@@ -3636,6 +3659,8 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     const sourceUrl = quote.x_post_url || quote.media_permalink || null;
     const candidateId = `source:${sourceId}`;
     addAudit({ candidate_id: candidateId, source_id: sourceId, slot: null, stage: "source_discovery", status: "passed", reason_code: "SOURCE_DISCOVERED", detail: "DBに保存済みのquote candidate", score: quote.score ?? null, threshold: null, source_url: sourceUrl, source_author: quote.source_x_handle ?? null, product_id: quote.product_id ?? null, role: null });
+    const sourceValue = sourceValueForQuote(quote);
+    addAudit({ candidate_id: candidateId, source_id: sourceId, slot: null, stage: "source_value", status: sourceValue.verdict === "PASS" ? "passed" : "rejected", reason_code: sourceValue.verdict === "PASS" ? "SOURCE_VALUE_PASS" : "LOW_SOURCE_VALUE", detail: sourceValue.reasons.join(" / "), score: sourceValue.score, threshold: 60, source_url: sourceUrl, source_author: quote.source_x_handle ?? null, product_id: quote.product_id ?? null, role: null });
     const age = daysSinceIso(quote.collected_at);
     const freshnessRejected = quote.is_repost || (age !== null && age > QUOTE_FRESH_DAYS);
     const sourceUsage = pastUsage.latestSource(quote.x_post_url) ?? pastUsage.latestSource(quoteUrlFromCandidate(quote));
@@ -3666,7 +3691,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     const passed = new Set(rows.filter((row) => row.status === "passed" || row.status === "selected").map((row) => row.candidate_id));
     return { unique_candidates: candidates.size, unique_passed: passed.size };
   };
-  const auditStages = (["source_discovery", "freshness_cooldown", "identity", "visual", "topic_value", "reason_to_care", "role_fit", "copy", "duplicate_similarity", "quality_last_mile", "selected"] as MyfansSupplyAuditStage[]).map((stage) => {
+  const auditStages = (["source_discovery", "source_value", "freshness_cooldown", "identity", "visual", "topic_value", "reason_to_care", "role_fit", "copy", "duplicate_similarity", "quality_last_mile", "selected"] as MyfansSupplyAuditStage[]).map((stage) => {
     const rows = supplyAuditRows.filter((row) => row.stage === stage);
     const passed = rows.filter((row) => row.status === "passed" || row.status === "selected").length;
     return { stage, input: rows.length, passed, rejected: rows.filter((row) => row.status === "rejected").length, ...uniqueCandidateCounts(rows), top_reasons: reasonCounts(rows) };

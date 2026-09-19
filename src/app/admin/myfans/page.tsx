@@ -234,7 +234,7 @@ export default async function MyfansDailyPage({
           <details className="mt-4 rounded-lg border border-fuchsia-800 bg-zinc-950 p-4" open>
             <summary className="cursor-pointer text-sm font-black text-fuchsia-100">Supply Funnel / 空き枠の理由</summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-              {board.supplyAudit.stages.filter((stage) => ["source_discovery", "freshness_cooldown", "visual", "topic_value", "quality_last_mile", "selected"].includes(stage.stage)).map((stage) => (
+              {board.supplyAudit.stages.filter((stage) => ["source_discovery", "source_value", "freshness_cooldown", "visual", "topic_value", "quality_last_mile", "selected"].includes(stage.stage)).map((stage) => (
                 <Card key={stage.stage} label={stage.stage} value={`${stage.passed}/${stage.input}`} note={`unique ${stage.unique_passed}/${stage.unique_candidates}${stage.top_reasons[0] ? ` / ${stage.top_reasons[0].reason_code}: ${stage.top_reasons[0].count}` : ""}`} />
               ))}
             </div>

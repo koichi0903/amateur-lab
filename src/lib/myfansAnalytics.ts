@@ -199,6 +199,11 @@ export type MyfansQuoteCandidate = {
   visual_analysis_json?: Record<string, unknown> | null;
   visual_analyzed_at?: string | null;
   visual_analyzer_version?: string | null;
+  source_value_score?: number | null;
+  source_value_verdict?: "PASS" | "LOW_SOURCE_VALUE" | null;
+  source_value_reasons?: string[] | null;
+  reaction_angles?: string[] | null;
+  source_specificity?: number | null;
 };
 
 export type MyfansDailyPlanHistory = {
@@ -336,7 +341,7 @@ function filterBySelectedMedia<T extends { approved_media_id?: number | null; ap
 }
 
 const QUOTE_CANDIDATE_SELECT =
-  "id,approved_media_id,creator_id,product_id,creator_x_url,source_x_handle,x_post_url,media_permalink,media_type,media_count,quote_visual_ready,media_permalink_verified_at,media_permalink_validation_status,visual_render_status,visual_score,posted_at,text_excerpt,views,likes,reposts,replies,bookmarks,has_image,has_video,is_pinned,is_reply,is_repost,is_quote,collected_at,score,score_reason,selected,creator_rank,global_score,global_rank,last_used_at,use_count,cooldown_until,selected_for_today,visual_analysis_status,visual_analysis_json,visual_analyzed_at,visual_analyzer_version";
+  "id,approved_media_id,creator_id,product_id,creator_x_url,source_x_handle,x_post_url,media_permalink,media_type,media_count,quote_visual_ready,media_permalink_verified_at,media_permalink_validation_status,visual_render_status,visual_score,posted_at,text_excerpt,views,likes,reposts,replies,bookmarks,has_image,has_video,is_pinned,is_reply,is_repost,is_quote,collected_at,score,score_reason,selected,creator_rank,global_score,global_rank,last_used_at,use_count,cooldown_until,selected_for_today,visual_analysis_status,visual_analysis_json,visual_analyzed_at,visual_analyzer_version,source_value_score,source_value_verdict,source_value_reasons,reaction_angles,source_specificity";
 const QUOTE_CANDIDATE_SELECT_LEGACY =
   "id,approved_media_id,creator_id,product_id,creator_x_url,source_x_handle,x_post_url,media_permalink,media_type,media_count,quote_visual_ready,media_permalink_verified_at,media_permalink_validation_status,visual_score,posted_at,text_excerpt,views,likes,reposts,replies,bookmarks,has_image,has_video,is_pinned,is_reply,is_repost,is_quote,collected_at,score,score_reason,selected,creator_rank,global_score,global_rank,last_used_at,use_count,cooldown_until,selected_for_today";
 const MYFANS_X_POST_SELECT_BASE =
@@ -392,7 +397,7 @@ async function fetchAllMyfansQuoteCandidates() {
       .range(from, from + pageSize - 1);
 
     if (result.error) {
-      if (select === QUOTE_CANDIDATE_SELECT && /visual_analysis|visual_analyzed|visual_analyzer|schema cache|column/i.test(result.error.message)) {
+      if (select === QUOTE_CANDIDATE_SELECT && /visual_analysis|visual_analyzed|visual_analyzer|source_value|reaction_angles|schema cache|column/i.test(result.error.message)) {
         select = QUOTE_CANDIDATE_SELECT_LEGACY;
         data.length = 0;
         count = 0;

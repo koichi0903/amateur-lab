@@ -4,6 +4,8 @@ import { scoreMyfansQuoteCandidate, type MyfansQuoteScanCandidate } from "@/lib/
 import { normalizeMyfansPostUrl, resolveTextEvidence } from "@/lib/myfansProductResolver";
 import { extractMyfansSourceText } from "@/lib/myfansSourceText";
 import { calculateMyfansSelectionScore, myfansLaunchPriority } from "@/lib/myfansScore";
+import { mergePersistedQuoteMediaEvidence } from "@/lib/myfansQuoteCandidateEvidence";
+import { evaluateMyfansSourceValue } from "@/lib/myfansSourceValue";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -236,13 +238,13 @@ async function updateGlobalQuoteRanks(approvedMediaId: number | null) {
 async function saveQuoteCandidate(record: Record<string, unknown>, productId: number | null, creatorId: number) {
   const postUrl = cleanXStatusUrl(record.x_post_url);
   const query = productId
-    ? supabaseAdmin.from("myfans_quote_candidates").select("id,selected").eq("product_id", productId).eq("x_post_url", postUrl).order("id", { ascending: true }).limit(1).maybeSingle()
-    : supabaseAdmin.from("myfans_quote_candidates").select("id,selected").eq("creator_id", creatorId).eq("x_post_url", postUrl).order("id", { ascending: true }).limit(1).maybeSingle();
+    ? supabaseAdmin.from("myfans_quote_candidates").select("id,selected,media_type,media_permalink,media_count,quote_visual_ready,media_permalink_validation_status,media_permalink_verified_at,visual_score,has_image,has_video").eq("product_id", productId).eq("x_post_url", postUrl).order("id", { ascending: true }).limit(1).maybeSingle()
+    : supabaseAdmin.from("myfans_quote_candidates").select("id,selected,media_type,media_permalink,media_count,quote_visual_ready,media_permalink_validation_status,media_permalink_verified_at,visual_score,has_image,has_video").eq("creator_id", creatorId).eq("x_post_url", postUrl).order("id", { ascending: true }).limit(1).maybeSingle();
   const { data: existing, error: findError } = await query;
   if (findError) throw findError;
   if (existing?.id) {
-    // Refresh source evidence without erasing historical selection.
-    const { error } = await supabaseAdmin.from("myfans_quote_candidates").update({ ...record, selected: Boolean(existing.selected) }).eq("id", existing.id);
+    const mergedRecord = mergePersistedQuoteMediaEvidence(existing, record);
+    const { error } = await supabaseAdmin.from("myfans_quote_candidates").update({ ...record, ...mergedRecord, selected: Boolean(existing.selected) }).eq("id", existing.id);
     if (error) throw error;
     return existing.id;
   }
@@ -629,6 +631,24 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
       is_quote: Boolean(item.candidate.isQuote),
       score: item.result.score,
       score_reason: item.result.reason,
+      ...(() => {
+        const sourceValue = evaluateMyfansSourceValue({
+          text: item.candidate.text || "",
+          postedAt: item.candidate.postedAt,
+          collectedAt: new Date().toISOString(),
+          mediaType: item.candidate.mediaType,
+          mediaPermalink: item.candidate.mediaPermalink,
+          quoteVisualReady,
+          views: item.candidate.views,
+          likes: item.candidate.likes,
+          reposts: item.candidate.reposts,
+          replies: item.candidate.replies,
+          isRepost: item.candidate.isRepost,
+          isReply: item.candidate.isReply,
+          isQuote: item.candidate.isQuote,
+        });
+        return { source_value_score: sourceValue.score, source_value_verdict: sourceValue.verdict, source_value_reasons: sourceValue.reasons, reaction_angles: sourceValue.reactionAngles, source_specificity: sourceValue.sourceSpecificity };
+      })(),
       selected: best?.candidate.xPostUrl === item.candidate.xPostUrl,
       creator_rank: item.creatorRank <= 3 && item.result.eligible ? item.creatorRank : null,
       global_score: item.result.score,
@@ -864,18 +884,49 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
     is_quote: Boolean(normalized.isQuote),
     score: scored.score,
     score_reason: scored.reason,
+    ...(() => {
+      const sourceValue = evaluateMyfansSourceValue({
+        text: normalized.text || "",
+        postedAt: normalized.postedAt,
+        collectedAt: new Date().toISOString(),
+        mediaType: normalized.mediaType,
+        mediaPermalink: normalized.mediaPermalink,
+        quoteVisualReady,
+        views: normalized.views,
+        likes: normalized.likes,
+        reposts: normalized.reposts,
+        replies: normalized.replies,
+        isRepost: normalized.isRepost,
+        isReply: normalized.isReply,
+        isQuote: normalized.isQuote,
+      });
+      return { source_value_score: sourceValue.score, source_value_verdict: sourceValue.verdict, source_value_reasons: sourceValue.reasons, reaction_angles: sourceValue.reactionAngles, source_specificity: sourceValue.sourceSpecificity };
+    })(),
     selected: false,
     creator_rank: scored.eligible ? 1 : null,
     global_score: scored.score,
     collected_at: new Date().toISOString(),
   };
   const candidateId = await saveQuoteCandidate(record, product.id, product.creator_id);
+  const partialFailures: string[] = [];
   const { error: productUpdateError } = await supabaseAdmin.from("myfans_products").update({ quote_candidate_x_url: normalized.mediaPermalink || normalized.xPostUrl, updated_at: new Date().toISOString() }).eq("id", product.id);
-  if (productUpdateError) throw productUpdateError;
-  await updateGlobalQuoteRanks(approvedMediaId ?? product.approved_media_id ?? null);
+  if (productUpdateError) partialFailures.push(`product pointer update: ${productUpdateError.message}`);
+  try {
+    await updateGlobalQuoteRanks(approvedMediaId ?? product.approved_media_id ?? null);
+  } catch (error) {
+    partialFailures.push(`global rank update: ${error instanceof Error ? error.message : String(error)}`);
+  }
   const metadata = { ok: true, sourceStatusUrl, candidateId, productId: product.id, creatorId: product.creator_id, sourceTextSaved: true, authorStatusMatch: true, visualStatus: quoteVisualReady ? "verified" : normalized.mediaType === "none" ? "unavailable" : "metadata_only", score: scored.score, eligible: scored.eligible };
-  await audit(metadata, sourceStatusUrl);
-  return NextResponse.json({ importedType: "single_status_quote_candidate", ...metadata });
+  try {
+    await audit(metadata, sourceStatusUrl);
+  } catch (error) {
+    partialFailures.push(`success audit: ${error instanceof Error ? error.message : String(error)}`);
+    console.error("single_status_collect success audit failed", error);
+  }
+  if (partialFailures.length > 0) {
+    return NextResponse.json({ importedType: "single_status_quote_candidate", ...metadata, status: "partial", partialFailure: true, failures: partialFailures }, { status: 200 });
+  }
+  return NextResponse.json({ importedType: "single_status_quote_candidate", ...metadata, status: "done" });
 }
 
 async function saveSingleStatusCollection(payload: QuoteScanPayload, approvedMediaId: number | null) {
