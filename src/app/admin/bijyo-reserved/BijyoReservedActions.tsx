@@ -23,7 +23,7 @@ export function BijyoReservedActions({ jobId, workId, mainText, replyText, statu
   async function copy(value: string, label: string) { try { await navigator.clipboard.writeText(value); setMessage(`${label}をコピーしました。`); } catch { setMessage("コピーできませんでした。表示された文面を選択してください。"); } }
   return <div className="flex flex-wrap gap-2">
     {jobId && <>
-      <button disabled={busy} onClick={() => openExternal(`/api/admin/bijyo-reserved/video?jobId=${jobId}`)} className="rounded bg-emerald-500 px-3 py-2 text-xs font-black text-black">動画を開く / 保存</button>
+      <button disabled={busy} onClick={() => { const params = new URLSearchParams({ jobId: String(jobId) }); if (workId) params.set("workId", String(workId)); openExternal(`/api/admin/bijyo-reserved/video?${params.toString()}`); }} className="rounded bg-emerald-500 px-3 py-2 text-xs font-black text-black">動画を開く / 保存</button>
       {sampleMovieUrl && <button disabled={busy} onClick={() => openExternal(sampleMovieUrl)} className="rounded border border-emerald-700 px-3 py-2 text-xs font-bold text-emerald-200">元動画preview</button>}
       <button disabled={busy} onClick={() => copy(mainText ?? "", "本文")} className="rounded border border-cyan-700 px-3 py-2 text-xs font-bold text-cyan-200">本文をコピー</button>
       <button disabled={busy} onClick={() => { const text = encodeURIComponent(mainText ?? ""); openExternal(`https://x.com/compose/post?text=${text}`); }} className="rounded border border-sky-700 px-3 py-2 text-xs font-bold text-sky-200">X投稿画面を開く</button>
