@@ -399,12 +399,16 @@ async function runDiagnosticStatus(settings) {
 }
 
 async function runSingleStatusCollection(settings) {
-  if (diagnosticRunning) return;
-  diagnosticRunning = true;
   const runId = settings.singleStatusRunId || `single-${Date.now()}`;
   const sourceStatusUrl = diagnosticStatusUrl(settings.sourceStatusUrl);
+  if (diagnosticRunning) {
+    await chrome.storage.local.set({ myfansSingleStatusState: { status: "error", runId, sourceStatusUrl, error: "別のCompanion収集が実行中です。完了後にもう一度実行してください。" } });
+    return;
+  }
+  diagnosticRunning = true;
   let workerTabId = null;
   let originalTabId = null;
+  let payloadSent = false;
   await chrome.storage.local.set({ myfansSingleStatusState: { status: "running", runId, sourceStatusUrl } });
   try {
     const handle = sourceStatusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "";
@@ -418,10 +422,14 @@ async function runSingleStatusCollection(settings) {
     await waitForTweetRender(workerTabId, handle, 18000);
     const result = await executeMain(workerTabId, collectSingleXStatusCandidate, [{ sourceXHandle: handle, sourceStatusUrl }], { requireResult: true });
     if (!result?.ok) throw new Error(result?.errorMessage || "指定statusの本文取得に失敗しました。");
+    payloadSent = true;
     const payload = await sendPayload(settings, { type: "x_single_status_collect", sourceStatusUrl, sourceXHandle: handle, statusCandidate: result.candidate, singleStatusRunId: runId });
     await chrome.storage.local.set({ myfansSingleStatusState: { status: "done", runId, sourceStatusUrl, ...payload } });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (!payloadSent && sourceStatusUrl) {
+      await sendPayload(settings, { type: "x_single_status_collect", sourceStatusUrl, sourceXHandle: sourceStatusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "", singleStatusRunId: runId, collectionError: message }).catch(() => undefined);
+    }
     await chrome.storage.local.set({ myfansSingleStatusState: { status: "error", runId, sourceStatusUrl, error: message } });
   } finally {
     if (originalTabId) await chrome.tabs.update(originalTabId, { active: true }).catch(() => undefined);

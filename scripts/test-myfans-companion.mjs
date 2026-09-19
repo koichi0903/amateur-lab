@@ -21,6 +21,8 @@ assert.match(background, /resultsが空でした/);
 assert.match(background, /resultがundefinedでした/);
 assert.match(background, /resultをJSON化できませんでした/);
 assert.match(background, /requireResult: true/);
+assert.match(background, /collectionError/);
+assert.match(background, /別のCompanion収集が実行中です/);
 assert.match(background, /frameId === 0/);
 assert.match(background, /INJECTED_FUNCTION_ERROR/);
 assert.match(background, /RESULT_SERIALIZATION_FAILED/);

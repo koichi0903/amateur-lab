@@ -92,6 +92,8 @@ type QuoteScanPayload = {
   diagnosticRunId?: unknown;
   sourceStatusUrl?: unknown;
   statusCandidate?: MyfansQuoteScanCandidate & { authorHandle?: unknown };
+  singleStatusRunId?: unknown;
+  collectionError?: unknown;
 };
 
 function xHandleFromUrl(value: string) {
@@ -207,10 +209,11 @@ async function updateGlobalQuoteRanks(approvedMediaId: number | null) {
     })
     .sort((a, b) => b.globalScore - a.globalScore || b.score - a.score);
 
-  await supabaseAdmin
+  const { error: resetError } = await supabaseAdmin
     .from("myfans_quote_candidates")
     .update({ global_rank: null, selected_for_today: false })
     .or(approvedMediaId ? `approved_media_id.eq.${approvedMediaId},approved_media_id.is.null` : "approved_media_id.is.null,approved_media_id.not.is.null");
+  if (resetError) throw resetError;
 
   const selectedCreators = new Set<string>();
   let selectedCount = 0;
@@ -233,12 +236,13 @@ async function updateGlobalQuoteRanks(approvedMediaId: number | null) {
 async function saveQuoteCandidate(record: Record<string, unknown>, productId: number | null, creatorId: number) {
   const postUrl = cleanXStatusUrl(record.x_post_url);
   const query = productId
-    ? supabaseAdmin.from("myfans_quote_candidates").select("id").eq("product_id", productId).eq("x_post_url", postUrl).maybeSingle()
-    : supabaseAdmin.from("myfans_quote_candidates").select("id").eq("creator_id", creatorId).eq("x_post_url", postUrl).maybeSingle();
+    ? supabaseAdmin.from("myfans_quote_candidates").select("id,selected").eq("product_id", productId).eq("x_post_url", postUrl).order("id", { ascending: true }).limit(1).maybeSingle()
+    : supabaseAdmin.from("myfans_quote_candidates").select("id,selected").eq("creator_id", creatorId).eq("x_post_url", postUrl).order("id", { ascending: true }).limit(1).maybeSingle();
   const { data: existing, error: findError } = await query;
   if (findError) throw findError;
   if (existing?.id) {
-    const { error } = await supabaseAdmin.from("myfans_quote_candidates").update(record).eq("id", existing.id);
+    // Refresh source evidence without erasing historical selection.
+    const { error } = await supabaseAdmin.from("myfans_quote_candidates").update({ ...record, selected: Boolean(existing.selected) }).eq("id", existing.id);
     if (error) throw error;
     return existing.id;
   }
@@ -756,7 +760,7 @@ async function saveDiagnosticStatusScan(payload: QuoteScanPayload, approvedMedia
   return NextResponse.json({ ok: true, importedType: "diagnostic_status", diagnostic: true, diagnosticRunId: runId, sourceStatusUrl, sourceXHandle, replyCount: candidates.length, replyStatuses: candidates.map((candidate) => ({ statusUrl: candidate.xPostUrl, authorHandle: cleanText((candidate as MyfansQuoteScanCandidate & { authorHandle?: unknown }).authorHandle), isReply: Boolean(candidate.isReply), myfansUrls: candidate.myfansUrls ?? [] })), evidenceSaved: saved, savedEvidence, myfansLinkCount: candidates.reduce((count, candidate) => count + (candidate.myfansUrls?.length ?? 0), 0) });
 }
 
-async function saveSingleStatusCollection(payload: QuoteScanPayload, approvedMediaId: number | null) {
+async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approvedMediaId: number | null) {
   const sourceStatusUrl = cleanDiagnosticStatusUrl(payload.sourceStatusUrl);
   const sourceXHandle = cleanText(payload.sourceXHandle).replace(/^@/, "");
   const candidate = payload.statusCandidate;
@@ -764,14 +768,28 @@ async function saveSingleStatusCollection(payload: QuoteScanPayload, approvedMed
   const candidateAuthor = cleanText(candidate?.authorHandle).replace(/^@/, "");
   const sourceHandleFromStatus = sourceStatusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "";
   const audit = async (metadata: Record<string, unknown>, summary: string) => {
-    await supabaseAdmin.from("myfans_audit_logs").insert({
+    const { error } = await supabaseAdmin.from("myfans_audit_logs").insert({
       entity_type: "import",
       entity_id: null,
       action: "single_status_collect",
       summary,
       metadata,
     });
+    if (error) throw error;
   };
+
+  const collectionError = cleanText(payload.collectionError);
+  if (collectionError) {
+    await audit({
+      ok: false,
+      sourceStatusUrl,
+      sourceXHandle,
+      singleStatusRunId: cleanText(payload.singleStatusRunId),
+      reason: "x_collection_failed",
+      error: collectionError.slice(0, 500),
+    }, sourceStatusUrl || "single status収集失敗");
+    return NextResponse.json({ error: collectionError }, { status: 400 });
+  }
 
   if (!sourceStatusUrl || !sourceXHandle || sourceHandleFromStatus.toLowerCase() !== sourceXHandle.toLowerCase()) {
     await audit({ ok: false, sourceStatusUrl, reason: "source_handle_mismatch" }, sourceStatusUrl || "single status収集失敗");
@@ -852,11 +870,37 @@ async function saveSingleStatusCollection(payload: QuoteScanPayload, approvedMed
     collected_at: new Date().toISOString(),
   };
   const candidateId = await saveQuoteCandidate(record, product.id, product.creator_id);
-  await supabaseAdmin.from("myfans_products").update({ quote_candidate_x_url: normalized.mediaPermalink || normalized.xPostUrl, updated_at: new Date().toISOString() }).eq("id", product.id);
+  const { error: productUpdateError } = await supabaseAdmin.from("myfans_products").update({ quote_candidate_x_url: normalized.mediaPermalink || normalized.xPostUrl, updated_at: new Date().toISOString() }).eq("id", product.id);
+  if (productUpdateError) throw productUpdateError;
   await updateGlobalQuoteRanks(approvedMediaId ?? product.approved_media_id ?? null);
   const metadata = { ok: true, sourceStatusUrl, candidateId, productId: product.id, creatorId: product.creator_id, sourceTextSaved: true, authorStatusMatch: true, visualStatus: quoteVisualReady ? "verified" : normalized.mediaType === "none" ? "unavailable" : "metadata_only", score: scored.score, eligible: scored.eligible };
   await audit(metadata, sourceStatusUrl);
   return NextResponse.json({ importedType: "single_status_quote_candidate", ...metadata });
+}
+
+async function saveSingleStatusCollection(payload: QuoteScanPayload, approvedMediaId: number | null) {
+  try {
+    return await saveSingleStatusCollectionCore(payload, approvedMediaId);
+  } catch (error) {
+    const sourceStatusUrl = cleanDiagnosticStatusUrl(payload.sourceStatusUrl);
+    const detail = error instanceof Error ? error.message : String(error);
+    const { error: auditError } = await supabaseAdmin.from("myfans_audit_logs").insert({
+      entity_type: "import",
+      entity_id: null,
+      action: "single_status_collect",
+      summary: sourceStatusUrl || "single status収集失敗",
+      metadata: {
+        ok: false,
+        sourceStatusUrl,
+        sourceXHandle: cleanText(payload.sourceXHandle).replace(/^@/, ""),
+        singleStatusRunId: cleanText(payload.singleStatusRunId),
+        reason: "server_persistence_failed",
+        error: detail.slice(0, 500),
+      },
+    });
+    if (auditError) console.error("single_status_collect audit failed", auditError);
+    return NextResponse.json({ error: detail }, { status: 500 });
+  }
 }
 
 export async function GET(request: Request) {
