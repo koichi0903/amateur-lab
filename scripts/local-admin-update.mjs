@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { config as loadEnv } from "dotenv";
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
@@ -235,6 +235,7 @@ async function shouldBuildProductionServer(distDirPath) {
 
 async function runBuild(distDirName) {
   console.log(`[local-update] ${distDirName} をビルドします。`);
+  await rm(resolve(process.cwd(), distDirName), { recursive: true, force: true });
 
   await new Promise((resolveBuild, rejectBuild) => {
     const build = spawn(
