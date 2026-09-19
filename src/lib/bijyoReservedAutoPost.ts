@@ -4,6 +4,7 @@ import { sourceKindFor } from "@/lib/xMediaAssets";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { allocateTodaySlots, BIJYO_DEFAULT_SLOTS, buildBijyoMainText, buildBijyoReplyText, tokyoDate, todayProgress } from "@/lib/bijyoReservedWorkflow";
 import { calculateBijyoTrimStart } from "@/lib/bijyoTrim";
+import { validateTrimStartSeconds } from "@/lib/xMediaAssets";
 
 export { BIJYO_DEFAULT_SLOTS, buildBijyoMainText, buildBijyoReplyText, tokyoDate } from "@/lib/bijyoReservedWorkflow";
 export const BIJYO_ACCOUNT = "bijyo1010" as const;
@@ -82,6 +83,10 @@ class BijyoVideoNotFoundError extends Error {
   readonly status = 404;
 }
 
+class BijyoTrimValidationError extends Error {
+  readonly status = 400;
+}
+
 async function loadJob(jobId: number, workId?: number) {
   let jobResult = await supabaseAdmin.from("bijyo_reserved_post_jobs").select(JOB_SELECT).eq("account_handle", BIJYO_ACCOUNT).eq("id", jobId).maybeSingle();
   if (jobResult.error) return { job: null, error: jobResult.error.message };
@@ -121,11 +126,20 @@ export async function createBijyoManualJob(workId: number) {
   const workResult = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("id", workId).single();
   const work = workResult.data as Work | null;
   if (workResult.error || !work || work.stage !== "RESERVED" || !work.sample_movie_url || !work.release_date || sourceKindFor(work.sample_movie_url) !== "official_sample") return { ok: false, error: "手動投稿には予約作品・発売日・FANZA/DMM公式サンプル動画が必要です。" };
-  const inserted = await supabaseAdmin.from("bijyo_reserved_post_jobs").insert({ account_handle: BIJYO_ACCOUNT, work_id: work.id, kind: "manual", slot_date: tokyoDate(), scheduled_at: new Date().toISOString(), idempotency_key: `${BIJYO_ACCOUNT}:manual:${work.id}:${Date.now()}`, status: "pending", main_text: buildBijyoMainText(work), reply_text: buildBijyoReplyText(work.id) }).select("id").single();
-  return inserted.error ? { ok: false, error: inserted.error.message } : { ok: true, jobId: inserted.data.id };
+  const existing = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
+  if (existing.error) return { ok: false, error: existing.error.message };
+  if (existing.data) return { ok: true, jobId: Number(existing.data.id), existing: true };
+  const inserted = await supabaseAdmin.from("bijyo_reserved_post_jobs").insert({ account_handle: BIJYO_ACCOUNT, work_id: work.id, kind: "manual", slot_date: tokyoDate(), scheduled_at: new Date().toISOString(), idempotency_key: `${BIJYO_ACCOUNT}:manual:${work.id}`, status: "pending", main_text: buildBijyoMainText(work), reply_text: buildBijyoReplyText(work.id) }).select("id").single();
+  if (!inserted.error) return { ok: true, jobId: Number(inserted.data.id), existing: false };
+  if (inserted.error.code !== "23505") return { ok: false, error: inserted.error.message };
+  const raced = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
+  if (raced.error || !raced.data) return { ok: false, error: raced.error?.message ?? inserted.error.message };
+  return { ok: true, jobId: Number(raced.data.id), existing: true };
 }
 
-export async function prepareBijyoVideo(jobId: number, workId?: number) {
+type PrepareBijyoVideoOptions = { mode?: "auto" | "manual"; trimStartSeconds?: unknown };
+
+export async function prepareBijyoVideo(jobId: number, workId?: number, options: PrepareBijyoVideoOptions = {}) {
   let loaded = await loadJob(jobId, workId);
   const resolvedWorkId = Number.isSafeInteger(workId) && (workId ?? 0) > 0 ? workId : undefined;
   if (!loaded.job && !loaded.error && resolvedWorkId !== undefined) {
@@ -136,10 +150,26 @@ export async function prepareBijyoVideo(jobId: number, workId?: number) {
   if (loaded.error || !loaded.job || !loaded.job.work) throw new BijyoVideoNotFoundError(loaded.error ?? "投稿候補が見つかりません。");
   const job = loaded.job;
   const work = job.work as Work;
-  await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_status: "preparing", trim_failure_reason: null }).eq("id", job.id);
+  const previousTrimStatus = job.trim_status;
+  const preparing = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_status: "preparing", trim_failure_reason: null }).eq("account_handle", BIJYO_ACCOUNT).eq("id", job.id);
+  if (preparing.error) throw new Error(preparing.error.message);
   try {
-    const analysis = await analyzeSampleMovie({ sourceUrl: work.sample_movie_url, jacketUrl: null });
-    const { trimStartSeconds, reason } = calculateBijyoTrimStart(analysis, job.trim_start_seconds);
+    let trimStartSeconds: number;
+    let reason: string;
+    if (options.mode === "manual") {
+      const validation = validateTrimStartSeconds(options.trimStartSeconds);
+      if (!validation.ok) throw new BijyoTrimValidationError(validation.error);
+      trimStartSeconds = validation.value;
+      reason = "manual_override";
+    } else if (options.mode !== "auto" && job.trim_reason === "manual_override") {
+      trimStartSeconds = Number(job.trim_start_seconds);
+      reason = "manual_override";
+    } else {
+      const analysis = await analyzeSampleMovie({ sourceUrl: work.sample_movie_url, jacketUrl: null });
+      const calculated = calculateBijyoTrimStart(analysis, options.mode === "auto" ? 0 : job.trim_start_seconds);
+      trimStartSeconds = calculated.trimStartSeconds;
+      reason = calculated.reason;
+    }
     const trimmed = await trimVideoForX({ sourceUrl: work.sample_movie_url, trimStartSeconds });
     if (trimmed.trimStartSeconds !== trimStartSeconds) throw new Error("トリム開始位置の検証に失敗しました。");
     const bytes = await readAndCleanupTrimmedVideo(trimmed);
@@ -147,7 +177,8 @@ export async function prepareBijyoVideo(jobId: number, workId?: number) {
     return { bytes, filename: `bijyo1010-${work.id}-trim-${trimStartSeconds.toFixed(1)}s.mp4` };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ status: "trim_failed", trim_status: "trim_failed", trim_failure_reason: reason }).eq("id", job.id);
+    await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_status: previousTrimStatus === "ready" ? "ready" : "trim_failed", trim_failure_reason: reason }).eq("id", job.id);
+    if (reason.includes("開始秒")) throw new BijyoTrimValidationError(reason);
     throw new Error(reason);
   }
 }
