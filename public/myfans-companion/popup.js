@@ -261,6 +261,18 @@ async function refreshDiagnostics() {
   document.getElementById("diagWorkerVersion").textContent = ping?.detail?.worker?.version || diagnostic?.workerVersion || background?.workerVersion || "-";
 }
 
+async function refreshSingleStatusState() {
+  const state = await sendRuntimeMessage({ type: "myfans_single_status_collect_state" }).catch(() => null);
+  const output = document.getElementById("singleStatusState");
+  if (!output || !state?.state) return;
+  const current = state.state;
+  output.textContent = current.status === "done"
+    ? `直近結果: 成功 / candidate ${current.candidateId ?? "保存済み"} / 本文保存 ${current.sourceTextSaved ? "あり" : "なし"} / author・status一致 ${current.authorStatusMatch ? "OK" : "NG"} / visual ${current.visualStatus || "-"}`
+    : current.status === "error"
+      ? `直近結果: 失敗 / ${current.error || "理由不明"}`
+      : `直近結果: ${current.status}`;
+}
+
 async function connectBridge() {
   const status = document.getElementById("status");
   try {
@@ -507,6 +519,22 @@ document.getElementById("diagnosticStatus").addEventListener("click", async () =
   }
 });
 
+document.getElementById("singleStatusCollect").addEventListener("click", async () => {
+  const status = document.getElementById("status");
+  const value = document.getElementById("singleStatusUrl").value.trim().replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
+  if (!/^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d+$/i.test(value)) {
+    status.textContent = "Daily対象は https://x.com/<handle>/status/<数字> の形式で指定してください。";
+    return;
+  }
+  try {
+    status.textContent = "Daily対象を1件収集中です。Xタブが開いた後も結果はDaily Page/APIに保存されます。";
+    const response = await chrome.runtime.sendMessage({ type: "myfans_single_status_collect_start", settings: { baseUrl: baseUrl(), approvedMediaId: document.getElementById("mediaId").value, approvedMediaName: document.getElementById("mediaName").value, sourceStatusUrl: value, singleStatusRunId: `single-${Date.now()}` } });
+    if (!response?.ok) throw new Error(response?.error || "Daily対象収集の開始に失敗しました。");
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : "Daily対象収集の開始に失敗しました。";
+  }
+});
+
 async function stopQuoteContinuation() {
   await chrome.alarms.clear("myfansQuoteRefreshNext").catch(() => undefined);
   await chrome.storage.local.remove(["myfansQuoteRefreshSettings"]);
@@ -618,3 +646,4 @@ refreshDiagnostics().catch((error) => {
   document.getElementById("diagBackground").textContent = "NG";
   document.getElementById("status").textContent = error instanceof Error ? error.message : "診断を取得できませんでした";
 });
+refreshSingleStatusState().catch(() => {});

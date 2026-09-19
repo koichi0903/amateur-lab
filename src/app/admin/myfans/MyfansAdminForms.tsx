@@ -106,6 +106,21 @@ type DiagnosticState = {
   evidence?: DiagnosticEvidence[];
   error?: string;
 };
+type SingleStatusResult = {
+  id?: number;
+  summary?: string;
+  created_at?: string;
+  metadata?: {
+    ok?: boolean;
+    candidateId?: number | null;
+    sourceStatusUrl?: string;
+    sourceTextSaved?: boolean;
+    authorStatusMatch?: boolean;
+    visualStatus?: string;
+    productId?: number | null;
+    reason?: string;
+  };
+};
 
 function workerStatusFromDetail(detail: unknown) {
   if (!detail || typeof detail !== "object") return "idle";
@@ -200,6 +215,7 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
   const [statusUrl, setStatusUrl] = useState(DEFAULT_DIAGNOSTIC_STATUS_URL);
   const [state, setState] = useState<DiagnosticState | null>(null);
   const [dbEvidence, setDbEvidence] = useState<DiagnosticEvidence[]>([]);
+  const [singleResult, setSingleResult] = useState<SingleStatusResult | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -225,6 +241,9 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
   useEffect(() => {
     let disposed = false;
     const refresh = async () => {
+      const singleResponse = await fetch("/api/admin/myfans/companion?action=single_status_latest", { cache: "no-store" });
+      const singlePayload = (await singleResponse.json()) as { result?: SingleStatusResult | null };
+      if (!disposed) setSingleResult(singlePayload.result ?? null);
       const next = await readWorkerState();
       if (disposed || !next) return;
       setState(next);
@@ -296,6 +315,14 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
         <p>source author: <span className="font-black text-white">{state?.sourceAuthorHandle || state?.sourceXHandle ? `@${state.sourceAuthorHandle || state.sourceXHandle}` : "-"}</span></p>
         <p>本人reply検出数: <span className="font-black text-white">{state?.replyCount ?? "-"}</span></p>
         <p>myfans/mfco link: <span className="font-black text-white">{state?.myfansLinkCount ?? "-"}</span></p>
+      </div>
+      <div className="mt-3 rounded-md border border-emerald-800 bg-emerald-950/20 p-3 text-xs leading-5">
+        <p className="font-black text-emerald-200">直近のDaily対象1件収集</p>
+        {singleResult ? (
+          <p className={singleResult.metadata?.ok ? "text-emerald-100" : "text-amber-200"}>
+            {singleResult.metadata?.ok ? "成功" : "失敗"} / {singleResult.metadata?.sourceStatusUrl ?? singleResult.summary ?? "-"} / candidate {singleResult.metadata?.candidateId ?? "-"} / 本文保存 {singleResult.metadata?.sourceTextSaved ? "あり" : "なし"} / author・status一致 {singleResult.metadata?.authorStatusMatch ? "OK" : "NG"} / visual {singleResult.metadata?.visualStatus ?? "-"}
+          </p>
+        ) : <p className="text-zinc-400">まだ結果はありません。</p>}
       </div>
       {state?.replyStatuses?.map((reply, index) => <p key={`${reply.statusUrl}-${index}`} className="mt-2 text-xs text-zinc-300">reply {index + 1}: {reply.statusUrl ?? "-"} / author {reply.authorHandle ? `@${reply.authorHandle.replace(/^@/, "")}` : "-"} / exact reply={String(reply.isReply)} / link {reply.myfansUrls?.join(", ") || "-"}</p>)}
       {displayEvidence.map((evidence, index) => (

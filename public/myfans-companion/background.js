@@ -398,6 +398,106 @@ async function runDiagnosticStatus(settings) {
   }
 }
 
+async function runSingleStatusCollection(settings) {
+  if (diagnosticRunning) return;
+  diagnosticRunning = true;
+  const runId = settings.singleStatusRunId || `single-${Date.now()}`;
+  const sourceStatusUrl = diagnosticStatusUrl(settings.sourceStatusUrl);
+  let workerTabId = null;
+  let originalTabId = null;
+  await chrome.storage.local.set({ myfansSingleStatusState: { status: "running", runId, sourceStatusUrl } });
+  try {
+    const handle = sourceStatusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "";
+    if (!sourceStatusUrl || !handle) throw new Error("収集対象はx.comの正規status URLを指定してください。");
+    const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    originalTabId = currentTab?.id || null;
+    const workerTab = await chrome.tabs.create({ url: "about:blank", active: true, openerTabId: currentTab?.id });
+    workerTabId = workerTab.id;
+    await chrome.tabs.update(workerTabId, { url: sourceStatusUrl, active: true });
+    await waitForTabComplete(workerTabId, 45000);
+    await waitForTweetRender(workerTabId, handle, 18000);
+    const result = await executeMain(workerTabId, collectSingleXStatusCandidate, [{ sourceXHandle: handle, sourceStatusUrl }], { requireResult: true });
+    if (!result?.ok) throw new Error(result?.errorMessage || "指定statusの本文取得に失敗しました。");
+    const payload = await sendPayload(settings, { type: "x_single_status_collect", sourceStatusUrl, sourceXHandle: handle, statusCandidate: result.candidate, singleStatusRunId: runId });
+    await chrome.storage.local.set({ myfansSingleStatusState: { status: "done", runId, sourceStatusUrl, ...payload } });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await chrome.storage.local.set({ myfansSingleStatusState: { status: "error", runId, sourceStatusUrl, error: message } });
+  } finally {
+    if (originalTabId) await chrome.tabs.update(originalTabId, { active: true }).catch(() => undefined);
+    if (workerTabId) await chrome.tabs.remove(workerTabId).catch(() => undefined);
+    diagnosticRunning = false;
+  }
+}
+
+function collectSingleXStatusCandidate({ sourceXHandle, sourceStatusUrl }) {
+  const canonical = (value) => {
+    const raw = String(value || "").replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
+    const match = raw.match(/^(?:https:\/\/x\.com)?\/([^/?#]+)\/status\/(\d+)/i);
+    return match ? `https://x.com/${match[1]}/status/${match[2]}` : "";
+  };
+  const targetUrl = canonical(sourceStatusUrl);
+  const targetId = targetUrl.match(/\/status\/(\d+)/)?.[1] || "";
+  const cleanHandle = (value) => String(value || "").replace(/^\//, "").split(/[/?#]/)[0];
+  const articleHandle = (article) => Array.from(article.querySelectorAll('[data-testid="User-Name"] a[href]'))
+    .map((link) => cleanHandle(link.getAttribute("href")))
+    .find((handle) => /^[A-Za-z0-9_]{1,15}$/.test(handle)) || "";
+  const extractText = (article) => {
+    const direct = article.querySelector('[data-testid="tweetText"]')?.textContent?.replace(/\s+/g, " ").trim() || "";
+    if (direct) return direct.slice(0, 180);
+    return (article.innerText || "").split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter((line) => line.length >= 3).filter((line) => !/^(返信先:|Replying to|リポストしました|reposted|いいね|返信|リポスト|ブックマーク|共有|表示|Views?|Likes?|Reposts?|Replies?)(?:\s|$)/i.test(line)).filter((line) => !/^https?:\/\//i.test(line)).join(" ").slice(0, 180);
+  };
+  const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
+  const article = articles.find((item) => {
+    const hrefs = Array.from(item.querySelectorAll("a[href]")).map((link) => canonical(link.getAttribute("href")));
+    return hrefs.includes(targetUrl);
+  });
+  if (!article) return { ok: false, errorMessage: "指定statusのtweet articleが表示されませんでした。" };
+  const authorHandle = articleHandle(article);
+  const statusUrl = canonical(Array.from(article.querySelectorAll("a[href]")).map((link) => link.getAttribute("href")).find((href) => canonical(href) === targetUrl));
+  const mediaHrefs = Array.from(article.querySelectorAll("a[href]"))
+    .map((link) => String(link.getAttribute("href") || "").split(/[?#]/)[0])
+    .filter((href) => /^\/[^/]+\/status\/\d+\/(photo|video)\/[1-9]\d*$/.test(href));
+  const videoHref = mediaHrefs.find((href) => /\/video\//.test(href)) || "";
+  const photoHref = mediaHrefs.find((href) => /\/photo\//.test(href)) || "";
+  const hasVideo = Boolean(article.querySelector('[data-testid="videoPlayer"], video')) || Boolean(videoHref);
+  const hasImage = Boolean(article.querySelector('[data-testid="tweetPhoto"] img')) || Boolean(photoHref);
+  const mediaPermalink = videoHref || photoHref ? `https://x.com${videoHref || photoHref}` : "";
+  const mediaType = videoHref ? "video" : photoHref ? "image" : hasVideo ? "video" : hasImage ? "image" : "none";
+  return {
+    ok: true,
+    candidate: {
+      xPostUrl: statusUrl,
+      sourceXHandle,
+      authorHandle,
+      text: extractText(article),
+      mediaPermalink,
+      verifiedVideoPermalink: videoHref ? mediaPermalink : "",
+      generatedVideoPermalink: hasVideo ? `${targetUrl}/video/1` : "",
+      validationStatus: mediaPermalink ? "dom_media_permalink" : hasVideo ? "needs_video_permalink_validation" : "not_media",
+      mediaType,
+      mediaCount: new Set(mediaHrefs).size || (hasVideo || hasImage ? 1 : 0),
+      quoteVisualReady: Boolean(mediaPermalink),
+      postedAt: article.querySelector("time")?.getAttribute("datetime") || null,
+      likes: null,
+      reposts: null,
+      replies: null,
+      bookmarks: null,
+      views: null,
+      hasImage,
+      hasVideo,
+      isPinned: false,
+      isReply: false,
+      isRepost: false,
+      isQuote: Boolean(article.querySelector('div[role="link"] article')),
+    },
+    sourceStatusUrl: targetUrl,
+    sourceAuthorHandle: authorHandle,
+    authorStatusMatch: statusUrl === targetUrl && authorHandle.toLowerCase() === String(sourceXHandle).toLowerCase(),
+    targetStatusId: targetId,
+  };
+}
+
 async function markItemFailed(settings, jobId, itemId, error) {
   const baseMessage = error instanceof Error ? error.message : String(error || "取得に失敗しました");
   const diagnostics = error && typeof error === "object" && error.diagnostics ? error.diagnostics : null;
@@ -1308,6 +1408,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === "myfans_diagnostic_status_state") {
     chrome.storage.local.get(["myfansDiagnosticState"]).then((stored) => sendResponse({ ok: true, workerVersion: WORKER_VERSION, state: stored.myfansDiagnosticState || null }));
+    return true;
+  }
+  if (message?.type === "myfans_single_status_collect_start") {
+    runSingleStatusCollection(message.settings || {});
+    sendResponse({ ok: true, status: "accepted", workerVersion: WORKER_VERSION });
+    return true;
+  }
+  if (message?.type === "myfans_single_status_collect_state") {
+    chrome.storage.local.get(["myfansSingleStatusState"]).then((stored) => sendResponse({ ok: true, workerVersion: WORKER_VERSION, state: stored.myfansSingleStatusState || null }));
     return true;
   }
   if (message?.type === "myfans_visual_verification_start") {
