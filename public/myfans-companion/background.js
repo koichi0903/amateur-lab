@@ -3,7 +3,7 @@ const QUOTE_SETTINGS_KEY = "myfansQuoteRefreshSettings";
 const COMPANION_SETTINGS_KEY = "myfansCompanionSettings";
 const QUOTE_ALARM_NAME = "myfansQuoteRefreshNext";
 const WORKER_TAB_KEY = "myfansQuoteWorkerTabId";
-const WORKER_VERSION = "0.1.10";
+const WORKER_VERSION = chrome.runtime.getManifest().version;
 const ADMIN_BRIDGE_FILE = "myfans-admin-bridge.js";
 const ADMIN_HOSTS = new Set(["localhost", "127.0.0.1"]);
 let diagnosticRunning = false;
@@ -136,6 +136,14 @@ const NON_RETRYABLE_CATEGORIES = new Set([
   FAILURE_CATEGORY.PROFILE_NOT_FOUND_SUSPENDED,
   FAILURE_CATEGORY.SENSITIVE_CONTENT_GATE
 ]);
+const LIMITED_RETRY_CATEGORIES = new Set([
+  FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT,
+  FAILURE_CATEGORY.NAVIGATION_TIMEOUT,
+  FAILURE_CATEGORY.PAGE_LOAD_TIMEOUT,
+  FAILURE_CATEGORY.X_TEMPORARY_ERROR,
+  FAILURE_CATEGORY.NO_TWEET_ARTICLES,
+  FAILURE_CATEGORY.TAB_NOT_READY
+]);
 
 function categorizedError(category, message) {
   const error = new Error(`${category}: ${message}`);
@@ -153,7 +161,7 @@ function categoryFromError(error) {
 
 function isRetryableError(error) {
   const category = categoryFromError(error);
-  return !NON_RETRYABLE_CATEGORIES.has(category);
+  return LIMITED_RETRY_CATEGORIES.has(category) && !NON_RETRYABLE_CATEGORIES.has(category);
 }
 
 async function prepareRetry(tabId, item) {
@@ -342,7 +350,7 @@ async function runDiagnosticStatus(settings) {
     await waitForTweetRender(workerTabId, handle, 18000);
     let threadResult = null;
     for (let attempt = 1; attempt <= 8; attempt += 1) {
-      threadResult = await executeMain(workerTabId, collectXStatusThreadReplies, [{ sourceXHandle: handle, sourceStatusUrl: statusUrl }]);
+      threadResult = await executeMain(workerTabId, collectXStatusThreadReplies, [{ sourceXHandle: handle, sourceStatusUrl: statusUrl }], { requireResult: true });
       if (!threadResult?.ok || threadResult.authorReplyCount > 0 || attempt === 8) break;
       await wait(1500);
     }
@@ -719,7 +727,7 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
   };
 }
 
-async function executeMain(tabId, func, args = []) {
+async function executeMain(tabId, func, args = [], options = {}) {
   let injection = null;
   try {
     injection = await chrome.scripting.executeScript({
@@ -731,8 +739,18 @@ async function executeMain(tabId, func, args = []) {
   } catch (error) {
     throw categorizedError(FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT, error instanceof Error ? error.message : "Xページでスクリプトを実行できませんでした。");
   }
-  const first = injection?.[0];
-  if (!first) throw categorizedError(FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT, "Xページでスクリプト実行結果を取得できませんでした。");
+  if (!Array.isArray(injection) || injection.length === 0) throw categorizedError(FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT, "executeScriptのresultsが空でした。");
+  const withResult = injection.filter((entry) => entry && Object.prototype.hasOwnProperty.call(entry, "result"));
+  const first = withResult.find((entry) => entry.frameId === 0) || withResult[0];
+  if (!first) throw categorizedError(FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT, `executeScriptのresultフィールドがありませんでした。frames=${injection.length}`);
+  if (first.result === undefined && options.requireResult) throw categorizedError(FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT, "executeScriptのresultがundefinedでした。注入関数は必ずplain objectを返してください。");
+  if (options.requireResult) {
+    try {
+      return JSON.parse(JSON.stringify(first.result));
+    } catch (error) {
+      throw categorizedError(FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT, `executeScriptのresultをJSON化できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   return first.result;
 }
 
@@ -967,7 +985,7 @@ async function collectFromWorkerTab(tabId, item, jobId) {
       window.scrollTo({ top: 0, behavior: "instant" });
   });
   await waitForTweetRender(tabId, expectedHandle, 8000);
-  const rawResult = await executeMain(tabId, collectXQuoteCandidates);
+  const rawResult = await executeMain(tabId, collectXQuoteCandidates, [], { requireResult: true });
   let result = ensureStructuredScanResult(rawResult, "EXTRACT");
   if (!result.ok || !Array.isArray(result.quoteCandidates) || result.quoteCandidates.length === 0) {
     throw categorizedError(result.errorCode || FAILURE_CATEGORY.UNKNOWN, result.errorMessage || "Xページから引用候補を取得できませんでした。");
@@ -984,7 +1002,7 @@ async function collectFromWorkerTab(tabId, item, jobId) {
       await chrome.tabs.update(tabId, { url: candidate.xPostUrl, active: false });
       await waitForTabComplete(tabId, 45000);
       await waitForTweetRender(tabId, expectedHandle, 18000);
-      const threadResult = await executeMain(tabId, collectXStatusThreadReplies, [{ sourceXHandle: expectedHandle, sourceStatusUrl: candidate.xPostUrl }]);
+      const threadResult = await executeMain(tabId, collectXStatusThreadReplies, [{ sourceXHandle: expectedHandle, sourceStatusUrl: candidate.xPostUrl }], { requireResult: true });
       if (!threadResult?.ok) continue;
       statusThreadsOpened += 1;
       statusThreadMyfansLinkCount += threadResult.myfansLinkCount || 0;
@@ -1082,7 +1100,8 @@ async function runBulkQuoteRefresh(settings) {
           break;
         } catch (collectError) {
           lastCollectError = collectError;
-          if (attempt >= 3 || !isRetryableError(collectError)) break;
+          const maxAttempts = categoryFromError(collectError) === FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT ? 2 : 3;
+          if (attempt >= maxAttempts || !isRetryableError(collectError)) break;
           const retryMessage = collectError instanceof Error ? collectError.message : "取得を再試行します。";
           await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, stage: categoryFromError(collectError), message: `retry: ${retryMessage}`, lastError: retryMessage, retryCount: attempt, sessionProcessed: processedBefore });
           await prepareRetry(workerTabId, item).catch(() => undefined);

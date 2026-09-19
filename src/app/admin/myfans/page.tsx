@@ -170,7 +170,7 @@ export default async function MyfansDailyPage({
             })}
           </div>
           {(supplyProductsResult.error || supplyEvidenceResult.error) && <p className="mt-3 text-xs text-amber-200">供給状態の一部を読み込めません。migration適用後に再表示してください。</p>}
-          <p className="mt-3 text-xs leading-5 text-zinc-500">次の操作: 上の投稿を通常Chromeで開き、Companion 0.1.10の登録を押す。affiliate URLはmyfans管理画面で実際に発行・確認した場合だけ別途登録します。</p>
+          <p className="mt-3 text-xs leading-5 text-zinc-500">次の操作: 上の投稿を通常Chromeで開き、最新版のCompanionで登録を押す。affiliate URLはmyfans管理画面で実際に発行・確認した場合だけ別途登録します。</p>
         </section>
 
         <section className="mt-8 rounded-lg border border-emerald-700 bg-emerald-950/25 p-5">

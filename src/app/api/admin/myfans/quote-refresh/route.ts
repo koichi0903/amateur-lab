@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { selectCreatorRotation, DEFAULT_CREATOR_COOLDOWN_DAYS } from "@/lib/myfansQuoteRotation";
+import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummary";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -103,7 +104,8 @@ async function progress(jobId: number) {
     .order("id", { ascending: true });
   if (itemsError) throw itemsError;
   const skipped = (items ?? []).filter((item) => item.status === "skipped").length;
-  return { job, items: items ?? [], skippedCreators: skipped };
+  const summary = summarizeMyfansQuoteRefreshItems(items ?? []);
+  return { job, items: items ?? [], skippedCreators: skipped, summary };
 }
 
 async function createJob(payload: Record<string, unknown>) {

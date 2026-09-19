@@ -556,7 +556,12 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
         myfansUrls: Array.isArray(candidate.myfansUrls) ? candidate.myfansUrls.map(cleanMyfansUrl).filter(Boolean).slice(0, 5) : [],
       };
     })
-    .filter((candidate) => candidate.xPostUrl && candidate.sourceXHandle.toLowerCase() === sourceXHandle.toLowerCase());
+    .filter((candidate) => {
+      const statusHandle = candidate.xPostUrl.match(/^https:\/\/x\.com\/([^/?#]+)\/status\//i)?.[1] ?? "";
+      return candidate.xPostUrl
+        && candidate.sourceXHandle.toLowerCase() === sourceXHandle.toLowerCase()
+        && statusHandle.toLowerCase() === sourceXHandle.toLowerCase();
+    });
 
   if (normalized.length === 0) {
     await markRefreshItem(payload, "failed", { error: "creator本人の表示中投稿が見つかりませんでした。" });

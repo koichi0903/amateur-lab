@@ -399,7 +399,8 @@ function saveSettings() {
 function renderBatchState(state, progress) {
   const job = progress?.job || state?.job;
   if (!state && !job) return;
-  const counts = job ? `processed ${job.processed_creators ?? 0}/${job.total_creators ?? 0}, success ${job.success_creators ?? 0}, failed ${job.failed_creators ?? 0}, skipped ${progress?.skippedCreators ?? 0}` : "";
+  const summary = progress?.summary;
+  const counts = job ? `processed ${summary?.processed ?? job.processed_creators ?? 0}/${job.total_creators ?? 0}, success ${summary?.success ?? job.success_creators ?? 0}, failed ${summary?.failed ?? job.failed_creators ?? 0}, blocked ${summary?.blocked ?? 0}, skipped ${summary?.skipped ?? progress?.skippedCreators ?? 0}` : "";
   document.getElementById("batchStatus").textContent = [
     job ? `job ${job.id}: ${job.status}` : "",
     counts,

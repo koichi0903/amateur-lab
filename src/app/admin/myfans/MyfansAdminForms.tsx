@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, Download, ExternalLink, FileUp, Image as ImageIcon, LoaderCircle, MousePointerClick, Plus, RefreshCw, Save } from "lucide-react";
 import type { buildMyfansExecutionBoard, MyfansQuoteCollectionTask } from "@/lib/myfansXExecution";
 import type { MyfansApprovedMedia, MyfansCreator, MyfansProduct, MyfansXPost } from "@/lib/myfansAnalytics";
+import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummary";
 import { MYFANS_AFFILIATE_URL_SOURCE_MANUAL, MYFANS_CLICK_ATTRIBUTION_WINDOW_HOURS, myfansAffiliateLinkStatus, myfansAffiliateLinkStatusLabel, normalizeMyfansAffiliateUrl } from "@/lib/myfansAffiliateLink";
 import { getXWeightedLength } from "@/lib/xText";
 
@@ -22,6 +23,7 @@ type QuoteRefreshProgress = {
     last_error: string | null;
   } | null;
   skippedCreators?: number;
+  summary?: { processed: number; success: number; failed: number; blocked: number; skipped: number };
   items: Array<{
     id: number;
     creator_x_url: string;
@@ -66,7 +68,6 @@ type VisualQueueState = {
   items?: Array<{ status: string }>;
 };
 
-const EXPECTED_COMPANION_VERSION = "0.1.10";
 const READY_EVENT = "amateur-lab:myfans-quote-refresh:bridge-ready";
 const PING_EVENT = "amateur-lab:myfans-quote-refresh:ping";
 const PONG_EVENT = "amateur-lab:myfans-quote-refresh:pong";
@@ -509,11 +510,9 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
   const job = progress?.job ?? null;
   const current = progress?.items.find((item) => item.status === "running") ?? null;
   const recent = progress?.items.filter((item) => ["success", "failed", "skipped"].includes(item.status)).slice(-5).reverse() ?? [];
-  const blockedCreators = progress?.items.filter(isBlockedQuoteRefreshItem).length ?? 0;
-  const queueSkippedCreators = progress?.items.filter((item) => item.status === "skipped" && !isBlockedQuoteRefreshItem(item)).length ?? progress?.skippedCreators ?? 0;
-  const systemFailedCreators = progress?.items.filter((item) => item.status === "failed" && !isBlockedQuoteRefreshItem(item)).length ?? 0;
-  const successRateBase = job ? job.success_creators + systemFailedCreators : 0;
-  const successRate = successRateBase > 0 && job ? Math.round((job.success_creators / successRateBase) * 100) : null;
+  const summary = progress?.summary ?? summarizeMyfansQuoteRefreshItems(progress?.items ?? []);
+  const successRateBase = summary.success + summary.failed;
+  const successRate = successRateBase > 0 ? Math.round((summary.success / successRateBase) * 100) : null;
   const failedItems = progress?.items.filter((item) => item.status === "failed" && !isBlockedQuoteRefreshItem(item)) ?? [];
   const visualCounts = (visualQueue?.items ?? []).reduce<Record<string, number>>((counts, item) => {
     counts[item.status] = (counts[item.status] ?? 0) + 1;
@@ -665,24 +664,24 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
       </div>
       <StatusMessage message={message} />
       <p className="mt-3 text-[11px] leading-5 text-zinc-500">
-        bridge script: {bridgeStatus.scriptInjected ? "injected" : "not injected"} / runtime: {bridgeStatus.runtimeConnected ? "connected" : "not connected"} / bridge version: {bridgeStatus.bridgeVersion ?? "-"} / worker: {bridgeStatus.workerStatus} / worker version: {bridgeStatus.workerVersion ?? "-"} / expected: {EXPECTED_COMPANION_VERSION} / last ack: {bridgeStatus.lastAckAt ?? "-"} / 一括巡回とvisual確認の主経路はDaily Pageです
+        bridge script: {bridgeStatus.scriptInjected ? "injected" : "not injected"} / runtime: {bridgeStatus.runtimeConnected ? "connected" : "not connected"} / bridge version: {bridgeStatus.bridgeVersion ?? "-"} / worker: {bridgeStatus.workerStatus} / worker version: {bridgeStatus.workerVersion ?? "-"} / version source: extension manifest / last ack: {bridgeStatus.lastAckAt ?? "-"} / 一括巡回とvisual確認の主経路はDaily Pageです
       </p>
-      {bridgeStatus.bridgeVersion && bridgeStatus.bridgeVersion !== EXPECTED_COMPANION_VERSION && (
+      {bridgeStatus.bridgeVersion && bridgeStatus.workerVersion && bridgeStatus.bridgeVersion !== bridgeStatus.workerVersion && (
         <p className="mt-2 rounded-md bg-amber-950 p-2 text-xs font-bold text-amber-200">
-          Myfans Companionのbridge versionが期待値と違います。表示version {bridgeStatus.bridgeVersion} / 期待version {EXPECTED_COMPANION_VERSION}
+          Myfans Companionのbridgeとworkerのversionが一致しません。bridge {bridgeStatus.bridgeVersion} / worker {bridgeStatus.workerVersion}。Chrome拡張をreloadしてからDaily Pageをreloadしてください。
         </p>
       )}
       {job && (
         <div className="mt-4 grid gap-3 lg:grid-cols-4">
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">状態</p><p className="mt-1 font-black text-white">{job.status}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">進捗</p><p className="mt-1 font-black text-white">{job.processed_creators} / {job.total_creators}</p></div>
-          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">成功/要修正/blocked</p><p className="mt-1 font-black text-white">{job.success_creators} / {systemFailedCreators} / {blockedCreators + queueSkippedCreators}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">成功/要修正/blocked/skipped</p><p className="mt-1 font-black text-white">{summary.success} / {summary.failed} / {summary.blocked} / {summary.skipped}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">システム成功率</p><p className={`mt-1 font-black ${successRate !== null && successRate >= 80 ? "text-emerald-300" : "text-amber-300"}`}>{successRate === null ? "-" : `${successRate}%`}</p></div>
         </div>
       )}
       {job?.status === "completed" && (
         <p className={`mt-3 rounded-md p-2 text-xs font-bold ${successRate !== null && successRate >= 80 ? "bg-emerald-950 text-emerald-200" : "bg-amber-950 text-amber-200"}`}>
-          completed: 成功{job.success_creators} / 要修正{systemFailedCreators} / blocked{blockedCreators + queueSkippedCreators} / システム成功率{successRate === null ? "判定対象なし" : `${successRate}%`}
+          completed: 成功{summary.success} / 要修正{summary.failed} / blocked{summary.blocked} / skipped{summary.skipped} / システム成功率{successRate === null ? "判定対象なし" : `${successRate}%`}
         </p>
       )}
       {current && <p className="mt-3 text-xs text-violet-200">現在処理中: {creatorNameFromItem(current)}</p>}
