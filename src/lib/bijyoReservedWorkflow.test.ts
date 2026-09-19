@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allocateTodaySlots, buildBijyoMainText, buildBijyoReplyText, todayProgress } from "./bijyoReservedWorkflow.ts";
+import { allocateTodaySlots, bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, todayProgress } from "./bijyoReservedWorkflow.ts";
+
+test("手動追加のidempotency keyは同じworkで安定する", () => {
+  assert.equal(bijyoManualIdempotencyKey(283591), "bijyo1010:manual:283591");
+  assert.equal(bijyoManualIdempotencyKey(283591), bijyoManualIdempotencyKey(283591));
+});
 
 test("本文と自己リプは固定フォーマット", () => {
   assert.equal(buildBijyoMainText({ title: "作品A", release_date: "2026-09-25" }), "【9月25日発売】\n作品A");

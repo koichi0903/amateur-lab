@@ -1,5 +1,9 @@
 export const BIJYO_DEFAULT_SLOTS = ["09:00", "13:00", "18:00", "22:00"] as const;
 
+export function bijyoManualIdempotencyKey(workId: number) {
+  return `bijyo1010:manual:${workId}`;
+}
+
 export type BijyoJobStatus = "pending" | "posted" | "manual_posted" | "skipped" | "excluded" | "trim_failed";
 
 export type Candidate = { id: number; created_at: string };
