@@ -414,14 +414,15 @@ function renderBatchState(state, progress) {
     state?.statusThreadsOpened != null ? `status threads: ${state.statusThreadsOpened}` : "",
     state?.authorReplyCount != null ? `author replies: ${state.authorReplyCount}` : "",
     state?.statusThreadMyfansLinkCount != null ? `thread myfans links: ${state.statusThreadMyfansLinkCount}` : "",
-    state?.videoValidation ? `video validation: ${state.videoValidation.verified || 0}/${state.videoValidation.checked || 0} ok, fail ${state.videoValidation.failed || 0}` : "",
+    state?.videoValidation ? `video validation: ${state.videoValidation.verified || 0}/${state.videoValidation.checked || 0} ok, fail ${state.videoValidation.failed || 0}${state.videoValidation.failed ? " (partial)" : ""}` : "",
     state?.retryCount != null ? `retry: ${state.retryCount}` : "",
     state?.finalStatus ? `final: ${state.finalStatus}` : "",
-    state?.errorCode ? `reason: ${state.errorCode}` : "",
+    state?.finalStatus !== "success" && state?.errorCode ? `reason: ${state.errorCode}` : "",
     state?.sessionProcessed != null ? `このセッション: ${state.sessionProcessed}件` : "",
     state?.lastCandidatesCount != null ? `直近候補: ${state.lastCandidatesCount}件` : "",
-    state?.failureDiagnostics ? `diagnostics: ${JSON.stringify(state.failureDiagnostics)}` : "",
-    state?.lastError ? `error: ${state.lastError}` : ""
+    state?.attemptDiagnostics?.length ? `attempt diagnostics: ${state.attemptDiagnostics.length}` : "",
+    state?.finalStatus !== "success" && state?.failureDiagnostics ? `diagnostics: ${JSON.stringify(state.failureDiagnostics)}` : "",
+    state?.finalStatus !== "success" && state?.lastError ? `error: ${state.lastError}` : ""
   ].filter(Boolean).join("\n");
 }
 

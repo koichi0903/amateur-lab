@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import vm from "node:vm";
 
 const root = process.cwd();
 const companion = path.join(root, "public", "myfans-companion");
@@ -8,6 +9,10 @@ const manifest = JSON.parse(fs.readFileSync(path.join(companion, "manifest.json"
 const background = fs.readFileSync(path.join(companion, "background.js"), "utf8");
 const bridge = fs.readFileSync(path.join(companion, "myfans-admin-bridge.js"), "utf8");
 const popup = fs.readFileSync(path.join(companion, "popup.js"), "utf8");
+const companionStateSource = fs.readFileSync(path.join(companion, "state.js"), "utf8");
+const stateContext = { globalThis: {} };
+vm.runInNewContext(companionStateSource, stateContext);
+const companionState = stateContext.globalThis.MyfansCompanionState;
 
 assert.match(manifest.version, /^0\.1\.\d+$/);
 assert.match(background, /chrome\.runtime\.getManifest\(\)\.version/);
@@ -21,7 +26,24 @@ assert.match(background, /INJECTED_FUNCTION_ERROR/);
 assert.match(background, /RESULT_SERIALIZATION_FAILED/);
 assert.match(background, /allFrames: false/);
 assert.match(background, /extractSourceTextInPage/);
+assert.match(background, /attemptDiagnostics/);
+assert.match(background, /MyfansCompanionState\.successPatch/);
+assert.match(background, /MyfansCompanionState\.isCompleted/);
+assert.deepEqual(JSON.parse(JSON.stringify(companionState.successPatch(4))), {
+  finalStatus: "success",
+  errorCode: null,
+  lastError: null,
+  failureDiagnostics: null,
+  lastCandidatesCount: 4,
+});
+const attempt = { errorCode: "EXECUTE_SCRIPT_NO_RESULT", message: "old diagnostic" };
+assert.deepEqual(JSON.parse(JSON.stringify(companionState.appendAttemptDiagnostic({ attemptDiagnostics: ["kept"] }, attempt))), ["kept", attempt]);
+assert.equal(companionState.isCompleted({ status: "completed", processed_creators: 1, total_creators: 1 }), true);
+assert.equal(companionState.isCompleted({ status: "running", processed_creators: 1, total_creators: 1 }), true);
+assert.equal(companionState.isCompleted({ status: "running", processed_creators: 0, total_creators: 1 }), false);
 assert.match(popup, /blocked \$\{/);
+assert.match(popup, /\(partial\)/);
+assert.match(popup, /finalStatus !== "success"/);
 
 const normalize = (value) => value === undefined ? { ok: false, reason: "undefined" } : JSON.parse(JSON.stringify(value));
 assert.deepEqual(normalize(undefined), { ok: false, reason: "undefined" });

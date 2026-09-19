@@ -1,4 +1,6 @@
 const QUOTE_STATE_KEY = "myfansQuoteRefreshState";
+importScripts("state.js");
+
 const QUOTE_SETTINGS_KEY = "myfansQuoteRefreshSettings";
 const COMPANION_SETTINGS_KEY = "myfansCompanionSettings";
 const QUOTE_ALARM_NAME = "myfansQuoteRefreshNext";
@@ -290,6 +292,12 @@ async function setQuoteState(patch) {
   const next = { ...(stored[QUOTE_STATE_KEY] || {}), ...patch, updatedAt: new Date().toISOString() };
   await chrome.storage.local.set({ [QUOTE_STATE_KEY]: next });
   return next;
+}
+
+async function appendQuoteAttemptDiagnostic(entry) {
+  const stored = await chrome.storage.local.get([QUOTE_STATE_KEY]);
+  const current = stored[QUOTE_STATE_KEY] || {};
+  return setQuoteState({ attemptDiagnostics: MyfansCompanionState.appendAttemptDiagnostic(current, entry) });
 }
 
 async function saveQuoteSettings(settings) {
@@ -1126,7 +1134,9 @@ async function runBulkQuoteRefresh(settings) {
   globalThis.myfansQuoteRefreshRunning = true;
   const persistedSettings = { ...settings };
   globalThis.myfansQuoteRefreshSettings = persistedSettings;
-  await setQuoteState({ running: true, status: "starting", jobId: persistedSettings.jobId || null, message: "一括更新を開始します。", lastError: null });
+  const startState = { running: true, status: "starting", jobId: persistedSettings.jobId || null, message: "一括更新を開始します。", errorCode: null, lastError: null, failureDiagnostics: null };
+  if (!persistedSettings.jobId) startState.attemptDiagnostics = [];
+  await setQuoteState(startState);
   await scheduleQuoteContinuation(persistedSettings, 120000);
   try {
     const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -1197,6 +1207,14 @@ async function runBulkQuoteRefresh(settings) {
           break;
         } catch (collectError) {
           lastCollectError = collectError;
+          await appendQuoteAttemptDiagnostic({
+            at: new Date().toISOString(),
+            stage: "COLLECT",
+            attempt,
+            errorCode: categoryFromError(collectError),
+            message: collectError instanceof Error ? collectError.message : String(collectError || ""),
+            diagnostics: collectError && typeof collectError === "object" && collectError.diagnostics ? collectError.diagnostics : null
+          });
           const maxAttempts = categoryFromError(collectError) === FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT ? 2 : 3;
           if (attempt >= maxAttempts || !isRetryableError(collectError)) break;
           const retryMessage = collectError instanceof Error ? collectError.message : "取得を再試行します。";
@@ -1207,7 +1225,7 @@ async function runBulkQuoteRefresh(settings) {
       }
       if (!result) throw lastCollectError || categorizedError(FAILURE_CATEGORY.UNKNOWN, "Xページから引用候補を取得できませんでした。");
       const payload = await sendPayload(persistedSettings, result);
-      await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `保存しました: ${creatorName || item.creator_x_url}`, finalStatus: "success", lastCandidatesCount: payload.candidatesCount || 0, sessionProcessed: processedBefore + 1 });
+      await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `保存しました: ${creatorName || item.creator_x_url}`, ...MyfansCompanionState.successPatch(payload.candidatesCount), sessionProcessed: processedBefore + 1 });
     } catch (error) {
       await markItemFailed(persistedSettings, next.jobId, item.id, error);
       const message = error instanceof Error ? error.message : "取得に失敗しました";
@@ -1218,6 +1236,13 @@ async function runBulkQuoteRefresh(settings) {
         await setQuoteState({ running: false, status: "stopped", message, lastError: message });
         return;
       }
+    }
+    const completed = await fetchQuoteProgress(persistedSettings, { jobId: next.jobId }).catch(() => null);
+    const completedJob = completed?.job;
+    if (MyfansCompanionState.isCompleted(completedJob)) {
+      await clearQuoteContinuation();
+      await setQuoteState({ running: false, status: "done", job: completedJob, message: "一括更新が完了しました。" });
+      return;
     }
     const batchSize = Number(next.batchSize || persistedSettings.batchSize || 10);
     const delayMs = (processedBefore + 1) % batchSize === 0 ? 60000 : 5000;
