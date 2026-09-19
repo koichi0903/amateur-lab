@@ -77,7 +77,9 @@ export async function getBijyoDashboard() {
 
 async function loadJob(jobId: number) {
   const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").select(JOB_SELECT).eq("account_handle", BIJYO_ACCOUNT).eq("id", jobId).single();
-  return { job: result.data as unknown as BijyoJob | null, error: result.error?.message ?? null };
+  if (result.error || !result.data) return { job: null, error: result.error?.message ?? null };
+  const { works, ...job } = result.data as unknown as Record<string, unknown>;
+  return { job: { ...job, work: works } as unknown as BijyoJob, error: null };
 }
 
 export async function markBijyoPosted(jobId: number) {
