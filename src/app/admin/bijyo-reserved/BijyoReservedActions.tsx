@@ -20,7 +20,7 @@ export function BijyoReservedActions({ jobId, workId, mainText, replyText, statu
   const videoRef = useRef<HTMLVideoElement>(null);
   async function run(action: string) {
     setBusy(true); setMessage("");
-    try { await call({ action, jobId, workId }); setMessage(action === "posted" ? "投稿済みにしました。" : action === "skip" ? "スキップして候補を補充しました。" : action === "exclude" ? "今後の候補から外しました。" : "手動追加枠を作成しました。画面を更新してください。"); if (["posted", "skip", "exclude", "manual"].includes(action)) window.location.reload(); }
+    try { const result = await call({ action, jobId, workId }); setMessage(action === "posted" ? "投稿済みにしました。" : action === "skip" ? "スキップして候補を補充しました。" : action === "exclude" ? "今後の候補から外しました。" : result.trim?.ok === false ? `手動追加は完了しましたが、trim準備に失敗しました。動画ボタンから再生成できます。\n${result.trim.error}` : "手動追加・trim準備が完了しました。画面を更新します。"); if (["posted", "skip", "exclude", "manual"].includes(action)) window.location.reload(); }
     catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
