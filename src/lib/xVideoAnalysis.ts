@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { probeVideoFile } from "@/lib/xVideoTrim";
 import type { XVisualFactKind } from "@/lib/xVisualVideoFacts";
+import { detectBlackIntroEnd, type OpeningBrightnessSample } from "@/lib/xVideoOpening";
 
 export const VIDEO_ANALYSIS_VERSION = "video-frame-facts-v1";
 type PixelStats = { brightness: number; red: number; green: number; blue: number; histogram: number[] };
@@ -56,6 +57,9 @@ export async function analyzeSampleMovie(input: { sourceUrl: string; trimStartSe
   try {
     await download(input.sourceUrl, movie); const probe = await probeVideoFile(movie); const trim = Math.max(0, input.trimStartSeconds ?? 0); const raw = [0, 3, 6, 10, probe.durationSeconds / 2].map((n) => Math.min(Math.max(0, probe.durationSeconds - 0.05), trim + n));
     const times = [...new Set(raw.map((n) => Number(n.toFixed(3))))]; const frames: PixelStats[] = []; for (const time of times) frames.push(await frame(movie, time));
+    const openingTimes = Array.from({ length: Math.floor(Math.min(8, probe.durationSeconds) / 0.25) + 1 }, (_, index) => Number(Math.min(index * 0.25, Math.max(0, probe.durationSeconds - 0.05)).toFixed(3))).filter((time, index, all) => all.indexOf(time) === index);
+    const openingSamples: OpeningBrightnessSample[] = []; for (const time of openingTimes) openingSamples.push({ timeSec: time, brightness: (await frame(movie, time)).brightness });
+    const blackIntroEndSec = detectBlackIntroEnd(openingSamples, probe.durationSeconds);
     const changes = frames.slice(1).map((item, i) => distance(frames[i], item)); const opening = changes.slice(0, 2).reduce((a, b) => a + b, 0) / Math.max(1, Math.min(2, changes.length)); const mid = changes.length ? changes[changes.length - 1] : 0;
     const mean = frames.reduce((a, b) => a + b.brightness, 0) / Math.max(1, frames.length); const motion = mid >= 0.18 || opening >= 0.22 ? "high" : mid >= 0.08 || opening >= 0.1 ? "medium" : "low"; const pacing = changes.filter((x) => x >= 0.1).length >= 3 ? "fast" : changes.filter((x) => x >= 0.1).length >= 1 ? "medium" : "slow";
     const firstChangeIndex = changes.findIndex((x) => x >= 0.1); const firstChange = firstChangeIndex >= 0 ? times[firstChangeIndex + 1] : null; const black = frames[0]?.brightness < 0.08;
@@ -87,7 +91,7 @@ export async function analyzeSampleMovie(input: { sourceUrl: string; trimStartSe
       try { await download(input.jacketUrl, jacket); const jacketFrame = await frame(jacket, 0); const colorDistance = distance(jacketFrame, frames[0]); const brightnessDistance = Math.abs(jacketFrame.brightness - (frames[0]?.brightness ?? jacketFrame.brightness)); jacketMetrics = { brightness: jacketFrame.brightness, colorDistance, brightnessDistance }; if (colorDistance >= 0.16 && brightnessDistance >= 0.06) { jacketEvidence.push({ kind: "jacket_sample_mismatch", value: true, confidence: 0.78, safePhrase: "ジャケと動画で明るさと色味が違う。" }); evidence.push({ kind: "jacket_sample_mismatch", value: true, confidence: 0.78, safePhrase: "ジャケと動画で明るさと色味が違う。" }); } }
       catch { diagnostics.push("jacket comparison failed"); }
     }
-    return { version: VIDEO_ANALYSIS_VERSION, sourceFingerprint: videoSourceFingerprint(input.sourceUrl), analyzedAt: new Date().toISOString(), durationSec: probe.durationSeconds, frameTimesSec: times, rawMetrics: { brightnessMean: mean, openingMotionDelta: opening, midMotionDelta: mid, frameChanges: changes, frames: frames.map((x) => ({ brightness: x.brightness, red: x.red, green: x.green, blue: x.blue, histogram: x.histogram })), jacket: jacketMetrics }, videoEvidence: evidence, jacketEvidence, diagnostics };
+    return { version: VIDEO_ANALYSIS_VERSION, sourceFingerprint: videoSourceFingerprint(input.sourceUrl), analyzedAt: new Date().toISOString(), durationSec: probe.durationSeconds, frameTimesSec: times, rawMetrics: { brightnessMean: mean, openingMotionDelta: opening, midMotionDelta: mid, frameChanges: changes, frames: frames.map((x) => ({ brightness: x.brightness, red: x.red, green: x.green, blue: x.blue, histogram: x.histogram })), openingBrightnessSamples: openingSamples, blackIntroEndSec, jacket: jacketMetrics }, videoEvidence: evidence, jacketEvidence, diagnostics };
   } catch (error) { return { version: VIDEO_ANALYSIS_VERSION, sourceFingerprint: videoSourceFingerprint(input.sourceUrl), analyzedAt: new Date().toISOString(), durationSec: 0, frameTimesSec: [], rawMetrics: {}, videoEvidence: [], jacketEvidence: [], diagnostics: [error instanceof Error ? error.message : "analysis failed"] }; }
   finally { await rm(dir, { recursive: true, force: true }).catch(() => undefined); }
 }

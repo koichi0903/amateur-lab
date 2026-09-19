@@ -10,11 +10,11 @@ export const BIJYO_ACCOUNT = "bijyo1010" as const;
 type Work = { id: number; title: string; stage: string; created_at: string; release_date: string; sample_movie_url: string; product_id: string | null };
 export type BijyoJob = {
   id: number; work_id: number; kind: "auto" | "manual"; slot_date: string; slot_index: number | null; scheduled_at: string;
-  status: string; trim_start_seconds: number; trim_status: string; trim_failure_reason: string | null;
+  status: string; trim_start_seconds: number; trim_status: string; trim_reason: string; trim_failure_reason: string | null;
   main_text: string; reply_text: string; x_post_id: string | null; posted_at: string | null; failure_reason: string | null; skip_reason: string | null; work?: Work | null;
 };
 
-const JOB_SELECT = "id,work_id,kind,slot_date,slot_index,scheduled_at,status,trim_start_seconds,trim_status,trim_failure_reason,main_text,reply_text,x_post_id,posted_at,failure_reason,skip_reason,works(id,title,stage,created_at,release_date,sample_movie_url,product_id)";
+const JOB_SELECT = "id,work_id,kind,slot_date,slot_index,scheduled_at,status,trim_start_seconds,trim_status,trim_reason,trim_failure_reason,main_text,reply_text,x_post_id,posted_at,failure_reason,skip_reason,works(id,title,stage,created_at,release_date,sample_movie_url,product_id)";
 const ACTIVE_CANDIDATE_STATUSES = ["pending", "posted", "manual_posted", "skipped", "excluded", "trim_failed"];
 
 async function activeJobs() {
@@ -113,6 +113,15 @@ function inferredTrimStart(analysis: Awaited<ReturnType<typeof analyzeSampleMovi
   return seconds >= 0.5 && seconds <= 15 ? Number(seconds.toFixed(1)) : 0;
 }
 
+function finalTrimStart(analysis: Awaited<ReturnType<typeof analyzeSampleMovie>>) {
+  const existingTrimStart = inferredTrimStart(analysis);
+  const rawBlackEnd = analysis.rawMetrics.blackIntroEndSec;
+  const detectedBlackEnd = typeof rawBlackEnd === "number" && Number.isFinite(rawBlackEnd) && rawBlackEnd >= 0 && rawBlackEnd <= 10 ? Number(rawBlackEnd.toFixed(1)) : 0;
+  const trimStartSeconds = Math.max(existingTrimStart, detectedBlackEnd);
+  const reason = detectedBlackEnd > existingTrimStart ? "black_intro" : existingTrimStart > 0 ? "title_card" : "existing_analysis";
+  return { trimStartSeconds, reason, existingTrimStart, detectedBlackEnd } as const;
+}
+
 export async function prepareBijyoVideo(jobId: number) {
   const loaded = await loadJob(jobId);
   if (loaded.error || !loaded.job || !loaded.job.work) throw new Error(loaded.error ?? "投稿候補が見つかりません。");
@@ -121,10 +130,11 @@ export async function prepareBijyoVideo(jobId: number) {
   await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_status: "preparing", trim_failure_reason: null }).eq("id", jobId);
   try {
     const analysis = await analyzeSampleMovie({ sourceUrl: work.sample_movie_url, jacketUrl: null });
-    const trimStartSeconds = inferredTrimStart(analysis);
+    const { trimStartSeconds, reason } = finalTrimStart(analysis);
     const trimmed = await trimVideoForX({ sourceUrl: work.sample_movie_url, trimStartSeconds });
+    if (trimmed.trimStartSeconds !== trimStartSeconds) throw new Error("トリム開始位置の検証に失敗しました。");
     const bytes = await readAndCleanupTrimmedVideo(trimmed);
-    await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_start_seconds: trimStartSeconds, trim_status: "ready", trim_failure_reason: null }).eq("id", jobId);
+    await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_start_seconds: trimStartSeconds, trim_reason: reason, trim_status: "ready", trim_failure_reason: null }).eq("id", jobId);
     return { bytes, filename: `bijyo1010-${work.id}-trim-${trimStartSeconds.toFixed(1)}s.mp4` };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
