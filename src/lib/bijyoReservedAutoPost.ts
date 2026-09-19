@@ -3,6 +3,7 @@ import { analyzeSampleMovie } from "@/lib/xVideoAnalysis";
 import { sourceKindFor } from "@/lib/xMediaAssets";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { allocateTodaySlots, BIJYO_DEFAULT_SLOTS, buildBijyoMainText, buildBijyoReplyText, tokyoDate, todayProgress } from "@/lib/bijyoReservedWorkflow";
+import { calculateBijyoTrimStart } from "@/lib/bijyoTrim";
 
 export { BIJYO_DEFAULT_SLOTS, buildBijyoMainText, buildBijyoReplyText, tokyoDate } from "@/lib/bijyoReservedWorkflow";
 export const BIJYO_ACCOUNT = "bijyo1010" as const;
@@ -107,21 +108,6 @@ export async function createBijyoManualJob(workId: number) {
   return inserted.error ? { ok: false, error: inserted.error.message } : { ok: true, jobId: inserted.data.id };
 }
 
-function inferredTrimStart(analysis: Awaited<ReturnType<typeof analyzeSampleMovie>>) {
-  const evidence = analysis.videoEvidence.find((item) => item.kind === "title_card_duration_sec" || item.kind === "first_visual_change_sec");
-  const seconds = typeof evidence?.value === "number" ? evidence.value : evidence?.timeSec ?? 0;
-  return seconds >= 0.5 && seconds <= 15 ? Number(seconds.toFixed(1)) : 0;
-}
-
-function finalTrimStart(analysis: Awaited<ReturnType<typeof analyzeSampleMovie>>) {
-  const existingTrimStart = inferredTrimStart(analysis);
-  const rawBlackEnd = analysis.rawMetrics.blackIntroEndSec;
-  const detectedBlackEnd = typeof rawBlackEnd === "number" && Number.isFinite(rawBlackEnd) && rawBlackEnd >= 0 && rawBlackEnd <= 10 ? Number(rawBlackEnd.toFixed(1)) : 0;
-  const trimStartSeconds = Math.max(existingTrimStart, detectedBlackEnd);
-  const reason = detectedBlackEnd > existingTrimStart ? "black_intro" : existingTrimStart > 0 ? "title_card" : "existing_analysis";
-  return { trimStartSeconds, reason, existingTrimStart, detectedBlackEnd } as const;
-}
-
 export async function prepareBijyoVideo(jobId: number) {
   const loaded = await loadJob(jobId);
   if (loaded.error || !loaded.job || !loaded.job.work) throw new Error(loaded.error ?? "投稿候補が見つかりません。");
@@ -130,7 +116,7 @@ export async function prepareBijyoVideo(jobId: number) {
   await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_status: "preparing", trim_failure_reason: null }).eq("id", jobId);
   try {
     const analysis = await analyzeSampleMovie({ sourceUrl: work.sample_movie_url, jacketUrl: null });
-    const { trimStartSeconds, reason } = finalTrimStart(analysis);
+    const { trimStartSeconds, reason } = calculateBijyoTrimStart(analysis, job.trim_start_seconds);
     const trimmed = await trimVideoForX({ sourceUrl: work.sample_movie_url, trimStartSeconds });
     if (trimmed.trimStartSeconds !== trimStartSeconds) throw new Error("トリム開始位置の検証に失敗しました。");
     const bytes = await readAndCleanupTrimmedVideo(trimmed);
