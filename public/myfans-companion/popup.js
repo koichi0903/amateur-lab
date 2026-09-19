@@ -418,7 +418,7 @@ function renderBatchState(state, progress) {
     state?.retryCount != null ? `retry: ${state.retryCount}` : "",
     state?.finalStatus ? `final: ${state.finalStatus}` : "",
     state?.finalStatus !== "success" && state?.errorCode ? `reason: ${state.errorCode}` : "",
-    state?.sessionProcessed != null ? `このセッション: ${state.sessionProcessed}件` : "",
+    state?.sessionProcessed != null ? `この一括job進捗: ${state.sessionProcessed}件` : "",
     state?.lastCandidatesCount != null ? `直近候補: ${state.lastCandidatesCount}件` : "",
     state?.attemptDiagnostics?.length ? `attempt diagnostics: ${state.attemptDiagnostics.length}` : "",
     state?.finalStatus !== "success" && state?.failureDiagnostics ? `diagnostics: ${JSON.stringify(state.failureDiagnostics)}` : "",

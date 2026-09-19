@@ -1178,7 +1178,8 @@ async function runBulkQuoteRefresh(settings) {
     }
     const item = next.item;
     const creatorName = Array.isArray(item.myfans_creators) ? item.myfans_creators[0]?.display_name : item.myfans_creators?.display_name;
-    const processedBefore = Number(next.job?.processed_creators || 0);
+    const progressBefore = await fetchQuoteProgress(persistedSettings, { jobId: next.jobId }).catch(() => null);
+    const processedBefore = Number(progressBefore?.job?.processed_creators || 0);
     await setQuoteState({ status: "running", jobId: next.jobId, currentCreator: creatorName || item.creator_x_url, message: `処理中: ${creatorName || item.creator_x_url}`, sessionProcessed: processedBefore });
     await scheduleQuoteContinuation(persistedSettings, 120000);
     try {
