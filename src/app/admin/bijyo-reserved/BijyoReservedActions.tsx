@@ -16,14 +16,14 @@ export function BijyoReservedActions({ jobId, workId, mainText, replyText, statu
   const [message, setMessage] = useState("");
   async function run(action: string) {
     setBusy(true); setMessage("");
-    try { await call({ action, jobId, workId }); setMessage(action === "posted" ? "投稿済みにしました。" : action === "skip" ? "スキップして候補を補充しました。" : action === "exclude" ? "今後の候補から外しました。" : "手動追加枠を作成しました。画面を更新してください。"); if (["posted", "skip", "exclude", "manual"].includes(action)) window.location.reload(); }
+    try { const result = await call({ action, jobId, workId }); setMessage(action === "posted" ? "投稿済みにしました。" : action === "skip" ? "スキップして候補を補充しました。" : action === "exclude" ? "今後の候補から外しました。" : result.trim?.ok === false ? `手動追加は完了しましたが、trim準備に失敗しました。動画ボタンから再生成できます。\n${result.trim.error}` : "手動追加・trim準備が完了しました。画面を更新します。"); if (["posted", "skip", "exclude", "manual"].includes(action)) window.location.reload(); }
     catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
   async function copy(value: string, label: string) { try { await navigator.clipboard.writeText(value); setMessage(`${label}をコピーしました。`); } catch { setMessage("コピーできませんでした。表示された文面を選択してください。"); } }
   return <div className="flex flex-wrap gap-2">
     {jobId && <>
-      <button disabled={busy} onClick={() => { const params = new URLSearchParams({ jobId: String(jobId) }); if (workId) params.set("workId", String(workId)); openExternal(`/api/admin/bijyo-reserved/video?${params.toString()}`); }} className="rounded bg-emerald-500 px-3 py-2 text-xs font-black text-black">動画を開く / 保存</button>
+      <button disabled={busy} onClick={() => { const params = new URLSearchParams({ jobId: String(jobId) }); if (workId) params.set("workId", String(workId)); openExternal(`/api/admin/bijyo-reserved/video?${params.toString()}`); }} className="rounded bg-emerald-500 px-3 py-2 text-xs font-black text-black">{status === "trim_failed" ? "再生成 / 保存" : "動画を開く / 保存"}</button>
       {sampleMovieUrl && <button disabled={busy} onClick={() => openExternal(sampleMovieUrl)} className="rounded border border-emerald-700 px-3 py-2 text-xs font-bold text-emerald-200">元動画preview</button>}
       <button disabled={busy} onClick={() => copy(mainText ?? "", "本文")} className="rounded border border-cyan-700 px-3 py-2 text-xs font-bold text-cyan-200">本文をコピー</button>
       <button disabled={busy} onClick={() => { const text = encodeURIComponent(mainText ?? ""); openExternal(`https://x.com/compose/post?text=${text}`); }} className="rounded border border-sky-700 px-3 py-2 text-xs font-bold text-sky-200">X投稿画面を開く</button>
