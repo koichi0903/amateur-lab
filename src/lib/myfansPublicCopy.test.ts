@@ -431,13 +431,15 @@ const fallbackAnalytics = {
     visual_analysis_json: {},
     visual_analyzed_at: null,
     visual_analyzer_version: null,
-    text_excerpt: "冒頭から雰囲気が変わる投稿",
+    text_excerpt: "冒頭から雰囲気が変わる投稿で、途中の見せ方まで自然に続いている。",
   }],
 };
 const fallbackBoard = buildMyfansExecutionBoard(fallbackAnalytics as never, { planDate: "2026-09-09", operationDay: 1 });
 assert.ok(fallbackBoard.candidates.every((candidate) => candidate.creativeStrategy !== "quote_post" || candidate.visualUnderstanding?.visualAnalysisStatus === "verified"));
 assert.ok(fallbackBoard.candidates.filter((candidate) => candidate.creativeStrategy === "quote_post").every((candidate) => !/(引きの構図から距離感が近くなる|途中で距離感が近くなる)/.test(candidate.body)));
 assert.ok(fallbackBoard.candidates.every((candidate) => candidate.topicValue?.verdict !== "PASS" || Boolean(candidate.quoteXUrl || candidate.sourceXUrl)));
+assert.ok(fallbackBoard.recovery.history.some((row) => row.quoteCandidateId === 2 && row.score >= MYFANS_QUALITY_GATE_MINIMUM && !row.qualityReasons.some((reason) => /LOW_TOPIC_VALUE|visual cue不足/.test(reason))));
+assert.ok(fallbackBoard.heldCandidates.some((candidate) => candidate.sourceXUrl === "https://x.com/creator/status/1" && candidate.creativeStrategy !== "quote_post"));
 assert.ok(Math.max(...["ATTENTION", "DISCOVERY", "AUTHORITY", "REVENUE"].map((role) => fallbackBoard.candidates.filter((candidate) => candidate.dailyRole === role).length)) <= 2);
 
 const topicBaselines = {

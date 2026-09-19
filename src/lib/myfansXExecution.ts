@@ -1312,6 +1312,10 @@ function hasConcreteSourceContext(quote: MyfansQuoteCandidate | null) {
     || /[。！？!?]/.test(text);
 }
 
+function hasGroundedSourceText(quote: MyfansQuoteCandidate | null) {
+  return hasConcreteSourceContext(quote);
+}
+
 function hasFreshTopicEvidence(quote: MyfansQuoteCandidate) {
   const age = daysSinceIso(quote.collected_at);
   return !quote.is_repost && !quote.last_used_at && !quote.cooldown_until && age !== null && age <= QUOTE_FRESH_DAYS
@@ -2641,15 +2645,15 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     if (direct && quoteAllowedByHistory(direct) && (matchesProduct(direct) || postType === "discovery_interest")) return direct;
     if (exactSourceQuote && quoteAllowedByHistory(exactSourceQuote) && !exactSourceQuote.last_used_at) return exactSourceQuote;
     const directProductQuote = attempt <= 1 ? analytics.quoteCandidates
-      .filter((candidate) => candidate.product_id === product.id && !candidate.last_used_at && quoteAllowedByHistory(candidate) && (visualPriority(candidate) >= 1 || (candidate.views ?? 0) >= 50_000))
+      .filter((candidate) => candidate.product_id === product.id && !candidate.last_used_at && quoteAllowedByHistory(candidate) && (visualPriority(candidate) >= 1 || (candidate.views ?? 0) >= 50_000 || hasGroundedSourceText(candidate)))
       .sort((a, b) => (b.views ?? 0) - (a.views ?? 0) || b.score - a.score)[0] ?? null : null;
     if (directProductQuote) return directProductQuote;
-    const productQuote = attempt <= 1 ? quotePool.global.find((row) => row.candidate.product_id === product.id && !row.candidate.last_used_at && quoteAllowedByHistory(row.candidate) && visualPriority(row.candidate) >= 1 && !acceptedQuoteCreators.has(creatorKeyFromQuote(row.candidate)))?.candidate : null;
+    const productQuote = attempt <= 1 ? quotePool.global.find((row) => row.candidate.product_id === product.id && !row.candidate.last_used_at && quoteAllowedByHistory(row.candidate) && (visualPriority(row.candidate) >= 1 || hasGroundedSourceText(row.candidate)) && !acceptedQuoteCreators.has(creatorKeyFromQuote(row.candidate)))?.candidate : null;
     if (productQuote) return productQuote;
-    const available = quotePool.global.filter((row) => matchesProduct(row.candidate) && !row.candidate.last_used_at && quoteAllowedByHistory(row.candidate) && visualPriority(row.candidate) >= 1 && !acceptedQuoteCreators.has(creatorKeyFromQuote(row.candidate)));
+    const available = quotePool.global.filter((row) => matchesProduct(row.candidate) && !row.candidate.last_used_at && quoteAllowedByHistory(row.candidate) && (visualPriority(row.candidate) >= 1 || hasGroundedSourceText(row.candidate)) && !acceptedQuoteCreators.has(creatorKeyFromQuote(row.candidate)));
     if (available.length) return available[(attempt + index) % available.length]?.candidate ?? null;
     const verifiedBackup = analytics.quoteCandidates
-      .filter((candidate) => matchesProduct(candidate) && !candidate.last_used_at && quoteAllowedByHistory(candidate) && visualPriority(candidate) >= 1 && !acceptedQuoteCreators.has(creatorKeyFromQuote(candidate)))
+      .filter((candidate) => matchesProduct(candidate) && !candidate.last_used_at && quoteAllowedByHistory(candidate) && (visualPriority(candidate) >= 1 || hasGroundedSourceText(candidate)) && !acceptedQuoteCreators.has(creatorKeyFromQuote(candidate)))
       .sort((a, b) => b.score - a.score || visualPriority(b) - visualPriority(a));
     return verifiedBackup[(attempt + index) % Math.max(1, verifiedBackup.length)] ?? null;
   };
@@ -2824,6 +2828,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       affiliateUrl: canConnectProduct ? resolvedProduct?.affiliate_url ?? "" : "",
       sourceXUrl: quoteForSlot?.x_post_url || product?.source_x_url || "",
       quoteXUrl: creative?.quoteXUrl ?? "",
+      quoteCandidateId: quoteForSlot?.id ?? null,
       sourceXStatusId: (quoteForSlot?.x_post_url || product?.source_x_url || "").match(/status\/(\d+)/)?.[1] ?? "",
       sourceMediaType: quoteForSlot?.media_type ?? (quoteForSlot?.has_video ? "video" : quoteForSlot?.has_image ? "image" : "none"),
       sourceAuthorHandle,
@@ -3117,7 +3122,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
         attempt: attempt + 1,
         candidateId: candidate.id,
         productId: candidate.product?.id ?? null,
-        quoteCandidateId: candidate.quoteXUrl ? analytics.quoteCandidates.find((quote) => quoteUrlFromCandidate(quote) === candidate.quoteXUrl || quote.x_post_url === candidate.quoteXUrl)?.id ?? null : null,
+        quoteCandidateId: candidate.quoteCandidateId ?? null,
         initialRole: roleFor(item.postType, item.linkStrategy, "text_only"),
         recoveryRole: candidate.dailyRole,
         role: candidate.postType,
@@ -3206,7 +3211,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
         attempt: attempt + 1,
         candidateId: candidate.id,
         productId: candidate.product?.id ?? null,
-        quoteCandidateId: candidate.quoteXUrl ? analytics.quoteCandidates.find((quote) => quoteUrlFromCandidate(quote) === candidate.quoteXUrl || quote.x_post_url === candidate.quoteXUrl)?.id ?? null : null,
+        quoteCandidateId: candidate.quoteCandidateId ?? null,
         initialRole: "ATTENTION",
         recoveryRole: candidate.dailyRole,
         role: candidate.postType,
