@@ -15,6 +15,11 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       {
+        source: "/admin/myfans/x-growth",
+        destination: "/admin/myfans?media=1",
+        permanent: true,
+      },
+      {
         source: "/:path*",
         has: [{ type: "host", value: "amateur-lab.vercel.app" }],
         destination: "https://hakkutsu-lab.com/:path*",
