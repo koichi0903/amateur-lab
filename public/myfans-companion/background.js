@@ -8,18 +8,6 @@ const ADMIN_BRIDGE_FILE = "myfans-admin-bridge.js";
 const ADMIN_HOSTS = new Set(["localhost", "127.0.0.1"]);
 let diagnosticRunning = false;
 
-function extractSourceText(tweetText, articleText) {
-  const direct = String(tweetText || "").replace(/\s+/g, " ").trim();
-  if (direct) return direct.slice(0, 180);
-  return String(articleText || "").split(/\r?\n/)
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter((line) => line.length >= 3)
-    .filter((line) => !/^(返信先:|Replying to|リポストしました|reposted|いいね|返信|リポスト|ブックマーク|共有|表示|Views?|Likes?|Reposts?|Replies?)(?:\s|$)/i.test(line))
-    .filter((line) => !/^[\d\s.,、。!?！？%％¥￥円+\-/:]+$/u.test(line))
-    .filter((line) => !/^https?:\/\//i.test(line))
-    .join(" ").slice(0, 180);
-}
-
 function isMyfansAdminUrl(value) {
   try {
     const url = new URL(String(value || ""));
@@ -115,6 +103,11 @@ function wait(ms) {
 
 const FAILURE_CATEGORY = {
   EXECUTE_SCRIPT_NO_RESULT: "EXECUTE_SCRIPT_NO_RESULT",
+  INJECTED_FUNCTION_ERROR: "INJECTED_FUNCTION_ERROR",
+  RESULT_SERIALIZATION_FAILED: "RESULT_SERIALIZATION_FAILED",
+  RESULT_UNDEFINED: "RESULT_UNDEFINED",
+  RESULT_EMPTY: "RESULT_EMPTY",
+  RESULT_FRAME_MISSING: "RESULT_FRAME_MISSING",
   TAB_NOT_READY: "TAB_NOT_READY",
   NAVIGATION_TIMEOUT: "NAVIGATION_TIMEOUT",
   PAGE_LOAD_TIMEOUT: "PAGE_LOAD_TIMEOUT",
@@ -134,7 +127,12 @@ const FAILURE_CATEGORY = {
 const NON_RETRYABLE_CATEGORIES = new Set([
   FAILURE_CATEGORY.LOGIN_OR_CHALLENGE,
   FAILURE_CATEGORY.PROFILE_NOT_FOUND_SUSPENDED,
-  FAILURE_CATEGORY.SENSITIVE_CONTENT_GATE
+  FAILURE_CATEGORY.SENSITIVE_CONTENT_GATE,
+  FAILURE_CATEGORY.INJECTED_FUNCTION_ERROR,
+  FAILURE_CATEGORY.RESULT_SERIALIZATION_FAILED,
+  FAILURE_CATEGORY.RESULT_UNDEFINED,
+  FAILURE_CATEGORY.RESULT_EMPTY,
+  FAILURE_CATEGORY.RESULT_FRAME_MISSING
 ]);
 const LIMITED_RETRY_CATEGORIES = new Set([
   FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT,
@@ -145,10 +143,11 @@ const LIMITED_RETRY_CATEGORIES = new Set([
   FAILURE_CATEGORY.TAB_NOT_READY
 ]);
 
-function categorizedError(category, message) {
+function categorizedError(category, message, diagnostics = {}) {
   const error = new Error(`${category}: ${message}`);
   error.category = category;
   error.retryable = !NON_RETRYABLE_CATEGORIES.has(category);
+  error.diagnostics = diagnostics;
   return error;
 }
 
@@ -179,6 +178,11 @@ async function prepareRetry(tabId, item) {
 function humanReasonForCategory(category) {
   return {
     EXECUTE_SCRIPT_NO_RESULT: "Xページから実行結果が返りませんでした。",
+    INJECTED_FUNCTION_ERROR: "Xページ内の収集関数でエラーが発生しました。",
+    RESULT_SERIALIZATION_FAILED: "Xページ内の収集結果を安全なJSONに変換できませんでした。",
+    RESULT_UNDEFINED: "Xページ内の収集関数がundefinedを返しました。",
+    RESULT_EMPTY: "Xページ内のexecuteScript結果が空でした。",
+    RESULT_FRAME_MISSING: "Xページ内のexecuteScript結果に対象frameがありませんでした。",
     TAB_NOT_READY: "Xタブの準備が完了していません。",
     NAVIGATION_TIMEOUT: "Xプロフィールへの移動が完了しませんでした。",
     PAGE_LOAD_TIMEOUT: "Xプロフィールの読み込みが完了しませんでした。",
@@ -387,6 +391,11 @@ async function runDiagnosticStatus(settings) {
 }
 
 async function markItemFailed(settings, jobId, itemId, error) {
+  const baseMessage = error instanceof Error ? error.message : String(error || "取得に失敗しました");
+  const diagnostics = error && typeof error === "object" && error.diagnostics ? error.diagnostics : null;
+  const failureReason = diagnostics
+    ? `${baseMessage} [diagnostics=${JSON.stringify(diagnostics)}]`
+    : baseMessage;
   await fetch(`${normalizeBaseUrl(settings.baseUrl)}/api/admin/myfans/companion`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -400,7 +409,7 @@ async function markItemFailed(settings, jobId, itemId, error) {
       quoteCandidates: [],
       approvedMediaId: settings.approvedMediaId || null,
       approvedMediaName: settings.approvedMediaName || "@lumi_reviw",
-      failureReason: error instanceof Error ? error.message : String(error || "取得に失敗しました")
+      failureReason
     })
   }).catch(() => {});
 }
@@ -456,6 +465,44 @@ function collectXQuoteCandidates() {
       errorMessage: message,
       diagnostics
     };
+  };
+  const extractSourceTextInPage = (tweetText, articleText) => {
+    const direct = String(tweetText || "").replace(/\s+/g, " ").trim();
+    if (direct) return direct.slice(0, 180);
+    return String(articleText || "").split(/\r?\n/)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter((line) => line.length >= 3)
+      .filter((line) => !/^(返信先:|Replying to|リポストしました|reposted|いいね|返信|リポスト|ブックマーク|共有|表示|Views?|Likes?|Reposts?|Replies?)(?:\s|$)/i.test(line))
+      .filter((line) => !/^[\d\s.,、。!?！？%％¥￥円+\-/:]+$/u.test(line))
+      .filter((line) => !/^https?:\/\//i.test(line))
+      .join(" ").slice(0, 180);
+  };
+  const serializePlainJson = (value, path = "result", seen = new WeakSet()) => {
+    if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      if (typeof value === "number" && !Number.isFinite(value)) throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:non_finite_number`);
+      return value;
+    }
+    if (value === undefined) throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:undefined`);
+    if (typeof value === "bigint" || typeof value === "function" || typeof value === "symbol") throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:${typeof value}`);
+    if (typeof value !== "object") throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:unsupported_type`);
+    if (seen.has(value)) throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:circular`);
+    seen.add(value);
+    if (Array.isArray(value)) return value.map((item, index) => serializePlainJson(item, `${path}[${index}]`, seen));
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:non_plain_object`);
+    const output = {};
+    for (const key of Object.keys(value)) output[key] = serializePlainJson(value[key], `${path}.${key}`, seen);
+    return output;
+  };
+  const finalize = (payload) => {
+    try {
+      const json = JSON.stringify(serializePlainJson(payload));
+      if (json === undefined) throw new Error("RESULT_SERIALIZATION_FAILED:result:undefined_json");
+      return JSON.parse(json);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return fail("SERIALIZE", "RESULT_SERIALIZATION_FAILED", message, { serializationMessage: message });
+    }
   };
   const parseCount = (label) => {
     if (!label) return null;
@@ -548,7 +595,7 @@ function collectXQuoteCandidates() {
       quoteVisualReady: media.quoteVisualReady,
       sourceXHandle,
       postedAt: article.querySelector("time")?.getAttribute("datetime") || null,
-      text: extractSourceText(article.querySelector('[data-testid="tweetText"]')?.textContent || "", rawText),
+      text: extractSourceTextInPage(article.querySelector('[data-testid="tweetText"]')?.textContent || "", rawText),
       myfansUrls,
       views: parseCount(analytics?.getAttribute("aria-label") || analytics?.textContent || ""),
       likes: metric("like"),
@@ -576,7 +623,7 @@ function collectXQuoteCandidates() {
       { ...baseDiagnostics, articleCount: articles.length, ownPostCount: 0 }
     );
   }
-  return {
+  return finalize({
     ok: true,
     stage: "FINALIZE",
     errorCode: null,
@@ -596,7 +643,7 @@ function collectXQuoteCandidates() {
     refreshJobId,
     refreshJobItemId,
     quoteCandidates
-  };
+  });
 }
 
 function inspectXPageState(expectedHandle) {
@@ -619,6 +666,34 @@ function inspectXPageState(expectedHandle) {
 }
 
 async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
+  const extractSourceTextInPage = (tweetText, articleText) => {
+    const direct = String(tweetText || "").replace(/\s+/g, " ").trim();
+    if (direct) return direct.slice(0, 180);
+    return String(articleText || "").split(/\r?\n/)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter((line) => line.length >= 3)
+      .filter((line) => !/^(返信先:|Replying to|リポストしました|reposted|いいね|返信|リポスト|ブックマーク|共有|表示|Views?|Likes?|Reposts?|Replies?)(?:\s|$)/i.test(line))
+      .filter((line) => !/^[\d\s.,、。!?！？%％¥￥円+\-/:]+$/u.test(line))
+      .filter((line) => !/^https?:\/\//i.test(line))
+      .join(" ").slice(0, 180);
+  };
+  const serializePlainJson = (value, path = "result", seen = new WeakSet()) => {
+    if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      if (typeof value === "number" && !Number.isFinite(value)) throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:non_finite_number`);
+      return value;
+    }
+    if (value === undefined) throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:undefined`);
+    if (typeof value === "bigint" || typeof value === "function" || typeof value === "symbol") throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:${typeof value}`);
+    if (typeof value !== "object") throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:unsupported_type`);
+    if (seen.has(value)) throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:circular`);
+    seen.add(value);
+    if (Array.isArray(value)) return value.map((item, index) => serializePlainJson(item, `${path}[${index}]`, seen));
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:non_plain_object`);
+    const output = {};
+    for (const key of Object.keys(value)) output[key] = serializePlainJson(value[key], `${path}.${key}`, seen);
+    return output;
+  };
   const pageText = document.body?.innerText || "";
   const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]')).slice(0, 40);
   const targetStatusId = String(sourceStatusUrl || "").match(/\/status\/(\d+)/)?.[1] || "";
@@ -695,7 +770,7 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
       sourceXHandle,
       authorHandle,
       postedAt: article.querySelector("time")?.getAttribute("datetime") || null,
-      text: extractSourceText(article.querySelector('[data-testid="tweetText"]')?.textContent || "", rawText),
+      text: extractSourceTextInPage(article.querySelector('[data-testid="tweetText"]')?.textContent || "", rawText),
       myfansUrls,
       views: null,
       likes: metric("like"),
@@ -715,7 +790,7 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
     return String(href || "").match(/\/status\/(\d+)/)?.[1] === targetStatusId;
   });
   const sourceAuthorHandle = sourceArticle ? articleHandle(sourceArticle) : "";
-  return {
+  const payload = {
     ok: true,
     sourceStatusUrl,
     sourceAuthorHandle,
@@ -725,30 +800,52 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
     pageTextSample: pageText.replace(/\s+/g, " ").slice(0, 160),
     quoteCandidates: candidates
   };
+  try {
+    const json = JSON.stringify(serializePlainJson(payload));
+    if (json === undefined) throw new Error("RESULT_SERIALIZATION_FAILED:result:undefined_json");
+    return JSON.parse(json);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, sourceStatusUrl, sourceAuthorHandle: "", articleCount: articles.length, authorReplyCount: 0, myfansLinkCount: 0, pageTextSample: pageText.replace(/\s+/g, " ").slice(0, 160), quoteCandidates: [], errorCode: "RESULT_SERIALIZATION_FAILED", errorMessage: message, diagnostics: { serializationMessage: message } };
+  }
 }
 
 async function executeMain(tabId, func, args = [], options = {}) {
   let injection = null;
+  const executionDiagnostics = {
+    functionName: func?.name || "anonymous",
+    target: { tabId, world: "MAIN", allFrames: false },
+    requireResult: Boolean(options.requireResult)
+  };
   try {
     injection = await chrome.scripting.executeScript({
-      target: { tabId },
+      target: { tabId, allFrames: false },
       world: "MAIN",
       func,
       args
     });
   } catch (error) {
-    throw categorizedError(FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT, error instanceof Error ? error.message : "Xページでスクリプトを実行できませんでした。");
+    const message = error instanceof Error ? error.message : "Xページでスクリプトを実行できませんでした。";
+    throw categorizedError(FAILURE_CATEGORY.INJECTED_FUNCTION_ERROR, message, { ...executionDiagnostics, executionError: message });
   }
-  if (!Array.isArray(injection) || injection.length === 0) throw categorizedError(FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT, "executeScriptのresultsが空でした。");
+  if (!Array.isArray(injection) || injection.length === 0) throw categorizedError(FAILURE_CATEGORY.RESULT_EMPTY, "executeScriptのresultsが空でした。", executionDiagnostics);
+  const frameDiagnostics = injection.map((entry) => ({
+    frameId: entry?.frameId ?? null,
+    hasResult: Boolean(entry && Object.prototype.hasOwnProperty.call(entry, "result")),
+    resultType: entry && Object.prototype.hasOwnProperty.call(entry, "result") ? (entry.result === null ? "null" : typeof entry.result) : "missing"
+  }));
+  executionDiagnostics.frames = frameDiagnostics;
   const withResult = injection.filter((entry) => entry && Object.prototype.hasOwnProperty.call(entry, "result"));
   const first = withResult.find((entry) => entry.frameId === 0) || withResult[0];
-  if (!first) throw categorizedError(FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT, `executeScriptのresultフィールドがありませんでした。frames=${injection.length}`);
-  if (first.result === undefined && options.requireResult) throw categorizedError(FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT, "executeScriptのresultがundefinedでした。注入関数は必ずplain objectを返してください。");
+  if (!first) throw categorizedError(FAILURE_CATEGORY.RESULT_FRAME_MISSING, `executeScriptのresultフィールドがありませんでした。frames=${injection.length}`, executionDiagnostics);
+  if (first.result === undefined && options.requireResult) throw categorizedError(FAILURE_CATEGORY.RESULT_UNDEFINED, "executeScriptのresultがundefinedでした。注入関数は必ずplain objectを返してください。", executionDiagnostics);
   if (options.requireResult) {
     try {
-      return JSON.parse(JSON.stringify(first.result));
+      const json = JSON.stringify(first.result);
+      if (json === undefined) throw new Error("JSON.stringify returned undefined");
+      return JSON.parse(json);
     } catch (error) {
-      throw categorizedError(FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT, `executeScriptのresultをJSON化できませんでした: ${error instanceof Error ? error.message : String(error)}`);
+      throw categorizedError(FAILURE_CATEGORY.RESULT_SERIALIZATION_FAILED, `executeScriptのresultをJSON化できませんでした: ${error instanceof Error ? error.message : String(error)}`, executionDiagnostics);
     }
   }
   return first.result;
@@ -1114,7 +1211,8 @@ async function runBulkQuoteRefresh(settings) {
     } catch (error) {
       await markItemFailed(persistedSettings, next.jobId, item.id, error);
       const message = error instanceof Error ? error.message : "取得に失敗しました";
-      await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `skip: ${creatorName || item.creator_x_url}`, finalStatus: "failed", errorCode: categoryFromError(error), lastError: message, sessionProcessed: processedBefore + 1 });
+      const diagnostics = error && typeof error === "object" && error.diagnostics ? error.diagnostics : null;
+      await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `skip: ${creatorName || item.creator_x_url}`, finalStatus: "failed", errorCode: categoryFromError(error), lastError: message, failureDiagnostics: diagnostics, sessionProcessed: processedBefore + 1 });
       if (categoryFromError(error) === FAILURE_CATEGORY.LOGIN_OR_CHALLENGE || /認証|ログイン|challenge|captcha/i.test(message)) {
         await clearQuoteContinuation();
         await setQuoteState({ running: false, status: "stopped", message, lastError: message });
