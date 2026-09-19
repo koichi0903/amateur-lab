@@ -31,6 +31,17 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ...result, trim: { ok: false, error: error instanceof Error ? error.message : String(error) } });
       }
     }
+  } else if (action === "manualTrim") {
+    if (!Number.isSafeInteger(jobId) || jobId <= 0) return NextResponse.json({ error: "jobIdが不正です。" }, { status: 400 });
+    if (workId !== 0 && (!Number.isSafeInteger(workId) || workId <= 0)) return NextResponse.json({ error: "workIdが不正です。" }, { status: 400 });
+    const mode = body.mode === "resetAuto" ? "auto" : "manual";
+    try {
+      const trim = await prepareBijyoVideo(jobId, workId > 0 ? workId : undefined, { mode, trimStartSeconds: body.trimStartSeconds });
+      return NextResponse.json({ ok: true, jobId, trim: { ok: true, trimStartSeconds: Number(trim.filename.match(/trim-(\d+(?:\.\d+)?)s/)?.[1] ?? 0) } });
+    } catch (error) {
+      const status = error && typeof error === "object" && "status" in error && Number((error as { status?: unknown }).status) === 400 ? 400 : 500;
+      return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status });
+    }
   } else return NextResponse.json({ error: "この画面ではX API自動投稿を利用しません。" }, { status: 400 });
   return NextResponse.json(result, { status: result.ok ? 200 : 409 });
 }
