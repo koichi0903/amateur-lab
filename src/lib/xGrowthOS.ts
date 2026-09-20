@@ -451,7 +451,15 @@ function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity {
   const revenueScore = clamp(28 + priceSignal + trafficSignal + Math.min(candidate.xCtr * 3, 18) + (candidate.currentPrice ? 6 : 0));
   const intent = intentFor(eventType, revenueScore, reachScore);
   const sourceIntent = forceIntentForSource(candidate.sourceType, intent);
-  const mediaType = sourceIntent === "MONEY" ? "existing_link_image" : hasVideo && candidate.sampleMovieUrl ? "sample_movie" : candidate.imageUrl ? "data_card" : "text";
+  // Daily Top Picks for @hakkutsu_lab use the work itself as the visual.
+  // A data card is not a substitute for a missing work asset.
+  const mediaType = sourceIntent === "MONEY"
+    ? "existing_link_image"
+    : hasVideo && candidate.sampleMovieUrl
+      ? "sample_movie"
+      : candidate.imageUrl
+        ? "existing_link_image"
+        : "text";
   const mediaUsage = mediaType === "existing_link_image" ? "allowed" : "rights_unchecked";
   const freshness = buildFreshness(candidate, eventType);
 
@@ -594,7 +602,17 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
     recommendedSlot: item.recommendedSlot,
     sourceType: item.sourceType,
     visualFacts,
-  }, hookScore);
+  }, hookScore).map((variant) => {
+    // Comparison/market/judgment variants historically used branded cards.
+    // Keep their copy direction, but use a real work image for normal
+    // @hakkutsu_lab candidates; missing media is filtered from Daily Top Picks.
+    if (variant.mediaType !== "data_card") return variant;
+    return {
+      ...variant,
+      mediaType: item.imageUrl ? "existing_link_image" as const : "text" as const,
+      imageStrategy: "original_work_image" as const,
+    };
+  });
   const recommended = variants.find((variant) => variant.intent === item.intent && variant.quality.passed)
     ?? variants.find((variant) => variant.quality.passed)
     ?? variants[0];
@@ -991,7 +1009,7 @@ function diversitySignature(item: XGrowthOpportunity, role: XGrowthIntent, varia
     sourceType: item.sourceType,
     hookType: variant.hookType,
     emotionalAngle: variant.hookDirection,
-    mediaType: variant.mediaType === "sample_movie" && !item.canNativeVideo ? item.imageUrl ? "data_card" as const : "text" as const : variant.mediaType,
+    mediaType: variant.mediaType === "sample_movie" && !item.canNativeVideo ? item.imageUrl ? "existing_link_image" as const : "text" as const : variant.mediaType,
     ctaStrategy: variant.ctaStrategy,
     linkStrategy: variant.linkPlan,
     endingPhrase: endingPhrase(variant.bodyText),
@@ -1113,8 +1131,8 @@ function buildTopPickCandidate(input: {
     : input.variant.mediaType;
   const pickMediaUrl = pickMediaType === "sample_movie"
     ? input.item.mediaAsset?.source_url ?? input.item.sampleMovieUrl
-    : pickMediaType === "existing_link_image" || pickMediaType === "data_card"
-      ? pickMediaType === "data_card" ? `/api/admin/x-growth/media/download?workId=${input.item.workId}&mediaType=data_card` : input.item.imageUrl
+    : pickMediaType === "existing_link_image"
+      ? input.item.imageUrl
       : null;
   return applyTopPickLinkPolicy({
     ...input.item,
@@ -1129,9 +1147,7 @@ function buildTopPickCandidate(input: {
       ? "公式FANZA/DMM sample_movie_urlを無加工投稿用のネイティブ動画として使用可"
       : pickMediaType === "existing_link_image"
         ? input.role === "MONEY" ? "MONEY投稿は現在Xで使っている作品リンク画像を維持" : "作品画像を優先。本文は画像説明ではなく見る理由に絞る"
-        : pickMediaType === "data_card"
-          ? "比較自体が面白い場合だけデータカードを使用"
-          : pickMediaType === "quote" ? "外部投稿確認後の引用候補。自動引用はしない" : "利用可能な画像/動画がないためテキストのみ",
+        : pickMediaType === "quote" ? "外部投稿確認後の引用候補。自動引用はしない" : "利用可能な画像/動画がないためテキストのみ",
     pickOrder: input.pickOrder,
     slotId: input.slotId,
     slotRole: input.slotRole,
@@ -1187,6 +1203,13 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
   const pool = opportunities.filter((item) => (
     item.freshness.status !== "expired"
     && item.mediaUsage !== "not_available"
+    && (item.mediaType === "sample_movie" || item.mediaType === "existing_link_image")
+    && Boolean(
+      item.imageUrl
+      || (item.mediaType === "sample_movie"
+        && item.canNativeVideo
+        && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable),
+    )
     && !postedWorkIds.has(item.workId)
     && !recentDailyPickWorkIds.has(item.workId)
   ));
