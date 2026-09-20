@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { isValidMyfansAffiliateUrl, myfansAffiliateLinkStatus, normalizeMyfansAffiliateUrl } from "@/lib/myfansAffiliateLink";
-import { MYFANS_PUBLIC_COPY_GENERATOR_VERSION, MYFANS_QUALITY_GATE_MINIMUM, buildMyfansExecutionBoard, detectPublicCopyLeak, evaluateMyfansPublicCopyQuality, evaluateMyfansTopicValue, publicCopyInputHash, type PublicCopyFacts } from "@/lib/myfansXExecution";
+import { MYFANS_PUBLIC_COPY_GENERATOR_VERSION, MYFANS_QUALITY_GATE_MINIMUM, buildMyfansExecutionBoard, detectPublicCopyLeak, evaluateMyfansPublicCopyQuality, evaluateMyfansTopicValue, hasConcreteSourceContext, publicCopyInputHash, type PublicCopyFacts } from "@/lib/myfansXExecution";
 import { analyzeMyfansQuoteVisual, selectVisualVerificationBatch } from "@/lib/myfansVisualVerification";
 
 const leakingBodies = [
@@ -487,6 +487,17 @@ const visualGapTopic = evaluateMyfansTopicValue({
 assert.equal(visualGapTopic.verdict, "PASS");
 assert.ok(visualGapTopic.reasonToCare);
 assert.ok(visualGapTopic.evidence.some((item) => item.includes("verified visual")));
+
+const sourceValuePassWithoutLegacyKeyword = {
+  ...analytics.quoteCandidates[0],
+  text_excerpt: "部屋で雰囲気が変わる。",
+  media_type: "none",
+  media_permalink: null,
+  quote_visual_ready: false,
+  visual_analysis_status: "unavailable",
+};
+assert.equal(hasConcreteSourceContext(sourceValuePassWithoutLegacyKeyword as never), true);
+assert.equal(hasConcreteSourceContext({ ...sourceValuePassWithoutLegacyKeyword, text_excerpt: "100000 5000" } as never), false);
 
 assert.equal(isValidMyfansAffiliateUrl("https://mfco.link/r/example_123"), true);
 assert.equal(isValidMyfansAffiliateUrl("https://example.com/r/example_123"), false);
