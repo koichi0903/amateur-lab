@@ -13,10 +13,15 @@ export function tokyoDateFromIso(value: string) { return tokyoDate(new Date(valu
 
 const TOKYO_DAY_MS = 86_400_000;
 
-export function recentReleaseDateRange(now = new Date()) {
-  const endDate = tokyoDate(now);
-  const startDate = tokyoDate(new Date(new Date(`${endDate}T00:00:00+09:00`).getTime() - 6 * TOKYO_DAY_MS));
-  return { startDate, endDate };
+export type ReleaseDateRange = { todayDate: string; startDate: string; endDate: string };
+
+function shiftTokyoDate(date: string, days: number) {
+  return tokyoDate(new Date(new Date(`${date}T00:00:00+09:00`).getTime() + days * TOKYO_DAY_MS));
+}
+
+export function recentReleaseDateRange(now = new Date()): ReleaseDateRange {
+  const todayDate = tokyoDate(now);
+  return { todayDate, startDate: shiftTokyoDate(todayDate, 1), endDate: shiftTokyoDate(todayDate, 7) };
 }
 
 export type RecentReleaseWork = {
@@ -32,10 +37,10 @@ export type RecentReleaseWork = {
 
 export type RecentReleaseJob = { work_id: number; kind: string; slot_date: string; status: string };
 
-export function filterRecentReleaseWorks(works: RecentReleaseWork[], jobs: RecentReleaseJob[], dateRange: { startDate: string; endDate: string }) {
+export function filterRecentReleaseWorks(works: RecentReleaseWork[], jobs: RecentReleaseJob[], dateRange: ReleaseDateRange) {
   const excludedStatuses = new Set(["posted", "manual_posted", "skipped", "excluded"]);
   const excludedWorkIds = new Set(jobs.filter((job) => excludedStatuses.has(job.status)).map((job) => job.work_id));
-  const assignedToday = new Set(jobs.filter((job) => job.kind === "auto" && job.slot_date === dateRange.endDate).map((job) => job.work_id));
+  const assignedToday = new Set(jobs.filter((job) => job.kind === "auto" && job.slot_date === dateRange.todayDate).map((job) => job.work_id));
   const manualWorks = new Set(jobs.filter((job) => job.kind === "manual").map((job) => job.work_id));
   const seen = new Set<number>();
   return works
@@ -46,7 +51,7 @@ export function filterRecentReleaseWorks(works: RecentReleaseWork[], jobs: Recen
       seen.add(work.id);
       return true;
     })
-    .sort((a, b) => b.release_date.localeCompare(a.release_date) || b.created_at.localeCompare(a.created_at) || b.id - a.id);
+    .sort((a, b) => a.release_date.slice(0, 10).localeCompare(b.release_date.slice(0, 10)) || b.created_at.localeCompare(a.created_at) || a.id - b.id);
 }
 
 export function isoAtTokyo(date: string, time: string) { return new Date(`${date}T${time}:00+09:00`).toISOString(); }

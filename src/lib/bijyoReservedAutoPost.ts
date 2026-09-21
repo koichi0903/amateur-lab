@@ -51,9 +51,9 @@ export async function getBijyoRecentReleasedWorks(jobs: BijyoJob[], now = new Da
     .lte("release_date", dateRange.endDate)
     .not("sample_movie_url", "is", null)
     .neq("sample_movie_url", "")
-    .order("release_date", { ascending: false })
+    .order("release_date", { ascending: true })
     .order("created_at", { ascending: false })
-    .limit(100);
+    .limit(1000);
   if (result.error) return { recentReleased: [] as BijyoRecentReleasedWork[], dateRange, error: result.error.message };
   const works = (result.data ?? []).filter((work) => sourceKindFor(work.sample_movie_url) === "official_sample") as RecentReleaseWork[];
   return { recentReleased: filterRecentReleaseWorks(works, jobs, dateRange), dateRange, error: null };

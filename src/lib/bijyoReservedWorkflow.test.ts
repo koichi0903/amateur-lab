@@ -23,28 +23,36 @@ test("手動追加は本日の4枠に数えず、不足を正直に返す", () =
   assert.deepEqual(progress, { posted: 1, target: 4, remaining: 3, shortage: 3 });
 });
 
-test("直近1週間はJSTの今日を含む7日間だけ", () => {
+test("今後1週間はJSTの明日から7日後まで", () => {
   const range = recentReleaseDateRange(new Date("2026-09-21T00:30:00+09:00"));
-  assert.deepEqual(range, { startDate: "2026-09-15", endDate: "2026-09-21" });
+  assert.deepEqual(range, { todayDate: "2026-09-21", startDate: "2026-09-22", endDate: "2026-09-28" });
   const works = [
     { id: 1, title: "今日", stage: "RESERVED", created_at: "2026-09-21T01:00:00+09:00", release_date: "2026-09-21", image_url: null, sample_movie_url: "https://www.dmm.co.jp/sample.mp4", product_id: null },
-    { id: 2, title: "境界", stage: "RESERVED", created_at: "2026-09-20T01:00:00+09:00", release_date: "2026-09-15", image_url: null, sample_movie_url: "https://www.dmm.co.jp/sample.mp4", product_id: null },
-    { id: 3, title: "古い", stage: "RESERVED", created_at: "2026-09-14T01:00:00+09:00", release_date: "2026-09-14", image_url: null, sample_movie_url: "https://www.dmm.co.jp/sample.mp4", product_id: null },
-    { id: 4, title: "未来", stage: "RESERVED", created_at: "2026-09-22T01:00:00+09:00", release_date: "2026-09-22", image_url: null, sample_movie_url: "https://www.dmm.co.jp/sample.mp4", product_id: null },
+    { id: 2, title: "明日", stage: "RESERVED", created_at: "2026-09-20T01:00:00+09:00", release_date: "2026-09-22", image_url: null, sample_movie_url: "https://www.dmm.co.jp/sample.mp4", product_id: null },
+    { id: 3, title: "+7日", stage: "RESERVED", created_at: "2026-09-19T01:00:00+09:00", release_date: "2026-09-28", image_url: null, sample_movie_url: "https://www.dmm.co.jp/sample.mp4", product_id: null },
+    { id: 4, title: "+8日", stage: "RESERVED", created_at: "2026-09-18T01:00:00+09:00", release_date: "2026-09-29", image_url: null, sample_movie_url: "https://www.dmm.co.jp/sample.mp4", product_id: null },
   ];
-  assert.deepEqual(filterRecentReleaseWorks(works, [], range).map((work) => work.id), [1, 2]);
+  assert.deepEqual(filterRecentReleaseWorks(works, [], range).map((work) => work.id), [2, 3]);
 });
 
 test("投稿済み・スキップ・対象外・当日枠・manual追加・重複を除外し、発売日と登録日で安定ソートする", () => {
-  const range = { startDate: "2026-09-15", endDate: "2026-09-21" };
-  const work = (id: number, created_at: string) => ({ id, title: `作品${id}`, stage: "RESERVED", created_at, release_date: "2026-09-20", image_url: null, sample_movie_url: "sample.mp4", product_id: null });
+  const range = { todayDate: "2026-09-21", startDate: "2026-09-22", endDate: "2026-09-28" };
+  const work = (id: number, created_at: string, release_date = "2026-09-24") => ({ id, title: `作品${id}`, stage: "RESERVED", created_at, release_date, image_url: null, sample_movie_url: "sample.mp4", product_id: null });
   const jobs = [
     { work_id: 2, kind: "auto", slot_date: "2026-09-20", status: "posted" },
     { work_id: 3, kind: "auto", slot_date: "2026-09-20", status: "skipped" },
     { work_id: 4, kind: "auto", slot_date: "2026-09-20", status: "excluded" },
     { work_id: 5, kind: "auto", slot_date: "2026-09-21", status: "pending" },
     { work_id: 6, kind: "manual", slot_date: "2026-09-19", status: "pending" },
+    { work_id: 8, kind: "manual", slot_date: "2026-09-19", status: "manual_posted" },
   ];
-  const result = filterRecentReleaseWorks([work(1, "2026-09-20T03:00:00Z"), work(7, "2026-09-20T02:00:00Z"), work(1, "2026-09-20T01:00:00Z"), work(2, "2026-09-20T09:00:00Z"), work(3, "2026-09-20T09:00:00Z"), work(4, "2026-09-20T09:00:00Z"), work(5, "2026-09-20T09:00:00Z"), work(6, "2026-09-20T09:00:00Z")], jobs, range);
-  assert.deepEqual(result.map((item) => item.id), [1, 7]);
+  const result = filterRecentReleaseWorks([work(1, "2026-09-20T03:00:00Z", "2026-09-24"), work(7, "2026-09-20T02:00:00Z", "2026-09-23"), work(1, "2026-09-20T01:00:00Z", "2026-09-24"), work(2, "2026-09-20T09:00:00Z"), work(3, "2026-09-20T09:00:00Z"), work(4, "2026-09-20T09:00:00Z"), work(5, "2026-09-20T09:00:00Z"), work(6, "2026-09-20T09:00:00Z"), work(8, "2026-09-20T09:00:00Z")], jobs, range);
+  assert.deepEqual(result.map((item) => item.id), [7, 1]);
+});
+
+test("手動追加ジョブを作成するとfuture一覧から直ちに消える", () => {
+  const range = { todayDate: "2026-09-21", startDate: "2026-09-22", endDate: "2026-09-28" };
+  const work = { id: 42, title: "手動追加対象", stage: "RESERVED", created_at: "2026-09-20T00:00:00Z", release_date: "2026-09-25", image_url: null, sample_movie_url: "sample.mp4", product_id: null };
+  assert.deepEqual(filterRecentReleaseWorks([work], [], range).map((item) => item.id), [42]);
+  assert.deepEqual(filterRecentReleaseWorks([work], [{ work_id: 42, kind: "manual", slot_date: "2026-09-21", status: "pending" }], range), []);
 });
