@@ -162,14 +162,15 @@ async function progress(jobId: number) {
   const skipped = (items ?? []).filter((item) => item.status === "skipped").length;
   const summary = summarizeMyfansQuoteRefreshItems(items ?? []);
   const evidenceRows = (items ?? []).map((item) => item.collection_evidence && typeof item.collection_evidence === "object" ? item.collection_evidence as Record<string, unknown> : {});
-  const statusCounts = evidenceRows.reduce<{ navigationAttempted: number; threadsObserved: number; authorReplies: number; threadLinks: number }>((total, evidence) => {
+  const statusCounts = evidenceRows.reduce<{ navigationAttempted: number; threadsObserved: number; fullyObserved: number; authorReplies: number; threadLinks: number }>((total, evidence) => {
     const counts = evidence.statusCounts && typeof evidence.statusCounts === "object" ? evidence.statusCounts as Record<string, unknown> : {};
     total.navigationAttempted += Number(counts.navigationAttempted ?? 0);
     total.threadsObserved += Number(counts.threadsObserved ?? 0);
+    total.fullyObserved += Number(counts.fullyObserved ?? 0);
     total.authorReplies += Number(counts.authorReplies ?? 0);
     total.threadLinks += Number(counts.threadLinks ?? 0);
     return total;
-  }, { navigationAttempted: 0, threadsObserved: 0, authorReplies: 0, threadLinks: 0 });
+  }, { navigationAttempted: 0, threadsObserved: 0, fullyObserved: 0, authorReplies: 0, threadLinks: 0 });
   const profileCounts = evidenceRows.reduce<{ scanOk: number; articles: number; ownPosts: number; mediaPosts: number }>((total, evidence) => {
     const counts = evidence.profileCounts && typeof evidence.profileCounts === "object" ? evidence.profileCounts as Record<string, unknown> : {};
     total.scanOk += Number(counts.ownPosts ?? 0) > 0 ? 1 : 0;

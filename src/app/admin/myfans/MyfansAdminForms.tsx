@@ -37,7 +37,7 @@ type QuoteRefreshProgress = {
   summary?: {
     processed: number; success: number; failed: number; blocked: number; skipped: number;
     accounts_processed?: number; profile_scan_ok?: number; status_navigation_attempted?: number;
-    status_threads_observed?: number; complete_threads_found?: number; candidates_saved?: number;
+    status_threads_observed?: number; fully_observed?: number; complete_threads_found?: number; candidates_saved?: number;
     no_match?: number; retryable?: number; excluded?: number;
   };
   items: Array<{
@@ -723,7 +723,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">complete thread / candidates</p><p className="mt-1 font-black text-white">{job.complete_threads_found ?? 0} / {job.candidates_saved ?? 0}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">NO_MATCH / NO_POSTS / PRIVATE</p><p className="mt-1 font-black text-white">{job.no_match ?? 0} / {job.excluded_no_posts ?? 0} / {job.excluded_private ?? 0}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">retryable errors</p><p className="mt-1 font-black text-white">{job.retryable_errors ?? 0}</p></div>
-          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">profile scan / status navigation / observed</p><p className="mt-1 font-black text-white">{summary.profile_scan_ok ?? 0} / {summary.status_navigation_attempted ?? 0} / {summary.status_threads_observed ?? 0}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">profile scan / navigation / observed / fully observed</p><p className="mt-1 font-black text-white">{summary.profile_scan_ok ?? 0} / {summary.status_navigation_attempted ?? 0} / {summary.status_threads_observed ?? 0} / {summary.fully_observed ?? 0}</p></div>
         </div>
       )}
       {job?.status === "completed" && (
