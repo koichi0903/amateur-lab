@@ -135,6 +135,22 @@ async function observeVisibleThread(tabId) {
   }, [], { requireResult: true });
 }
 
+async function waitForStatusReady(tabId, expectedHandle, expectedStatusUrl, timeoutMs = 18000) {
+  const target = statusParts(expectedStatusUrl);
+  if (!target) throw categorizedError(FAILURE_CATEGORY.STATUS_PARENT_NOT_FOUND, "対象status URLを解析できませんでした。", { expectedStatusUrl });
+  const startedAt = Date.now();
+  let lastState = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    lastState = await executeMain(tabId, inspectXStatusReady, [target, expectedHandle]);
+    if (lastState.hasChallenge) throw categorizedError(FAILURE_CATEGORY.LOGIN_OR_CHALLENGE, "Xのログイン/認証画面を検知しました。", lastState);
+    if (lastState.isPrivate) throw categorizedError(FAILURE_CATEGORY.PRIVATE, "鍵付き/private statusのためthreadを閲覧できません。", lastState);
+    if (lastState.hasRetry) throw categorizedError(FAILURE_CATEGORY.X_TEMPORARY_ERROR, "Xの一時エラー/Retry表示を検知しました。", lastState);
+    if (lastState.ready) return lastState;
+    await wait(500);
+  }
+  throw categorizedError(FAILURE_CATEGORY.STATUS_PARENT_NOT_FOUND, "対象statusの親articleまたはauthor一致を確認できませんでした。", { ...lastState, expectedStatusUrl, expectedHandle });
+}
+
 const FAILURE_CATEGORY = {
   EXECUTE_SCRIPT_NO_RESULT: "EXECUTE_SCRIPT_NO_RESULT",
   INJECTED_FUNCTION_ERROR: "INJECTED_FUNCTION_ERROR",
@@ -143,6 +159,7 @@ const FAILURE_CATEGORY = {
   RESULT_EMPTY: "RESULT_EMPTY",
   RESULT_FRAME_MISSING: "RESULT_FRAME_MISSING",
   TAB_NOT_READY: "TAB_NOT_READY",
+  STATUS_PARENT_NOT_FOUND: "STATUS_PARENT_NOT_FOUND",
   NAVIGATION_TIMEOUT: "NAVIGATION_TIMEOUT",
   PAGE_LOAD_TIMEOUT: "PAGE_LOAD_TIMEOUT",
   VIDEO_VALIDATION_NO_RESULT: "VIDEO_VALIDATION_NO_RESULT",
@@ -178,7 +195,8 @@ const LIMITED_RETRY_CATEGORIES = new Set([
   FAILURE_CATEGORY.PAGE_LOAD_TIMEOUT,
   FAILURE_CATEGORY.X_TEMPORARY_ERROR,
   FAILURE_CATEGORY.NO_TWEET_ARTICLES,
-  FAILURE_CATEGORY.TAB_NOT_READY
+  FAILURE_CATEGORY.TAB_NOT_READY,
+  FAILURE_CATEGORY.STATUS_PARENT_NOT_FOUND
 ]);
 
 function categorizedError(category, message, diagnostics = {}) {
@@ -222,6 +240,7 @@ function humanReasonForCategory(category) {
     RESULT_EMPTY: "Xページ内のexecuteScript結果が空でした。",
     RESULT_FRAME_MISSING: "Xページ内のexecuteScript結果に対象frameがありませんでした。",
     TAB_NOT_READY: "Xタブの準備が完了していません。",
+    STATUS_PARENT_NOT_FOUND: "対象statusの親articleとauthor一致を確認できません。",
     NAVIGATION_TIMEOUT: "Xプロフィールへの移動が完了しませんでした。",
     PAGE_LOAD_TIMEOUT: "Xプロフィールの読み込みが完了しませんでした。",
     VIDEO_VALIDATION_NO_RESULT: "動画URL検証の結果が返りませんでした。",
@@ -668,6 +687,11 @@ function collectXQuoteCandidates() {
     const multiplier = suffix === "K" ? 1000 : suffix === "M" ? 1000000 : suffix === "B" ? 1000000000 : suffix === "万" ? 10000 : suffix === "億" ? 100000000 : 1;
     return Math.round(value * multiplier);
   };
+  const canonicalStatus = (value) => {
+    const raw = String(value || "").replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
+    const match = raw.match(/^(?:https:\/\/x\.com)?\/([^/?#]+)\/status\/(\d+)/i);
+    return match ? `https://x.com/${match[1]}/status/${match[2]}` : "";
+  };
   const mediaInfoFor = (article, statusUrl) => {
     const anchors = Array.from(article.querySelectorAll("a[href]")).map((link) => link.getAttribute("href") || "");
     const mediaHrefs = anchors
@@ -728,10 +752,9 @@ function collectXQuoteCandidates() {
   const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]')).slice(0, 20);
   if (articles.length === 0) return fail("DOM_WAIT", "NO_TWEET_ARTICLES", "tweet articleが表示されませんでした。", baseDiagnostics);
   const quoteCandidates = articles.map((article) => {
-    const statusHref = Array.from(article.querySelectorAll("a[href]"))
-      .map((link) => link.getAttribute("href") || "")
-      .find((href) => new RegExp(`^/${sourceXHandle}/status/\\d+`).test(href));
-    const statusUrl = statusHref ? `https://x.com${statusHref.match(/^([^?#]+)/)?.[1] || statusHref}` : "";
+    const statusUrl = Array.from(article.querySelectorAll("a[href]"))
+      .map((link) => canonicalStatus(link.getAttribute("href") || ""))
+      .find((href) => href && new RegExp(`^https://x\\.com/${sourceXHandle}/status/\\d+$`, "i").test(href)) || "";
     const socialContext = article.querySelector('[data-testid="socialContext"]')?.textContent || "";
     const rawText = article.innerText || "";
     const analytics = Array.from(article.querySelectorAll("a[href]")).find((link) => /\/analytics$/.test(link.getAttribute("href") || ""));
@@ -826,6 +849,40 @@ function inspectXPageState(expectedHandle) {
   };
 }
 
+function inspectXStatusReady(expected, expectedHandle) {
+  const canonicalStatus = (value) => {
+    const raw = String(value || "").replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
+    const match = raw.match(/^(?:https:\/\/x\.com)?\/([^/?#]+)\/status\/(\d+)/i);
+    return match ? `https://x.com/${match[1]}/status/${match[2]}` : "";
+  };
+  const text = document.body?.innerText || "";
+  const targetUrl = `https://x.com/${expected.handle}/status/${expected.statusId}`;
+  const currentUrl = canonicalStatus(location.href);
+  const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
+  const handleOf = (article) => Array.from(article.querySelectorAll('[data-testid="User-Name"] a[href]'))
+    .map((link) => String(link.getAttribute("href") || "").replace(/^\//, "").split(/[/?#]/)[0])
+    .find((handle) => /^[A-Za-z0-9_]{1,15}$/.test(handle)) || "";
+  const parentArticle = articles.find((article) => Array.from(article.querySelectorAll("a[href]"))
+    .some((link) => canonicalStatus(link.getAttribute("href")) === targetUrl));
+  const parentAuthor = parentArticle ? handleOf(parentArticle) : "";
+  const hasChallenge = /captcha|challenge|認証|ロボット|不審なログイン|ログインしてください|Sign in to X|Log in to X/i.test(text);
+  const isPrivate = /このアカウントは非公開です|ポストは非公開|These posts are protected|This account is private|非公開アカウント/i.test(text);
+  const hasRetry = Boolean(document.querySelector('[data-testid="retry"]')) || /問題が発生しました|Something went wrong|Try again|Retry/i.test(text);
+  return {
+    ready: currentUrl === targetUrl && Boolean(parentArticle) && parentAuthor.toLowerCase() === String(expectedHandle || "").toLowerCase(),
+    currentUrl,
+    targetUrl,
+    articleCount: articles.length,
+    parentFound: Boolean(parentArticle),
+    parentAuthor,
+    hasChallenge,
+    isPrivate,
+    hasRetry,
+    readyState: document.readyState,
+    textSample: text.replace(/\s+/g, " ").slice(0, 180)
+  };
+}
+
 async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
   const extractSourceTextInPage = (tweetText, articleText) => {
     const direct = String(tweetText || "").replace(/\s+/g, " ").trim();
@@ -870,6 +927,11 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
   };
   const cleanHandle = (href) => String(href || "").replace(/^\//, "").split(/[/?#]/)[0];
   const normalizeHandle = (value) => cleanHandle(value).replace(/^@/, "").toLowerCase();
+  const canonicalStatus = (value) => {
+    const raw = String(value || "").replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
+    const match = raw.match(/^(?:https:\/\/x\.com)?\/([^/?#]+)\/status\/(\d+)/i);
+    return match ? `https://x.com/${match[1]}/status/${match[2]}` : "";
+  };
   const articleHandle = (article) => Array.from(article.querySelectorAll('[data-testid="User-Name"] a[href]'))
     .map((link) => link.getAttribute("href") || "")
     .map(cleanHandle)
@@ -907,8 +969,7 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
   };
   const candidates = articles.map((article) => {
     const hrefs = Array.from(article.querySelectorAll("a[href]")).map((link) => link.getAttribute("href") || "");
-    const statusHref = hrefs.find((href) => /^\/[^/]+\/status\/\d+/.test(href));
-    const statusUrl = statusHref ? `https://x.com${statusHref.match(/^([^?#]+)/)?.[1] || statusHref}` : "";
+    const statusUrl = hrefs.map(canonicalStatus).find(Boolean) || "";
     const statusId = statusUrl.match(/\/status\/(\d+)/)?.[1] || "";
     const authorHandle = articleHandle(article);
     // X's Japanese thread UI does not expose the reply-to marker in article text.
@@ -1240,7 +1301,10 @@ async function validateVideoPermalinks(tabId, result) {
 }
 
 async function collectFromWorkerTab(tabId, item, jobId) {
+  const stateTransitions = [];
+  const transition = (stage, detail = {}) => stateTransitions.push({ stage, at: new Date().toISOString(), ...detail });
   const url = `${item.creator_x_url}?myfans_creator_id=${item.creator_id}&myfans_refresh_job_id=${jobId}&myfans_refresh_item_id=${item.id}`;
+  transition("PROFILE_SCAN", { url });
   await chrome.tabs.update(tabId, { url, active: false });
   await waitForTabComplete(tabId, 45000);
   const expectedHandle = String(item.creator_x_url || "").match(/^https:\/\/x\.com\/([^/?#]+)/)?.[1] || "";
@@ -1269,11 +1333,16 @@ async function collectFromWorkerTab(tabId, item, jobId) {
   let statusThreadsOpened = 0;
   let statusThreadMyfansLinkCount = 0;
   let threadNotFullyObservedCount = 0;
+  transition("MEDIA_STATUS_QUEUE", { queued: parentCandidates.length, profileArticleCount: result.diagnostics?.articleCount ?? 0, profileOwnPostCount: result.diagnostics?.ownPostCount ?? 0 });
   for (const candidate of parentCandidates) {
     try {
+      transition("NAVIGATE_STATUS", { parentStatusUrl: candidate.xPostUrl, statusId: candidate.xPostUrl.match(/\/status\/(\d+)/)?.[1] || null });
       await chrome.tabs.update(tabId, { url: candidate.xPostUrl, active: false });
       await waitForTabComplete(tabId, 45000);
-      await waitForTweetRender(tabId, expectedHandle, 18000);
+      transition("WAIT_STATUS_READY", { parentStatusUrl: candidate.xPostUrl });
+      const ready = await waitForStatusReady(tabId, expectedHandle, candidate.xPostUrl, 18000);
+      transition("STATUS_READY", { parentStatusUrl: candidate.xPostUrl, currentUrl: ready.currentUrl, parentAuthor: ready.parentAuthor });
+      transition("COLLECT_THREAD", { parentStatusUrl: candidate.xPostUrl });
       const observation = await observeVisibleThread(tabId);
       const threadResult = await executeMain(tabId, collectXStatusThreadReplies, [{ sourceXHandle: expectedHandle, sourceStatusUrl: candidate.xPostUrl }], { requireResult: true });
       if (!threadResult?.ok || !observation?.fullyObserved) {
@@ -1283,6 +1352,7 @@ async function collectFromWorkerTab(tabId, item, jobId) {
         continue;
       }
       statusThreadsOpened += 1;
+      transition("THREAD_OBSERVED", { parentStatusUrl: candidate.xPostUrl, articleCount: threadResult.articleCount, authorReplyCount: threadResult.authorReplyCount });
       statusThreadMyfansLinkCount += threadResult.myfansLinkCount || 0;
       const parent = threadResult.parentCandidate || null;
       const ownRepliesForParent = Array.isArray(threadResult.ownReplies) ? threadResult.ownReplies.filter((reply) => reply.authorHandle?.toLowerCase() === expectedHandle.toLowerCase()) : [];
@@ -1294,6 +1364,7 @@ async function collectFromWorkerTab(tabId, item, jobId) {
         if (entry) entry.status = "NO_OWN_MYFANS_LINK";
         continue;
       }
+      transition("RESOLVE_LINK", { parentStatusUrl: candidate.xPostUrl, source: parentLinks.length > 0 ? "parent" : "own_reply" });
       const ownReply = selectedLinkCandidate === parent ? null : selectedLinkCandidate;
       const selectedLinks = (parentLinks.length > 0 ? parentLinks : ownReply.myfansUrls).filter(Boolean);
       if (selectedLinks.every((url) => /^https:\/\/t\.co\//i.test(url))) {
@@ -1315,14 +1386,16 @@ async function collectFromWorkerTab(tabId, item, jobId) {
       completeThreadCandidates.push(merged);
       if (entry) entry.status = "FOUND_COMPLETE_THREAD";
       authorReplies.push(...ownRepliesForParent);
-    } catch {
+    } catch (error) {
       threadNotFullyObservedCount += 1;
       const entry = collectionStatuses.find((item) => item.parentStatusUrl === candidate.xPostUrl);
       if (entry) entry.status = "THREAD_NOT_FULLY_OBSERVED";
+      transition("THREAD_NOT_FULLY_OBSERVED", { parentStatusUrl: candidate.xPostUrl, error: error instanceof Error ? error.message : String(error) });
     }
   }
   const deduped = completeThreadCandidates.filter((candidate, index, all) => all.findIndex((item) => item.xPostUrl === candidate.xPostUrl) === index);
   const hasCompleteThread = deduped.length > 0;
+  transition("SAVE", { completeThreadsFound: deduped.length, candidatesSaved: deduped.length, statusThreadsObserved: statusThreadsOpened });
   return {
     ...result,
     ok: hasCompleteThread,
@@ -1340,7 +1413,10 @@ async function collectFromWorkerTab(tabId, item, jobId) {
       statusThreadMyfansLinkCount,
       threadNotFullyObservedCount,
       completeThreadCandidateCount: deduped.length
-    }
+    },
+    stateTransitions,
+    profileCounts: { articles: result.diagnostics?.articleCount ?? 0, ownPosts: result.diagnostics?.ownPostCount ?? 0, mediaPosts: parentCandidates.length },
+    statusCounts: { navigationAttempted: stateTransitions.filter((entry) => entry.stage === "NAVIGATE_STATUS").length, threadsObserved: statusThreadsOpened, authorReplies: authorReplies.length, threadLinks: statusThreadMyfansLinkCount }
   };
 }
 

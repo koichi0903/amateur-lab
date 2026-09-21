@@ -83,7 +83,7 @@ async function targetedCreatorRecommendations(approvedMediaId: number | null) {
 async function refreshJobCounts(jobId: number) {
   const { data: items, error } = await supabaseAdmin
     .from("myfans_quote_refresh_job_items")
-    .select("status,collected_count,collection_state")
+    .select("status,collected_count,collection_state,collection_evidence")
     .eq("job_id", jobId);
   if (error) throw error;
 
@@ -155,13 +155,30 @@ async function progress(jobId: number) {
   if (jobError) throw jobError;
   const { data: items, error: itemsError } = await supabaseAdmin
     .from("myfans_quote_refresh_job_items")
-    .select("id,creator_id,creator_x_url,status,attempts,collected_count,top_score,error,processed_at,myfans_creators(display_name)")
+    .select("id,creator_id,creator_x_url,status,attempts,collected_count,top_score,error,processed_at,collection_state,collection_evidence,myfans_creators(display_name)")
     .eq("job_id", jobId)
     .order("id", { ascending: true });
   if (itemsError) throw itemsError;
   const skipped = (items ?? []).filter((item) => item.status === "skipped").length;
   const summary = summarizeMyfansQuoteRefreshItems(items ?? []);
-  return { job, items: items ?? [], skippedCreators: skipped, summary };
+  const evidenceRows = (items ?? []).map((item) => item.collection_evidence && typeof item.collection_evidence === "object" ? item.collection_evidence as Record<string, unknown> : {});
+  const statusCounts = evidenceRows.reduce<{ navigationAttempted: number; threadsObserved: number; authorReplies: number; threadLinks: number }>((total, evidence) => {
+    const counts = evidence.statusCounts && typeof evidence.statusCounts === "object" ? evidence.statusCounts as Record<string, unknown> : {};
+    total.navigationAttempted += Number(counts.navigationAttempted ?? 0);
+    total.threadsObserved += Number(counts.threadsObserved ?? 0);
+    total.authorReplies += Number(counts.authorReplies ?? 0);
+    total.threadLinks += Number(counts.threadLinks ?? 0);
+    return total;
+  }, { navigationAttempted: 0, threadsObserved: 0, authorReplies: 0, threadLinks: 0 });
+  const profileCounts = evidenceRows.reduce<{ scanOk: number; articles: number; ownPosts: number; mediaPosts: number }>((total, evidence) => {
+    const counts = evidence.profileCounts && typeof evidence.profileCounts === "object" ? evidence.profileCounts as Record<string, unknown> : {};
+    total.scanOk += Number(counts.ownPosts ?? 0) > 0 ? 1 : 0;
+    total.articles += Number(counts.articles ?? 0);
+    total.ownPosts += Number(counts.ownPosts ?? 0);
+    total.mediaPosts += Number(counts.mediaPosts ?? 0);
+    return total;
+  }, { scanOk: 0, articles: 0, ownPosts: 0, mediaPosts: 0 });
+  return { job, items: items ?? [], skippedCreators: skipped, summary: { ...summary, accounts_processed: job?.accounts_processed ?? 0, profile_scan_ok: profileCounts.scanOk, status_navigation_attempted: statusCounts.navigationAttempted, status_threads_observed: statusCounts.threadsObserved, complete_threads_found: job?.complete_threads_found ?? 0, candidates_saved: job?.candidates_saved ?? 0, no_match: job?.no_match ?? 0, retryable: job?.retryable_errors ?? 0, excluded: (job?.excluded_no_posts ?? 0) + (job?.excluded_private ?? 0), profile_counts: profileCounts, status_counts: statusCounts } };
 }
 
 async function createJob(payload: Record<string, unknown>) {

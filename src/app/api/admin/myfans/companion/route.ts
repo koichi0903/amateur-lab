@@ -99,6 +99,9 @@ type QuoteScanPayload = {
   singleStatusRunId?: unknown;
   collectionError?: unknown;
   collectionStatuses?: Array<{ parentStatusUrl?: unknown; status?: unknown }>;
+  stateTransitions?: Array<{ stage?: unknown; at?: unknown; [key: string]: unknown }>;
+  profileCounts?: Record<string, unknown>;
+  statusCounts?: Record<string, unknown>;
 };
 
 function xHandleFromUrl(value: string) {
@@ -159,7 +162,7 @@ function quoteRefreshErrorCode(error: string | undefined) {
   return cleanText(error).match(/^([A-Z_/]+):\s*/)?.[1] || "";
 }
 
-async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "failed", detail: { collectedCount?: number; topScore?: number | null; error?: string }) {
+async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "failed", detail: { collectedCount?: number; topScore?: number | null; error?: string; evidence?: Record<string, unknown> }) {
   const jobId = Number(payload.refreshJobId);
   const itemId = Number(payload.refreshJobItemId);
   if (!Number.isFinite(jobId) || jobId <= 0 || !Number.isFinite(itemId) || itemId <= 0) return;
@@ -175,7 +178,7 @@ async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "f
       top_score: detail.topScore ?? null,
       error: detail.error ?? null,
       collection_state: collectionStateForResult(status, detail),
-      collection_evidence: { collectorMethod: COLLECTOR_METHOD, error: detail.error ?? null, collectedCount: detail.collectedCount ?? 0 },
+      collection_evidence: { collectorMethod: COLLECTOR_METHOD, error: detail.error ?? null, collectedCount: detail.collectedCount ?? 0, ...(detail.evidence ?? {}) },
       processed_at: new Date().toISOString(),
     })
     .eq("id", itemId)
@@ -196,7 +199,7 @@ async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "f
       excluded_at: permanent ? new Date().toISOString() : null,
       last_processed_at: new Date().toISOString(),
       last_run_id: jobId,
-      evidence: { collectorMethod: COLLECTOR_METHOD, error: detail.error ?? null, collectedCount: detail.collectedCount ?? 0 },
+      evidence: { collectorMethod: COLLECTOR_METHOD, error: detail.error ?? null, collectedCount: detail.collectedCount ?? 0, ...(detail.evidence ?? {}) },
       updated_at: new Date().toISOString(),
     }, { onConflict: "creator_id" });
     if (stateError) throw stateError;
@@ -563,6 +566,12 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
   const sourceXHandle = cleanText(payload.sourceXHandle).replace(/^@/, "");
   const failureReason = cleanText(payload.failureReason);
   const candidates = Array.isArray(payload.quoteCandidates) ? payload.quoteCandidates.slice(0, 20) : [];
+  const collectionEvidence = {
+    stateTransitions: Array.isArray(payload.stateTransitions) ? payload.stateTransitions.slice(-80) : [],
+    profileCounts: payload.profileCounts && typeof payload.profileCounts === "object" ? payload.profileCounts : {},
+    statusCounts: payload.statusCounts && typeof payload.statusCounts === "object" ? payload.statusCounts : {},
+    collectionStatuses: Array.isArray(payload.collectionStatuses) ? payload.collectionStatuses : [],
+  };
   if (candidates.length === 0 && Array.isArray(payload.collectionStatuses) && payload.collectionStatuses.length > 0 && cleanXProfileUrl(payload.creatorXUrl)) {
     const creatorIdForAudit = Number(payload.creatorId);
     if (Number.isSafeInteger(creatorIdForAudit) && creatorIdForAudit > 0) {
@@ -571,11 +580,13 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
         entity_id: creatorIdForAudit,
         action: "complete_thread_collection_status",
         summary: `${COLLECTOR_METHOD}: no eligible parent`,
-        metadata: { collectorMethod: COLLECTOR_METHOD, statuses: payload.collectionStatuses },
+        metadata: { collectorMethod: COLLECTOR_METHOD, statuses: payload.collectionStatuses, ...collectionEvidence },
       });
     }
-    await markRefreshItem(payload, "success", { collectedCount: 0, topScore: null });
-    return NextResponse.json({ ok: true, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses });
+    const incomplete = payload.collectionStatuses.some((item) => cleanText(item.status) === "THREAD_NOT_FULLY_OBSERVED");
+    const error = incomplete ? "THREAD_NOT_FULLY_OBSERVED: status threadを通常scroll範囲で十分に観測できませんでした。" : undefined;
+    await markRefreshItem(payload, incomplete ? "failed" : "success", { collectedCount: 0, topScore: null, error, evidence: collectionEvidence });
+    return NextResponse.json({ ok: !incomplete, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses, profileCounts: payload.profileCounts ?? {}, statusCounts: payload.statusCounts ?? {}, stateTransitions: payload.stateTransitions ?? [], ...(error ? { error } : {}) }, { status: incomplete ? 202 : 200 });
   }
   if (!creatorXUrl || !sourceXHandle || candidates.length === 0) {
     const message = failureReason || "Xプロフィール上の投稿候補を取得できませんでした。";
@@ -644,8 +655,10 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
   });
   if (sourceReady.length === 0) {
     if (normalized.some((candidate) => candidate.collectorMethod === COLLECTOR_METHOD) && Array.isArray(payload.collectionStatuses)) {
-      await markRefreshItem(payload, "success", { collectedCount: 0, topScore: null });
-      return NextResponse.json({ ok: true, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses });
+      const incomplete = payload.collectionStatuses.some((item) => cleanText(item.status) === "THREAD_NOT_FULLY_OBSERVED");
+      const error = incomplete ? "THREAD_NOT_FULLY_OBSERVED: status threadを通常scroll範囲で十分に観測できませんでした。" : undefined;
+      await markRefreshItem(payload, incomplete ? "failed" : "success", { collectedCount: 0, topScore: null, error, evidence: collectionEvidence });
+      return NextResponse.json({ ok: !incomplete, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses, profileCounts: payload.profileCounts ?? {}, statusCounts: payload.statusCounts ?? {}, stateTransitions: payload.stateTransitions ?? [], ...(error ? { error } : {}) }, { status: incomplete ? 202 : 200 });
     }
     const message = "SOURCE_TEXT_MISSING: 表示中投稿に安全に紐付けられる本文がありません。空本文は保存しません。";
     await markRefreshItem(payload, "failed", { collectedCount: 0, error: message });
@@ -789,11 +802,15 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
       entity_id: resolvedCreatorId,
       action: "complete_thread_collection_status",
       summary: `${COLLECTOR_METHOD}: ${payload.collectionStatuses.length} parent statuses`,
-      metadata: { collectorMethod: COLLECTOR_METHOD, statuses: payload.collectionStatuses },
+      metadata: { collectorMethod: COLLECTOR_METHOD, statuses: payload.collectionStatuses, ...collectionEvidence },
     });
     if (statusAuditError) console.error("complete thread status audit failed", statusAuditError);
   }
-  await markRefreshItem(payload, "success", { collectedCount: scored.length, topScore: best?.result.score ?? null });
+  await markRefreshItem(payload, "success", {
+    collectedCount: scored.length,
+    topScore: best?.result.score ?? null,
+    evidence: { ...collectionEvidence, completeThreadsFound: scored.length, candidatesSaved: scored.length },
+  });
 
   return NextResponse.json({
     ok: true,

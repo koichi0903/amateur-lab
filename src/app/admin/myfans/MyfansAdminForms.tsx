@@ -34,7 +34,12 @@ type QuoteRefreshProgress = {
     last_error: string | null;
   } | null;
   skippedCreators?: number;
-  summary?: { processed: number; success: number; failed: number; blocked: number; skipped: number };
+  summary?: {
+    processed: number; success: number; failed: number; blocked: number; skipped: number;
+    accounts_processed?: number; profile_scan_ok?: number; status_navigation_attempted?: number;
+    status_threads_observed?: number; complete_threads_found?: number; candidates_saved?: number;
+    no_match?: number; retryable?: number; excluded?: number;
+  };
   items: Array<{
     id: number;
     creator_x_url: string;
@@ -549,7 +554,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
   const job = progress?.job ?? null;
   const current = progress?.items.find((item) => item.status === "running") ?? null;
   const recent = progress?.items.filter((item) => ["success", "failed", "skipped"].includes(item.status)).slice(-5).reverse() ?? [];
-  const summary = progress?.summary ?? summarizeMyfansQuoteRefreshItems(progress?.items ?? []);
+  const summary: NonNullable<QuoteRefreshProgress["summary"]> = progress?.summary ?? summarizeMyfansQuoteRefreshItems(progress?.items ?? []);
   const successRateBase = summary.success + summary.failed;
   const successRate = successRateBase > 0 ? Math.round((summary.success / successRateBase) * 100) : null;
   const failedItems = progress?.items.filter((item) => item.status === "failed" && !isBlockedQuoteRefreshItem(item)) ?? [];
@@ -712,11 +717,13 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">状態</p><p className="mt-1 font-black text-white">{job.status}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">進捗</p><p className="mt-1 font-black text-white">{job.processed_creators} / {job.total_creators}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">成功/要修正/blocked/skipped</p><p className="mt-1 font-black text-white">{summary.success} / {summary.failed} / {summary.blocked} / {summary.skipped}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">collector / complete-thread</p><p className="mt-1 font-black text-white">{summary.success} / {summary.complete_threads_found ?? job.complete_threads_found ?? 0}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">システム成功率</p><p className={`mt-1 font-black ${successRate !== null && successRate >= 80 ? "text-emerald-300" : "text-amber-300"}`}>{successRate === null ? "-" : `${successRate}%`}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">巡回cursor / cycle</p><p className="mt-1 font-black text-white">{job.cursor_after_order ?? 0} / {job.collection_cycle_no ?? 1}{job.cycle_completed ? " (完了)" : ""}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">complete thread / candidates</p><p className="mt-1 font-black text-white">{job.complete_threads_found ?? 0} / {job.candidates_saved ?? 0}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">NO_MATCH / NO_POSTS / PRIVATE</p><p className="mt-1 font-black text-white">{job.no_match ?? 0} / {job.excluded_no_posts ?? 0} / {job.excluded_private ?? 0}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">retryable errors</p><p className="mt-1 font-black text-white">{job.retryable_errors ?? 0}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">profile scan / status navigation / observed</p><p className="mt-1 font-black text-white">{summary.profile_scan_ok ?? 0} / {summary.status_navigation_attempted ?? 0} / {summary.status_threads_observed ?? 0}</p></div>
         </div>
       )}
       {job?.status === "completed" && (

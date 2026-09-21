@@ -35,6 +35,15 @@ assert.match(background, /NO_OWN_MYFANS_LINK/);
 assert.match(background, /observeVisibleThread/);
 assert.match(background, /myfansLinkSource/);
 assert.match(background, /parentStatusUrl/);
+assert.match(background, /waitForStatusReady/);
+assert.match(background, /inspectXStatusReady/);
+assert.match(background, /STATUS_PARENT_NOT_FOUND/);
+assert.match(background, /MEDIA_STATUS_QUEUE/);
+assert.match(background, /NAVIGATE_STATUS/);
+assert.match(background, /WAIT_STATUS_READY/);
+assert.match(background, /COLLECT_THREAD/);
+assert.match(background, /RESOLVE_LINK/);
+assert.match(background, /stateTransitions/);
 assert.match(background, /ownReplyStatusUrl/);
 assert.match(popupHtml, /画像\/動画＋本人myfansリンク付き投稿を最大5件収集/);
 assert.match(background, /attemptDiagnostics/);
@@ -70,8 +79,8 @@ function extractFunction(source, startMarker, endMarker) {
 const collectorSource = extractFunction(background, "function collectXQuoteCandidates()", "function inspectXPageState");
 const collectXQuoteCandidates = new Function(`return (${collectorSource});`)();
 const statusLink = {
-  href: "/creator/status/123",
-  getAttribute(name) { return name === "href" ? "/creator/status/123" : null; },
+  href: "/creator/status/123/video/1",
+  getAttribute(name) { return name === "href" ? "/creator/status/123/video/1" : null; },
 };
 const article = {
   innerText: "fixture post body",
@@ -93,6 +102,7 @@ assert.equal(fixtureResult.diagnostics.ownPostCount, 1);
 assert.equal(fixtureResult.quoteCandidates.length, 1);
 assert.equal(Object.getPrototypeOf(fixtureResult), Object.prototype);
 assert.equal(JSON.parse(JSON.stringify(fixtureResult)).quoteCandidates[0].xPostUrl, "https://x.com/creator/status/123");
+assert.equal(JSON.parse(JSON.stringify(fixtureResult)).quoteCandidates[0].generatedVideoPermalink, "https://x.com/creator/status/123/video/1");
 
 const serializationSource = background.slice(background.indexOf("const serializePlainJson"), background.indexOf("const finalize", background.indexOf("const serializePlainJson")));
 assert.match(serializationSource, /undefined/);
