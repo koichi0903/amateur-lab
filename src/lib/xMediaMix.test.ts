@@ -51,5 +51,18 @@ const uniqueness = auditCandidateUniqueness([
 assert.equal(uniqueness.workDuplicateCount, 1);
 assert.equal(uniqueness.mediaDuplicateCount, 1);
 assert.equal(uniqueness.urlDuplicateCount, 1);
+assert.equal(uniqueness.sampleMovieDuplicateCount, 1);
+assert.equal(uniqueness.imageDuplicateCount, 0);
+
+const duplicateImage = auditCandidateUniqueness([
+  { workId: 10, productId: "image-a", sampleMovieUrl: null, imageUrl: "https://image/shared.jpg", mediaAsset: null },
+  { workId: 11, productId: "image-b", sampleMovieUrl: null, imageUrl: "https://image/shared.jpg", mediaAsset: null },
+]);
+assert.equal(duplicateImage.imageDuplicateCount, 1);
+assert.equal(duplicateImage.passed, false);
+assert.equal(isDistinctCandidate(
+  { workId: 12, productId: "image-c", sampleMovieUrl: null, imageUrl: "https://image/shared.jpg", mediaAsset: null },
+  [{ workId: 13, productId: "image-d", sampleMovieUrl: null, imageUrl: "https://image/shared.jpg", mediaAsset: null }],
+), false);
 
 console.log("xMediaMix tests passed");

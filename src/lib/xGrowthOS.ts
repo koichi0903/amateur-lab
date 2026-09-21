@@ -179,14 +179,25 @@ export function candidateMediaDedupeKey(candidate: CandidateIdentity) {
   return candidate.imageUrl?.trim() ? `image_url:${candidate.imageUrl.trim()}` : null;
 }
 
+function candidateIdentityKeys(candidate: CandidateIdentity) {
+  const mediaAssetId = Number(candidate.mediaAsset?.id);
+  return {
+    workId: candidate.workId,
+    mediaAssetId: Number.isSafeInteger(mediaAssetId) && mediaAssetId > 0 ? mediaAssetId : null,
+    sampleMovieUrl: candidate.sampleMovieUrl?.trim() || null,
+    imageUrl: candidate.imageUrl?.trim() || null,
+  };
+}
+
 /** Enforces media/url uniqueness first, then work uniqueness for a candidate set. */
 export function isDistinctCandidate(candidate: CandidateIdentity, selectedSet: CandidateIdentity[]) {
-  const mediaKey = candidateMediaDedupeKey(candidate);
   return !selectedSet.some((selected) => {
-    const selectedMediaKey = candidateMediaDedupeKey(selected);
-    return (mediaKey && selectedMediaKey === mediaKey)
-      || selected.workId === candidate.workId
-      || (candidate.sampleMovieUrl?.trim() && selected.sampleMovieUrl?.trim() === candidate.sampleMovieUrl.trim());
+    const identity = candidateIdentityKeys(candidate);
+    const selectedIdentity = candidateIdentityKeys(selected);
+    return selectedIdentity.workId === identity.workId
+      || (identity.mediaAssetId !== null && selectedIdentity.mediaAssetId === identity.mediaAssetId)
+      || (identity.sampleMovieUrl !== null && selectedIdentity.sampleMovieUrl === identity.sampleMovieUrl)
+      || (identity.imageUrl !== null && selectedIdentity.imageUrl === identity.imageUrl);
   });
 }
 
@@ -261,6 +272,10 @@ export type XGrowthOS = {
     pipeline: Record<string, number>;
     mediaMix: {
       totalVideoCandidates: number;
+      videoRaw: number;
+      videoEligible: number;
+      videoAfterDedupe: number;
+      slotEligibleVideo: number;
       eligibleStrongVideos: number;
       selectedVideos: number;
       selectedVideosBySlot: Record<string, number>;
@@ -657,10 +672,14 @@ export function isStrongSafeVideoCandidate(
 export function auditCandidateUniqueness(candidates: readonly CandidateIdentity[], postedWorkIds: ReadonlySet<number> = new Set()) {
   const workIds = new Set<number>();
   const mediaIds = new Set<number>();
-  const urls = new Set<string>();
+  const mediaUrls = new Set<string>();
+  const sampleMovieUrls = new Set<string>();
+  const imageUrls = new Set<string>();
   const duplicateWorkIds = new Set<number>();
   const duplicateMediaIds = new Set<number>();
-  const duplicateUrls = new Set<string>();
+  const duplicateMediaUrls = new Set<string>();
+  const duplicateSampleMovieUrls = new Set<string>();
+  const duplicateImageUrls = new Set<string>();
   let postedOverlap = 0;
   for (const candidate of candidates) {
     if (postedWorkIds.has(candidate.workId)) postedOverlap += 1;
@@ -671,21 +690,35 @@ export function auditCandidateUniqueness(candidates: readonly CandidateIdentity[
       if (mediaIds.has(mediaId)) duplicateMediaIds.add(mediaId);
       mediaIds.add(mediaId);
     }
-    const url = candidate.sampleMovieUrl?.trim();
-    if (url) {
-      if (urls.has(url)) duplicateUrls.add(url);
-      urls.add(url);
+    const sampleMovieUrl = candidate.sampleMovieUrl?.trim();
+    if (sampleMovieUrl) {
+      if (sampleMovieUrls.has(sampleMovieUrl)) duplicateSampleMovieUrls.add(sampleMovieUrl);
+      sampleMovieUrls.add(sampleMovieUrl);
+      if (mediaUrls.has(sampleMovieUrl)) duplicateMediaUrls.add(sampleMovieUrl);
+      mediaUrls.add(sampleMovieUrl);
+    }
+    const imageUrl = candidate.imageUrl?.trim();
+    if (imageUrl) {
+      if (imageUrls.has(imageUrl)) duplicateImageUrls.add(imageUrl);
+      imageUrls.add(imageUrl);
+      if (mediaUrls.has(imageUrl)) duplicateMediaUrls.add(imageUrl);
+      mediaUrls.add(imageUrl);
     }
   }
   return {
     workDuplicateCount: duplicateWorkIds.size,
     mediaDuplicateCount: duplicateMediaIds.size,
-    urlDuplicateCount: duplicateUrls.size,
+    urlDuplicateCount: duplicateMediaUrls.size,
+    sampleMovieDuplicateCount: duplicateSampleMovieUrls.size,
+    imageDuplicateCount: duplicateImageUrls.size,
     postedOverlap,
     duplicateWorkIds: [...duplicateWorkIds],
     duplicateMediaIds: [...duplicateMediaIds],
-    duplicateUrls: [...duplicateUrls],
-    passed: duplicateWorkIds.size === 0 && duplicateMediaIds.size === 0 && duplicateUrls.size === 0 && postedOverlap === 0,
+    duplicateUrls: [...duplicateMediaUrls],
+    duplicateSampleMovieUrls: [...duplicateSampleMovieUrls],
+    duplicateImageUrls: [...duplicateImageUrls],
+    passed: duplicateWorkIds.size === 0 && duplicateMediaIds.size === 0 && duplicateMediaUrls.size === 0
+      && duplicateSampleMovieUrls.size === 0 && duplicateImageUrls.size === 0 && postedOverlap === 0,
   };
 }
 
@@ -1124,9 +1157,6 @@ function buildTopPickCandidate(input: {
 }): XDailyTopPick {
   const pickMediaType = input.variant.mediaType === "data_card" && input.item.imageUrl
     ? "existing_link_image" as const
-    : input.variant.mediaType === "sample_movie"
-    && !input.item.mediaAsset?.id
-    ? input.item.imageUrl ? "existing_link_image" as const : "text" as const
     : input.variant.mediaType === "sample_movie" && !isPostableOfficialSampleMovie(input.item.mediaAsset, input.item.sampleMovieUrl).usable
     ? input.item.imageUrl ? "existing_link_image" as const : "text" as const
     : input.variant.mediaType;
@@ -1391,6 +1421,12 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
     }
   }
   const mediaMixStarted = Date.now();
+  const videoRawItems = pool.filter((item) => isVideoCandidate({ ...item, mediaType: "sample_movie" }));
+  const videoEligibleItems = videoRawItems.filter((item) => item.canNativeVideo
+    && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable);
+  const videoAfterDedupe = new Set(videoRawItems
+    .map((item) => candidateMediaDedupeKey(item))
+    .filter((key): key is string => Boolean(key))).size;
   const strongVideoSupply = new Map<string, XGrowthOpportunity>();
   const strongVideoVariant = (item: XGrowthOpportunity, roles: XGrowthIntent[]) => roles
     .flatMap((role) => item.creativeVariants
@@ -1458,13 +1494,21 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
       if (!swapped) break;
     }
   };
-  swapStrongVideoIntoSlot("slot_1", strongVideoSupply.size >= 2 ? 2 : 0);
-  swapStrongVideoIntoSlot("slot_2", strongVideoSupply.size >= 1 ? 1 : 0);
-  const totalVideoTarget = strongVideoSupply.size >= 3 ? Math.min(5, strongVideoSupply.size) : 0;
+  // Reserve one unique strong/safe video in every slot whenever three are
+  // available. Do this before the total quota so images cannot occupy the
+  // only video-capable position in a slot.
+  const perSlotVideoMinimum = strongVideoSupply.size >= 3 ? 1 : 0;
+  for (const slot of ["slot_1", "slot_2", "slot_3"] as const) {
+    swapStrongVideoIntoSlot(slot, perSlotVideoMinimum);
+  }
+  // Four videos is the minimum target when supply supports it; use five when
+  // possible. Image candidates remain the fallback only when this supply is
+  // unavailable or cannot pass the existing hard safety gates.
+  const totalVideoTarget = strongVideoSupply.size >= 4 ? Math.min(5, strongVideoSupply.size) : 0;
   if (totalVideoTarget > 0) {
     for (const slot of ["slot_1", "slot_2", "slot_3"] as const) {
       if (picked.filter(isStrongVideoPick).length >= totalVideoTarget) break;
-      swapStrongVideoIntoSlot(slot, slot === "slot_3" && picked.some((pick) => pick.slotId === "slot_3" && pick.role === "MONEY") ? 0 : 3);
+      swapStrongVideoIntoSlot(slot, perSlotVideoMinimum + 1);
     }
   }
   // Media Mix and fallback swaps are allowed to change identity. Repair any
@@ -1510,7 +1554,11 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
     }
   }
   const mediaMix = {
-    totalVideoCandidates: pool.filter((item) => isVideoCandidate({ ...item, mediaType: "sample_movie" })).length,
+    totalVideoCandidates: videoRawItems.length,
+    videoRaw: videoRawItems.length,
+    videoEligible: videoEligibleItems.length,
+    videoAfterDedupe,
+    slotEligibleVideo: strongVideoSupply.size,
     eligibleStrongVideos: strongVideoSupply.size,
     selectedVideos,
     selectedVideosBySlot: selectedBySlot,
@@ -1832,6 +1880,10 @@ function buildSupplyDiagnostics(
   postedWorkIds: ReadonlySet<number>,
   mediaMix?: {
     totalVideoCandidates: number;
+    videoRaw: number;
+    videoEligible: number;
+    videoAfterDedupe: number;
+    slotEligibleVideo: number;
     eligibleStrongVideos: number;
     selectedVideos: number;
     selectedVideosBySlot: Record<string, number>;
@@ -1980,6 +2032,10 @@ function buildSupplyDiagnostics(
     },
     mediaMix: mediaMix ?? {
       totalVideoCandidates: 0,
+      videoRaw: 0,
+      videoEligible: 0,
+      videoAfterDedupe: 0,
+      slotEligibleVideo: 0,
       eligibleStrongVideos: 0,
       selectedVideos: picks.filter((pick) => pick.mediaType === "sample_movie").length,
       selectedVideosBySlot: {},
