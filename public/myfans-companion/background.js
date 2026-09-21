@@ -6,6 +6,7 @@ const COMPANION_SETTINGS_KEY = "myfansCompanionSettings";
 const QUOTE_ALARM_NAME = "myfansQuoteRefreshNext";
 const WORKER_TAB_KEY = "myfansQuoteWorkerTabId";
 const WORKER_VERSION = chrome.runtime.getManifest().version;
+const COLLECTOR_METHOD = "complete_thread_first_v2";
 const ADMIN_BRIDGE_FILE = "myfans-admin-bridge.js";
 const ADMIN_HOSTS = new Set(["localhost", "127.0.0.1"]);
 let diagnosticRunning = false;
@@ -101,6 +102,37 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function observeVisibleThread(tabId) {
+  return executeMain(tabId, async () => {
+    const before = document.querySelectorAll('article[data-testid="tweet"]').length;
+    const expandLabels = /もっと見る|返信をさらに表示|Show more replies|Show more|さらに表示|Load more/i;
+    const clicked = [];
+    for (let pass = 0; pass < 3; pass += 1) {
+      for (const button of Array.from(document.querySelectorAll('button, [role="button"]'))) {
+        const label = `${button.textContent || ""} ${button.getAttribute("aria-label") || ""}`.trim();
+        if (expandLabels.test(label) && !button.hasAttribute("disabled")) {
+          button.click();
+          clicked.push(label.slice(0, 80));
+        }
+      }
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      window.scrollTo({ top: Math.max(0, document.documentElement.scrollHeight - window.innerHeight), behavior: "instant" });
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+    const remainingExpand = Array.from(document.querySelectorAll('button, [role="button"]'))
+      .map((button) => `${button.textContent || ""} ${button.getAttribute("aria-label") || ""}`)
+      .some((label) => expandLabels.test(label));
+    return {
+      articleCountBefore: before,
+      articleCountAfter: document.querySelectorAll('article[data-testid="tweet"]').length,
+      clickedExpandCount: clicked.length,
+      remainingExpand,
+      fullyObserved: !remainingExpand,
+    };
+  }, [], { requireResult: true });
 }
 
 const FAILURE_CATEGORY = {
@@ -693,11 +725,14 @@ function collectXQuoteCandidates() {
     const socialContext = article.querySelector('[data-testid="socialContext"]')?.textContent || "";
     const rawText = article.innerText || "";
     const analytics = Array.from(article.querySelectorAll("a[href]")).find((link) => /\/analytics$/.test(link.getAttribute("href") || ""));
-    const myfansUrls = Array.from(article.querySelectorAll("a[href]"))
-      .map((link) => link.href || link.getAttribute("href") || "")
-      .filter((href) => /^https?:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(href))
-      .map((href) => href.replace(/[?#].*$/, ""))
-      .filter((href, index, all) => all.indexOf(href) === index);
+    const myfansUrls = [];
+    for (const link of Array.from(article.querySelectorAll("a[href]"))) {
+      const href = link.href || link.getAttribute("href") || "";
+      const visible = [href, link.getAttribute("aria-label") || "", link.textContent || ""].join(" ");
+      const direct = visible.match(/https?:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\/[^\s"'<>）)]+/gi) || [];
+      myfansUrls.push(...direct.map((url) => url.replace(/[?#].*$/, "").replace(/[.,。、]+$/, "")));
+      if (/\bmfco\.link\b/i.test(visible) && !direct.some((url) => /mfco\.link/i.test(url)) && /^https:\/\/t\.co\//i.test(href)) myfansUrls.push(href.replace(/[?#].*$/, ""));
+    }
     const metric = (testId) => parseCount(article.querySelector(`[data-testid="${testId}"]`)?.getAttribute("aria-label") || "");
     const media = mediaInfoFor(article, statusUrl);
     return {
@@ -885,6 +920,7 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
       quoteVisualReady: media.quoteVisualReady,
       sourceXHandle,
       authorHandle,
+      authorStatusUrl: statusUrl,
       postedAt: article.querySelector("time")?.getAttribute("datetime") || null,
       text: extractSourceTextInPage(article.querySelector('[data-testid="tweetText"]')?.textContent || "", rawText),
       myfansUrls,
@@ -900,21 +936,28 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
       isRepost: false,
       isQuote: Boolean(article.querySelector('div[role="link"] article'))
     };
-  }).filter((candidate, index, all) => candidate.isReply && normalizeHandle(candidate.authorHandle) === normalizeHandle(sourceXHandle) && candidate.xPostUrl && all.findIndex((item) => item.xPostUrl === candidate.xPostUrl) === index);
+  }).filter((candidate, index, all) => candidate.xPostUrl && all.findIndex((item) => item.xPostUrl === candidate.xPostUrl) === index);
   const sourceArticle = articles.find((article) => {
     const href = Array.from(article.querySelectorAll("a[href]")).map((link) => link.getAttribute("href") || "").find((value) => /\/status\/\d+/.test(value));
     return String(href || "").match(/\/status\/(\d+)/)?.[1] === targetStatusId;
   });
   const sourceAuthorHandle = sourceArticle ? articleHandle(sourceArticle) : "";
+  const parentCandidate = candidates.find((candidate) => candidate.xPostUrl === sourceStatusUrl) || null;
+  const ownReplies = candidates.filter((candidate) => candidate.isReply && normalizeHandle(candidate.authorHandle) === normalizeHandle(sourceXHandle));
+  const foreignReplies = candidates.filter((candidate) => candidate.isReply && normalizeHandle(candidate.authorHandle) !== normalizeHandle(sourceXHandle));
   const payload = {
     ok: true,
     sourceStatusUrl,
     sourceAuthorHandle,
     articleCount: articles.length,
-    authorReplyCount: candidates.length,
-    myfansLinkCount: candidates.reduce((total, candidate) => total + candidate.myfansUrls.length, 0),
+    authorReplyCount: ownReplies.length,
+    myfansLinkCount: [parentCandidate, ...ownReplies].filter(Boolean).reduce((total, candidate) => total + candidate.myfansUrls.length, 0),
+    foreignReplyCount: foreignReplies.length,
+    parentCandidate,
+    ownReplies,
+    threadObservationStatus: "VISIBLE_THREAD_OBSERVED",
     pageTextSample: pageText.replace(/\s+/g, " ").slice(0, 160),
-    quoteCandidates: candidates
+    quoteCandidates: ownReplies
   };
   try {
     const json = JSON.stringify(serializePlainJson(payload));
@@ -1204,35 +1247,87 @@ async function collectFromWorkerTab(tabId, item, jobId) {
     throw categorizedError(result.errorCode || FAILURE_CATEGORY.UNKNOWN, result.errorMessage || "Xページから引用候補を取得できませんでした。");
   }
   result = await validateVideoPermalinks(tabId, result);
-  const threadCandidates = result.quoteCandidates
-    .filter((candidate) => candidate.xPostUrl && (candidate.myfansUrls?.length || candidate.replies > 0))
-    .slice(0, 5);
+  const parentCandidates = result.quoteCandidates.filter((candidate) => candidate.xPostUrl && (candidate.mediaType === "image" || candidate.mediaType === "video")).slice(0, 5);
   const authorReplies = [];
+  const completeThreadCandidates = [];
+  const collectionStatuses = result.quoteCandidates.map((candidate) => ({
+    parentStatusUrl: candidate.xPostUrl,
+    status: candidate.mediaType === "image" || candidate.mediaType === "video" ? "PENDING_THREAD" : "NO_MEDIA"
+  }));
   let statusThreadsOpened = 0;
   let statusThreadMyfansLinkCount = 0;
-  for (const candidate of threadCandidates) {
+  let threadNotFullyObservedCount = 0;
+  for (const candidate of parentCandidates) {
     try {
       await chrome.tabs.update(tabId, { url: candidate.xPostUrl, active: false });
       await waitForTabComplete(tabId, 45000);
       await waitForTweetRender(tabId, expectedHandle, 18000);
+      const observation = await observeVisibleThread(tabId);
       const threadResult = await executeMain(tabId, collectXStatusThreadReplies, [{ sourceXHandle: expectedHandle, sourceStatusUrl: candidate.xPostUrl }], { requireResult: true });
-      if (!threadResult?.ok) continue;
+      if (!threadResult?.ok || !observation?.fullyObserved) {
+        threadNotFullyObservedCount += 1;
+        const entry = collectionStatuses.find((item) => item.parentStatusUrl === candidate.xPostUrl);
+        if (entry) entry.status = "THREAD_NOT_FULLY_OBSERVED";
+        continue;
+      }
       statusThreadsOpened += 1;
       statusThreadMyfansLinkCount += threadResult.myfansLinkCount || 0;
-      authorReplies.push(...(threadResult.quoteCandidates || []));
+      const parent = threadResult.parentCandidate || null;
+      const ownRepliesForParent = Array.isArray(threadResult.ownReplies) ? threadResult.ownReplies.filter((reply) => reply.authorHandle?.toLowerCase() === expectedHandle.toLowerCase()) : [];
+      const parentLinks = Array.isArray(parent?.myfansUrls) ? parent.myfansUrls : [];
+      const replyWithLink = ownRepliesForParent.find((reply) => Array.isArray(reply.myfansUrls) && reply.myfansUrls.length > 0) || null;
+      const selectedLinkCandidate = parentLinks.length > 0 ? parent : replyWithLink;
+      const entry = collectionStatuses.find((item) => item.parentStatusUrl === candidate.xPostUrl);
+      if (!selectedLinkCandidate) {
+        if (entry) entry.status = "NO_OWN_MYFANS_LINK";
+        continue;
+      }
+      const ownReply = selectedLinkCandidate === parent ? null : selectedLinkCandidate;
+      const selectedLinks = (parentLinks.length > 0 ? parentLinks : ownReply.myfansUrls).filter(Boolean);
+      if (selectedLinks.every((url) => /^https:\/\/t\.co\//i.test(url))) {
+        if (entry) entry.status = "LINK_UNRESOLVED";
+        continue;
+      }
+      const merged = {
+        ...candidate,
+        parentStatusUrl: candidate.xPostUrl,
+        parentStatusId: candidate.xPostUrl.match(/\/status\/(\d+)/)?.[1] || null,
+        ownReplyStatusUrl: ownReply?.xPostUrl || null,
+        ownReplyStatusId: ownReply?.xPostUrl?.match(/\/status\/(\d+)/)?.[1] || null,
+        myfansLinkSource: parentLinks.length > 0 ? "parent" : "own_reply",
+        myfansUrls: [...new Set(selectedLinks)],
+        threadCollectionStatus: "FOUND_COMPLETE_THREAD",
+        collectorMethod: COLLECTOR_METHOD,
+        resolvedProductEvidence: null
+      };
+      completeThreadCandidates.push(merged);
+      if (entry) entry.status = "FOUND_COMPLETE_THREAD";
+      authorReplies.push(...ownRepliesForParent);
     } catch {
-      // A status thread can be unavailable independently of the creator profile; keep the profile result.
+      threadNotFullyObservedCount += 1;
+      const entry = collectionStatuses.find((item) => item.parentStatusUrl === candidate.xPostUrl);
+      if (entry) entry.status = "THREAD_NOT_FULLY_OBSERVED";
     }
   }
-  const deduped = [...result.quoteCandidates, ...authorReplies].filter((candidate, index, all) => all.findIndex((item) => item.xPostUrl === candidate.xPostUrl) === index);
+  const deduped = completeThreadCandidates.filter((candidate, index, all) => all.findIndex((item) => item.xPostUrl === candidate.xPostUrl) === index);
+  const hasCompleteThread = deduped.length > 0;
   return {
     ...result,
+    ok: hasCompleteThread,
+    stage: hasCompleteThread ? "COMPLETE_THREAD" : "COMPLETE_THREAD_NO_MATCH",
+    errorCode: hasCompleteThread ? null : (threadNotFullyObservedCount > 0 ? "THREAD_NOT_FULLY_OBSERVED" : "NO_OWN_MYFANS_LINK"),
+    errorMessage: hasCompleteThread ? null : (threadNotFullyObservedCount > 0 ? "threadを十分に観測できなかったため、リンクなしとは判定しませんでした。" : "本人の親本文または自己リプにmyfansリンクがありませんでした。"),
+    collectionStatuses,
     quoteCandidates: deduped,
     diagnostics: {
       ...result.diagnostics,
+      collectorMethod: COLLECTOR_METHOD,
+      collectionStatuses,
       statusThreadsOpened,
       authorReplyCount: authorReplies.length,
-      statusThreadMyfansLinkCount
+      statusThreadMyfansLinkCount,
+      threadNotFullyObservedCount,
+      completeThreadCandidateCount: deduped.length
     }
   };
 }
@@ -1335,7 +1430,7 @@ async function runBulkQuoteRefresh(settings) {
       }
       if (!result) throw lastCollectError || categorizedError(FAILURE_CATEGORY.UNKNOWN, "Xページから引用候補を取得できませんでした。");
       const payload = await sendPayload(persistedSettings, result);
-      await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `保存しました: ${creatorName || item.creator_x_url}`, ...MyfansCompanionState.successPatch(payload.candidatesCount), sessionProcessed: processedBefore + 1 });
+      await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `保存しました: ${creatorName || item.creator_x_url}`, ...MyfansCompanionState.successPatch(payload.candidatesCount), collectionStatuses: payload.collectionStatuses || result.collectionStatuses || [], sessionProcessed: processedBefore + 1 });
     } catch (error) {
       await markItemFailed(persistedSettings, next.jobId, item.id, error);
       const message = error instanceof Error ? error.message : "取得に失敗しました";

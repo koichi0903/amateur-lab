@@ -432,6 +432,7 @@ function renderBatchState(state, progress) {
     state?.finalStatus !== "success" && state?.errorCode ? `reason: ${state.errorCode}` : "",
     state?.sessionProcessed != null ? `この一括job進捗: ${state.sessionProcessed}件` : "",
     state?.lastCandidatesCount != null ? `直近候補: ${state.lastCandidatesCount}件` : "",
+    state?.collectionStatuses?.length ? `thread判定: ${state.collectionStatuses.map((item) => `${item.status}`).join(", ")}` : "",
     state?.attemptDiagnostics?.length ? `attempt diagnostics: ${state.attemptDiagnostics.length}` : "",
     state?.finalStatus !== "success" && state?.failureDiagnostics ? `diagnostics: ${JSON.stringify(state.failureDiagnostics)}` : "",
     state?.finalStatus !== "success" && state?.lastError ? `error: ${state.lastError}` : ""
@@ -526,7 +527,7 @@ async function runTargetedQuoteRefresh() {
   };
   await chrome.runtime.sendMessage({ type: "myfans_quote_refresh_start", settings });
   await saveSettings();
-  document.getElementById("batchStatus").textContent = `targeted collectionを${candidates.length}件開始: ${candidates.map((candidate) => candidate.displayName || candidate.creatorXUrl).join(", ")}`;
+  document.getElementById("batchStatus").textContent = `画像/動画＋本人myfansリンク付き投稿のcomplete-thread収集を${candidates.length}件開始: ${candidates.map((candidate) => candidate.displayName || candidate.creatorXUrl).join(", ")}`;
   await syncCompanionSettings();
 }
 

@@ -6,10 +6,12 @@ import { extractMyfansSourceText } from "@/lib/myfansSourceText";
 import { calculateMyfansSelectionScore, myfansLaunchPriority } from "@/lib/myfansScore";
 import { mergePersistedQuoteMediaEvidence } from "@/lib/myfansQuoteCandidateEvidence";
 import { evaluateMyfansSourceValue } from "@/lib/myfansSourceValue";
+import { isCompleteThreadCandidate } from "@/lib/myfansCompleteThread";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const COLLECTOR_METHOD = "complete_thread_first_v2";
 
 function cleanText(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
@@ -96,6 +98,7 @@ type QuoteScanPayload = {
   statusCandidate?: MyfansQuoteScanCandidate & { authorHandle?: unknown };
   singleStatusRunId?: unknown;
   collectionError?: unknown;
+  collectionStatuses?: Array<{ parentStatusUrl?: unknown; status?: unknown }>;
 };
 
 function xHandleFromUrl(value: string) {
@@ -527,6 +530,20 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
   const sourceXHandle = cleanText(payload.sourceXHandle).replace(/^@/, "");
   const failureReason = cleanText(payload.failureReason);
   const candidates = Array.isArray(payload.quoteCandidates) ? payload.quoteCandidates.slice(0, 20) : [];
+  if (candidates.length === 0 && Array.isArray(payload.collectionStatuses) && payload.collectionStatuses.length > 0 && cleanXProfileUrl(payload.creatorXUrl)) {
+    const creatorIdForAudit = Number(payload.creatorId);
+    if (Number.isSafeInteger(creatorIdForAudit) && creatorIdForAudit > 0) {
+      await supabaseAdmin.from("myfans_audit_logs").insert({
+        entity_type: "creator",
+        entity_id: creatorIdForAudit,
+        action: "complete_thread_collection_status",
+        summary: `${COLLECTOR_METHOD}: no eligible parent`,
+        metadata: { collectorMethod: COLLECTOR_METHOD, statuses: payload.collectionStatuses },
+      });
+    }
+    await markRefreshItem(payload, "success", { collectedCount: 0, topScore: null });
+    return NextResponse.json({ ok: true, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses });
+  }
   if (!creatorXUrl || !sourceXHandle || candidates.length === 0) {
     const message = failureReason || "Xプロフィール上の投稿候補を取得できませんでした。";
     await markRefreshItem(payload, "failed", { error: message });
@@ -553,6 +570,14 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
       return {
         ...candidate,
         xPostUrl: cleanXStatusUrl(candidate.xPostUrl),
+        parentStatusUrl: cleanXStatusUrl(candidate.parentStatusUrl || candidate.xPostUrl),
+        parentStatusId: cleanText(candidate.parentStatusId) || null,
+        ownReplyStatusUrl: cleanXStatusUrl(candidate.ownReplyStatusUrl),
+        ownReplyStatusId: cleanText(candidate.ownReplyStatusId) || null,
+        myfansLinkSource: candidate.myfansLinkSource === "own_reply" ? "own_reply" : candidate.myfansLinkSource === "parent" ? "parent" : null,
+        threadCollectionStatus: cleanText(candidate.threadCollectionStatus) || "LEGACY",
+        collectorMethod: cleanText(candidate.collectorMethod) || "legacy_profile_scan",
+        resolvedProductEvidence: candidate.resolvedProductEvidence && typeof candidate.resolvedProductEvidence === "object" ? candidate.resolvedProductEvidence : null,
         mediaPermalink: cleanXMediaPermalink(candidate.mediaPermalink),
         verifiedVideoPermalink: cleanXMediaPermalink(candidate.verifiedVideoPermalink),
         generatedVideoPermalink: cleanXMediaPermalink(candidate.generatedVideoPermalink),
@@ -562,7 +587,7 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
         sourceXHandle: cleanText(candidate.sourceXHandle).replace(/^@/, ""),
         text: extractMyfansSourceText(candidate.text, candidate.articleText),
         myfansUrls: Array.isArray(candidate.myfansUrls) ? candidate.myfansUrls.map(cleanMyfansUrl).filter(Boolean).slice(0, 5) : [],
-      };
+      } as MyfansQuoteScanCandidate;
     })
     .filter((candidate) => {
       const statusHandle = candidate.xPostUrl.match(/^https:\/\/x\.com\/([^/?#]+)\/status\//i)?.[1] ?? "";
@@ -577,8 +602,18 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
   }
 
   const sourceTextMissingCount = normalized.filter((candidate) => !candidate.text).length;
-  const sourceReady = normalized.filter((candidate) => Boolean(candidate.text));
+  const sourceReady = normalized.filter((candidate) => {
+    if (!candidate.text) return false;
+    if (candidate.collectorMethod === "complete_thread_first_v2") {
+      return isCompleteThreadCandidate(candidate);
+    }
+    return true;
+  });
   if (sourceReady.length === 0) {
+    if (normalized.some((candidate) => candidate.collectorMethod === COLLECTOR_METHOD) && Array.isArray(payload.collectionStatuses)) {
+      await markRefreshItem(payload, "success", { collectedCount: 0, topScore: null });
+      return NextResponse.json({ ok: true, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses });
+    }
     const message = "SOURCE_TEXT_MISSING: 表示中投稿に安全に紐付けられる本文がありません。空本文は保存しません。";
     await markRefreshItem(payload, "failed", { collectedCount: 0, error: message });
     return NextResponse.json({ error: message, diagnostics: { candidateCount: normalized.length, sourceTextMissingCount } }, { status: 400 });
@@ -653,15 +688,23 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
       creator_rank: item.creatorRank <= 3 && item.result.eligible ? item.creatorRank : null,
       global_score: item.result.score,
       collected_at: new Date().toISOString(),
+      parent_status_url: item.candidate.parentStatusUrl || item.candidate.xPostUrl,
+      parent_status_id: item.candidate.parentStatusId || item.candidate.xPostUrl.match(/\/status\/(\d+)/)?.[1] || null,
+      own_reply_status_url: item.candidate.ownReplyStatusUrl || null,
+      own_reply_status_id: item.candidate.ownReplyStatusId || null,
+      myfans_link_source: item.candidate.myfansLinkSource || null,
+      thread_collection_status: item.candidate.threadCollectionStatus || "LEGACY",
+      collector_method: item.candidate.collectorMethod || "legacy_profile_scan",
+      resolved_product_evidence: item.candidate.resolvedProductEvidence || {},
     };
-    await saveQuoteCandidate(record, product?.id ?? null, resolvedCreatorId);
+    const savedCandidateId = await saveQuoteCandidate(record, product?.id ?? null, resolvedCreatorId);
     const evidenceText = [item.candidate.text, ...(item.candidate.myfansUrls ?? [])].filter(Boolean).join(" ");
     const evidence = resolveTextEvidence({
-      sourceStatusUrl: item.candidate.xPostUrl,
+      sourceStatusUrl: item.candidate.ownReplyStatusUrl || item.candidate.xPostUrl,
       sourceAuthorHandle: sourceXHandle,
       text: evidenceText,
       products: await fetchResolverProducts(),
-      evidenceSource: item.candidate.isReply ? "author_reply" : "author_post",
+      evidenceSource: item.candidate.myfansLinkSource === "own_reply" ? "author_reply" : "author_post",
       approvedMediaId: approvedMediaId ?? product?.approved_media_id ?? null,
     });
     if (evidence) {
@@ -681,6 +724,13 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
         updated_at: new Date().toISOString(),
       }, { onConflict: "source_status_url,discovered_myfans_url,evidence_source" });
       if (evidenceError && !/myfans_post_product_linkage_evidence|schema cache|does not exist/i.test(evidenceError.message)) throw evidenceError;
+      if (!evidenceError && savedCandidateId) {
+        const { error: evidenceUpdateError } = await supabaseAdmin
+          .from("myfans_quote_candidates")
+          .update({ resolved_product_evidence: { productId: evidence.product_id, discoveredMyfansUrl: evidence.discovered_myfans_url, finalMyfansUrl: evidence.final_myfans_url, resolutionMethod: evidence.resolution_method, confidence: evidence.confidence, evidenceSource: evidence.evidence_source } })
+          .eq("id", savedCandidateId);
+        if (evidenceUpdateError && !/resolved_product_evidence|schema cache|does not exist/i.test(evidenceUpdateError.message)) throw evidenceUpdateError;
+      }
     }
   }
 
@@ -700,6 +750,16 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
   }
 
   await updateGlobalQuoteRanks(approvedMediaId ?? product?.approved_media_id ?? null);
+  if (Array.isArray(payload.collectionStatuses) && payload.collectionStatuses.length > 0) {
+    const { error: statusAuditError } = await supabaseAdmin.from("myfans_audit_logs").insert({
+      entity_type: "creator",
+      entity_id: resolvedCreatorId,
+      action: "complete_thread_collection_status",
+      summary: `${COLLECTOR_METHOD}: ${payload.collectionStatuses.length} parent statuses`,
+      metadata: { collectorMethod: COLLECTOR_METHOD, statuses: payload.collectionStatuses },
+    });
+    if (statusAuditError) console.error("complete thread status audit failed", statusAuditError);
+  }
   await markRefreshItem(payload, "success", { collectedCount: scored.length, topScore: best?.result.score ?? null });
 
   return NextResponse.json({
@@ -707,6 +767,7 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
     importedType: "quote_candidates",
     candidatesCount: scored.length,
     sourceTextMissingCount,
+    collectionStatuses: payload.collectionStatuses ?? [],
     selected: best ? { xPostUrl: best.candidate.xPostUrl, mediaPermalink: best.candidate.mediaPermalink || null, mediaType: best.candidate.mediaType || "none", quoteVisualReady: Boolean(best.candidate.quoteVisualReady), validationStatus: best.candidate.validationStatus || null, score: best.result.score, creatorRank: best.creatorRank, reason: best.result.reason } : null,
   });
 }
