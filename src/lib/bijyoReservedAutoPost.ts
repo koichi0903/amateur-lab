@@ -2,14 +2,15 @@ import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
 import { analyzeSampleMovie } from "@/lib/xVideoAnalysis";
 import { sourceKindFor } from "@/lib/xMediaAssets";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { allocateTodaySlots, BIJYO_DEFAULT_SLOTS, buildBijyoMainText, buildBijyoReplyText, tokyoDate, todayProgress } from "@/lib/bijyoReservedWorkflow";
+import { allocateTodaySlots, BIJYO_DEFAULT_SLOTS, buildBijyoMainText, buildBijyoReplyText, filterRecentReleaseWorks, recentReleaseDateRange, tokyoDate, todayProgress, type RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
 import { calculateBijyoTrimStart } from "@/lib/bijyoTrim";
 import { validateTrimStartSeconds } from "@/lib/xMediaAssets";
 
 export { BIJYO_DEFAULT_SLOTS, buildBijyoMainText, buildBijyoReplyText, tokyoDate } from "@/lib/bijyoReservedWorkflow";
 export const BIJYO_ACCOUNT = "bijyo1010" as const;
 
-type Work = { id: number; title: string; stage: string; created_at: string; release_date: string; sample_movie_url: string; product_id: string | null };
+type Work = { id: number; title: string; stage: string; created_at: string; release_date: string; image_url?: string | null; sample_movie_url: string; product_id: string | null };
+export type BijyoRecentReleasedWork = RecentReleaseWork;
 export type BijyoJob = {
   id: number; work_id: number; kind: "auto" | "manual"; slot_date: string; slot_index: number | null; scheduled_at: string;
   status: string; trim_start_seconds: number; trim_status: string; trim_reason: string; trim_failure_reason: string | null;
@@ -40,6 +41,23 @@ export async function getBijyoSettings() {
 }
 
 function sevenDaysAgo() { return new Date(Date.now() - 7 * 86_400_000).toISOString(); }
+
+export async function getBijyoRecentReleasedWorks(jobs: BijyoJob[], now = new Date()) {
+  const dateRange = recentReleaseDateRange(now);
+  const result = await supabaseAdmin.from("works")
+    .select("id,title,stage,created_at,release_date,image_url,sample_movie_url,product_id")
+    .eq("stage", "RESERVED")
+    .gte("release_date", dateRange.startDate)
+    .lte("release_date", dateRange.endDate)
+    .not("sample_movie_url", "is", null)
+    .neq("sample_movie_url", "")
+    .order("release_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (result.error) return { recentReleased: [] as BijyoRecentReleasedWork[], dateRange, error: result.error.message };
+  const works = (result.data ?? []).filter((work) => sourceKindFor(work.sample_movie_url) === "official_sample") as RecentReleaseWork[];
+  return { recentReleased: filterRecentReleaseWorks(works, jobs, dateRange), dateRange, error: null };
+}
 
 export async function getBijyoCandidates() {
   const result = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("stage", "RESERVED").gte("created_at", sevenDaysAgo()).not("sample_movie_url", "is", null).neq("sample_movie_url", "").not("release_date", "is", null).order("created_at", { ascending: true }).limit(200);
@@ -73,9 +91,10 @@ export async function getBijyoDashboard() {
     const [settings, jobsResult, candidatesResult] = await Promise.all([getBijyoSettings(), activeJobs(), getBijyoCandidates()]);
     if (jobsResult.error) throw new Error(jobsResult.error);
     const jobs = jobsResult.jobs;
-    return { ok: true, date, settings, progress: todayProgress(jobs, date), todayJobs: jobs.filter((job) => job.slot_date === date && job.kind === "auto"), candidates: candidatesResult.candidates, jobs, error: candidatesResult.error };
+    const recentResult = await getBijyoRecentReleasedWorks(jobs);
+    return { ok: true, date, settings, progress: todayProgress(jobs, date), todayJobs: jobs.filter((job) => job.slot_date === date && job.kind === "auto"), candidates: candidatesResult.candidates, recentReleased: recentResult.recentReleased, recentReleaseDateRange: recentResult.dateRange, jobs, error: candidatesResult.error ?? recentResult.error };
   } catch (error) {
-    return { ok: false, date, settings: await getBijyoSettings(), progress: { posted: 0, target: 4, remaining: 4, shortage: 4 }, todayJobs: [] as BijyoJob[], candidates: [] as Work[], jobs: [] as BijyoJob[], error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, date, settings: await getBijyoSettings(), progress: { posted: 0, target: 4, remaining: 4, shortage: 4 }, todayJobs: [] as BijyoJob[], candidates: [] as Work[], recentReleased: [] as BijyoRecentReleasedWork[], recentReleaseDateRange: recentReleaseDateRange(), jobs: [] as BijyoJob[], error: error instanceof Error ? error.message : String(error) };
   }
 }
 

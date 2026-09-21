@@ -11,6 +11,44 @@ export function tokyoDate(date = new Date()) {
 
 export function tokyoDateFromIso(value: string) { return tokyoDate(new Date(value)); }
 
+const TOKYO_DAY_MS = 86_400_000;
+
+export function recentReleaseDateRange(now = new Date()) {
+  const endDate = tokyoDate(now);
+  const startDate = tokyoDate(new Date(new Date(`${endDate}T00:00:00+09:00`).getTime() - 6 * TOKYO_DAY_MS));
+  return { startDate, endDate };
+}
+
+export type RecentReleaseWork = {
+  id: number;
+  title: string;
+  stage: string;
+  created_at: string;
+  release_date: string;
+  image_url: string | null;
+  sample_movie_url: string;
+  product_id: string | null;
+};
+
+export type RecentReleaseJob = { work_id: number; kind: string; slot_date: string; status: string };
+
+export function filterRecentReleaseWorks(works: RecentReleaseWork[], jobs: RecentReleaseJob[], dateRange: { startDate: string; endDate: string }) {
+  const excludedStatuses = new Set(["posted", "manual_posted", "skipped", "excluded"]);
+  const excludedWorkIds = new Set(jobs.filter((job) => excludedStatuses.has(job.status)).map((job) => job.work_id));
+  const assignedToday = new Set(jobs.filter((job) => job.kind === "auto" && job.slot_date === dateRange.endDate).map((job) => job.work_id));
+  const manualWorks = new Set(jobs.filter((job) => job.kind === "manual").map((job) => job.work_id));
+  const seen = new Set<number>();
+  return works
+    .filter((work) => {
+      const releaseDate = work.release_date.slice(0, 10);
+      if (work.stage !== "RESERVED" || !work.sample_movie_url || releaseDate < dateRange.startDate || releaseDate > dateRange.endDate) return false;
+      if (excludedWorkIds.has(work.id) || assignedToday.has(work.id) || manualWorks.has(work.id) || seen.has(work.id)) return false;
+      seen.add(work.id);
+      return true;
+    })
+    .sort((a, b) => b.release_date.localeCompare(a.release_date) || b.created_at.localeCompare(a.created_at) || b.id - a.id);
+}
+
 export function isoAtTokyo(date: string, time: string) { return new Date(`${date}T${time}:00+09:00`).toISOString(); }
 
 export function releaseLabel(value: string) {
