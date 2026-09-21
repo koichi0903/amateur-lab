@@ -497,18 +497,6 @@ const buyTiming = calculateBuyTimingScore({
 />
       </section>
 
-      <BuyTimingPanel
-        decision={buyTiming}
-        discoveryScore={typeof work.score === "number" ? work.score : null}
-        workId={work.id}
-        affiliateUrl={work.affiliate_url}
-      />
-
-      <PurchaseDecisionGuide
-        decision={purchaseDecision}
-        hasAlternatives={valueAlternatives.length > 0}
-      />
-
       {/* タブ */}
       <section className="mt-8">
         <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -548,6 +536,18 @@ const buyTiming = calculateBuyTimingScore({
           />
         </div>
       </section>
+
+      <BuyTimingPanel
+        decision={buyTiming}
+        discoveryScore={typeof work.score === "number" ? work.score : null}
+        workId={work.id}
+        affiliateUrl={work.affiliate_url}
+      />
+
+      <PurchaseDecisionGuide
+        decision={purchaseDecision}
+        hasAlternatives={valueAlternatives.length > 0}
+      />
 
       {valueAlternatives.length > 0 && (
         <section className="mt-10 rounded-3xl border border-emerald-100 bg-white p-4 shadow-sm sm:p-7" aria-labelledby="value-alternatives">
