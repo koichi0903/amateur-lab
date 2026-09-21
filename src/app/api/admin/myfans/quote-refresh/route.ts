@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { selectCreatorRotation, DEFAULT_CREATOR_COOLDOWN_DAYS } from "@/lib/myfansQuoteRotation";
 import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummary";
+import { evaluateMyfansSourceValue } from "@/lib/myfansSourceValue";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -35,6 +36,52 @@ function normalizeXProfileUrl(value: unknown) {
   const raw = cleanText(value).replace(/^https:\/\/twitter\.com\//, "https://x.com/");
   const match = raw.match(/^https:\/\/x\.com\/([A-Za-z0-9_]{1,15})\/?$/);
   return match ? `https://x.com/${match[1]}` : "";
+}
+
+function normalizeTargetedCreatorIds(value: unknown) {
+  if (!Array.isArray(value)) return [] as number[];
+  return [...new Set(value.map((item) => Math.round(Number(item))).filter((item) => Number.isSafeInteger(item) && item > 0))].slice(0, 5);
+}
+
+async function targetedCreatorRecommendations(approvedMediaId: number | null) {
+  let productsQuery = supabaseAdmin
+    .from("myfans_products")
+    .select("id,creator_id,title,source_x_url,creator_x_url")
+    .not("creator_id", "is", null)
+    .limit(1000);
+  if (approvedMediaId) productsQuery = productsQuery.or(`approved_media_id.eq.${approvedMediaId},approved_media_id.is.null`);
+  const { data: products, error: productsError } = await productsQuery;
+  if (productsError) throw productsError;
+  const productRows = (products ?? []).filter((row) => Number.isSafeInteger(row.creator_id));
+  const creatorIds = [...new Set(productRows.map((row) => Number(row.creator_id)))];
+  if (!creatorIds.length) return { candidates: [], reason: "eligible creator/product linkageなし" };
+  const [{ data: creators, error: creatorsError }, { data: quotes, error: quotesError }] = await Promise.all([
+    supabaseAdmin.from("myfans_creators").select("id,display_name,creator_x_url,is_active").in("id", creatorIds).eq("is_active", true),
+    supabaseAdmin.from("myfans_quote_candidates").select("id,creator_id,text_excerpt,posted_at,collected_at,media_type,media_permalink,quote_visual_ready,visual_analysis_status,views,likes,reposts,replies,is_repost,is_reply,is_quote,last_used_at,cooldown_until").in("creator_id", creatorIds).order("collected_at", { ascending: false }).limit(5000),
+  ]);
+  if (creatorsError) throw creatorsError;
+  if (quotesError) throw quotesError;
+  const productCount = new Map<number, number>();
+  for (const product of productRows) productCount.set(Number(product.creator_id), (productCount.get(Number(product.creator_id)) ?? 0) + 1);
+  const freshPassCreators = new Set<number>();
+  for (const quote of quotes ?? []) {
+    const age = quote.collected_at ? (Date.now() - new Date(quote.collected_at).getTime()) / 86_400_000 : null;
+    const source = evaluateMyfansSourceValue({ text: quote.text_excerpt ?? "", postedAt: quote.posted_at, collectedAt: quote.collected_at, mediaType: quote.media_type, mediaPermalink: quote.media_permalink, quoteVisualReady: quote.quote_visual_ready, visualAnalysisStatus: quote.visual_analysis_status, views: quote.views, likes: quote.likes, reposts: quote.reposts, replies: quote.replies, isRepost: quote.is_repost, isReply: quote.is_reply, isQuote: quote.is_quote });
+    if (!quote.is_repost && !quote.last_used_at && !quote.cooldown_until && age !== null && age <= 7 && source.verdict === "PASS") freshPassCreators.add(Number(quote.creator_id));
+  }
+  const candidates = (creators ?? [])
+    .map((creator) => ({
+      creatorId: creator.id,
+      displayName: creator.display_name,
+      creatorXUrl: normalizeXProfileUrl(creator.creator_x_url),
+      productCount: productCount.get(creator.id) ?? 0,
+      need: freshPassCreators.has(creator.id) ? "既存fresh sourceあり。再収集不要" : "既存productにfresh Source Value PASSなし",
+      eligible: !freshPassCreators.has(creator.id),
+    }))
+    .filter((row) => row.creatorXUrl && row.eligible)
+    .sort((a, b) => b.productCount - a.productCount || a.creatorId - b.creatorId)
+    .slice(0, 5);
+  return { candidates, reason: candidates.length ? "既存productにfresh sourceがないcreatorを最大5件選定" : "既存productにfresh source不足の対象なし" };
 }
 
 async function refreshJobCounts(jobId: number) {
@@ -132,6 +179,7 @@ async function createJob(payload: Record<string, unknown>) {
       .eq("job_id", existing.id)
       .eq("status", "pending");
   }
+  const targetedCreatorIds = normalizeTargetedCreatorIds(payload.targetedCreatorIds);
   const { data: creators, error } = await supabaseAdmin
     .from("myfans_creators")
     .select("id,display_name,creator_x_url,is_active")
@@ -143,7 +191,10 @@ async function createJob(payload: Record<string, unknown>) {
 
   const creatorRows = (creators ?? [])
     .map((creator) => ({ ...creator, creator_x_url: normalizeXProfileUrl(creator.creator_x_url) }))
-    .filter((creator) => creator.creator_x_url);
+    .filter((creator) => creator.creator_x_url)
+    .filter((creator) => !targetedCreatorIds.length || targetedCreatorIds.includes(creator.id));
+
+  if (targetedCreatorIds.length && !creatorRows.length) return NextResponse.json({ error: "指定されたtarget creatorに有効なXプロフィールがありません。" }, { status: 400 });
 
   const cooldownDays = normalizeCooldownDays(payload.cooldownDays);
   const { data: visits, error: visitError } = await supabaseAdmin
@@ -155,7 +206,7 @@ async function createJob(payload: Record<string, unknown>) {
     .limit(10000);
   if (visitError) throw visitError;
 
-  const rotation = selectCreatorRotation(creatorRows, visits ?? [], queueLimit, cooldownDays);
+  const rotation = selectCreatorRotation(creatorRows, visits ?? [], targetedCreatorIds.length ? Math.min(5, targetedCreatorIds.length) : queueLimit, cooldownDays);
   const prioritized = rotation.creators;
   const selectionNote = rotation.selectionMode === "empty"
     ? "全creatorが前日またはcooldown中のため、同日再利用せず対象なし。"
@@ -283,6 +334,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const jobId = numberValue(url.searchParams.get("jobId"), 0);
     const approvedMediaId = numberValue(url.searchParams.get("approvedMediaId"), 0) || null;
+    if (url.searchParams.get("targeted") === "1") return NextResponse.json(await targetedCreatorRecommendations(approvedMediaId));
     const job = jobId ? await getJob(jobId) : await getActiveJob(approvedMediaId);
     if (!job) return NextResponse.json({ job: null, items: [] });
     return NextResponse.json(await progress(job.id));

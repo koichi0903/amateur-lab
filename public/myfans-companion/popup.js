@@ -503,6 +503,33 @@ async function runBulkQuoteRefresh() {
   await syncCompanionSettings();
 }
 
+async function runTargetedQuoteRefresh() {
+  const tab = await activeTab();
+  if (!isDailyPageUrl(tab.url)) throw new Error("Daily Page（/admin/myfans）を開いてから実行してください。");
+  const probe = await sendRuntimeMessage({ type: "myfans_admin_probe", tabId: tab.id });
+  if (!probe?.ok) throw new Error(probe?.error || "Daily PageへのexecuteScript probeに失敗しました。");
+  const base = baseUrl();
+  const query = new URLSearchParams({ targeted: "1", approvedMediaId: document.getElementById("mediaId").value });
+  const recommendationResponse = await fetch(`${base}/api/admin/myfans/quote-refresh?${query.toString()}`);
+  const recommendation = await recommendationResponse.json().catch(() => ({}));
+  if (!recommendationResponse.ok) throw new Error(recommendation.error || "targeted候補の取得に失敗しました。");
+  const candidates = Array.isArray(recommendation.candidates) ? recommendation.candidates : [];
+  if (!candidates.length) throw new Error(recommendation.reason || "targeted collection対象がありません。");
+  const settings = {
+    baseUrl: base,
+    approvedMediaName: document.getElementById("mediaName").value.trim(),
+    approvedMediaId: document.getElementById("mediaId").value.trim(),
+    batchSize: candidates.length,
+    queueLimit: candidates.length,
+    cooldownDays: Math.min(30, Math.max(1, Math.round(Number(document.getElementById("cooldownDays").value) || 3))),
+    targetedCreatorIds: candidates.map((candidate) => candidate.creatorId)
+  };
+  await chrome.runtime.sendMessage({ type: "myfans_quote_refresh_start", settings });
+  await saveSettings();
+  document.getElementById("batchStatus").textContent = `targeted collectionを${candidates.length}件開始: ${candidates.map((candidate) => candidate.displayName || candidate.creatorXUrl).join(", ")}`;
+  await syncCompanionSettings();
+}
+
 document.getElementById("diagnosticStatus").addEventListener("click", async () => {
   const status = document.getElementById("status");
   const value = document.getElementById("diagnosticStatusUrl").value.trim().replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
@@ -645,5 +672,16 @@ document.getElementById("connectBridge").addEventListener("click", connectBridge
 refreshDiagnostics().catch((error) => {
   document.getElementById("diagBackground").textContent = "NG";
   document.getElementById("status").textContent = error instanceof Error ? error.message : "診断を取得できませんでした";
+});
+
+document.getElementById("targetedQuoteScan").addEventListener("click", async () => {
+  const status = document.getElementById("status");
+  try {
+    status.textContent = "既存productとの接続を確認し、最大5件のtargeted collectionを準備しています...";
+    await runTargetedQuoteRefresh();
+    status.textContent = "targeted collectionを開始しました。完了後にdry再評価を実行してください。";
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : "targeted collectionの開始に失敗しました。";
+  }
 });
 refreshSingleStatusState().catch(() => {});

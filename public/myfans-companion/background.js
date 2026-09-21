@@ -1254,6 +1254,7 @@ async function runBulkQuoteRefresh(settings) {
         batchSize: persistedSettings.batchSize || 10,
         queueLimit: persistedSettings.queueLimit || persistedSettings.batchSize || 10,
         cooldownDays: persistedSettings.cooldownDays || 3,
+        targetedCreatorIds: persistedSettings.targetedCreatorIds || [],
         replaceActive: true
       });
       if (!created.job?.id) {
