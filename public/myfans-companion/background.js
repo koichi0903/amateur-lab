@@ -107,6 +107,8 @@ function wait(ms) {
 
 async function observeVisibleThread(tabId, expectedHandle = "", expectedStatusUrl = "") {
   return executeMain(tabId, async () => {
+    const observationStartedAt = new Date().toISOString();
+    const observationStartedMs = Date.now();
     const articles = () => Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
     const before = articles().length;
     const targetUrl = String(expectedStatusUrl || "").replace(/^https:\/\/twitter\.com\//i, "https://x.com/").replace(/[?#].*$/, "");
@@ -150,6 +152,9 @@ async function observeVisibleThread(tabId, expectedHandle = "", expectedStatusUr
     const articleCountAfter = visibleArticles.length;
     const observationCompleteness = parentFound && scrollPasses.length >= 3 && remainingExpand.length === 0 ? "complete" : "partial";
     return {
+      observationStartedAt,
+      observationFinishedAt: new Date().toISOString(),
+      elapsedMs: Date.now() - observationStartedMs,
       articleCountBefore: before,
       articleCountAfter,
       parentFound,
@@ -451,60 +456,151 @@ async function requestQuoteCancel(jobId) {
 }
 
 function diagnosticStatusUrl(value) {
-  const raw = String(value || "").trim().replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
-  return /^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d+$/i.test(raw) ? raw : "";
+  try {
+    const raw = String(value || "").trim().replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
+    const url = new URL(raw);
+    const match = url.pathname.match(/^\/([A-Za-z0-9_]{1,15})\/status\/(\d+)\/?$/i);
+    return url.protocol === "https:" && url.hostname.toLowerCase() === "x.com" && match
+      ? `https://x.com/${match[1]}/status/${match[2]}`
+      : "";
+  } catch {
+    return "";
+  }
 }
 
 async function runDiagnosticStatus(settings) {
   if (diagnosticRunning) return;
   diagnosticRunning = true;
   const diagnosticRunId = settings.diagnosticRunId || `diag-${Date.now()}`;
-  await chrome.storage.local.set({ myfansDiagnosticState: { status: "running", diagnosticRunId, sourceStatusUrl: settings.sourceStatusUrl || null, diagnosticMode: true } });
+  const requestedStatusUrl = settings.sourceStatusUrl || null;
+  const transitions = [];
+  let currentStage = "VALIDATE_INPUT";
+  const statusUrl = diagnosticStatusUrl(requestedStatusUrl);
+  const handle = statusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "";
+  const writeState = (patch) => chrome.storage.local.set({ myfansDiagnosticState: {
+    status: "running",
+    diagnosticMode: true,
+    diagnosticRunId,
+    sourceStatusUrl: statusUrl || requestedStatusUrl,
+    stage: currentStage,
+    transitions,
+    ...patch
+  } });
+  const stage = async (name, fn, diagnostics = {}) => {
+    currentStage = name;
+    const startedAt = new Date().toISOString();
+    const startedMs = Date.now();
+    transitions.push({ stage: name, status: "started", startedAt, diagnostics });
+    await writeState({ stage: name });
+    try {
+      const result = await fn();
+      transitions.push({ stage: name, status: "completed", startedAt, finishedAt: new Date().toISOString(), elapsedMs: Date.now() - startedMs, diagnostics: result?.diagnostics || diagnostics });
+      await writeState({ stage: name, elapsedMs: Date.now() - startedMs });
+      return result;
+    } catch (error) {
+      const errorCode = categoryFromError(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorDiagnostics = error?.diagnostics || diagnostics;
+      transitions.push({ stage: name, status: "failed", startedAt, finishedAt: new Date().toISOString(), elapsedMs: Date.now() - startedMs, errorCode, errorMessage, diagnostics: errorDiagnostics });
+      error.stage = name;
+      error.diagnostics = errorDiagnostics;
+      throw error;
+    }
+  };
   let diagnosticWorkerTabId = null;
   let originalTabId = null;
+  let workerRetryCount = 0;
+  let threadResult = null;
+  let observation = null;
   try {
-    const statusUrl = diagnosticStatusUrl(settings.sourceStatusUrl);
-    const handle = statusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "";
-    if (!statusUrl || !handle) throw new Error("診断対象はx.comの正規status URLを指定してください。");
-    const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    await writeState({ stage: "VALIDATE_INPUT" });
+    if (!statusUrl || !handle) throw categorizedError("INVALID_STATUS_URL", "診断対象はx.comのstatus URLを指定してください。", { requestedStatusUrl });
+    const [currentTab] = await stage("GET_ORIGINAL_TAB", () => chrome.tabs.query({ active: true, currentWindow: true }), {});
     originalTabId = currentTab?.id || null;
-    const workerTab = await chrome.tabs.create({ url: "about:blank", active: true, openerTabId: currentTab?.id });
-    const workerTabId = workerTab.id;
-    diagnosticWorkerTabId = workerTabId;
-    await chrome.tabs.update(workerTabId, { url: statusUrl, active: true });
-    await waitForTabComplete(workerTabId, 45000);
-    await waitForTweetRender(workerTabId, handle, 18000);
-    let threadResult = null;
-    for (let attempt = 1; attempt <= 8; attempt += 1) {
-      threadResult = await executeMain(workerTabId, collectXStatusThreadReplies, [{ sourceXHandle: handle, sourceStatusUrl: statusUrl }], { requireResult: true });
-      if (!threadResult?.ok || threadResult.authorReplyCount > 0 || attempt === 8) break;
-      await wait(1500);
+    while (true) {
+      try {
+        diagnosticWorkerTabId = await stage("CREATE_WORKER_TAB", async () => {
+          try {
+            const workerTab = await chrome.tabs.create({ url: "about:blank", active: true, openerTabId: currentTab?.id });
+            if (!Number.isSafeInteger(workerTab?.id)) throw new Error("worker tab IDが返りませんでした。");
+            return workerTab.id;
+          } catch (error) {
+            throw categorizedError("WORKER_TAB_CREATE_FAILED", error instanceof Error ? error.message : String(error));
+          }
+        });
+        await stage("NAVIGATE_STATUS", async () => {
+          await assertWorkerTabAlive(diagnosticWorkerTabId);
+          try {
+            await chrome.tabs.update(diagnosticWorkerTabId, { url: statusUrl, active: true });
+            await waitForTabComplete(diagnosticWorkerTabId, 45000);
+          } catch (error) {
+            if (isWorkerTabLostError(error)) throw error;
+            throw categorizedError(categoryFromError(error) === FAILURE_CATEGORY.NAVIGATION_TIMEOUT ? FAILURE_CATEGORY.NAVIGATION_TIMEOUT : "NAVIGATION_FAILED", error instanceof Error ? error.message : String(error), { statusUrl, tabId: diagnosticWorkerTabId });
+          }
+        }, { statusUrl, tabId: diagnosticWorkerTabId });
+        const ready = await stage("WAIT_STATUS_READY", () => waitForStatusReady(diagnosticWorkerTabId, handle, statusUrl, 18000), { statusUrl, tabId: diagnosticWorkerTabId });
+        observation = await stage("COLLECT_THREAD", () => observeVisibleThread(diagnosticWorkerTabId, handle, statusUrl), { statusUrl, tabId: diagnosticWorkerTabId });
+        threadResult = await stage("COLLECT_THREAD_RESULT", () => executeMain(diagnosticWorkerTabId, collectXStatusThreadReplies, [{ sourceXHandle: handle, sourceStatusUrl: statusUrl }], { requireResult: true }), { statusUrl, tabId: diagnosticWorkerTabId, ready });
+        if (!threadResult?.ok) throw categorizedError(threadResult?.errorCode || "THREAD_RESULT_FAILED", threadResult?.errorMessage || "status threadの取得に失敗しました。", { observation, threadResult });
+        break;
+      } catch (error) {
+        if (workerRetryCount < 1 && isWorkerTabLostError(error)) {
+          workerRetryCount += 1;
+          const oldTabId = diagnosticWorkerTabId;
+          transitions.push({ stage: "RECREATE_WORKER_TAB", status: "started", oldTabId, retry: workerRetryCount });
+          await writeState({ stage: "RECREATE_WORKER_TAB", workerRetryCount, oldTabId });
+          if (oldTabId) await chrome.tabs.remove(oldTabId).catch(() => undefined);
+          diagnosticWorkerTabId = null;
+          continue;
+        }
+        throw error;
+      }
     }
     if (!threadResult?.ok) throw new Error("status threadの取得に失敗しました。");
     if (String(threadResult.sourceAuthorHandle || "").toLowerCase() !== handle.toLowerCase()) throw new Error("status元投稿のauthorが指定handleと一致しません。");
     for (const candidate of threadResult.quoteCandidates || []) {
+      candidate.resolverEvidence = (candidate.myfansUrls || [])
+        .filter((url) => !/^https:\/\/t\.co\//i.test(url))
+        .map((url) => ({ method: "direct_dom", sourceUrl: url, resolvedUrl: url, resolved: true }));
       for (const redirectUrl of (candidate.myfansUrls || []).filter((url) => /^https:\/\/t\.co\//i.test(url))) {
-        await chrome.tabs.update(workerTabId, { url: redirectUrl, active: true });
-        await waitForTabComplete(workerTabId, 30000);
+        const resolveStartedAt = new Date().toISOString();
+        const resolveStartedMs = Date.now();
+        await chrome.tabs.update(diagnosticWorkerTabId, { url: redirectUrl, active: true });
+        await waitForTabComplete(diagnosticWorkerTabId, 30000);
         let resolvedUrl = "";
         for (let redirectAttempt = 0; redirectAttempt < 15; redirectAttempt += 1) {
-          resolvedUrl = (await chrome.tabs.get(workerTabId)).url || "";
+          resolvedUrl = (await chrome.tabs.get(diagnosticWorkerTabId)).url || "";
           if (/^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(resolvedUrl)) break;
           await wait(1000);
         }
         if (!/^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(resolvedUrl)) {
-          resolvedUrl = await executeMain(workerTabId, () => location.href).catch(() => resolvedUrl);
+          resolvedUrl = await executeMain(diagnosticWorkerTabId, () => location.href).catch(() => resolvedUrl);
         }
         if (/^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(resolvedUrl)) {
           candidate.observedMfcoLink = true;
           candidate.myfansUrls = [...new Set([...(candidate.myfansUrls || []).filter((url) => !/^https:\/\/t\.co\//i.test(url)), resolvedUrl.replace(/[?#].*$/, "")])];
         }
+        candidate.resolverEvidence.push({
+          method: "redirect_tracking",
+          sourceUrl: redirectUrl,
+          resolvedUrl: /^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(resolvedUrl) ? resolvedUrl.replace(/[?#].*$/, "") : null,
+          resolved: /^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(resolvedUrl),
+          startedAt: resolveStartedAt,
+          finishedAt: new Date().toISOString(),
+          elapsedMs: Date.now() - resolveStartedMs
+        });
+        if (candidate.linkDiagnostics) {
+          candidate.linkDiagnostics.resolvedLinkCount = candidate.myfansUrls.length;
+          candidate.linkDiagnostics.acceptedMyfansLinkCount = candidate.myfansUrls.filter((url) => /^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(url)).length;
+          candidate.linkDiagnostics.resolverEvidenceCount = candidate.resolverEvidence.length;
+        }
       }
     }
     const payload = await sendPayload({ ...settings, diagnosticMode: true, sourceStatusUrl: statusUrl, diagnosticRunId }, { type: "x_diagnostic_status_scan", diagnosticMode: true, sourceStatusUrl: statusUrl, sourceXHandle: handle, diagnosticRunId, quoteCandidates: threadResult.quoteCandidates || [] });
-    await chrome.storage.local.set({ myfansDiagnosticState: { status: "done", diagnosticMode: true, sourceStatusUrl: statusUrl, sourceXHandle: handle, sourceAuthorHandle: threadResult.sourceAuthorHandle, replyCandidates: threadResult.quoteCandidates || [], ...payload } });
+    await chrome.storage.local.set({ myfansDiagnosticState: { status: "done", diagnosticMode: true, diagnosticRunId, sourceStatusUrl: statusUrl, sourceXHandle: handle, sourceAuthorHandle: threadResult.sourceAuthorHandle, replyCandidates: threadResult.quoteCandidates || [], stage: "SAVE_RESULT", errorCode: null, error: null, transitions, observationDiagnostics: observation, threadResultDiagnostics: threadResult.diagnostics || null, ...payload } });
   } catch (error) {
-    await chrome.storage.local.set({ myfansDiagnosticState: { status: "error", diagnosticMode: true, diagnosticRunId, sourceStatusUrl: settings.sourceStatusUrl || null, error: error instanceof Error ? error.message : String(error) } });
+    const errorCode = categoryFromError(error);
+    await chrome.storage.local.set({ myfansDiagnosticState: { status: "error", diagnosticMode: true, diagnosticRunId, sourceStatusUrl: statusUrl || requestedStatusUrl, sourceXHandle: handle || null, stage: error.stage || currentStage, errorCode, error: error instanceof Error ? error.message : String(error), transitions, observationDiagnostics: observation, threadResultDiagnostics: threadResult?.diagnostics || null, workerRetryCount } });
   } finally {
     if (originalTabId) await chrome.tabs.update(originalTabId, { active: true }).catch(() => undefined);
     if (diagnosticWorkerTabId) await chrome.tabs.remove(diagnosticWorkerTabId).catch(() => undefined);
@@ -672,6 +768,63 @@ async function ensureWorkerTab(openerTabId) {
   return tab.id;
 }
 
+function isWorkerTabLostError(error) {
+  const category = categoryFromError(error);
+  const message = error instanceof Error ? error.message : String(error || "");
+  return category === FAILURE_CATEGORY.TAB_NOT_READY
+    || /No tab with id|tab.*(?:not found|does not exist)|Could not find tab/i.test(message);
+}
+
+async function recreateWorkerTabForStatus(openerTabId, oldTabId, statusUrl, expectedHandle) {
+  if (oldTabId) await chrome.tabs.remove(oldTabId).catch(() => undefined);
+  await chrome.storage.local.remove([WORKER_TAB_KEY]);
+  const tabId = await ensureWorkerTab(openerTabId);
+  await chrome.tabs.update(tabId, { url: statusUrl, active: false });
+  await waitForTabComplete(tabId, 45000);
+  const ready = await waitForStatusReady(tabId, expectedHandle, statusUrl, 18000);
+  return {
+    tabId,
+    evidence: {
+      recreatedAt: new Date().toISOString(),
+      oldTabId: oldTabId ?? null,
+      newTabId: tabId,
+      currentUrl: ready.currentUrl,
+      statusId: statusUrl.match(/\/status\/(\d+)/)?.[1] || null,
+      expectedHandle,
+      parentAuthor: ready.parentAuthor,
+      authorMatch: String(ready.parentAuthor || "").toLowerCase() === String(expectedHandle || "").toLowerCase()
+    }
+  };
+}
+
+async function resolveWorkerTabLink(tabId, sourceUrl, statusUrl, expectedHandle) {
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  await chrome.tabs.update(tabId, { url: sourceUrl, active: false });
+  await waitForTabComplete(tabId, 30000);
+  const tab = await chrome.tabs.get(tabId);
+  const resolvedUrl = String(tab.url || "").replace(/[?#].*$/, "");
+  const resolved = /^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(resolvedUrl);
+  await chrome.tabs.update(tabId, { url: statusUrl, active: false });
+  await waitForTabComplete(tabId, 45000);
+  const ready = await waitForStatusReady(tabId, expectedHandle, statusUrl, 18000);
+  return {
+    resolved,
+    resolvedUrl: resolved ? resolvedUrl : "",
+    evidence: {
+      sourceUrl,
+      resolvedUrl: resolved ? resolvedUrl : null,
+      resolved,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      elapsedMs: Date.now() - startedMs,
+      returnedToStatusUrl: ready.currentUrl,
+      statusId: statusUrl.match(/\/status\/(\d+)/)?.[1] || null,
+      authorMatch: String(ready.parentAuthor || "").toLowerCase() === String(expectedHandle || "").toLowerCase()
+    }
+  };
+}
+
 async function waitForTabComplete(tabId, timeoutMs) {
   const startedAt = Date.now();
   let sawCommittedUrl = false;
@@ -719,11 +872,16 @@ function collectXQuoteCandidates() {
     if (typeof value !== "object") throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:unsupported_type`);
     if (seen.has(value)) throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:circular`);
     seen.add(value);
-    if (Array.isArray(value)) return value.map((item, index) => serializePlainJson(item, `${path}[${index}]`, seen));
+    if (Array.isArray(value)) {
+      const output = value.map((item, index) => serializePlainJson(item, `${path}[${index}]`, seen));
+      seen.delete(value);
+      return output;
+    }
     const proto = Object.getPrototypeOf(value);
     if (proto !== Object.prototype && proto !== null) throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:non_plain_object`);
     const output = {};
     for (const key of Object.keys(value)) output[key] = serializePlainJson(value[key], `${path}.${key}`, seen);
+    seen.delete(value);
     return output;
   };
   const finalize = (payload) => {
@@ -964,11 +1122,16 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
     if (typeof value !== "object") throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:unsupported_type`);
     if (seen.has(value)) throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:circular`);
     seen.add(value);
-    if (Array.isArray(value)) return value.map((item, index) => serializePlainJson(item, `${path}[${index}]`, seen));
+    if (Array.isArray(value)) {
+      const output = value.map((item, index) => serializePlainJson(item, `${path}[${index}]`, seen));
+      seen.delete(value);
+      return output;
+    }
     const proto = Object.getPrototypeOf(value);
     if (proto !== Object.prototype && proto !== null) throw new Error(`RESULT_SERIALIZATION_FAILED:${path}:non_plain_object`);
     const output = {};
     for (const key of Object.keys(value)) output[key] = serializePlainJson(value[key], `${path}.${key}`, seen);
+    seen.delete(value);
     return output;
   };
   const pageText = document.body?.innerText || "";
@@ -997,14 +1160,77 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
     .find((handle) => /^[A-Za-z0-9_]{1,15}$/.test(handle) && !["home", "explore", "search", "notifications", "messages", "i", "settings"].includes(handle.toLowerCase())) || "";
   const extractMyfansUrls = (article) => {
     const urls = [];
-    for (const link of Array.from(article.querySelectorAll("a[href]"))) {
-      const href = link.href || link.getAttribute("href") || "";
+    const rejectionReasons = {};
+    const addRejection = (reason) => { rejectionReasons[reason] = (rejectionReasons[reason] || 0) + 1; };
+    const isNestedTweetAnchor = (link) => {
+      let node = link.parentElement;
+      while (node && node !== article) {
+        if (node.matches?.('article[data-testid="tweet"]')) return true;
+        node = node.parentElement;
+      }
+      return false;
+    };
+    const isCardAnchor = (link) => {
+      let node = link;
+      while (node && node !== article) {
+        const marker = [node.getAttribute?.("data-testid") || "", node.getAttribute?.("aria-label") || "", node.getAttribute?.("role") || "", node.className || ""].join(" ");
+        if (/card|preview|summary|website|unified.?card|tweetbox/i.test(marker)) return true;
+        node = node.parentElement;
+      }
+      return false;
+    };
+    const hrefClass = (href) => {
+      try {
+        const parsed = new URL(href, location.href);
+        return parsed.hostname.toLowerCase() === "t.co" ? "t.co" : parsed.hostname.toLowerCase() || "relative";
+      } catch {
+        return "invalid";
+      }
+    };
+    const anchors = Array.from(article.querySelectorAll("a[href]"));
+    let anchorCount = 0;
+    let cardAnchorCount = 0;
+    let tcoCount = 0;
+    let directAcceptedCount = 0;
+    for (const link of anchors) {
+      if (isNestedTweetAnchor(link)) {
+        addRejection("nested_tweet_or_quote");
+        continue;
+      }
+      anchorCount += 1;
+      const href = String(link.getAttribute("href") || link.href || "");
+      const cardAnchor = isCardAnchor(link);
+      if (cardAnchor) cardAnchorCount += 1;
       const visible = [href, link.getAttribute("aria-label") || "", link.textContent || ""].join(" ");
       const direct = visible.match(/https?:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\/[^\s"'<>）)]+/gi) || [];
-      urls.push(...direct.map((url) => url.replace(/[?#].*$/, "").replace(/[.,。、]+$/, "")));
-      if (/\bmfco\.link\b/i.test(visible) && !direct.some((url) => /mfco\.link/i.test(url)) && /^https:\/\/t\.co\//i.test(href)) urls.push(href.replace(/[?#].*$/, ""));
+      const directUrls = direct.map((url) => url.replace(/[?#].*$/, "").replace(/[.,。、]+$/, ""));
+      if (directUrls.length > 0) {
+        directAcceptedCount += directUrls.length;
+        urls.push(...directUrls);
+        continue;
+      }
+      let parsed;
+      try { parsed = new URL(href, location.href); } catch { addRejection("invalid_href"); continue; }
+      if (parsed.hostname.toLowerCase() === "t.co") {
+        tcoCount += 1;
+        urls.push(`${parsed.origin}${parsed.pathname}`);
+        continue;
+      }
+      if (/\bmfco\.link\b|\bmyfans\.jp\b/i.test(visible)) addRejection("displayed_domain_without_usable_href");
+      else if (cardAnchor) addRejection("non_target_card_host");
     }
-    return Array.from(new Set(urls));
+    return {
+      urls: Array.from(new Set(urls)),
+      diagnostics: {
+        anchorCount,
+        rawHrefClasses: Array.from(new Set(anchors.filter((link) => !isNestedTweetAnchor(link)).map((link) => hrefClass(String(link.getAttribute("href") || link.href || ""))))),
+        cardAnchorCount,
+        tcoCount,
+        resolvedLinkCount: directAcceptedCount,
+        acceptedMyfansLinkCount: directAcceptedCount,
+        rejectionReasons
+      }
+    };
   };
   const mediaInfo = (article, statusUrl) => {
     const hrefs = Array.from(article.querySelectorAll("a[href]"))
@@ -1037,7 +1263,8 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
     const isReply = Boolean(statusUrl && statusId && statusId !== targetStatusId);
     const media = mediaInfo(article, statusUrl);
     const rawText = article.innerText || "";
-    const myfansUrls = extractMyfansUrls(article);
+    const linkEvidence = extractMyfansUrls(article);
+    const myfansUrls = linkEvidence.urls;
     const metric = (testId) => parseCount(article.querySelector(`[data-testid="${testId}"]`)?.getAttribute("aria-label") || "");
     return {
       xPostUrl: statusUrl,
@@ -1054,6 +1281,7 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
       postedAt: article.querySelector("time")?.getAttribute("datetime") || null,
       text: extractSourceTextInPage(article.querySelector('[data-testid="tweetText"]')?.textContent || "", rawText),
       myfansUrls,
+      linkDiagnostics: linkEvidence.diagnostics,
       views: null,
       likes: metric("like"),
       reposts: metric("retweet"),
@@ -1087,7 +1315,14 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
     ownReplies,
     threadObservationStatus: "VISIBLE_THREAD_OBSERVED",
     pageTextSample: pageText.replace(/\s+/g, " ").slice(0, 160),
-    quoteCandidates: ownReplies
+    quoteCandidates: ownReplies,
+    diagnostics: {
+      ownReplyLinkDiagnostics: ownReplies.map((reply) => ({
+        statusUrl: reply.xPostUrl,
+        authorHandle: reply.authorHandle,
+        ...reply.linkDiagnostics
+      }))
+    }
   };
   try {
     const json = JSON.stringify(serializePlainJson(payload));
@@ -1359,9 +1594,29 @@ async function validateVideoPermalinks(tabId, result) {
   return result;
 }
 
-async function collectFromWorkerTab(tabId, item, jobId) {
+async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
   const stateTransitions = [];
   const transition = (stage, detail = {}) => stateTransitions.push({ stage, at: new Date().toISOString(), ...detail });
+  const timedStage = async (stage, work, detail = {}) => {
+    const startedAt = new Date().toISOString();
+    const startedMs = Date.now();
+    transition(`${stage}_START`, { ...detail, startedAt });
+    try {
+      const value = await work();
+      transition(`${stage}_END`, { ...detail, startedAt, finishedAt: new Date().toISOString(), elapsedMs: Date.now() - startedMs });
+      return value;
+    } catch (error) {
+      transition(`${stage}_ERROR`, {
+        ...detail,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        elapsedMs: Date.now() - startedMs,
+        errorCode: categoryFromError(error),
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  };
   const url = `${item.creator_x_url}?myfans_creator_id=${item.creator_id}&myfans_refresh_job_id=${jobId}&myfans_refresh_item_id=${item.id}`;
   transition("PROFILE_SCAN", { url });
   await assertWorkerTabAlive(tabId);
@@ -1397,16 +1652,48 @@ async function collectFromWorkerTab(tabId, item, jobId) {
   transition("MEDIA_STATUS_QUEUE", { queued: parentCandidates.length, profileArticleCount: result.diagnostics?.articleCount ?? 0, profileOwnPostCount: result.diagnostics?.ownPostCount ?? 0 });
   for (const candidate of parentCandidates) {
     try {
-      transition("NAVIGATE_STATUS", { parentStatusUrl: candidate.xPostUrl, statusId: candidate.xPostUrl.match(/\/status\/(\d+)/)?.[1] || null });
-      await assertWorkerTabAlive(tabId);
-      await chrome.tabs.update(tabId, { url: candidate.xPostUrl, active: false });
-      await waitForTabComplete(tabId, 45000);
-      transition("WAIT_STATUS_READY", { parentStatusUrl: candidate.xPostUrl });
-      const ready = await waitForStatusReady(tabId, expectedHandle, candidate.xPostUrl, 18000);
-      transition("STATUS_READY", { parentStatusUrl: candidate.xPostUrl, currentUrl: ready.currentUrl, parentAuthor: ready.parentAuthor });
-      transition("COLLECT_THREAD", { parentStatusUrl: candidate.xPostUrl });
-      const observation = await observeVisibleThread(tabId, expectedHandle, candidate.xPostUrl);
-      const threadResult = await executeMain(tabId, collectXStatusThreadReplies, [{ sourceXHandle: expectedHandle, sourceStatusUrl: candidate.xPostUrl }], { requireResult: true });
+      const statusId = candidate.xPostUrl.match(/\/status\/(\d+)/)?.[1] || null;
+      let observation = null;
+      let threadResult = null;
+      let statusRetryEvidence = [];
+      let retriedStatusTab = false;
+      while (true) {
+        try {
+          const statusStartedAt = new Date().toISOString();
+          const statusStartedMs = Date.now();
+          transition("NAVIGATE_STATUS", { parentStatusUrl: candidate.xPostUrl, statusId, attempt: retriedStatusTab ? 2 : 1 });
+          await timedStage("STATUS_NAVIGATION", async () => {
+            await assertWorkerTabAlive(tabId);
+            await chrome.tabs.update(tabId, { url: candidate.xPostUrl, active: false });
+            await waitForTabComplete(tabId, 45000);
+          }, { parentStatusUrl: candidate.xPostUrl, statusId });
+          transition("WAIT_STATUS_READY", { parentStatusUrl: candidate.xPostUrl, statusId });
+          const ready = await timedStage("STATUS_READY", () => waitForStatusReady(tabId, expectedHandle, candidate.xPostUrl, 18000), { parentStatusUrl: candidate.xPostUrl, statusId });
+          transition("STATUS_READY_CONFIRMED", { parentStatusUrl: candidate.xPostUrl, statusId, currentUrl: ready.currentUrl, parentAuthor: ready.parentAuthor, authorMatch: ready.parentAuthor?.toLowerCase() === expectedHandle.toLowerCase() });
+          observation = await timedStage("COLLECT_THREAD", () => observeVisibleThread(tabId, expectedHandle, candidate.xPostUrl), { parentStatusUrl: candidate.xPostUrl, statusId });
+          threadResult = await timedStage("DOM_THREAD_SNAPSHOT", () => executeMain(tabId, collectXStatusThreadReplies, [{ sourceXHandle: expectedHandle, sourceStatusUrl: candidate.xPostUrl }], { requireResult: true }), { parentStatusUrl: candidate.xPostUrl, statusId });
+          transition("COLLECT_THREAD_COMPLETE", {
+            parentStatusUrl: candidate.xPostUrl,
+            statusId,
+            startedAt: statusStartedAt,
+            finishedAt: new Date().toISOString(),
+            elapsedMs: Date.now() - statusStartedMs,
+            observationElapsedMs: observation?.elapsedMs ?? null,
+            observationDiagnostics: observation
+          });
+          break;
+        } catch (error) {
+          if (!retriedStatusTab && isWorkerTabLostError(error)) {
+            retriedStatusTab = true;
+            const recreated = await recreateWorkerTabForStatus(openerTabId, tabId, candidate.xPostUrl, expectedHandle);
+            statusRetryEvidence.push(recreated.evidence);
+            tabId = recreated.tabId;
+            transition("WORKER_TAB_RECREATED", { parentStatusUrl: candidate.xPostUrl, statusId, ...recreated.evidence });
+            continue;
+          }
+          throw error;
+        }
+      }
       const observed = Boolean(threadResult?.ok && observation?.parentFound);
       if (observed) {
         statusThreadsObserved += 1;
@@ -1415,14 +1702,17 @@ async function collectFromWorkerTab(tabId, item, jobId) {
       }
       statusThreadMyfansLinkCount += threadResult.myfansLinkCount || 0;
       const parent = threadResult.parentCandidate || null;
+      const parentHasMedia = Boolean(parent?.hasImage || parent?.hasVideo || parent?.mediaType === "image" || parent?.mediaType === "video");
       const ownRepliesForParent = Array.isArray(threadResult.ownReplies) ? threadResult.ownReplies.filter((reply) => reply.authorHandle?.toLowerCase() === expectedHandle.toLowerCase()) : [];
       const parentLinks = Array.isArray(parent?.myfansUrls) ? parent.myfansUrls : [];
       const replyWithLink = ownRepliesForParent.find((reply) => Array.isArray(reply.myfansUrls) && reply.myfansUrls.length > 0) || null;
       const selectedLinkCandidate = parentLinks.length > 0 ? parent : replyWithLink;
+      const statusEvidence = { statusRetryEvidence, observation, threadResultDiagnostics: threadResult?.diagnostics || null, parentHasMedia, resolverEvidence: [] };
       const entry = collectionStatuses.find((item) => item.parentStatusUrl === candidate.xPostUrl);
-      if (!observed || !threadResult?.ok || (!selectedLinkCandidate && !observation?.fullyObserved)) {
+      if (entry) entry.evidence = statusEvidence;
+      if (!parentHasMedia || !observed || !threadResult?.ok || (!selectedLinkCandidate && !observation?.fullyObserved)) {
         if (!observed || !observation?.fullyObserved) threadNotFullyObservedCount += 1;
-        if (entry) entry.status = selectedLinkCandidate ? "OBSERVED_LINK_FOUND" : "THREAD_NOT_FULLY_OBSERVED";
+        if (entry) entry.status = !parentHasMedia ? "NO_MEDIA" : selectedLinkCandidate ? "OBSERVED_LINK_FOUND" : "THREAD_NOT_FULLY_OBSERVED";
         continue;
       }
       if (!selectedLinkCandidate) {
@@ -1431,8 +1721,16 @@ async function collectFromWorkerTab(tabId, item, jobId) {
       }
       transition("RESOLVE_LINK", { parentStatusUrl: candidate.xPostUrl, source: parentLinks.length > 0 ? "parent" : "own_reply" });
       const ownReply = selectedLinkCandidate === parent ? null : selectedLinkCandidate;
-      const selectedLinks = (parentLinks.length > 0 ? parentLinks : ownReply.myfansUrls).filter(Boolean);
-      if (selectedLinks.every((url) => /^https:\/\/t\.co\//i.test(url))) {
+      let selectedLinks = (parentLinks.length > 0 ? parentLinks : ownReply.myfansUrls).filter(Boolean);
+      for (const redirectUrl of selectedLinks.filter((url) => /^https:\/\/t\.co\//i.test(url))) {
+        const resolvedLink = await resolveWorkerTabLink(tabId, redirectUrl, candidate.xPostUrl, expectedHandle);
+        statusEvidence.resolverEvidence.push(resolvedLink.evidence);
+        if (resolvedLink.resolved) {
+          selectedLinks = selectedLinks.map((url) => url === redirectUrl ? resolvedLink.resolvedUrl : url);
+        }
+      }
+      selectedLinks = selectedLinks.filter((url) => !/^https:\/\/t\.co\//i.test(url));
+      if (selectedLinks.length === 0) {
         if (entry) entry.status = "LINK_UNRESOLVED";
         continue;
       }
@@ -1446,7 +1744,7 @@ async function collectFromWorkerTab(tabId, item, jobId) {
         myfansUrls: [...new Set(selectedLinks)],
         threadCollectionStatus: "FOUND_COMPLETE_THREAD",
         collectorMethod: COLLECTOR_METHOD,
-        resolvedProductEvidence: null
+        resolvedProductEvidence: statusEvidence.resolverEvidence.length > 0 ? statusEvidence.resolverEvidence : null
       };
       completeThreadCandidates.push(merged);
       if (entry) entry.status = "FOUND_COMPLETE_THREAD";
@@ -1553,7 +1851,7 @@ async function runBulkQuoteRefresh(settings) {
       for (let attempt = 1; attempt <= 3; attempt += 1) {
         try {
           await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `処理中: ${creatorName || item.creator_x_url} (${attempt}/3)`, retryCount: attempt - 1, sessionProcessed: processedBefore });
-          result = await collectFromWorkerTab(workerTabId, item, next.jobId);
+          result = await collectFromWorkerTab(workerTabId, item, next.jobId, currentTab?.id || null);
           await setQuoteState({
             status: "running",
             currentCreator: creatorName || item.creator_x_url,

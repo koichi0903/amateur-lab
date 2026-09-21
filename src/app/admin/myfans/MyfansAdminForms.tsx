@@ -122,6 +122,12 @@ type DiagnosticState = {
   savedEvidence?: DiagnosticEvidence[];
   evidence?: DiagnosticEvidence[];
   error?: string;
+  errorCode?: string | null;
+  stage?: string | null;
+  workerRetryCount?: number;
+  observationDiagnostics?: Record<string, unknown> | null;
+  threadResultDiagnostics?: Record<string, unknown> | null;
+  transitions?: Array<Record<string, unknown>>;
 };
 type SingleStatusResult = {
   id?: number;
@@ -277,8 +283,15 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
   }, [readWorkerState]);
 
   async function startDiagnostic() {
-    const normalized = statusUrl.trim().replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
-    if (!/^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d+$/i.test(normalized)) {
+    let normalized = "";
+    try {
+      const parsed = new URL(statusUrl.trim().replace(/^https:\/\/twitter\.com\//i, "https://x.com/"));
+      const match = parsed.pathname.match(/^\/([A-Za-z0-9_]{1,15})\/status\/(\d+)\/?$/i);
+      if (parsed.protocol === "https:" && parsed.hostname.toLowerCase() === "x.com" && match) normalized = `https://x.com/${match[1]}/status/${match[2]}`;
+    } catch {
+      normalized = "";
+    }
+    if (!normalized) {
       setError("診断対象は https://x.com/<handle>/status/<数字> の形式だけ指定できます。");
       return;
     }
@@ -333,6 +346,8 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
         <p>本人reply検出数: <span className="font-black text-white">{state?.replyCount ?? "-"}</span></p>
         <p>myfans/mfco link: <span className="font-black text-white">{state?.myfansLinkCount ?? "-"}</span></p>
       </div>
+      {(state?.stage || state?.errorCode) && <p className="mt-2 text-xs text-amber-200">stage: {state.stage ?? "-"} / error code: {state.errorCode ?? "-"} / worker retry: {state.workerRetryCount ?? 0}</p>}
+      {state?.status === "error" && (state.observationDiagnostics || state.threadResultDiagnostics) && <pre className="mt-2 max-h-40 overflow-auto rounded bg-zinc-950 p-2 text-[10px] leading-4 text-zinc-300">{JSON.stringify({ observation: state.observationDiagnostics, thread: state.threadResultDiagnostics }, null, 2)}</pre>}
       <div className="mt-3 rounded-md border border-emerald-800 bg-emerald-950/20 p-3 text-xs leading-5">
         <p className="font-black text-emerald-200">直近のDaily対象1件収集</p>
         {singleResult ? (

@@ -52,6 +52,30 @@ assert.match(background, /COLLECT_THREAD/);
 assert.match(background, /RESOLVE_LINK/);
 assert.match(background, /stateTransitions/);
 assert.match(background, /ownReplyStatusUrl/);
+assert.match(background, /\$\{stage\}_START/);
+assert.match(background, /\$\{stage\}_END/);
+assert.match(background, /elapsedMs/);
+assert.match(background, /articleCountBefore/);
+assert.match(background, /articleCountAfter/);
+assert.match(background, /parentHasMedia/);
+assert.match(background, /WORKER_TAB_RECREATED/);
+assert.match(background, /recreateWorkerTabForStatus/);
+assert.match(background, /statusRetryEvidence/);
+assert.match(background, /retriedStatusTab/);
+assert.match(background, /INVALID_STATUS_URL/);
+assert.match(background, /WORKER_TAB_CREATE_FAILED/);
+assert.match(background, /RECREATE_WORKER_TAB/);
+assert.match(background, /GET_ORIGINAL_TAB/);
+assert.match(background, /COLLECT_THREAD_RESULT/);
+assert.match(background, /observationDiagnostics/);
+assert.match(background, /threadResultDiagnostics/);
+assert.match(background, /workerRetryCount/);
+assert.match(background, /new URL\(raw\)/);
+assert.match(background, /url\.pathname/);
+assert.match(background, /authorMatch/);
+assert.match(background, /sameAuthorReplyCount/);
+assert.match(background, /reply\.authorHandle\?\.toLowerCase\(\) === expectedHandle\.toLowerCase\(\)/);
+assert.match(background, /payload\.ok === false/);
 assert.match(popupHtml, /画像\/動画＋本人myfansリンク付き投稿を最大5件収集/);
 assert.match(background, /attemptDiagnostics/);
 assert.match(background, /MyfansCompanionState\.successPatch/);
@@ -76,6 +100,65 @@ assert.match(popup, /finalStatus !== "success"/);
 const normalize = (value) => value === undefined ? { ok: false, reason: "undefined" } : JSON.parse(JSON.stringify(value));
 assert.deepEqual(normalize(undefined), { ok: false, reason: "undefined" });
 assert.deepEqual(normalize({ ok: true, sourceXHandle: "creator", sourceStatusUrl: "https://x.com/creator/status/1" }), { ok: true, sourceXHandle: "creator", sourceStatusUrl: "https://x.com/creator/status/1" });
+
+const diagnosticUrlSource = background.slice(background.indexOf("function diagnosticStatusUrl"), background.indexOf("async function runDiagnosticStatus"));
+const diagnosticStatusUrl = new Function(`${diagnosticUrlSource}; return diagnosticStatusUrl;`)();
+assert.equal(diagnosticStatusUrl("https://x.com/lumi_reviw/status/209979316390920203?s=20"), "https://x.com/lumi_reviw/status/209979316390920203");
+assert.equal(diagnosticStatusUrl("https://twitter.com/lumi_reviw/status/209979316390920203?utm_source=x"), "https://x.com/lumi_reviw/status/209979316390920203");
+assert.equal(diagnosticStatusUrl("https://x.com/lumi_reviw/status/209979316390920203/not-a-status"), "");
+
+const threadSource = background.slice(background.indexOf("async function collectXStatusThreadReplies"), background.indexOf("async function executeMain", background.indexOf("async function collectXStatusThreadReplies")));
+const collectXStatusThreadReplies = new Function(`return (${threadSource.trim()});`)();
+const link = (href, text = "", parentElement = null, attributes = {}) => ({ href, textContent: text, parentElement, matches() { return false; }, getAttribute(name) { return name === "href" ? href : attributes[name] || null; } });
+const card = (label = "card.layoutLarge.media") => ({ parentElement: null, className: "", matches() { return false; }, getAttribute(name) { return name === "data-testid" ? label : null; } });
+const threadArticle = (author, statusId, myfansUrl = "", options = {}) => {
+  const statusLink = link(`/${author}/status/${statusId}`);
+  const authorLink = link(`/${author}`, `@${author}`);
+  const links = [authorLink, statusLink];
+  if (myfansUrl) links.push(link(myfansUrl, myfansUrl));
+  if (options.cardHref) links.push(link(options.cardHref, options.cardText || "mfco.link/から", options.cardParent || card()));
+  if (options.quotedCardHref) {
+    const quotedArticle = { parentElement: null, matches(selector) { return selector === 'article[data-testid="tweet"]'; }, getAttribute() { return null; } };
+    links.push(link(options.quotedCardHref, "mfco.link/quoted", quotedArticle));
+  }
+  return {
+    innerText: "fixture thread post",
+    querySelectorAll(selector) {
+      if (selector === "a[href]") return links;
+      if (selector === '[data-testid="User-Name"] a[href]') return [authorLink];
+      return [];
+    },
+    querySelector() { return null; }
+  };
+};
+globalThis.document = {
+  body: { innerText: "fixture thread" },
+  querySelectorAll(selector) {
+    return selector === 'article[data-testid="tweet"]'
+      ? [threadArticle("lumi_reviw", "209979316390920203"), threadArticle("lumi_reviw", "2", "https://mfco.link/p/own"), threadArticle("lumi_reviw", "4", "", { cardHref: "https://t.co/card-own" }), threadArticle("lumi_reviw", "5", "", { quotedCardHref: "https://t.co/card-quoted" }), threadArticle("other_user", "3", "https://mfco.link/p/foreign")]
+      : [];
+  }
+};
+globalThis.location = { href: "https://x.com/lumi_reviw/status/209979316390920203" };
+const threadResult = await collectXStatusThreadReplies({ sourceXHandle: "lumi_reviw", sourceStatusUrl: "https://x.com/lumi_reviw/status/209979316390920203?s=20" });
+assert.equal(threadResult.ok, true, JSON.stringify(threadResult));
+assert.equal(threadResult.authorReplyCount, 3);
+assert.equal(threadResult.foreignReplyCount, 1);
+assert.equal(threadResult.quoteCandidates.length, 3);
+assert.equal(threadResult.quoteCandidates[0].myfansUrls[0], "https://mfco.link/p/own");
+const cardReply = threadResult.quoteCandidates.find((reply) => reply.xPostUrl.endsWith("/4"));
+assert.deepEqual(cardReply.myfansUrls, ["https://t.co/card-own"]);
+assert.equal(cardReply.linkDiagnostics.cardAnchorCount, 1);
+assert.equal(cardReply.linkDiagnostics.tcoCount, 1);
+assert.equal(cardReply.linkDiagnostics.acceptedMyfansLinkCount, 0);
+assert.equal(threadResult.quoteCandidates.find((reply) => reply.xPostUrl.endsWith("/5")).myfansUrls.length, 0);
+
+globalThis.document.querySelectorAll = (selector) => selector === 'article[data-testid="tweet"]'
+  ? [threadArticle("lumi_reviw", "209979316390920203"), threadArticle("lumi_reviw", "2")]
+  : [];
+const noLinkThreadResult = await collectXStatusThreadReplies({ sourceXHandle: "lumi_reviw", sourceStatusUrl: "https://x.com/lumi_reviw/status/209979316390920203" });
+assert.equal(noLinkThreadResult.authorReplyCount, 1);
+assert.equal(noLinkThreadResult.myfansLinkCount, 0);
 
 function extractFunction(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
