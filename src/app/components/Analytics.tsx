@@ -128,6 +128,7 @@ export default function Analytics() {
   const [analyticsReady, setAnalyticsReady] = useState(false);
 
   useEffect(() => {
+    if (pathname.startsWith("/admin")) return;
     storeFirstPartyAttribution();
     if (!GA_MEASUREMENT_ID) return;
 
@@ -138,7 +139,7 @@ export default function Analytics() {
     window.gtag("js", new Date());
     window.gtag("config", GA_MEASUREMENT_ID, { send_page_view: false });
     setAnalyticsReady(true);
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     if (!GA_MEASUREMENT_ID || !window.gtag || !analyticsReady) return;
@@ -155,7 +156,7 @@ export default function Analytics() {
     });
   }, [analyticsReady, pathname]);
 
-  if (!GA_MEASUREMENT_ID) return null;
+  if (!GA_MEASUREMENT_ID || pathname.startsWith("/admin")) return null;
 
   return (
     <Script

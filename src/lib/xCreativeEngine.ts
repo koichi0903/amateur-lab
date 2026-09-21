@@ -486,7 +486,10 @@ function mediaFor(input: XCreativeInput, intent: XGrowthIntent): XCreativeMedia 
   if ((input.mediaManualTags ?? []).includes("too_explicit_for_reach") || (input.mediaManualTags ?? []).includes("weak_visual") || input.mediaQuality === "weak") return input.imageUrl ? "existing_link_image" : "text";
   if (input.hasRightsCheckedMovie && input.sampleMovieUrl && (intent === "REACH" || intent === "FOLLOW" || intent === "AUTHORITY")) return "sample_movie";
   if (input.imageUrl && input.sourceType !== "MARKET" && input.sourceType !== "COMPARISON" && input.sourceType !== "JUDGMENT") return "existing_link_image";
-  if ((input.sourceType === "MARKET" || input.sourceType === "COMPARISON" || input.sourceType === "JUDGMENT") && evidenceLines(input).length >= 2) return "data_card";
+  // X Growth never uses generated/data cards. A real work image is always
+  // preferable to a synthetic comparison card, including market-oriented
+  // candidates.
+  if (input.imageUrl) return "existing_link_image";
   return "text";
 }
 
@@ -916,7 +919,9 @@ export function buildXCreativeVariants(input: XCreativeInput, hookScore = calcul
       hookType: hookScore.bestHook.type,
       structure: plan.structure,
       mediaType,
-      imageStrategy: mediaType === "existing_link_image" ? "original_work_image" as const : "branded_data_card" as const,
+      // Cards are not part of the X Growth media policy. Video and real work
+      // images both use the original work-media strategy label.
+      imageStrategy: "original_work_image" as const,
       linkStrategy: linkPlan === "body_link" ? "body_link" as const : "reply_link" as const,
       linkPlan,
       ctaStrategy: plan.cta,

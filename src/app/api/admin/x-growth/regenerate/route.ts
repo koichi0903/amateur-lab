@@ -30,6 +30,7 @@ export async function POST() {
     semanticSupply: os.supplyDiagnostics.semanticSupply,
     semanticSelected: os.supplyDiagnostics.semanticSelected,
     semanticQuotaOverflowReasons: os.supplyDiagnostics.semanticQuotaOverflowReasons,
+    pipeline: os.supplyDiagnostics.pipeline,
     money: {
       generated: os.supplyDiagnostics.moneyGenerated,
       hardGatePassed: os.supplyDiagnostics.moneyHardGatePassed,
