@@ -424,7 +424,7 @@ async function sendPayload(settings, result) {
   const response = await fetch(`${normalizeBaseUrl(settings.baseUrl)}/api/admin/myfans/companion`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...result, approvedMediaId: settings.approvedMediaId || null, approvedMediaName: settings.approvedMediaName || "@lumi_reviw" })
+    body: JSON.stringify({ ...result, refreshJobId: settings.jobId || result.refreshJobId || null, collectionSessionId: settings.sessionId || result.collectionSessionId || null, runToken: settings.runToken || result.runToken || null, collectorVersion: settings.collectorVersion || WORKER_VERSION, approvedMediaId: settings.approvedMediaId || null, approvedMediaName: settings.approvedMediaName || "@lumi_reviw" })
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || `送信に失敗しました (${response.status})`);
@@ -731,6 +731,9 @@ async function markItemFailed(settings, jobId, itemId, error) {
       type: "x_quote_scan",
       refreshJobId: jobId,
       refreshJobItemId: itemId,
+      collectionSessionId: settings.sessionId || null,
+      runToken: settings.runToken || null,
+      collectorVersion: settings.collectorVersion || WORKER_VERSION,
       creatorId: "",
       creatorXUrl: "",
       sourceXHandle: "",
@@ -1707,12 +1710,33 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
       const parentLinks = Array.isArray(parent?.myfansUrls) ? parent.myfansUrls : [];
       const replyWithLink = ownRepliesForParent.find((reply) => Array.isArray(reply.myfansUrls) && reply.myfansUrls.length > 0) || null;
       const selectedLinkCandidate = parentLinks.length > 0 ? parent : replyWithLink;
-      const statusEvidence = { statusRetryEvidence, observation, threadResultDiagnostics: threadResult?.diagnostics || null, parentHasMedia, resolverEvidence: [] };
+      const statusEvidence = { statusRetryEvidence, observation, threadResultDiagnostics: threadResult?.diagnostics || null, parentHasMedia, selectedLinkCandidateSource: parentLinks.length > 0 ? "parent" : replyWithLink ? "own_reply" : null, resolverEvidence: [] };
       const entry = collectionStatuses.find((item) => item.parentStatusUrl === candidate.xPostUrl);
       if (entry) entry.evidence = statusEvidence;
-      if (!parentHasMedia || !observed || !threadResult?.ok || (!selectedLinkCandidate && !observation?.fullyObserved)) {
-        if (!observed || !observation?.fullyObserved) threadNotFullyObservedCount += 1;
-        if (entry) entry.status = !parentHasMedia ? "NO_MEDIA" : selectedLinkCandidate ? "OBSERVED_LINK_FOUND" : "THREAD_NOT_FULLY_OBSERVED";
+      if (!observation) {
+        if (entry) entry.status = "OBSERVATION_NULL";
+        continue;
+      }
+      if (!observed || !observation.parentFound) {
+        if (entry) entry.status = "PARENT_NOT_FOUND";
+        continue;
+      }
+      if (!threadResult?.ok) {
+        if (entry) entry.status = "THREAD_RESULT_NOT_OK";
+        continue;
+      }
+      if (!parentHasMedia) {
+        if (entry) entry.status = "NO_MEDIA";
+        continue;
+      }
+      if (!observation.fullyObserved && selectedLinkCandidate) {
+        threadNotFullyObservedCount += 1;
+        if (entry) entry.status = "LINK_FOUND_THREAD_INCOMPLETE";
+        continue;
+      }
+      if (!observation.fullyObserved && !selectedLinkCandidate) {
+        threadNotFullyObservedCount += 1;
+        if (entry) entry.status = "THREAD_INCOMPLETE_WITHOUT_LINK";
         continue;
       }
       if (!selectedLinkCandidate) {
@@ -1752,7 +1776,7 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
     } catch (error) {
       threadNotFullyObservedCount += 1;
       const entry = collectionStatuses.find((item) => item.parentStatusUrl === candidate.xPostUrl);
-      if (entry) entry.status = "THREAD_NOT_FULLY_OBSERVED";
+      if (entry) entry.status = "THREAD_RESULT_NOT_OK";
       transition("THREAD_NOT_FULLY_OBSERVED", { parentStatusUrl: candidate.xPostUrl, error: error instanceof Error ? error.message : String(error) });
     }
   }
@@ -1763,7 +1787,7 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
     ...result,
     ok: hasCompleteThread,
     stage: hasCompleteThread ? "COMPLETE_THREAD" : "COMPLETE_THREAD_NO_MATCH",
-    errorCode: hasCompleteThread ? null : (threadNotFullyObservedCount > 0 ? "THREAD_NOT_FULLY_OBSERVED" : "NO_OWN_MYFANS_LINK"),
+    errorCode: hasCompleteThread ? null : (threadNotFullyObservedCount > 0 ? "THREAD_INCOMPLETE_WITHOUT_LINK" : "NO_OWN_MYFANS_LINK"),
     errorMessage: hasCompleteThread ? null : (threadNotFullyObservedCount > 0 ? "threadを十分に観測できなかったため、リンクなしとは判定しませんでした。" : "本人の親本文または自己リプにmyfansリンクがありませんでした。"),
     collectionStatuses,
     quoteCandidates: deduped,
@@ -1780,6 +1804,7 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
     },
     stateTransitions,
     profileCounts: { articles: result.diagnostics?.articleCount ?? 0, ownPosts: result.diagnostics?.ownPostCount ?? 0, mediaPosts: parentCandidates.length },
+    profileScan: { articleCount: result.diagnostics?.articleCount ?? 0, ownPostCount: result.diagnostics?.ownPostCount ?? 0, videoCandidates: result.diagnostics?.videoCandidates ?? 0, mediaPosts: parentCandidates.length },
     statusCounts: { navigationAttempted: stateTransitions.filter((entry) => entry.stage === "NAVIGATE_STATUS").length, threadsObserved: statusThreadsObserved, fullyObserved: fullyObservedThreads, authorReplies: authorReplies.length, threadLinks: statusThreadMyfansLinkCount }
   };
 }
@@ -1819,15 +1844,17 @@ async function runBulkQuoteRefresh(settings) {
         return;
       }
       persistedSettings.jobId = created.job.id;
-      await quoteRefreshRequest(persistedSettings, { action: "start", jobId: persistedSettings.jobId, sessionId });
+      persistedSettings.runToken = created.job.collection_run_token;
+      persistedSettings.collectorVersion = created.job.collector_version || WORKER_VERSION;
+      await quoteRefreshRequest(persistedSettings, { action: "start", jobId: persistedSettings.jobId, sessionId, runToken: persistedSettings.runToken, collectorVersion: persistedSettings.collectorVersion });
       const rotationMessage = created.rotation?.selectionMode === "empty"
         ? "対象不足: 前日除外とcooldown中のため、同日再利用せず停止します。"
         : created.rotation?.selectionMode === "relaxed"
           ? "優先cooldown中のため、前日除外を維持して最古巡回順で開始します。"
           : "未巡回・長期間未巡回creatorを優先して開始します。";
-      await setQuoteState({ jobId: persistedSettings.jobId, sessionId, launchMode: "new", collectorVersion: WORKER_VERSION, job: created.job, items: created.items || [], message: `new jobを作成しました。${rotationMessage}` });
+      await setQuoteState({ jobId: persistedSettings.jobId, sessionId, runToken: persistedSettings.runToken, launchMode: "new", collectorVersion: WORKER_VERSION, identity: { job_id: persistedSettings.jobId, collection_session_id: sessionId, run_token: persistedSettings.runToken, collector_version: persistedSettings.collectorVersion }, job: created.job, items: created.items || [], message: `new jobを作成しました。${rotationMessage}` });
     } else {
-      await quoteRefreshRequest(persistedSettings, { action: "start", jobId: persistedSettings.jobId, sessionId });
+      await quoteRefreshRequest(persistedSettings, { action: "start", jobId: persistedSettings.jobId, sessionId, runToken: persistedSettings.runToken, collectorVersion: persistedSettings.collectorVersion || WORKER_VERSION });
     }
     if (await isQuoteCancelRequested(persistedSettings.jobId)) {
       await clearQuoteContinuation();
@@ -1835,8 +1862,8 @@ async function runBulkQuoteRefresh(settings) {
       return;
     }
     let workerTabId = await ensureWorkerTab(currentTab?.id);
-    const next = await quoteRefreshRequest(persistedSettings, { action: "next", jobId: persistedSettings.jobId || undefined, sessionId });
-    if (next.stale || next.needsUserAction || next.reason === "session_mismatch") {
+    const next = await quoteRefreshRequest(persistedSettings, { action: "next", jobId: persistedSettings.jobId || undefined, sessionId, runToken: persistedSettings.runToken, collectorVersion: persistedSettings.collectorVersion || WORKER_VERSION });
+    if (next.stale || next.needsUserAction || next.reason === "session_mismatch" || next.errorCode === "JOB_IDENTITY_MISMATCH") {
       await clearQuoteContinuation();
       await setQuoteState({ running: false, status: "needs_user_action", job: next.job || null, sessionId, launchMode: "resumed", collectorVersion: WORKER_VERSION, message: next.message || "自動再開せず停止しました。明示的な操作が必要です。" });
       return;
@@ -1852,6 +1879,7 @@ async function runBulkQuoteRefresh(settings) {
       return;
     }
     const item = next.item;
+    await setQuoteState({ collectionStatuses: [], articleCount: null, ownPostCount: null, candidateCount: 0, videoCandidates: null, videoCount: 0, videoValidation: null, statusThreadsObserved: 0, fullyObservedThreads: 0, authorReplyCount: 0, statusThreadMyfansLinkCount: 0, currentItemId: item.id, currentJobId: next.jobId, identity: { job_id: next.jobId, collection_session_id: sessionId, run_token: persistedSettings.runToken, collector_version: persistedSettings.collectorVersion || WORKER_VERSION } });
     const creatorName = Array.isArray(item.myfans_creators) ? item.myfans_creators[0]?.display_name : item.myfans_creators?.display_name;
     const progressBefore = await fetchQuoteProgress(persistedSettings, { jobId: next.jobId }).catch(() => null);
     const processedBefore = Number(progressBefore?.job?.processed_creators || 0);
@@ -1914,10 +1942,10 @@ async function runBulkQuoteRefresh(settings) {
       await markItemFailed(persistedSettings, next.jobId, item.id, error);
       const message = error instanceof Error ? error.message : "取得に失敗しました";
       const diagnostics = error && typeof error === "object" && error.diagnostics ? error.diagnostics : null;
-      await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `skip: ${creatorName || item.creator_x_url}`, finalStatus: "failed", errorCode: categoryFromError(error), lastError: message, failureDiagnostics: diagnostics, sessionProcessed: processedBefore + 1 });
-      if (categoryFromError(error) === FAILURE_CATEGORY.LOGIN_OR_CHALLENGE || /認証|ログイン|challenge|captcha/i.test(message)) {
+      await setQuoteState({ collectionStatuses: [], articleCount: null, ownPostCount: null, candidateCount: 0, videoCandidates: null, videoCount: 0, videoValidation: null, statusThreadsObserved: 0, fullyObservedThreads: 0, authorReplyCount: 0, statusThreadMyfansLinkCount: 0, status: "running", currentCreator: creatorName || item.creator_x_url, message: `skip: ${creatorName || item.creator_x_url}`, finalStatus: "failed", errorCode: categoryFromError(error), lastError: message, failureDiagnostics: diagnostics, sessionProcessed: processedBefore + 1 });
+      if (categoryFromError(error) === "JOB_IDENTITY_MISMATCH" || /認証|ログイン|challenge|captcha/i.test(message)) {
         await clearQuoteContinuation();
-        await setQuoteState({ running: false, status: "stopped", message, lastError: message });
+        await setQuoteState({ running: false, status: "stopped", errorCode: categoryFromError(error), message, lastError: message, identityMismatch: categoryFromError(error) === "JOB_IDENTITY_MISMATCH" });
         return;
       }
     }
@@ -1990,7 +2018,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "myfans_quote_refresh_start") {
-    const settings = { ...(message.settings || {}), sessionId: crypto.randomUUID(), jobId: null, launchMode: "new", collectorVersion: WORKER_VERSION };
+    const settings = { ...(message.settings || {}), sessionId: crypto.randomUUID(), jobId: null, runToken: null, launchMode: "new", collectorVersion: WORKER_VERSION };
     chrome.storage.local.remove([QUOTE_CANCEL_KEY, QUOTE_SETTINGS_KEY]).then(() => saveCompanionSettings(settings)).then(() => saveQuoteSettings(settings)).then(() => runBulkQuoteRefresh(settings)).catch((error) => console.debug("[myfans companion background] start failed", error));
     sendResponse({ ok: true, status: "accepted", workerVersion: WORKER_VERSION, jobId: null, sessionId: settings.sessionId, launchMode: "new" });
     return true;

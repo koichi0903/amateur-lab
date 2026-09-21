@@ -32,6 +32,7 @@ type QuoteRefreshProgress = {
     excluded_private?: number;
     retryable_errors?: number;
     collection_session_id?: string | null;
+    collection_run_token?: string | null;
     launch_mode?: string | null;
     collector_version?: string | null;
     last_error: string | null;
@@ -65,6 +66,7 @@ type CompanionBridgeStatus = {
   workerVersion: string | null;
   lastAckAt: string | null;
   message: string;
+  identity?: { job_id?: number; collection_session_id?: string; run_token?: string; collector_version?: string } | null;
 };
 type VisualVerificationProgress = {
   checked: number;
@@ -160,6 +162,13 @@ function workerStatusFromDetail(detail: unknown) {
   if (typeof status === "string" && status) return status;
   const running = "running" in state ? (state as { running?: unknown }).running : false;
   return running ? "running" : "idle";
+}
+
+function workerIdentityFromDetail(detail: unknown) {
+  const worker = detail && typeof detail === "object" && "worker" in detail ? (detail as { worker?: unknown }).worker : null;
+  const state = worker && typeof worker === "object" && "state" in worker ? (worker as { state?: unknown }).state : null;
+  const identity = state && typeof state === "object" && "identity" in state ? (state as { identity?: unknown }).identity : null;
+  return identity && typeof identity === "object" ? identity as CompanionBridgeStatus["identity"] : null;
 }
 
 function useMyfansSubmit(successText: string) {
@@ -392,6 +401,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
     workerVersion: null,
     lastAckAt: null,
     message: "not injected",
+    identity: null,
   });
 
   const loadProgress = useCallback(async (jobId?: number) => {
@@ -447,6 +457,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
           workerVersion,
           lastAckAt: new Date().toLocaleTimeString("ja-JP", { hour12: false }),
           message: detail?.connected && worker?.ok ? "connected" : worker?.error || "not connected",
+          identity: workerIdentityFromDetail(detail),
         });
         if (detail?.connected && worker?.ok) resolve();
         else reject(new Error(worker?.error || "Companion bridgeの確認に失敗しました。"));
@@ -570,6 +581,9 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
   }
 
   const job = progress?.job ?? null;
+  const workerIdentity = bridgeStatus.identity;
+  const identityMatches = Boolean(job?.id && job.collection_session_id && job.collection_run_token && workerIdentity?.job_id === job.id && workerIdentity.collection_session_id === job.collection_session_id && workerIdentity.run_token === job.collection_run_token && workerIdentity.collector_version === (job.collector_version ?? bridgeStatus.workerVersion));
+  const displayJob = job && job.collection_session_id && job.collection_run_token && identityMatches ? job : null;
   const current = progress?.items.find((item) => item.status === "running") ?? null;
   const recent = progress?.items.filter((item) => ["success", "failed", "skipped"].includes(item.status)).slice(-5).reverse() ?? [];
   const summary: NonNullable<QuoteRefreshProgress["summary"]> = progress?.summary ?? summarizeMyfansQuoteRefreshItems(progress?.items ?? []);
@@ -730,32 +744,33 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
           Myfans Companionのbridgeとworkerのversionが一致しません。bridge {bridgeStatus.bridgeVersion} / worker {bridgeStatus.workerVersion}。Chrome拡張をreloadしてからDaily Pageをreloadしてください。
         </p>
       )}
-      {job && (
+      {job && !displayJob && <p className="mt-3 rounded-md bg-amber-950 p-2 text-xs font-bold text-amber-200">DB jobと現在のCompanion run identityが一致しないため、過去runの進捗は表示していません。{job.collection_session_id ? "CompanionをReloadしてcurrent-sessionを確認してください。" : "legacy jobはcurrent-sessionとして扱いません。"}</p>}
+      {displayJob && (
         <div className="mt-4 grid gap-3 lg:grid-cols-4">
-          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">job / collector</p><p className="mt-1 font-black text-white">#{job.id} / {job.collector_version ?? "legacy"}</p><p className="mt-1 text-zinc-400">{job.launch_mode ?? "legacy"}{job.collection_session_id ? " / current-sessionあり" : " / 旧session"}</p></div>
-          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">状態</p><p className="mt-1 font-black text-white">{job.status}</p></div>
-          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">進捗</p><p className="mt-1 font-black text-white">{job.processed_creators} / {job.total_creators}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">job / session / collector</p><p className="mt-1 font-black text-white">#{displayJob.id} / {displayJob.collection_session_id} / {displayJob.collector_version}</p><p className="mt-1 text-zinc-400">{displayJob.launch_mode ?? "new"} / identity一致</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">状態</p><p className="mt-1 font-black text-white">{displayJob.status}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">進捗</p><p className="mt-1 font-black text-white">{displayJob.processed_creators} / {displayJob.total_creators}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">成功/要修正/blocked/skipped</p><p className="mt-1 font-black text-white">{summary.success} / {summary.failed} / {summary.blocked} / {summary.skipped}</p></div>
-          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">collector / complete-thread</p><p className="mt-1 font-black text-white">{summary.success} / {summary.complete_threads_found ?? job.complete_threads_found ?? 0}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">collector / complete-thread</p><p className="mt-1 font-black text-white">{summary.success} / {summary.complete_threads_found ?? displayJob.complete_threads_found ?? 0}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">システム成功率</p><p className={`mt-1 font-black ${successRate !== null && successRate >= 80 ? "text-emerald-300" : "text-amber-300"}`}>{successRate === null ? "-" : `${successRate}%`}</p></div>
-          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">巡回cursor / cycle</p><p className="mt-1 font-black text-white">{job.cursor_after_order ?? 0} / {job.collection_cycle_no ?? 1}{job.cycle_completed ? " (完了)" : ""}</p></div>
-          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">complete thread / candidates</p><p className="mt-1 font-black text-white">{job.complete_threads_found ?? 0} / {job.candidates_saved ?? 0}</p></div>
-          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">NO_MATCH / NO_POSTS / PRIVATE</p><p className="mt-1 font-black text-white">{job.no_match ?? 0} / {job.excluded_no_posts ?? 0} / {job.excluded_private ?? 0}</p></div>
-          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">retryable errors</p><p className="mt-1 font-black text-white">{job.retryable_errors ?? 0}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">巡回cursor / cycle</p><p className="mt-1 font-black text-white">{displayJob.cursor_after_order ?? 0} / {displayJob.collection_cycle_no ?? 1}{displayJob.cycle_completed ? " (完了)" : ""}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">complete thread / candidates</p><p className="mt-1 font-black text-white">{displayJob.complete_threads_found ?? 0} / {displayJob.candidates_saved ?? 0}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">NO_MATCH / NO_POSTS / PRIVATE</p><p className="mt-1 font-black text-white">{displayJob.no_match ?? 0} / {displayJob.excluded_no_posts ?? 0} / {displayJob.excluded_private ?? 0}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">retryable errors</p><p className="mt-1 font-black text-white">{displayJob.retryable_errors ?? 0}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">profile scan / navigation / observed / fully observed</p><p className="mt-1 font-black text-white">{summary.profile_scan_ok ?? 0} / {summary.status_navigation_attempted ?? 0} / {summary.status_threads_observed ?? 0} / {summary.fully_observed ?? 0}</p></div>
         </div>
       )}
-      {job?.status === "completed" && (
+      {displayJob?.status === "completed" && (
         <p className={`mt-3 rounded-md p-2 text-xs font-bold ${successRate !== null && successRate >= 80 ? "bg-emerald-950 text-emerald-200" : "bg-amber-950 text-amber-200"}`}>
           completed: 成功{summary.success} / 要修正{summary.failed} / blocked{summary.blocked} / skipped{summary.skipped} / システム成功率{successRate === null ? "判定対象なし" : `${successRate}%`}
         </p>
       )}
       {current && <p className="mt-3 text-xs text-violet-200">現在処理中: {creatorNameFromItem(current)}</p>}
-      {job && (
+      {displayJob && (
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" onClick={() => control("pause")} disabled={pending || job.status === "paused"} className="h-10 rounded-lg bg-amber-700 px-3 text-xs font-black text-white disabled:opacity-50">pause</button>
-          <button type="button" onClick={() => control("resume")} disabled={pending || job.status !== "paused"} className="h-10 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50">resume</button>
-          <button type="button" onClick={() => control("cancel")} disabled={pending || ["completed", "cancelled"].includes(job.status)} className="h-10 rounded-lg bg-red-700 px-3 text-xs font-black text-white disabled:opacity-50">cancel</button>
+          <button type="button" onClick={() => control("pause")} disabled={pending || displayJob.status === "paused"} className="h-10 rounded-lg bg-amber-700 px-3 text-xs font-black text-white disabled:opacity-50">pause</button>
+          <button type="button" onClick={() => control("resume")} disabled={pending || displayJob.status !== "paused"} className="h-10 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50">resume</button>
+          <button type="button" onClick={() => control("cancel")} disabled={pending || ["completed", "cancelled"].includes(displayJob.status)} className="h-10 rounded-lg bg-red-700 px-3 text-xs font-black text-white disabled:opacity-50">cancel</button>
         </div>
       )}
       {recent.length > 0 && (

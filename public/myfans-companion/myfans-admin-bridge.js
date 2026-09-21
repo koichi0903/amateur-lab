@@ -195,7 +195,10 @@ function startFromDetail(rawDetail) {
         baseUrl: window.location.origin,
         approvedMediaId: detail.approvedMediaId || null,
         approvedMediaName: detail.approvedMediaName || "@lumi_reviw",
-        jobId
+        jobId,
+        collectionSessionId: detail.collectionSessionId || null,
+        runToken: detail.runToken || null,
+        collectorVersion: detail.collectorVersion || extensionVersion
       }
     },
     (response) => {

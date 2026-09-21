@@ -101,8 +101,28 @@ type QuoteScanPayload = {
   collectionStatuses?: Array<{ parentStatusUrl?: unknown; status?: unknown }>;
   stateTransitions?: Array<{ stage?: unknown; at?: unknown; [key: string]: unknown }>;
   profileCounts?: Record<string, unknown>;
+  profileScan?: Record<string, unknown>;
   statusCounts?: Record<string, unknown>;
+  collectionSessionId?: unknown;
+  runToken?: unknown;
+  collectorVersion?: unknown;
 };
+
+const THREAD_INCOMPLETE_STATUSES = new Set(["THREAD_NOT_FULLY_OBSERVED", "LINK_FOUND_THREAD_INCOMPLETE", "THREAD_INCOMPLETE_WITHOUT_LINK"]);
+
+async function validateRunIdentity(payload: QuoteScanPayload) {
+  const jobId = Number(payload.refreshJobId);
+  const sessionId = cleanText(payload.collectionSessionId);
+  const runToken = cleanText(payload.runToken);
+  const collectorVersion = cleanText(payload.collectorVersion);
+  if (!Number.isSafeInteger(jobId) || jobId <= 0) return { ok: false as const, error: "JOB_IDENTITY_MISMATCH: job_idがありません。" };
+  const { data: job, error } = await supabaseAdmin.from("myfans_quote_refresh_jobs").select("id,collection_session_id,collection_run_token,collector_version,status").eq("id", jobId).maybeSingle();
+  if (error) throw error;
+  if (!job || !sessionId || !runToken || job.collection_session_id !== sessionId || job.collection_run_token !== runToken || job.collector_version !== collectorVersion || !["pending", "running", "paused"].includes(job.status)) {
+    return { ok: false as const, error: "JOB_IDENTITY_MISMATCH: Companion runとDB jobのidentityが一致しません。" };
+  }
+  return { ok: true as const, job };
+}
 
 function xHandleFromUrl(value: string) {
   const match = cleanXProfileUrl(value).match(/^https:\/\/x\.com\/([^/?#]+)/);
@@ -166,6 +186,8 @@ async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "f
   const jobId = Number(payload.refreshJobId);
   const itemId = Number(payload.refreshJobItemId);
   if (!Number.isFinite(jobId) || jobId <= 0 || !Number.isFinite(itemId) || itemId <= 0) return;
+  const identity = await validateRunIdentity(payload);
+  if (!identity.ok) throw new Error(identity.error);
   const { data: job } = await supabaseAdmin.from("myfans_quote_refresh_jobs").select("status").eq("id", jobId).maybeSingle();
   if (job?.status === "cancelled" || job?.status === "failed") return;
   const { data: currentItem } = await supabaseAdmin
@@ -189,7 +211,7 @@ async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "f
       top_score: detail.topScore ?? null,
       error: detail.error ?? null,
       collection_state: collectionStateForResult(status, detail),
-      collection_evidence: { collectorMethod: COLLECTOR_METHOD, error: detail.error ?? null, collectedCount: detail.collectedCount ?? 0, ...(detail.evidence ?? {}) },
+      collection_evidence: { collectorMethod: COLLECTOR_METHOD, job_id: jobId, collection_session_id: cleanText(payload.collectionSessionId), run_token: cleanText(payload.runToken), collector_version: cleanText(payload.collectorVersion), final_collection_state: collectionStateForResult(status, detail), final_error: detail.error ?? null, error: detail.error ?? null, collectedCount: detail.collectedCount ?? 0, ...(detail.evidence ?? {}) },
       processed_at: new Date().toISOString(),
     })
     .eq("id", itemId)
@@ -239,7 +261,7 @@ function collectionStateForResult(status: "success" | "failed", detail: { collec
   const code = quoteRefreshErrorCode(detail.error);
   if (code === "NO_POSTS") return "NO_POSTS";
   if (code === "PRIVATE") return "PRIVATE";
-  if (code === "THREAD_NOT_FULLY_OBSERVED") return "THREAD_INCOMPLETE";
+  if (THREAD_INCOMPLETE_STATUSES.has(code)) return "THREAD_INCOMPLETE";
   if (code === "LOGIN_OR_CHALLENGE" || code === "X_TEMPORARY_ERROR" || code === "SENSITIVE_CONTENT_GATE") return "TEMP_ERROR";
   if (status === "success" && (detail.collectedCount ?? 0) > 0) return "ELIGIBLE";
   if (status === "success") return "NO_MATCH_THIS_RUN";
@@ -594,10 +616,17 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
   const failureReason = cleanText(payload.failureReason);
   const candidates = Array.isArray(payload.quoteCandidates) ? payload.quoteCandidates.slice(0, 20) : [];
   const collectionEvidence = {
+    job_id: Number(payload.refreshJobId) || null,
+    collection_session_id: cleanText(payload.collectionSessionId) || null,
+    run_token: cleanText(payload.runToken) || null,
+    collector_version: cleanText(payload.collectorVersion) || null,
     stateTransitions: Array.isArray(payload.stateTransitions) ? payload.stateTransitions.slice(-80) : [],
     profileCounts: payload.profileCounts && typeof payload.profileCounts === "object" ? payload.profileCounts : {},
+    profileScan: payload.profileScan && typeof payload.profileScan === "object" ? payload.profileScan : {},
     statusCounts: payload.statusCounts && typeof payload.statusCounts === "object" ? payload.statusCounts : {},
     collectionStatuses: Array.isArray(payload.collectionStatuses) ? payload.collectionStatuses : [],
+    final_collection_state: null,
+    final_error: null,
   };
   if (candidates.length === 0 && Array.isArray(payload.collectionStatuses) && payload.collectionStatuses.length > 0 && cleanXProfileUrl(payload.creatorXUrl)) {
     const creatorIdForAudit = Number(payload.creatorId);
@@ -610,10 +639,11 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
         metadata: { collectorMethod: COLLECTOR_METHOD, statuses: payload.collectionStatuses, ...collectionEvidence },
       });
     }
-    const incomplete = payload.collectionStatuses.some((item) => cleanText(item.status) === "THREAD_NOT_FULLY_OBSERVED");
-    const error = incomplete ? "THREAD_NOT_FULLY_OBSERVED: status threadを通常scroll範囲で十分に観測できませんでした。" : undefined;
+    const incomplete = payload.collectionStatuses.some((item) => THREAD_INCOMPLETE_STATUSES.has(cleanText(item.status)));
+    const reason = payload.collectionStatuses.find((item) => THREAD_INCOMPLETE_STATUSES.has(cleanText(item.status)))?.status || "THREAD_INCOMPLETE_WITHOUT_LINK";
+    const error = incomplete ? `${reason}: status threadを十分に観測できませんでした。` : undefined;
     await markRefreshItem(payload, incomplete ? "failed" : "success", { collectedCount: 0, topScore: null, error, evidence: collectionEvidence });
-    return NextResponse.json({ ok: !incomplete, retryable: incomplete, errorCode: incomplete ? "THREAD_NOT_FULLY_OBSERVED" : null, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses, profileCounts: payload.profileCounts ?? {}, statusCounts: payload.statusCounts ?? {}, stateTransitions: payload.stateTransitions ?? [], ...(error ? { error } : {}) }, { status: incomplete ? 202 : 200 });
+    return NextResponse.json({ ok: !incomplete, retryable: incomplete, errorCode: incomplete ? reason : null, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses, profileCounts: payload.profileCounts ?? {}, statusCounts: payload.statusCounts ?? {}, stateTransitions: payload.stateTransitions ?? [], ...(error ? { error } : {}) }, { status: incomplete ? 202 : 200 });
   }
   if (!creatorXUrl || !sourceXHandle || candidates.length === 0) {
     const message = failureReason || "Xプロフィール上の投稿候補を取得できませんでした。";
@@ -682,10 +712,11 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
   });
   if (sourceReady.length === 0) {
     if (normalized.some((candidate) => candidate.collectorMethod === COLLECTOR_METHOD) && Array.isArray(payload.collectionStatuses)) {
-      const incomplete = payload.collectionStatuses.some((item) => cleanText(item.status) === "THREAD_NOT_FULLY_OBSERVED");
-      const error = incomplete ? "THREAD_NOT_FULLY_OBSERVED: status threadを通常scroll範囲で十分に観測できませんでした。" : undefined;
+      const incomplete = payload.collectionStatuses.some((item) => THREAD_INCOMPLETE_STATUSES.has(cleanText(item.status)));
+      const reason = payload.collectionStatuses.find((item) => THREAD_INCOMPLETE_STATUSES.has(cleanText(item.status)))?.status || "THREAD_INCOMPLETE_WITHOUT_LINK";
+      const error = incomplete ? `${reason}: status threadを十分に観測できませんでした。` : undefined;
       await markRefreshItem(payload, incomplete ? "failed" : "success", { collectedCount: 0, topScore: null, error, evidence: collectionEvidence });
-      return NextResponse.json({ ok: !incomplete, retryable: incomplete, errorCode: incomplete ? "THREAD_NOT_FULLY_OBSERVED" : null, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses, profileCounts: payload.profileCounts ?? {}, statusCounts: payload.statusCounts ?? {}, stateTransitions: payload.stateTransitions ?? [], ...(error ? { error } : {}) }, { status: incomplete ? 202 : 200 });
+      return NextResponse.json({ ok: !incomplete, retryable: incomplete, errorCode: incomplete ? reason : null, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses, profileCounts: payload.profileCounts ?? {}, statusCounts: payload.statusCounts ?? {}, stateTransitions: payload.stateTransitions ?? [], ...(error ? { error } : {}) }, { status: incomplete ? 202 : 200 });
     }
     const message = "SOURCE_TEXT_MISSING: 表示中投稿に安全に紐付けられる本文がありません。空本文は保存しません。";
     await markRefreshItem(payload, "failed", { collectedCount: 0, error: message });
@@ -1052,6 +1083,7 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
   try {
     await updateGlobalQuoteRanks(approvedMediaId ?? product.approved_media_id ?? null);
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith("JOB_IDENTITY_MISMATCH:")) return NextResponse.json({ ok: false, retryable: false, errorCode: "JOB_IDENTITY_MISMATCH", error: error.message }, { status: 409 });
     partialFailures.push(`global rank update: ${error instanceof Error ? error.message : String(error)}`);
   }
   const metadata = { ok: true, sourceStatusUrl, candidateId, productId: product.id, creatorId: product.creator_id, sourceTextSaved: true, authorStatusMatch: true, visualStatus: quoteVisualReady ? "verified" : normalized.mediaType === "none" ? "unavailable" : "metadata_only", score: scored.score, eligible: scored.eligible };

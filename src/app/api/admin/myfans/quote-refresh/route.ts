@@ -216,6 +216,7 @@ async function createJob(payload: Record<string, unknown>) {
   const batchSize = normalizeBatchSize(payload.batchSize);
   const queueLimit = Math.min(MAX_MYFANS_ACCOUNTS_PER_RUN, normalizeQueueLimit(payload.queueLimit) ?? batchSize);
   const sessionId = cleanText(payload.sessionId) || randomUUID();
+  const runToken = cleanText(payload.runToken) || randomUUID();
   const targetedCreatorIds = normalizeTargetedCreatorIds(payload.targetedCreatorIds);
   const { data: creators, error } = await supabaseAdmin
     .from("myfans_creators")
@@ -288,7 +289,8 @@ async function createJob(payload: Record<string, unknown>) {
       cycle_completed: false,
       sensitive_gate_streak_limit: 3,
        sensitive_gate_streak: 0,
-       collection_session_id: sessionId,
+      collection_session_id: sessionId,
+      collection_run_token: runToken,
        launch_mode: "new",
        collector_version: cleanText(payload.collectorVersion) || null,
     })
@@ -315,8 +317,11 @@ async function nextItem(payload: Record<string, unknown>) {
   const requestedJobId = numberValue(payload.jobId, 0);
   const approvedMediaId = numberValue(payload.approvedMediaId, 0) || null;
   const sessionId = cleanText(payload.sessionId);
+  const runToken = cleanText(payload.runToken);
+  const collectorVersion = cleanText(payload.collectorVersion);
   const activeJob = requestedJobId ? await getJob(requestedJobId) : sessionId ? await getCurrentSessionJob(approvedMediaId, sessionId) : null;
   if (!activeJob) return NextResponse.json({ done: true, message: "実行中の更新キューはありません。" });
+  if (!sessionId || !runToken || activeJob.collection_session_id !== sessionId || activeJob.collection_run_token !== runToken || activeJob.collector_version !== collectorVersion) return NextResponse.json({ error: "JOB_IDENTITY_MISMATCH: Companion runとDB jobのidentityが一致しません。", errorCode: "JOB_IDENTITY_MISMATCH", job: activeJob }, { status: 409 });
   if (activeJob.status === "paused") return NextResponse.json({ paused: true, job: activeJob });
   if (activeJob.status === "cancelled") return NextResponse.json({ done: true, job: activeJob });
   if (!isActiveQuoteRefreshStatus(activeJob.status)) return NextResponse.json({ done: true, job: activeJob });
@@ -368,7 +373,9 @@ async function startJob(payload: Record<string, unknown>) {
   if (!job) return NextResponse.json({ error: "更新キューが見つかりません。" }, { status: 404 });
   if (!["pending", "paused", "running"].includes(job.status)) return NextResponse.json(await progress(jobId));
   const sessionId = cleanText(payload.sessionId);
-  if (!sessionId || job.collection_session_id !== sessionId) return NextResponse.json({ error: "同一current-sessionのjobだけ再開できます。", job }, { status: 409 });
+  const runToken = cleanText(payload.runToken);
+  const collectorVersion = cleanText(payload.collectorVersion);
+  if (!sessionId || !runToken || job.collection_session_id !== sessionId || job.collection_run_token !== runToken || job.collector_version !== collectorVersion) return NextResponse.json({ error: "JOB_IDENTITY_MISMATCH: 同一run identityのjobだけ再開できます。", errorCode: "JOB_IDENTITY_MISMATCH", job }, { status: 409 });
   const { error } = await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
     .update({ status: "running", started_at: job.started_at ?? new Date().toISOString(), last_error: null, launch_mode: job.launch_mode === "new" ? "new" : "resumed", collector_version: cleanText(payload.collectorVersion) || job.collector_version || null })
@@ -383,7 +390,7 @@ async function updateJobStatus(payload: Record<string, unknown>, status: "paused
   if (status === "cancelled") {
     const { error: itemError } = await supabaseAdmin
       .from("myfans_quote_refresh_job_items")
-      .update({ status: "skipped", error: CANCELLED_BY_USER, processed_at: new Date().toISOString() })
+      .update({ status: "skipped", error: CANCELLED_BY_USER, processed_at: new Date().toISOString(), collection_state: "CANCELLED", collection_evidence: { final_collection_state: "CANCELLED", final_error: CANCELLED_BY_USER } })
       .eq("job_id", jobId)
       .in("status", ["pending", "running"]);
     if (itemError) throw itemError;
