@@ -79,16 +79,7 @@ export default function AIAnalysis({
         {/* 左側 */}
         <div>
 
-          {/* 上段 */}
-          <div className="grid min-w-0 items-start gap-4 md:grid-cols-2">
-  <RecommendationReasons reasons={recommendationReasons} />
-
-  {/* レーダー */}
-<ScoreAnalysisCard work={work} className="flex" />
-
-</div>
-
-          {/* 下段 */}
+          {/* 価格推移 */}
           <div className="-mx-4 mt-4 min-w-0 border-y bg-white px-2 py-4 sm:mx-0 sm:rounded-2xl sm:border sm:p-6">
 
             <h3 className="mb-6 text-xl font-black sm:text-2xl">
@@ -99,6 +90,14 @@ export default function AIAnalysis({
               data={chartData}
             />
 
+          </div>
+
+          {/* おすすめポイント・おすすめ要素のバランス */}
+          <div className="mt-4 grid min-w-0 items-start gap-4 md:grid-cols-2">
+            <RecommendationReasons reasons={recommendationReasons} />
+
+            {/* レーダー */}
+            <ScoreAnalysisCard work={work} className="flex" />
           </div>
 
         </div>
