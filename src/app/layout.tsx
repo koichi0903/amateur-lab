@@ -9,7 +9,7 @@ import Footer from "@/components/layout/Footer";
 import Analytics from "./components/Analytics";
 
 export const viewport: Viewport = {
-  themeColor: "#0D1B2A",
+  themeColor: "#ffffff",
 };
 
 export const metadata: Metadata = {
@@ -73,6 +73,7 @@ openGraph: {
 },
   other: {
     rating: "adult",
+    "color-scheme": "light",
   },
 };
 export default function RootLayout({
