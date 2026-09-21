@@ -277,7 +277,9 @@ export type XGrowthOS = {
       videoAfterDedupe: number;
       slotEligibleVideo: number;
       eligibleStrongVideos: number;
+      eligibleOfficialVideos: number;
       selectedVideos: number;
+      fallbackOfficialSelected: number;
       selectedVideosBySlot: Record<string, number>;
       rejectionReasons: Record<string, number>;
       uniqueAudit: ReturnType<typeof auditCandidateUniqueness>;
@@ -667,6 +669,15 @@ export function isStrongSafeVideoCandidate(
   variant?: Pick<XCreativeVariant, "mediaType" | "quality"> | null,
 ) {
   return videoEligibilityReasons(item, variant).length === 0;
+}
+
+/** Official sample movies remain selectable when automated strong/safe evidence is incomplete. */
+export function isOfficialEligibleVideoCandidate(
+  item: Pick<XGrowthOpportunity, "canNativeVideo" | "mediaAsset" | "sampleMovieUrl" | "mediaType" | "recommendedMediaUrl">,
+) {
+  return isVideoCandidate({ ...item, mediaType: "sample_movie" })
+    && item.canNativeVideo
+    && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable;
 }
 
 export function auditCandidateUniqueness(candidates: readonly CandidateIdentity[], postedWorkIds: ReadonlySet<number> = new Set()) {
@@ -1422,8 +1433,7 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
   }
   const mediaMixStarted = Date.now();
   const videoRawItems = pool.filter((item) => isVideoCandidate({ ...item, mediaType: "sample_movie" }));
-  const videoEligibleItems = videoRawItems.filter((item) => item.canNativeVideo
-    && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable);
+  const videoEligibleItems = videoRawItems.filter((item) => isOfficialEligibleVideoCandidate(item));
   const videoAfterDedupe = new Set(videoRawItems
     .map((item) => candidateMediaDedupeKey(item))
     .filter((key): key is string => Boolean(key))).size;
@@ -1444,6 +1454,18 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
     const entry = strongVideoVariant(item, ["REACH", "FOLLOW", "AUTHORITY"]);
     if (entry) strongVideoSupply.set(candidateMediaDedupeKey(item) ?? `work:${item.workId}`, item);
   }
+  const officialVideoSupply = new Map<string, XGrowthOpportunity>();
+  const videoVariantFor = (item: XGrowthOpportunity, roles: XGrowthIntent[], strongOnly = false) => roles
+    .flatMap((role) => item.creativeVariants
+      .filter((variant) => variant.intent === role && variant.mediaType === "sample_movie" && isSoftQualityEligible(variant))
+      .filter((variant) => variant.quality.dimensions.adSmell <= (role === "MONEY" ? 48 : 30))
+      .map((variant) => ({ role, selected: { variant, audit: diversityConflicts(item, role, variant, [], logs), score: variant.quality.total } })))
+    .filter(({ selected }) => isOfficialEligibleVideoCandidate(item) && (!strongOnly || isStrongSafeVideoCandidate(item, selected.variant)))
+    .sort((a, b) => Number(b.selected.audit.ok) - Number(a.selected.audit.ok) || b.selected.score - a.selected.score)[0] ?? null;
+  for (const item of videoEligibleItems) {
+    const entry = videoVariantFor(item, ["REACH", "FOLLOW", "AUTHORITY", "MONEY"]);
+    if (entry) officialVideoSupply.set(candidateMediaDedupeKey(item) ?? `work:${item.workId}`, item);
+  }
   const isVideoPick = (pick: XDailyTopPick) => isVideoCandidate(pick);
   const isStrongVideoPick = (pick: XDailyTopPick) => {
     const variant = pick.creativeVariants.find((candidate) => candidate.id === pick.creativeVariantId);
@@ -1453,13 +1475,16 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
     if (isStrongVideoPick(pick)) counts[pick.slotId ?? "unassigned"] = (counts[pick.slotId ?? "unassigned"] ?? 0) + 1;
     return counts;
   }, {} as Record<string, number>);
-  const swapStrongVideoIntoSlot = (slotId: NonNullable<XDailyTopPick["slotId"]>, minimum: number) => {
-    while ((selectedStrongVideosBySlot()[slotId] ?? 0) < minimum) {
-      const slotPicks = picked.filter((pick) => pick.slotId === slotId && !isStrongVideoPick(pick));
-      const replacement = [...strongVideoSupply.values()]
+  const swapVideoIntoSlot = (slotId: NonNullable<XDailyTopPick["slotId"]>, minimum: number, supply: Map<string, XGrowthOpportunity>, strongOnly = false) => {
+    const selectedCount = () => strongOnly
+      ? selectedStrongVideosBySlot()[slotId] ?? 0
+      : picked.filter((pick) => pick.slotId === slotId && isVideoPick(pick)).length;
+    while (selectedCount() < minimum) {
+      const slotPicks = picked.filter((pick) => pick.slotId === slotId && !isVideoPick(pick));
+      const replacement = [...supply.values()]
         .filter((item) => !picked.some((pick) => pick.workId === item.workId || pick.productId === item.productId))
         .map((item) => {
-          const entry = strongVideoVariant(item, slotRoles(slotId));
+          const entry = videoVariantFor(item, strongOnly ? slotRoles(slotId) : ["REACH", "FOLLOW", "AUTHORITY", "MONEY"]);
           return entry ? { item, ...entry } : null;
         })
         .filter((entry): entry is { item: XGrowthOpportunity; role: XGrowthIntent; selected: NonNullable<ReturnType<typeof selectCandidateVariant>> } => Boolean(entry))
@@ -1471,7 +1496,8 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
         for (const entry of replacement) {
           if (!isDistinctCandidate(entry.item, rest)) continue;
           // Media Mix is a soft target: semantic quotas may be exceeded here
-          // when needed, while identity, rights, truth, and video safety stay hard.
+          // when needed, while identity, rights, truth, and official-video
+          // eligibility stay hard. Strong/safe is only a ranking preference.
           const audit = diversityConflicts(entry.item, entry.role, entry.selected.variant, rest, logs);
           picked[victimIndex] = buildTopPickCandidate({
             item: entry.item,
@@ -1484,7 +1510,7 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
             slotRole: victim.slotRole ?? (slotId === "slot_1" ? "REACH" : slotId === "slot_2" ? "FOLLOW_OR_AUTHORITY" : "MONEY_OR_REACH"),
             slotLabel: victim.slotLabel ?? "",
             candidateRank: victim.candidateRank ?? "C",
-            reason: "Media Mix Gate: strong/safe動画を局所swap",
+            reason: strongOnly ? "Media Mix Gate: strong/safe動画を局所swap" : "Media Mix fallback: official eligible動画を補充",
           });
           swapped = true;
           break;
@@ -1499,16 +1525,35 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
   // only video-capable position in a slot.
   const perSlotVideoMinimum = strongVideoSupply.size >= 3 ? 1 : 0;
   for (const slot of ["slot_1", "slot_2", "slot_3"] as const) {
-    swapStrongVideoIntoSlot(slot, perSlotVideoMinimum);
+    swapVideoIntoSlot(slot, perSlotVideoMinimum, strongVideoSupply, true);
+  }
+  // Strong/safe is not a hard supply gate. Reserve one official eligible
+  // video in every slot before filling the remaining media quota.
+  for (const slot of ["slot_1", "slot_2", "slot_3"] as const) {
+    swapVideoIntoSlot(slot, 1, officialVideoSupply);
   }
   // Four videos is the minimum target when supply supports it; use five when
   // possible. Image candidates remain the fallback only when this supply is
   // unavailable or cannot pass the existing hard safety gates.
-  const totalVideoTarget = strongVideoSupply.size >= 4 ? Math.min(5, strongVideoSupply.size) : 0;
+  const totalVideoTarget = officialVideoSupply.size >= 4 ? Math.min(5, officialVideoSupply.size) : 0;
   if (totalVideoTarget > 0) {
     for (const slot of ["slot_1", "slot_2", "slot_3"] as const) {
-      if (picked.filter(isStrongVideoPick).length >= totalVideoTarget) break;
-      swapStrongVideoIntoSlot(slot, perSlotVideoMinimum + 1);
+      if (picked.filter(isVideoPick).length >= totalVideoTarget) break;
+      swapVideoIntoSlot(slot, perSlotVideoMinimum + 1, officialVideoSupply);
+    }
+    // A slot-local role may have no replaceable image even though another
+    // slot can safely accept an official eligible video. Finish the global
+    // quota with a soft, all-role pass while preserving identity and rights.
+    let progressed = true;
+    while (picked.filter(isVideoPick).length < totalVideoTarget && progressed) {
+      progressed = false;
+      for (const slot of ["slot_1", "slot_2", "slot_3"] as const) {
+        if (picked.filter(isVideoPick).length >= totalVideoTarget) break;
+        const before = picked.filter(isVideoPick).length;
+        const slotVideoCount = picked.filter((pick) => pick.slotId === slot && isVideoPick(pick)).length;
+        swapVideoIntoSlot(slot, slotVideoCount + 1, officialVideoSupply);
+        if (picked.filter(isVideoPick).length > before) progressed = true;
+      }
     }
   }
   // Media Mix and fallback swaps are allowed to change identity. Repair any
@@ -1560,13 +1605,15 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
     videoAfterDedupe,
     slotEligibleVideo: strongVideoSupply.size,
     eligibleStrongVideos: strongVideoSupply.size,
+    eligibleOfficialVideos: officialVideoSupply.size,
     selectedVideos,
+    fallbackOfficialSelected: Math.max(0, selectedVideos - strongVideoSupply.size),
     selectedVideosBySlot: selectedBySlot,
     rejectionReasons,
     uniqueAudit,
     targetVideos: totalVideoTarget,
     unmetReason: totalVideoTarget > selectedVideos
-      ? "strong/safe動画は存在するが、semantic diversityまたはduplicate/work制約を壊さずswapできる候補が不足"
+      ? "公式eligible動画は存在するが、semantic diversityまたはduplicate/work制約を壊さずswapできる候補が不足"
       : strongVideoSupply.size < 3 ? "strong/safe動画供給が3件未満"
         : null,
     mediaMixMs: Date.now() - mediaMixStarted,
@@ -1885,7 +1932,9 @@ function buildSupplyDiagnostics(
     videoAfterDedupe: number;
     slotEligibleVideo: number;
     eligibleStrongVideos: number;
+    eligibleOfficialVideos: number;
     selectedVideos: number;
+    fallbackOfficialSelected: number;
     selectedVideosBySlot: Record<string, number>;
     rejectionReasons: Record<string, number>;
     uniqueAudit: ReturnType<typeof auditCandidateUniqueness>;
@@ -2037,7 +2086,9 @@ function buildSupplyDiagnostics(
       videoAfterDedupe: 0,
       slotEligibleVideo: 0,
       eligibleStrongVideos: 0,
+      eligibleOfficialVideos: 0,
       selectedVideos: picks.filter((pick) => pick.mediaType === "sample_movie").length,
+      fallbackOfficialSelected: 0,
       selectedVideosBySlot: {},
       rejectionReasons: {},
       uniqueAudit: auditCandidateUniqueness(picks),

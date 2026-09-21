@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { buildVisualVideoFacts } from "./xVisualVideoFacts";
-import { auditCandidateUniqueness, candidateMediaDedupeKey, isDistinctCandidate, isStrongSafeVideoCandidate, videoEligibilityReasons } from "./xGrowthOS";
+import { auditCandidateUniqueness, candidateMediaDedupeKey, isDistinctCandidate, isOfficialEligibleVideoCandidate, isStrongSafeVideoCandidate, videoEligibilityReasons } from "./xGrowthOS";
 import { isVideoCandidate } from "./xVideoCandidate";
 
 const variant = {
@@ -35,7 +35,10 @@ assert.equal(isStrongSafeVideoCandidate({ ...item, canNativeVideo: false }, vari
 assert.equal(isVideoCandidate({ mediaType: "sample_movie", recommendedMediaUrl: item.sampleMovieUrl }), true);
 assert.equal(isStrongSafeVideoCandidate({ ...item, mediaAsset: { ...item.mediaAsset, media_quality: null }, mediaType: "sample_movie", recommendedMediaUrl: item.sampleMovieUrl }, variant), true);
 assert.equal(videoEligibilityReasons({ ...item, mediaAsset: { ...item.mediaAsset, media_quality: null }, mediaType: "sample_movie", recommendedMediaUrl: item.sampleMovieUrl }, variant).includes("media_quality=weak"), false);
+assert.equal(isOfficialEligibleVideoCandidate({ ...item, mediaAsset: { ...item.mediaAsset, media_quality: null }, mediaType: "sample_movie" }), true);
+assert.equal(isOfficialEligibleVideoCandidate({ ...item, mediaAsset: { ...item.mediaAsset, rights_status: "blocked", x_usage_allowed: false, can_reupload: false, commercial_use_allowed: false }, mediaType: "sample_movie" }), true);
 assert.equal(isStrongSafeVideoCandidate({ ...item, sampleMovieUrl: "https://example.com/video.mp4", recommendedMediaUrl: "https://example.com/video.mp4", mediaAsset: { ...item.mediaAsset, source_url: "https://example.com/video.mp4", source_kind: "unknown_external" }, mediaType: "sample_movie" }, variant), false);
+assert.equal(isOfficialEligibleVideoCandidate({ ...item, sampleMovieUrl: "https://example.com/video.mp4", recommendedMediaUrl: "https://example.com/video.mp4", mediaAsset: { ...item.mediaAsset, source_url: "https://example.com/video.mp4", source_kind: "unknown_external" }, mediaType: "sample_movie" }), false);
 
 const first = { workId: 1, productId: "p1", sampleMovieUrl: item.sampleMovieUrl, mediaAsset: { id: 101 } };
 const sameUrlDifferentWork = { workId: 2, productId: "p2", sampleMovieUrl: item.sampleMovieUrl, mediaAsset: { id: 102 } };
