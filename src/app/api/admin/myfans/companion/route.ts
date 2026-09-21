@@ -166,6 +166,8 @@ async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "f
   const jobId = Number(payload.refreshJobId);
   const itemId = Number(payload.refreshJobItemId);
   if (!Number.isFinite(jobId) || jobId <= 0 || !Number.isFinite(itemId) || itemId <= 0) return;
+  const { data: job } = await supabaseAdmin.from("myfans_quote_refresh_jobs").select("status").eq("id", jobId).maybeSingle();
+  if (job?.status === "cancelled" || job?.status === "failed") return;
   const { data: currentItem } = await supabaseAdmin
     .from("myfans_quote_refresh_job_items")
     .select("attempts")

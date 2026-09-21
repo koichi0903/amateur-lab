@@ -1788,9 +1788,15 @@ async function runBulkQuoteRefresh(settings) {
   if (globalThis.myfansQuoteRefreshRunning) return;
   globalThis.myfansQuoteRefreshRunning = true;
   const persistedSettings = { ...settings };
-  await chrome.storage.local.remove([QUOTE_CANCEL_KEY]);
+  const sessionId = String(persistedSettings.sessionId || "").trim();
+  if (!sessionId) {
+    await clearQuoteContinuation();
+    await setQuoteState({ running: false, status: "idle", message: "current-sessionがないため自動再開しません。" });
+    globalThis.myfansQuoteRefreshRunning = false;
+    return;
+  }
   globalThis.myfansQuoteRefreshSettings = persistedSettings;
-  const startState = { running: true, status: "starting", jobId: persistedSettings.jobId || null, message: "一括更新を開始します。", errorCode: null, lastError: null, failureDiagnostics: null };
+  const startState = { running: true, status: "starting", jobId: persistedSettings.jobId || null, sessionId, launchMode: persistedSettings.launchMode || "new", collectorVersion: WORKER_VERSION, message: "一括更新を開始します。", errorCode: null, lastError: null, failureDiagnostics: null };
   if (!persistedSettings.jobId) startState.attemptDiagnostics = [];
   await setQuoteState(startState);
   await scheduleQuoteContinuation(persistedSettings, 120000);
@@ -1803,7 +1809,9 @@ async function runBulkQuoteRefresh(settings) {
         queueLimit: persistedSettings.queueLimit || persistedSettings.batchSize || 10,
         cooldownDays: persistedSettings.cooldownDays || 3,
         targetedCreatorIds: persistedSettings.targetedCreatorIds || [],
-        replaceActive: true
+        sessionId,
+        collectorVersion: WORKER_VERSION,
+        launchMode: persistedSettings.launchMode || "new"
       });
       if (!created.job?.id) {
         await clearQuoteContinuation();
@@ -1811,15 +1819,15 @@ async function runBulkQuoteRefresh(settings) {
         return;
       }
       persistedSettings.jobId = created.job.id;
-      await quoteRefreshRequest(persistedSettings, { action: "start", jobId: persistedSettings.jobId });
+      await quoteRefreshRequest(persistedSettings, { action: "start", jobId: persistedSettings.jobId, sessionId });
       const rotationMessage = created.rotation?.selectionMode === "empty"
         ? "対象不足: 前日除外とcooldown中のため、同日再利用せず停止します。"
         : created.rotation?.selectionMode === "relaxed"
           ? "優先cooldown中のため、前日除外を維持して最古巡回順で開始します。"
           : "未巡回・長期間未巡回creatorを優先して開始します。";
-      await setQuoteState({ jobId: persistedSettings.jobId, job: created.job, items: created.items || [], message: `jobを作成しました。${rotationMessage}` });
+      await setQuoteState({ jobId: persistedSettings.jobId, sessionId, launchMode: "new", collectorVersion: WORKER_VERSION, job: created.job, items: created.items || [], message: `new jobを作成しました。${rotationMessage}` });
     } else {
-      await quoteRefreshRequest(persistedSettings, { action: "start", jobId: persistedSettings.jobId });
+      await quoteRefreshRequest(persistedSettings, { action: "start", jobId: persistedSettings.jobId, sessionId });
     }
     if (await isQuoteCancelRequested(persistedSettings.jobId)) {
       await clearQuoteContinuation();
@@ -1827,7 +1835,12 @@ async function runBulkQuoteRefresh(settings) {
       return;
     }
     let workerTabId = await ensureWorkerTab(currentTab?.id);
-    const next = await quoteRefreshRequest(persistedSettings, { action: "next", jobId: persistedSettings.jobId || undefined });
+    const next = await quoteRefreshRequest(persistedSettings, { action: "next", jobId: persistedSettings.jobId || undefined, sessionId });
+    if (next.stale || next.needsUserAction || next.reason === "session_mismatch") {
+      await clearQuoteContinuation();
+      await setQuoteState({ running: false, status: "needs_user_action", job: next.job || null, sessionId, launchMode: "resumed", collectorVersion: WORKER_VERSION, message: next.message || "自動再開せず停止しました。明示的な操作が必要です。" });
+      return;
+    }
     if (next.paused) {
       await clearQuoteContinuation();
       await setQuoteState({ running: false, status: "paused", job: next.job, message: "一括更新は一時停止中です。" });
@@ -1922,8 +1935,9 @@ async function runBulkQuoteRefresh(settings) {
     }
     const batchSize = Number(next.batchSize || persistedSettings.batchSize || 10);
     const delayMs = (processedBefore + 1) % batchSize === 0 ? 60000 : 5000;
+    persistedSettings.launchMode = "resumed";
     await scheduleQuoteContinuation(persistedSettings, delayMs);
-    await setQuoteState({ running: true, status: "scheduled", jobId: persistedSettings.jobId, message: `次のcreatorを${Math.round(delayMs / 1000)}秒後に再開します。` });
+    await setQuoteState({ running: true, status: "scheduled", jobId: persistedSettings.jobId, sessionId, launchMode: "resumed", collectorVersion: WORKER_VERSION, message: `同一current-sessionのjobを${Math.round(delayMs / 1000)}秒後に継続します。` });
   } catch (error) {
     const message = error instanceof Error ? error.message : "一括更新を実行できませんでした。";
     await setQuoteState({ running: false, status: "error", message, lastError: message });
@@ -1942,8 +1956,13 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
   chrome.storage.local.get([QUOTE_SETTINGS_KEY]).then((stored) => {
     const savedSettings = stored[QUOTE_SETTINGS_KEY];
-    if (savedSettings?.baseUrl) return runBulkQuoteRefresh(savedSettings);
-    return undefined;
+    return chrome.storage.local.get([QUOTE_STATE_KEY]).then((stateStored) => {
+      const state = stateStored[QUOTE_STATE_KEY];
+      const sameSession = savedSettings?.sessionId && savedSettings.sessionId === state?.sessionId;
+      const resumable = sameSession && state?.running === true && state?.jobId && ["running", "scheduled"].includes(state?.status);
+      if (savedSettings?.baseUrl && resumable) return runBulkQuoteRefresh({ ...savedSettings, launchMode: "resumed" });
+      return clearQuoteContinuation();
+    });
   }).catch((error) => console.debug("[myfans companion background] continuation failed", error));
 });
 
@@ -1971,9 +1990,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "myfans_quote_refresh_start") {
-    const settings = message.settings || {};
-    saveCompanionSettings(settings).then(() => saveQuoteSettings(settings)).then(() => runBulkQuoteRefresh(settings)).catch((error) => console.debug("[myfans companion background] start failed", error));
-    sendResponse({ ok: true, status: "accepted", workerVersion: WORKER_VERSION, jobId: settings.jobId || null });
+    const settings = { ...(message.settings || {}), sessionId: crypto.randomUUID(), jobId: null, launchMode: "new", collectorVersion: WORKER_VERSION };
+    chrome.storage.local.remove([QUOTE_CANCEL_KEY, QUOTE_SETTINGS_KEY]).then(() => saveCompanionSettings(settings)).then(() => saveQuoteSettings(settings)).then(() => runBulkQuoteRefresh(settings)).catch((error) => console.debug("[myfans companion background] start failed", error));
+    sendResponse({ ok: true, status: "accepted", workerVersion: WORKER_VERSION, jobId: null, sessionId: settings.sessionId, launchMode: "new" });
     return true;
   }
   if (message?.type === "myfans_quote_refresh_cancel_request") {

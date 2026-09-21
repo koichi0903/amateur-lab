@@ -31,6 +31,9 @@ type QuoteRefreshProgress = {
     excluded_no_posts?: number;
     excluded_private?: number;
     retryable_errors?: number;
+    collection_session_id?: string | null;
+    launch_mode?: string | null;
+    collector_version?: string | null;
     last_error: string | null;
   } | null;
   skippedCreators?: number;
@@ -729,6 +732,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
       )}
       {job && (
         <div className="mt-4 grid gap-3 lg:grid-cols-4">
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">job / collector</p><p className="mt-1 font-black text-white">#{job.id} / {job.collector_version ?? "legacy"}</p><p className="mt-1 text-zinc-400">{job.launch_mode ?? "legacy"}{job.collection_session_id ? " / current-sessionあり" : " / 旧session"}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">状態</p><p className="mt-1 font-black text-white">{job.status}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">進捗</p><p className="mt-1 font-black text-white">{job.processed_creators} / {job.total_creators}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">成功/要修正/blocked/skipped</p><p className="mt-1 font-black text-white">{summary.success} / {summary.failed} / {summary.blocked} / {summary.skipped}</p></div>

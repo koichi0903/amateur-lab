@@ -415,6 +415,8 @@ function renderBatchState(state, progress) {
   const counts = job ? `processed ${summary?.processed ?? job.processed_creators ?? 0}/${job.total_creators ?? 0}, success ${summary?.success ?? job.success_creators ?? 0}, failed ${summary?.failed ?? job.failed_creators ?? 0}, blocked ${summary?.blocked ?? 0}, skipped ${summary?.skipped ?? progress?.skippedCreators ?? 0}` : "";
   document.getElementById("batchStatus").textContent = [
     job ? `job ${job.id}: ${job.status}` : "",
+    job?.collector_version ? `collector ${job.collector_version}` : "",
+    state?.launchMode ? (state.launchMode === "resumed" ? "resumed/current-session" : state.launchMode) : "",
     counts,
     state?.message || "",
     state?.currentCreator ? `現在: ${state.currentCreator}` : "",
@@ -471,7 +473,9 @@ async function quoteRefreshRequest(body) {
 }
 
 async function getActiveQuoteJob() {
+  const stateResponse = await sendRuntimeMessage({ type: "myfans_quote_refresh_state" }).catch(() => null);
   const query = new URLSearchParams();
+  if (stateResponse?.state?.jobId) query.set("jobId", String(stateResponse.state.jobId));
   const approvedMediaId = document.getElementById("mediaId").value;
   if (approvedMediaId) query.set("approvedMediaId", approvedMediaId);
   const response = await fetch(`${baseUrl()}/api/admin/myfans/quote-refresh?${query.toString()}`);

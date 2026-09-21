@@ -1,14 +1,41 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummary";
 import { evaluateMyfansSourceValue } from "@/lib/myfansSourceValue";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { MAX_MYFANS_ACCOUNTS_PER_RUN, MYFANS_COLLECTION_KEY, selectCollectionAccounts } from "@/lib/myfansCollectionRotation";
+import { isActiveQuoteRefreshStatus } from "@/lib/myfansQuoteRefreshLifecycle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_ATTEMPTS = 3;
-const REPLACED_BY_NEW_JOB = "REPLACED_BY_NEW_JOB: 新しい一括更新で置き換えました。";
+const CANCELLED_BY_USER = "CANCELLED_BY_USER: ユーザーが一括更新を中止しました。";
+const STALE_ITEM_AGE_MS = 5 * 60_000;
+
+async function reconcileLegacyActiveJobs() {
+  const { data: jobs, error } = await supabaseAdmin
+    .from("myfans_quote_refresh_jobs")
+    .select("id")
+    .is("collection_session_id", null)
+    .in("status", ["pending", "running", "paused"]);
+  if (error) throw error;
+  for (const job of jobs ?? []) {
+    const now = new Date().toISOString();
+    const { error: itemError } = await supabaseAdmin
+      .from("myfans_quote_refresh_job_items")
+      .update({ status: "skipped", error: "LEGACY_JOB_RECONCILED: 旧Companion sessionのjobは自動再開しません。", processed_at: now })
+      .eq("job_id", job.id)
+      .in("status", ["pending", "running"]);
+    if (itemError) throw itemError;
+    const { error: jobError } = await supabaseAdmin
+      .from("myfans_quote_refresh_jobs")
+      .update({ status: "cancelled", completed_at: now, last_error: "LEGACY_JOB_RECONCILED: 旧Companion sessionのjobは自動再開しません。" })
+      .eq("id", job.id)
+      .in("status", ["pending", "running", "paused"]);
+    if (jobError) throw jobError;
+  }
+}
 
 function cleanText(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
@@ -131,20 +158,6 @@ async function getJob(jobId: number) {
   return job;
 }
 
-async function getActiveJob(approvedMediaId?: number | null) {
-  let query = supabaseAdmin
-    .from("myfans_quote_refresh_jobs")
-    .select("*")
-    .in("status", ["pending", "running", "paused"])
-    .order("created_at", { ascending: false })
-    .limit(1);
-  if (approvedMediaId === null) query = query.is("approved_media_id", null);
-  else if (approvedMediaId) query = query.eq("approved_media_id", approvedMediaId);
-  const { data, error } = await query.maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
 async function progress(jobId: number) {
   await refreshJobCounts(jobId);
   const { data: job, error: jobError } = await supabaseAdmin
@@ -182,30 +195,27 @@ async function progress(jobId: number) {
   return { job, items: items ?? [], skippedCreators: skipped, summary: { ...summary, accounts_processed: job?.accounts_processed ?? 0, profile_scan_ok: profileCounts.scanOk, status_navigation_attempted: statusCounts.navigationAttempted, status_threads_observed: statusCounts.threadsObserved, complete_threads_found: job?.complete_threads_found ?? 0, candidates_saved: job?.candidates_saved ?? 0, no_match: job?.no_match ?? 0, retryable: job?.retryable_errors ?? 0, excluded: (job?.excluded_no_posts ?? 0) + (job?.excluded_private ?? 0), profile_counts: profileCounts, status_counts: statusCounts } };
 }
 
+async function getCurrentSessionJob(approvedMediaId: number | null, sessionId: string) {
+  let query = supabaseAdmin
+    .from("myfans_quote_refresh_jobs")
+    .select("*")
+    .eq("collection_session_id", sessionId)
+    .in("status", ["pending", "running", "paused"])
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (approvedMediaId === null) query = query.is("approved_media_id", null);
+  else if (approvedMediaId) query = query.eq("approved_media_id", approvedMediaId);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 async function createJob(payload: Record<string, unknown>) {
+  await reconcileLegacyActiveJobs();
   const approvedMediaId = numberValue(payload.approvedMediaId, 0) || null;
   const batchSize = normalizeBatchSize(payload.batchSize);
   const queueLimit = Math.min(MAX_MYFANS_ACCOUNTS_PER_RUN, normalizeQueueLimit(payload.queueLimit) ?? batchSize);
-  const existing = await getActiveJob(approvedMediaId);
-  if (existing) {
-    const existingProgress = await progress(existing.id);
-    const canReplace =
-      payload.replaceActive === true &&
-      existingProgress.job.status === "pending" &&
-      !existingProgress.job.started_at &&
-      existingProgress.job.processed_creators === 0;
-    if (!canReplace) return NextResponse.json(existingProgress);
-    const { error: cancelError } = await supabaseAdmin
-      .from("myfans_quote_refresh_jobs")
-      .update({ status: "cancelled", completed_at: new Date().toISOString(), last_error: REPLACED_BY_NEW_JOB })
-      .eq("id", existing.id);
-    if (cancelError) throw cancelError;
-    await supabaseAdmin
-      .from("myfans_quote_refresh_job_items")
-      .update({ status: "skipped", error: REPLACED_BY_NEW_JOB, processed_at: new Date().toISOString() })
-      .eq("job_id", existing.id)
-      .eq("status", "pending");
-  }
+  const sessionId = cleanText(payload.sessionId) || randomUUID();
   const targetedCreatorIds = normalizeTargetedCreatorIds(payload.targetedCreatorIds);
   const { data: creators, error } = await supabaseAdmin
     .from("myfans_creators")
@@ -277,7 +287,10 @@ async function createJob(payload: Record<string, unknown>) {
       cursor_after_order: Number(cursor?.cursor_order ?? 0),
       cycle_completed: false,
       sensitive_gate_streak_limit: 3,
-      sensitive_gate_streak: 0,
+       sensitive_gate_streak: 0,
+       collection_session_id: sessionId,
+       launch_mode: "new",
+       collector_version: cleanText(payload.collectorVersion) || null,
     })
     .select("*")
     .single();
@@ -300,10 +313,14 @@ async function createJob(payload: Record<string, unknown>) {
 
 async function nextItem(payload: Record<string, unknown>) {
   const requestedJobId = numberValue(payload.jobId, 0);
-  const activeJob = requestedJobId ? await getJob(requestedJobId) : await getActiveJob(numberValue(payload.approvedMediaId, 0) || null);
+  const approvedMediaId = numberValue(payload.approvedMediaId, 0) || null;
+  const sessionId = cleanText(payload.sessionId);
+  const activeJob = requestedJobId ? await getJob(requestedJobId) : sessionId ? await getCurrentSessionJob(approvedMediaId, sessionId) : null;
   if (!activeJob) return NextResponse.json({ done: true, message: "実行中の更新キューはありません。" });
   if (activeJob.status === "paused") return NextResponse.json({ paused: true, job: activeJob });
   if (activeJob.status === "cancelled") return NextResponse.json({ done: true, job: activeJob });
+  if (!isActiveQuoteRefreshStatus(activeJob.status)) return NextResponse.json({ done: true, job: activeJob });
+  if (sessionId && activeJob.collection_session_id !== sessionId) return NextResponse.json({ done: true, job: activeJob, reason: "session_mismatch" });
 
   await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
@@ -315,10 +332,8 @@ async function nextItem(payload: Record<string, unknown>) {
     .select("id")
     .eq("job_id", activeJob.id)
     .eq("status", "running")
-    .lt("processed_at", new Date(Date.now() - 5 * 60_000).toISOString());
-  if (stale?.length) {
-    await supabaseAdmin.from("myfans_quote_refresh_job_items").update({ status: "pending" }).in("id", stale.map((item) => item.id));
-  }
+    .lt("processed_at", new Date(Date.now() - STALE_ITEM_AGE_MS).toISOString());
+  if (stale?.length) return NextResponse.json({ done: true, stale: true, needsUserAction: true, job: activeJob, staleItemIds: stale.map((item) => item.id), message: "staleな実行項目があります。明示的なresume操作が必要です。" });
 
   const { data: item, error } = await supabaseAdmin
     .from("myfans_quote_refresh_job_items")
@@ -352,9 +367,11 @@ async function startJob(payload: Record<string, unknown>) {
   const job = await getJob(jobId);
   if (!job) return NextResponse.json({ error: "更新キューが見つかりません。" }, { status: 404 });
   if (!["pending", "paused", "running"].includes(job.status)) return NextResponse.json(await progress(jobId));
+  const sessionId = cleanText(payload.sessionId);
+  if (!sessionId || job.collection_session_id !== sessionId) return NextResponse.json({ error: "同一current-sessionのjobだけ再開できます。", job }, { status: 409 });
   const { error } = await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
-    .update({ status: "running", started_at: job.started_at ?? new Date().toISOString(), last_error: null })
+    .update({ status: "running", started_at: job.started_at ?? new Date().toISOString(), last_error: null, launch_mode: job.launch_mode === "new" ? "new" : "resumed", collector_version: cleanText(payload.collectorVersion) || job.collector_version || null })
     .eq("id", jobId);
   if (error) throw error;
   return NextResponse.json(await progress(jobId));
@@ -366,14 +383,14 @@ async function updateJobStatus(payload: Record<string, unknown>, status: "paused
   if (status === "cancelled") {
     const { error: itemError } = await supabaseAdmin
       .from("myfans_quote_refresh_job_items")
-      .update({ error: "一括更新のキャンセル要求を受け付けました。" })
+      .update({ status: "skipped", error: CANCELLED_BY_USER, processed_at: new Date().toISOString() })
       .eq("job_id", jobId)
-      .eq("status", "pending");
+      .in("status", ["pending", "running"]);
     if (itemError) throw itemError;
   }
   const { error } = await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
-    .update({ status, completed_at: status === "cancelled" ? new Date().toISOString() : null })
+    .update({ status, completed_at: status === "cancelled" ? new Date().toISOString() : null, last_error: status === "cancelled" ? CANCELLED_BY_USER : null })
     .eq("id", jobId);
   if (error) throw error;
   return NextResponse.json(await progress(jobId));
@@ -383,9 +400,11 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const jobId = numberValue(url.searchParams.get("jobId"), 0);
+    if (!jobId && !url.searchParams.get("sessionId")) await reconcileLegacyActiveJobs();
     const approvedMediaId = numberValue(url.searchParams.get("approvedMediaId"), 0) || null;
     if (url.searchParams.get("targeted") === "1") return NextResponse.json(await targetedCreatorRecommendations(approvedMediaId));
-    const job = jobId ? await getJob(jobId) : await getActiveJob(approvedMediaId);
+    const sessionId = cleanText(url.searchParams.get("sessionId"));
+    const job = jobId ? await getJob(jobId) : sessionId ? await getCurrentSessionJob(approvedMediaId, sessionId) : null;
     if (!job) return NextResponse.json({ job: null, items: [] });
     return NextResponse.json(await progress(job.id));
   } catch (error) {
