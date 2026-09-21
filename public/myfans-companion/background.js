@@ -107,7 +107,7 @@ function wait(ms) {
 async function observeVisibleThread(tabId) {
   return executeMain(tabId, async () => {
     const before = document.querySelectorAll('article[data-testid="tweet"]').length;
-    const expandLabels = /もっと見る|返信をさらに表示|Show more replies|Show more|さらに表示|Load more/i;
+    const expandLabels = /返信をさらに表示|Show more replies|Load more replies|さらに返信を表示/i;
     const clicked = [];
     for (let pass = 0; pass < 3; pass += 1) {
       for (const button of Array.from(document.querySelectorAll('button, [role="button"]'))) {
@@ -154,6 +154,8 @@ const FAILURE_CATEGORY = {
   LOGIN_OR_CHALLENGE: "LOGIN_OR_CHALLENGE",
   DOM_SELECTOR_MISMATCH: "DOM_SELECTOR_MISMATCH",
   PROFILE_NOT_FOUND_SUSPENDED: "PROFILE_NOT_FOUND/SUSPENDED",
+  PRIVATE: "PRIVATE",
+  NO_POSTS: "NO_POSTS",
   X_TEMPORARY_ERROR: "X_TEMPORARY_ERROR",
   UNKNOWN: "UNKNOWN"
 };
@@ -161,6 +163,8 @@ const FAILURE_CATEGORY = {
 const NON_RETRYABLE_CATEGORIES = new Set([
   FAILURE_CATEGORY.LOGIN_OR_CHALLENGE,
   FAILURE_CATEGORY.PROFILE_NOT_FOUND_SUSPENDED,
+  FAILURE_CATEGORY.PRIVATE,
+  FAILURE_CATEGORY.NO_POSTS,
   FAILURE_CATEGORY.SENSITIVE_CONTENT_GATE,
   FAILURE_CATEGORY.INJECTED_FUNCTION_ERROR,
   FAILURE_CATEGORY.RESULT_SERIALIZATION_FAILED,
@@ -229,6 +233,8 @@ function humanReasonForCategory(category) {
     LOGIN_OR_CHALLENGE: "Xのログイン/認証画面を検知しました。",
     DOM_SELECTOR_MISMATCH: "XのDOM構造が想定と違います。",
     "PROFILE_NOT_FOUND/SUSPENDED": "プロフィールが存在しない、または凍結/停止されています。",
+    PRIVATE: "鍵付き/privateアカウントのため投稿を閲覧できません。",
+    NO_POSTS: "投稿がないことを確認しました。",
     X_TEMPORARY_ERROR: "Xの一時エラー表示を検知しました。",
     UNKNOWN: "原因を分類できませんでした。"
   }[category] || "原因を分類できませんでした。";
@@ -700,6 +706,8 @@ function collectXQuoteCandidates() {
   const hasSensitiveGate = /センシティブな内容|センシティブなコンテンツ|sensitive content|age-restricted|adult content/i.test(pageText);
   const hasChallenge = /captcha|challenge|認証|ロボット|不審なログイン|ログインしてください|Sign in to X|Log in to X/i.test(pageText);
   const notFound = /このアカウントは存在しません|Account suspended|アカウントは凍結|This account doesn.?t exist|Profile not found|存在しません/i.test(pageText);
+  const isPrivate = /このアカウントは非公開です|ポストは非公開|These posts are protected|This account is private|非公開アカウント/i.test(pageText);
+  const noPostsConfirmed = /まだポストがありません|No posts yet|このアカウントにはポストがありません/i.test(pageText);
   const baseDiagnostics = {
     url: location.href,
     readyState: document.readyState,
@@ -708,6 +716,8 @@ function collectXQuoteCandidates() {
     hasSensitiveGate,
     hasChallenge,
     notFound,
+    isPrivate,
+    noPostsConfirmed,
     textSample: pageText.replace(/\s+/g, " ").slice(0, 180)
   };
   if (!sourceXHandle || !creatorId) return fail("NAVIGATION", "UNKNOWN", "Daily Pageの一括更新から開いてください。", baseDiagnostics);
@@ -1017,6 +1027,8 @@ async function waitForTweetRender(tabId, expectedHandle, timeoutMs) {
     lastState = await executeMain(tabId, inspectXPageState, [expectedHandle]);
     if (lastState.hasChallenge) throw categorizedError(FAILURE_CATEGORY.LOGIN_OR_CHALLENGE, "Xのログイン/認証画面を検知しました。");
     if (lastState.notFound) throw categorizedError(FAILURE_CATEGORY.PROFILE_NOT_FOUND_SUSPENDED, "プロフィールが存在しない、または凍結/停止されています。");
+    if (lastState.isPrivate) throw categorizedError(FAILURE_CATEGORY.PRIVATE, "鍵付き/privateアカウントのため投稿を閲覧できません。");
+    if (lastState.noPostsConfirmed) throw categorizedError(FAILURE_CATEGORY.NO_POSTS, "投稿がないことを確認しました。");
     if (lastState.hasRetry) throw categorizedError(FAILURE_CATEGORY.X_TEMPORARY_ERROR, "Xの一時エラー/Retry表示を検知しました。");
     if (lastState.hasSensitiveGate && lastState.articleCount === 0) throw categorizedError(FAILURE_CATEGORY.SENSITIVE_CONTENT_GATE, "センシティブ警告で投稿一覧が表示されていません。");
     if (lastState.articleCount > 0) return lastState;

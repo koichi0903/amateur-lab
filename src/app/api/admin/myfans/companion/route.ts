@@ -153,7 +153,7 @@ async function updateSensitiveGateStreak(jobId: number, error: string | undefine
   if (updateError) throw updateError;
 }
 
-const NON_RETRYABLE_QUOTE_REFRESH_ERRORS = new Set(["LOGIN_OR_CHALLENGE", "PROFILE_NOT_FOUND/SUSPENDED", "SENSITIVE_CONTENT_GATE"]);
+const NON_RETRYABLE_QUOTE_REFRESH_ERRORS = new Set(["LOGIN_OR_CHALLENGE", "PROFILE_NOT_FOUND/SUSPENDED", "SENSITIVE_CONTENT_GATE", "NO_POSTS", "PRIVATE"]);
 
 function quoteRefreshErrorCode(error: string | undefined) {
   return cleanText(error).match(/^([A-Z_/]+):\s*/)?.[1] || "";
@@ -174,13 +174,46 @@ async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "f
       collected_count: detail.collectedCount ?? 0,
       top_score: detail.topScore ?? null,
       error: detail.error ?? null,
+      collection_state: collectionStateForResult(status, detail),
+      collection_evidence: { collectorMethod: COLLECTOR_METHOD, error: detail.error ?? null, collectedCount: detail.collectedCount ?? 0 },
       processed_at: new Date().toISOString(),
     })
     .eq("id", itemId)
     .eq("job_id", jobId);
   if (error) throw error;
+  const { data: item } = await supabaseAdmin.from("myfans_quote_refresh_job_items").select("creator_id").eq("id", itemId).eq("job_id", jobId).maybeSingle();
+  const creatorId = Number(payload.creatorId) || Number(item?.creator_id) || 0;
+  if (creatorId > 0) {
+    const state = collectionStateForResult(status, detail);
+    const permanent = state === "NO_POSTS" || state === "PRIVATE";
+    const { data: existingState } = await supabaseAdmin.from("myfans_creator_collection_state").select("rotation_order").eq("creator_id", creatorId).maybeSingle();
+    const { error: stateError } = await supabaseAdmin.from("myfans_creator_collection_state").upsert({
+      creator_id: creatorId,
+      rotation_order: Number(existingState?.rotation_order ?? creatorId),
+      collection_enabled: !permanent,
+      state,
+      exclusion_reason: permanent ? state.toLowerCase() : null,
+      excluded_at: permanent ? new Date().toISOString() : null,
+      last_processed_at: new Date().toISOString(),
+      last_run_id: jobId,
+      evidence: { collectorMethod: COLLECTOR_METHOD, error: detail.error ?? null, collectedCount: detail.collectedCount ?? 0 },
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "creator_id" });
+    if (stateError) throw stateError;
+  }
   await updateSensitiveGateStreak(jobId, detail.error);
   await updateRefreshProgress(jobId);
+}
+
+function collectionStateForResult(status: "success" | "failed", detail: { collectedCount?: number; error?: string }) {
+  const code = quoteRefreshErrorCode(detail.error);
+  if (code === "NO_POSTS") return "NO_POSTS";
+  if (code === "PRIVATE") return "PRIVATE";
+  if (code === "THREAD_NOT_FULLY_OBSERVED") return "THREAD_INCOMPLETE";
+  if (code === "LOGIN_OR_CHALLENGE" || code === "X_TEMPORARY_ERROR" || code === "SENSITIVE_CONTENT_GATE") return "TEMP_ERROR";
+  if (status === "success" && (detail.collectedCount ?? 0) > 0) return "ELIGIBLE";
+  if (status === "success") return "NO_MATCH_THIS_RUN";
+  return "TEMP_ERROR";
 }
 
 async function updateGlobalQuoteRanks(approvedMediaId: number | null) {

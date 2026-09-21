@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { selectCreatorRotation, DEFAULT_CREATOR_COOLDOWN_DAYS } from "@/lib/myfansQuoteRotation";
 import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummary";
 import { evaluateMyfansSourceValue } from "@/lib/myfansSourceValue";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { MAX_MYFANS_ACCOUNTS_PER_RUN, MYFANS_COLLECTION_KEY, selectCollectionAccounts } from "@/lib/myfansCollectionRotation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,11 +20,7 @@ function numberValue(value: unknown, fallback: number) {
 }
 
 function normalizeBatchSize(value: unknown) {
-  return Math.min(50, Math.max(1, Math.round(numberValue(value, 10))));
-}
-
-function normalizeCooldownDays(value: unknown) {
-  return Math.min(30, Math.max(1, Math.round(numberValue(value, DEFAULT_CREATOR_COOLDOWN_DAYS))));
+  return Math.min(MAX_MYFANS_ACCOUNTS_PER_RUN, Math.max(1, Math.round(numberValue(value, MAX_MYFANS_ACCOUNTS_PER_RUN))));
 }
 
 function normalizeQueueLimit(value: unknown) {
@@ -87,13 +83,19 @@ async function targetedCreatorRecommendations(approvedMediaId: number | null) {
 async function refreshJobCounts(jobId: number) {
   const { data: items, error } = await supabaseAdmin
     .from("myfans_quote_refresh_job_items")
-    .select("status")
+    .select("status,collected_count,collection_state")
     .eq("job_id", jobId);
   if (error) throw error;
 
   const processed = (items ?? []).filter((item) => ["success", "failed", "skipped"].includes(item.status)).length;
   const success = (items ?? []).filter((item) => item.status === "success").length;
   const failed = (items ?? []).filter((item) => item.status === "failed").length;
+  const completeThreadsFound = (items ?? []).filter((item) => Number(item.collected_count ?? 0) > 0).length;
+  const noMatch = (items ?? []).filter((item) => item.collection_state === "NO_MATCH_THIS_RUN").length;
+  const excludedNoPosts = (items ?? []).filter((item) => item.collection_state === "NO_POSTS").length;
+  const excludedPrivate = (items ?? []).filter((item) => item.collection_state === "PRIVATE").length;
+  const retryableErrors = (items ?? []).filter((item) => ["TEMP_ERROR", "THREAD_INCOMPLETE"].includes(item.collection_state)).length;
+  const candidatesSaved = (items ?? []).reduce((total, item) => total + Number(item.collected_count ?? 0), 0);
   const runningItems = (items ?? []).some((item) => item.status === "running");
   const pendingItems = (items ?? []).some((item) => item.status === "pending");
   const currentJob = await getJob(jobId);
@@ -106,6 +108,13 @@ async function refreshJobCounts(jobId: number) {
       processed_creators: processed,
       success_creators: success,
       failed_creators: failed,
+      accounts_processed: processed,
+      complete_threads_found: completeThreadsFound,
+      candidates_saved: candidatesSaved,
+      no_match: noMatch,
+      excluded_no_posts: excludedNoPosts,
+      excluded_private: excludedPrivate,
+      retryable_errors: retryableErrors,
       completed_at: status === "completed" ? new Date().toISOString() : null,
     })
     .eq("id", jobId);
@@ -158,7 +167,7 @@ async function progress(jobId: number) {
 async function createJob(payload: Record<string, unknown>) {
   const approvedMediaId = numberValue(payload.approvedMediaId, 0) || null;
   const batchSize = normalizeBatchSize(payload.batchSize);
-  const queueLimit = normalizeQueueLimit(payload.queueLimit) ?? batchSize;
+  const queueLimit = Math.min(MAX_MYFANS_ACCOUNTS_PER_RUN, normalizeQueueLimit(payload.queueLimit) ?? batchSize);
   const existing = await getActiveJob(approvedMediaId);
   if (existing) {
     const existingProgress = await progress(existing.id);
@@ -196,23 +205,41 @@ async function createJob(payload: Record<string, unknown>) {
 
   if (targetedCreatorIds.length && !creatorRows.length) return NextResponse.json({ error: "指定されたtarget creatorに有効なXプロフィールがありません。" }, { status: 400 });
 
-  const cooldownDays = normalizeCooldownDays(payload.cooldownDays);
-  const { data: visits, error: visitError } = await supabaseAdmin
-    .from("myfans_quote_refresh_job_items")
-    .select("creator_id,processed_at")
-    .in("creator_id", creatorRows.map((creator) => creator.id))
-    .not("processed_at", "is", null)
-    .in("status", ["success", "failed", "skipped"])
-    .limit(10000);
-  if (visitError) throw visitError;
+  const orderedCreators = [...creatorRows].sort((a, b) => a.id - b.id);
+  const { data: existingStates, error: stateError } = await supabaseAdmin
+    .from("myfans_creator_collection_state")
+    .select("creator_id,rotation_order,collection_enabled")
+    .in("creator_id", orderedCreators.map((creator) => creator.id));
+  if (stateError) throw stateError;
+  const stateByCreator = new Map((existingStates ?? []).map((state) => [Number(state.creator_id), state]));
+  const missingStates = orderedCreators
+    .filter((creator) => !stateByCreator.has(creator.id))
+    .map((creator) => ({ creator_id: creator.id, rotation_order: orderedCreators.findIndex((row) => row.id === creator.id) + 1, collection_enabled: true, state: "ELIGIBLE" }));
+  if (missingStates.length) {
+    const { error: insertStateError } = await supabaseAdmin.from("myfans_creator_collection_state").insert(missingStates);
+    if (insertStateError) throw insertStateError;
+    for (const state of missingStates) stateByCreator.set(state.creator_id, state);
+  }
+  const { data: cursor, error: cursorError } = await supabaseAdmin
+    .from("myfans_collection_cursors")
+    .select("cursor_order,cycle_no")
+    .eq("collector_key", MYFANS_COLLECTION_KEY)
+    .maybeSingle();
+  if (cursorError) throw cursorError;
+  const collectionAccounts = orderedCreators.map((creator) => {
+    const state = stateByCreator.get(creator.id);
+    return { creatorId: creator.id, rotationOrder: Number(state?.rotation_order ?? creator.id), collectionEnabled: state?.collection_enabled !== false };
+  });
+  const collectionRotation = selectCollectionAccounts(
+    collectionAccounts,
+    { cursorOrder: Number(cursor?.cursor_order ?? 0), cycleNo: Number(cursor?.cycle_no ?? 1) },
+    targetedCreatorIds.length ? Math.min(MAX_MYFANS_ACCOUNTS_PER_RUN, targetedCreatorIds.length) : queueLimit,
+  );
+  const selectedIds = new Set(collectionRotation.selected.map((account) => account.creatorId));
+  const prioritized = orderedCreators.filter((creator) => selectedIds.has(creator.id));
+  if (targetedCreatorIds.length && !prioritized.length) return NextResponse.json({ error: "指定されたtarget creatorは収集対象外です。" }, { status: 400 });
 
-  const rotation = selectCreatorRotation(creatorRows, visits ?? [], targetedCreatorIds.length ? Math.min(5, targetedCreatorIds.length) : queueLimit, cooldownDays);
-  const prioritized = rotation.creators;
-  const selectionNote = rotation.selectionMode === "empty"
-    ? "全creatorが前日またはcooldown中のため、同日再利用せず対象なし。"
-    : rotation.selectionMode === "relaxed"
-      ? "全creatorが優先cooldown中のため、前日除外を維持して最古巡回順へ緩和。"
-      : `未巡回・${cooldownDays}日以上未巡回を優先。前日巡回creatorは除外。`;
+  const selectionNote = `永続cursor ${collectionRotation.nextCursor.cursorOrder} まで進め、最大${MAX_MYFANS_ACCOUNTS_PER_RUN}アカウントを順番に処理。日付ではリセットしない。`;
 
   const { data: job, error: jobError } = await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
@@ -221,12 +248,16 @@ async function createJob(payload: Record<string, unknown>) {
       status: "pending",
       total_creators: prioritized.length,
       batch_size: batchSize,
-      rotation_cooldown_days: rotation.cooldownDays,
-      minimum_rotation_cooldown_days: rotation.minimumCooldownDays,
-      eligible_creators: rotation.eligibleCreators,
-      cooldown_excluded_creators: rotation.cooldownExcludedCreators,
-      selection_mode: rotation.selectionMode,
+      rotation_cooldown_days: 1,
+      minimum_rotation_cooldown_days: 1,
+      eligible_creators: collectionRotation.eligibleCount,
+      cooldown_excluded_creators: 0,
+      selection_mode: "strict",
       selection_note: selectionNote,
+      collection_cycle_no: collectionRotation.nextCursor.cycleNo,
+      cursor_before_order: Number(cursor?.cursor_order ?? 0),
+      cursor_after_order: collectionRotation.nextCursor.cursorOrder,
+      cycle_completed: collectionRotation.cycleCompleted,
       sensitive_gate_streak_limit: 3,
       sensitive_gate_streak: 0,
     })
@@ -245,7 +276,15 @@ async function createJob(payload: Record<string, unknown>) {
     if (itemError) throw itemError;
   }
 
-  return NextResponse.json({ ...(await progress(job.id)), rotation: { ...rotation, note: selectionNote } });
+  const { error: cursorUpdateError } = await supabaseAdmin.from("myfans_collection_cursors").upsert({
+    collector_key: MYFANS_COLLECTION_KEY,
+    cursor_order: collectionRotation.nextCursor.cursorOrder,
+    cycle_no: collectionRotation.nextCursor.cycleNo,
+    last_run_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "collector_key" });
+  if (cursorUpdateError) throw cursorUpdateError;
+  return NextResponse.json({ ...(await progress(job.id)), rotation: { ...collectionRotation, note: selectionNote, maxAccountsPerRun: MAX_MYFANS_ACCOUNTS_PER_RUN } });
 }
 
 async function nextItem(payload: Record<string, unknown>) {

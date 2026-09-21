@@ -20,6 +20,17 @@ type QuoteRefreshProgress = {
     success_creators: number;
     failed_creators: number;
     batch_size: number;
+    collection_cycle_no?: number;
+    cursor_before_order?: number;
+    cursor_after_order?: number | null;
+    cycle_completed?: boolean;
+    accounts_processed?: number;
+    complete_threads_found?: number;
+    candidates_saved?: number;
+    no_match?: number;
+    excluded_no_posts?: number;
+    excluded_private?: number;
+    retryable_errors?: number;
     last_error: string | null;
   } | null;
   skippedCreators?: number;
@@ -33,6 +44,7 @@ type QuoteRefreshProgress = {
     top_score: number | null;
     error: string | null;
     processed_at?: string | null;
+    collection_state?: string | null;
     myfans_creators?: { display_name?: string } | { display_name?: string }[] | null;
   }>;
   error?: string;
@@ -345,7 +357,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState<QuoteRefreshProgress | null>(null);
   const [message, setMessage] = useState<Message>(null);
-  const [batchSize, setBatchSize] = useState(25);
+  const [batchSize, setBatchSize] = useState(10);
   const [visualBatchSize, setVisualBatchSize] = useState(10);
   const [visualProgress, setVisualProgress] = useState<VisualVerificationProgress | null>(null);
   const [visualQueue, setVisualQueue] = useState<VisualQueueState | null>(null);
@@ -638,10 +650,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <select value={batchSize} onChange={(event) => setBatchSize(Number(event.target.value))} className={inputClass}>
-            <option value={5}>5 creator</option>
-            <option value={20}>20 creator</option>
-            <option value={25}>25 creator</option>
-            <option value={30}>30 creator</option>
+            <option value={10}>次の10アカウント</option>
           </select>
           <button type="button" onClick={refreshProgressOnly} disabled={pending} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-violet-700 px-4 text-sm font-black text-white disabled:cursor-wait disabled:opacity-60">
             {pending ? <LoaderCircle size={17} className="animate-spin" /> : <Save size={17} />}
@@ -704,6 +713,10 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">進捗</p><p className="mt-1 font-black text-white">{job.processed_creators} / {job.total_creators}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">成功/要修正/blocked/skipped</p><p className="mt-1 font-black text-white">{summary.success} / {summary.failed} / {summary.blocked} / {summary.skipped}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">システム成功率</p><p className={`mt-1 font-black ${successRate !== null && successRate >= 80 ? "text-emerald-300" : "text-amber-300"}`}>{successRate === null ? "-" : `${successRate}%`}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">巡回cursor / cycle</p><p className="mt-1 font-black text-white">{job.cursor_after_order ?? 0} / {job.collection_cycle_no ?? 1}{job.cycle_completed ? " (完了)" : ""}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">complete thread / candidates</p><p className="mt-1 font-black text-white">{job.complete_threads_found ?? 0} / {job.candidates_saved ?? 0}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">NO_MATCH / NO_POSTS / PRIVATE</p><p className="mt-1 font-black text-white">{job.no_match ?? 0} / {job.excluded_no_posts ?? 0} / {job.excluded_private ?? 0}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">retryable errors</p><p className="mt-1 font-black text-white">{job.retryable_errors ?? 0}</p></div>
         </div>
       )}
       {job?.status === "completed" && (
