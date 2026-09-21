@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { allocateTodaySlots, buildBijyoMainText, buildBijyoReplyText, filterRecentReleaseWorks, recentReleaseDateRange, todayProgress } from "./bijyoReservedWorkflow.ts";
+import { BIJYO_SECTION_ORDER, UPCOMING_RELEASE_INITIAL_LIMIT, UPCOMING_RELEASE_PAGE_SIZE, visibleUpcomingReleaseCount } from "../app/admin/bijyo-reserved/ui.ts";
 
 test("本文と自己リプは固定フォーマット", () => {
   assert.equal(buildBijyoMainText({ title: "作品A", release_date: "2026-09-25" }), "【9月25日発売】\n作品A");
@@ -55,4 +56,13 @@ test("手動追加ジョブを作成するとfuture一覧から直ちに消え�
   const work = { id: 42, title: "手動追加対象", stage: "RESERVED", created_at: "2026-09-20T00:00:00Z", release_date: "2026-09-25", image_url: null, sample_movie_url: "sample.mp4", product_id: null };
   assert.deepEqual(filterRecentReleaseWorks([work], [], range).map((item) => item.id), [42]);
   assert.deepEqual(filterRecentReleaseWorks([work], [{ work_id: 42, kind: "manual", slot_date: "2026-09-21", status: "pending" }], range), []);
+});
+
+test("管理画面のセクション順とfuture初期表示件数を固定する", () => {
+  assert.deepEqual(BIJYO_SECTION_ORDER, ["today", "manual", "upcoming", "history"]);
+  assert.equal(UPCOMING_RELEASE_INITIAL_LIMIT, 24);
+  assert.equal(UPCOMING_RELEASE_PAGE_SIZE, 24);
+  assert.equal(visibleUpcomingReleaseCount(222, 24), 24);
+  assert.equal(visibleUpcomingReleaseCount(222, 48), 48);
+  assert.equal(visibleUpcomingReleaseCount(10, 24), 10);
 });
