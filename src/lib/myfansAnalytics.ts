@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { MyfansPostProductLinkageEvidence } from "@/lib/myfansProductResolver";
+import { derivePostedExclusions, fetchMyfansPermanentExclusions, type MyfansPermanentExclusion } from "@/lib/myfansPermanentExclusions";
 
 export type MyfansCreator = {
   id: number;
@@ -278,6 +279,7 @@ const EMPTY_ANALYTICS = {
   productLinkageEvidence: [] as MyfansPostProductLinkageEvidence[],
   diagnosticProductLinkageEvidence: [] as MyfansPostProductLinkageEvidence[],
   dailyPlans: [] as MyfansDailyPlanHistory[],
+  permanentExclusions: [] as MyfansPermanentExclusion[],
   quoteCandidateSource: {
     dbCount: 0,
     loadedCount: 0,
@@ -433,6 +435,7 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
       quoteCandidatesResult,
       productLinkageEvidenceResult,
       dailyPlansResult,
+      permanentExclusionsResult,
     ] = await Promise.all([
       supabaseAdmin
         .from("myfans_creators")
@@ -485,6 +488,7 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
         .gte("plan_date", cutoff.slice(0, 10))
         .order("plan_date", { ascending: false })
         .limit(30),
+      fetchMyfansPermanentExclusions(),
     ]);
 
     const error = [
@@ -500,6 +504,7 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
       quoteCandidatesResult.error,
       productLinkageEvidenceResult.error && /myfans_post_product_linkage_evidence|schema cache|does not exist/i.test(productLinkageEvidenceResult.error.message) ? null : productLinkageEvidenceResult.error,
       dailyPlansResult.error,
+      permanentExclusionsResult.error && /myfans_permanent_candidate_exclusions|schema cache|does not exist/i.test(permanentExclusionsResult.error.message) ? null : permanentExclusionsResult.error,
     ].find(Boolean);
 
     if (error) {
@@ -657,6 +662,7 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
       diagnosticProductLinkageEvidence,
       quoteCandidateSource,
       dailyPlans,
+      permanentExclusions: (permanentExclusionsResult.data ?? derivePostedExclusions(posts)) as MyfansPermanentExclusion[],
     };
   } catch (error) {
     return { error: toErrorMessage(error), ...EMPTY_ANALYTICS };

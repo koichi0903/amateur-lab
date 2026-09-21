@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, Download, ExternalLink, FileUp, Image as ImageIcon, LoaderCircle, MousePointerClick, Plus, RefreshCw, Save } from "lucide-react";
+import { Check, Copy, Download, ExternalLink, FileUp, Image as ImageIcon, LoaderCircle, MousePointerClick, Plus, RefreshCw, Save, XCircle } from "lucide-react";
 import type { buildMyfansExecutionBoard, MyfansQuoteCollectionTask } from "@/lib/myfansXExecution";
 import type { MyfansApprovedMedia, MyfansCreator, MyfansProduct, MyfansXPost } from "@/lib/myfansAnalytics";
 import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummary";
@@ -1262,6 +1262,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
   const router = useRouter();
   const [message, setMessage] = useState<Message>(null);
   const [pendingId, setPendingId] = useState<string | number | null>(null);
+  const [hiddenCandidateIds, setHiddenCandidateIds] = useState<Set<string>>(() => new Set());
   const [selectedBySlot, setSelectedBySlot] = useState<Record<number, string>>(() =>
     Object.fromEntries((candidateOptions ?? []).map((slot) => {
       const selectedLabel = selectedOptions?.[String(slot.postOrder)] ?? "";
@@ -1343,6 +1344,31 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
     }
   }
 
+  async function skipCandidate(candidate: CandidateOption) {
+    const targetLabel = candidate.product ? "この作品を今後表示しない" : "この元投稿を今後表示しない";
+    if (!window.confirm(`${targetLabel}設定にします。日付が変わっても3×4候補へ戻りません。実行しますか？`)) return;
+    setPendingId(`skip-${candidate.id}`);
+    setMessage(null);
+    try {
+      const formData = new FormData();
+      formData.set("action", "permanent_candidate_skip");
+      formData.set("candidate_id", candidate.id);
+      formData.set("plan_date", planDate);
+      if (candidate.product?.id) formData.set("product_id", String(candidate.product.id));
+      if (candidate.quoteCandidateId) formData.set("quote_candidate_id", String(candidate.quoteCandidateId));
+      formData.set("quote_x_url", candidate.quoteXUrl);
+      formData.set("source_x_url", candidate.sourceXUrl);
+      await postFormData(formData);
+      setHiddenCandidateIds((current) => new Set(current).add(candidate.id));
+      setMessage({ text: `${targetLabel}にしました。`, error: false });
+      router.refresh();
+    } catch (error) {
+      setMessage({ text: error instanceof Error ? error.message : "候補を恒久除外できませんでした。", error: true });
+    } finally {
+      setPendingId(null);
+    }
+  }
+
   async function saveAffiliateLink(candidate: ExecutionCandidate, form: HTMLFormElement) {
     if (!candidate.product) return;
     setPendingId(`affiliate-${candidate.product.id}`);
@@ -1367,7 +1393,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
   }
 
   const selectedCandidates = (candidateOptions ?? [])
-    .map((slot) => slot.candidates.find((candidate) => selectedBySlot[slot.postOrder] === candidate.id))
+    .map((slot) => slot.candidates.find((candidate) => !hiddenCandidateIds.has(candidate.id) && selectedBySlot[slot.postOrder] === candidate.id))
     .filter((candidate): candidate is CandidateOption => Boolean(candidate));
   const executionCandidates = selectedCandidates.length ? selectedCandidates : candidates;
 
@@ -1483,7 +1509,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
                 <p className="text-xs font-black text-zinc-400">システム推奨: 候補A（おすすめ）</p>
               </div>
               <div className="mt-4 grid gap-4 lg:grid-cols-3">
-                {slot.candidates.map((candidate) => {
+                {slot.candidates.filter((candidate) => !hiddenCandidateIds.has(candidate.id)).map((candidate) => {
                   const selected = selectedBySlot[slot.postOrder] === candidate.id;
                   const linkRequired = needsFreshAffiliateLink(candidate);
                   const linkReady = canUseAffiliateLink(candidate);
@@ -1545,6 +1571,10 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
                         <button type="button" onClick={() => selectCandidate(slot, candidate)} disabled={pendingId === `select-${slot.postOrder}-${candidate.optionLabel}`} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:cursor-wait disabled:opacity-60">
                           {pendingId === `select-${slot.postOrder}-${candidate.optionLabel}` ? <LoaderCircle size={15} className="animate-spin" /> : <Check size={15} />}
                           {selected ? "選択済み" : "この候補を選ぶ"}
+                        </button>
+                        <button type="button" onClick={() => skipCandidate(candidate)} disabled={pendingId === `skip-${candidate.id}`} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-rose-800 bg-rose-950/40 px-3 text-xs font-black text-rose-200 disabled:cursor-wait disabled:opacity-60">
+                          {pendingId === `skip-${candidate.id}` ? <LoaderCircle size={15} className="animate-spin" /> : <XCircle size={15} />}
+                          {candidate.product ? "この作品を今後表示しない" : "この元投稿を今後表示しない"}
                         </button>
                         <button type="button" disabled={!selected || !candidate.product || pendingId === candidate.id || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
                           <Save size={15} /> 選択候補を投稿ログへ保存

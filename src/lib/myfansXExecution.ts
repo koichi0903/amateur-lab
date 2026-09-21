@@ -3,6 +3,7 @@ import { bestResolverEvidence, buildDbExistingEvidence, resolveTextEvidence } fr
 import { calculateMyfansOpportunityScores } from "@/lib/myfansScore";
 import { getXWeightedLength } from "@/lib/xText";
 import { evaluateMyfansSourceValue, type MyfansSourceValue } from "@/lib/myfansSourceValue";
+import { buildPermanentExclusionSets, isPermanentlyExcluded } from "@/lib/myfansPermanentExclusions";
 
 export type MyfansLinkStrategy = "body_link" | "reply_link" | "profile_cta" | "no_link";
 export type MyfansGrowthStage = "day_1_7" | "day_8_14" | "day_15_30";
@@ -2433,6 +2434,17 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
   const planDate = options.planDate ?? currentPlanDate();
   const stage = getGrowthStage(day);
   const generationVersion = options.generationVersion ?? MYFANS_PUBLIC_COPY_GENERATOR_VERSION;
+  const permanentExclusionSets = buildPermanentExclusionSets(analytics.permanentExclusions ?? []);
+  analytics = {
+    ...analytics,
+    products: analytics.products.filter((product) => !permanentExclusionSets.productIds.has(product.id)),
+    quoteCandidates: analytics.quoteCandidates.filter((quote) => !isPermanentlyExcluded({
+      productId: quote.product_id,
+      quoteXUrl: quote.x_post_url,
+      sourceXUrl: quote.x_post_url,
+      sets: permanentExclusionSets,
+    })),
+  };
   const planKey = `${analytics.selectedMediaId ?? "all"}:${planDate}:day-${day}:${stage}:${generationVersion}`;
   const learning = buildMyfansLearning(analytics);
   const rotation = adjustRotationByLearning(ROTATION[stage], stage, learning);
@@ -2976,6 +2988,12 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     const bodyUsage = pastUsage.latestBody(candidate.body);
     const bodyAge = bodyUsage ? daysBetweenDates(planDate, bodyUsage.date) : null;
     const leak = detectPublicCopyLeak(publicText);
+    if (isPermanentlyExcluded({
+      productId: candidate.product?.id,
+      quoteXUrl: candidate.quoteXUrl,
+      sourceXUrl: candidate.sourceXUrl,
+      sets: permanentExclusionSets,
+    })) quality = holdQuality(quality, "恒久除外済みのproduct/sourceです");
     if (leak.hasLeak) quality = holdQuality(quality, `Public Copy leak: ${leak.matches.join(" / ")}`);
     if (sourceUsage?.actualPosted && sourceAge !== null && sourceAge < POSTED_SOURCE_COOLDOWN_DAYS) quality = holdQuality(quality, `実投稿済みsourceは${POSTED_SOURCE_COOLDOWN_DAYS}日cooldown: last ${sourceUsage.date}`);
     if (sourceUsage && sourceAge !== null && sourceAge < SELECTED_SOURCE_SOFT_COOLDOWN_DAYS) quality = holdQuality(quality, `前日までに選択済みsourceはsoft cooldown: last ${sourceUsage.date}`);

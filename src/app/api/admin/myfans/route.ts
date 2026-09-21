@@ -6,6 +6,7 @@ import { calculateMyfansSelectionScore, myfansLaunchPriority } from "@/lib/myfan
 import { MYFANS_AFFILIATE_URL_SOURCE_MANUAL, normalizeMyfansAffiliateUrl } from "@/lib/myfansAffiliateLink";
 import { MYFANS_DAILY_SELECTED_MAX } from "@/lib/myfansXExecution";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exclusionTargetForCandidate, recordMyfansPermanentExclusion } from "@/lib/myfansPermanentExclusions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +44,21 @@ async function audit(entityType: string, entityId: number | null, action: string
     summary,
     metadata,
   });
+}
+
+async function recordPostedPermanentExclusion(input: { id: number; product_id: number | null; quote_x_url: string; source_x_url: string }) {
+  const target = exclusionTargetForCandidate({
+    productId: input.product_id,
+    quoteXUrl: input.quote_x_url,
+    sourceXUrl: input.source_x_url,
+  });
+  if (!target) return;
+  const { error } = await recordMyfansPermanentExclusion({
+    ...target,
+    reason: "posted",
+    context: { recorded_from: "myfans_x_posts", post_id: input.id },
+  });
+  if (error) throw error;
 }
 
 async function saveCreator(formData: FormData) {
@@ -365,6 +381,9 @@ async function savePost(formData: FormData) {
     : supabaseAdmin.from("myfans_x_posts").insert(record).select("id").single();
   const { data, error } = await query;
   if (error) throw error;
+  if (record.status === "posted") {
+    await recordPostedPermanentExclusion({ id: data.id, product_id: record.product_id, quote_x_url: record.quote_x_url, source_x_url: record.source_x_url });
+  }
   if (record.creative_strategy === "quote_post" && record.quote_x_url) {
     const cooldown = new Date();
     cooldown.setDate(cooldown.getDate() + 30);
@@ -472,8 +491,34 @@ async function updatePostExecution(formData: FormData) {
   if (mode === "url" && !text(formData, "x_post_url")) throw new Error("投稿URLを入力してください。");
   const { error } = await supabaseAdmin.from("myfans_x_posts").update(record).eq("id", id);
   if (error) throw error;
+  if (mode === "posted" || mode === "url") {
+    const { data: post, error: postError } = await supabaseAdmin
+      .from("myfans_x_posts")
+      .select("id,product_id,quote_x_url,source_x_url")
+      .eq("id", id)
+      .single();
+    if (postError) throw postError;
+    await recordPostedPermanentExclusion(post);
+  }
   await audit("x_post", id, `execution_${mode}`, "投稿実行ボードから更新", record);
   return { id };
+}
+
+async function skipPermanentCandidate(formData: FormData) {
+  const productId = nullableId(formData, "product_id");
+  const quoteXUrl = text(formData, "quote_x_url");
+  const sourceXUrl = text(formData, "source_x_url");
+  const quoteCandidateId = nullableId(formData, "quote_candidate_id");
+  const target = exclusionTargetForCandidate({ productId, quoteXUrl, sourceXUrl, quoteCandidateId });
+  if (!target) throw new Error("恒久除外するproduct/sourceを特定できません。");
+  const { error } = await recordMyfansPermanentExclusion({
+    ...target,
+    reason: "user_skipped",
+    context: { recorded_from: "myfans_3x4_skip", plan_date: text(formData, "plan_date") || null, candidate_id: text(formData, "candidate_id") || null },
+  });
+  if (error) throw error;
+  await audit(target.entityType, target.productId, "permanent_candidate_skipped", target.entityKey, { sourceStatusUrl: target.sourceStatusUrl, quoteCandidateId });
+  return { entityKey: target.entityKey };
 }
 
 async function updateQuoteCandidate(formData: FormData) {
@@ -623,6 +668,7 @@ export async function POST(request: Request) {
       action === "post" ? await savePost(formData) :
       action === "daily_plan_select" ? await selectDailyPlanCandidate(formData) :
       action === "post_execution_update" ? await updatePostExecution(formData) :
+      action === "permanent_candidate_skip" ? await skipPermanentCandidate(formData) :
       action === "quote_candidate_update" ? await updateQuoteCandidate(formData) :
       action === "click" ? await saveClick(formData) :
       action === "x_account_metric" ? await saveXAccountMetric(formData) :
