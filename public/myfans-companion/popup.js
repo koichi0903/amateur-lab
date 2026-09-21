@@ -423,7 +423,8 @@ function renderBatchState(state, progress) {
     state?.ownPostCount != null ? `own post: ${state.ownPostCount}` : "",
     state?.candidateCount != null ? `candidate: ${state.candidateCount}` : "",
     state?.videoCandidates != null ? `video: ${state.videoCandidates}` : "",
-    state?.statusThreadsOpened != null ? `status threads: ${state.statusThreadsOpened}` : "",
+    state?.statusThreadsObserved != null ? `status threads observed: ${state.statusThreadsObserved}` : "",
+    state?.fullyObservedThreads != null ? `fully observed: ${state.fullyObservedThreads}` : "",
     state?.authorReplyCount != null ? `author replies: ${state.authorReplyCount}` : "",
     state?.statusThreadMyfansLinkCount != null ? `thread myfans links: ${state.statusThreadMyfansLinkCount}` : "",
     state?.videoValidation ? `video validation: ${state.videoValidation.verified || 0}/${state.videoValidation.checked || 0} ok, fail ${state.videoValidation.failed || 0}${state.videoValidation.failed ? " (partial)" : ""}` : "",
@@ -664,6 +665,7 @@ document.getElementById("cancelBulk").addEventListener("click", async () => {
     document.getElementById("batchStatus").textContent = "中止するジョブがありません。";
     return;
   }
+  await sendRuntimeMessage({ type: "myfans_quote_refresh_cancel_request", jobId: job.id });
   await quoteRefreshRequest({ action: "cancel", jobId: job.id });
   await stopQuoteContinuation();
   document.getElementById("batchStatus").textContent = "中止しました。";

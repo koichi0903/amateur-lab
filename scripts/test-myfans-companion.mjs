@@ -33,6 +33,13 @@ assert.match(background, /complete_thread_first_v2/);
 assert.match(background, /THREAD_NOT_FULLY_OBSERVED/);
 assert.match(background, /NO_OWN_MYFANS_LINK/);
 assert.match(background, /observeVisibleThread/);
+assert.match(background, /parentFound/);
+assert.match(background, /observationCompleteness/);
+assert.match(background, /statusThreadsObserved/);
+assert.match(background, /fullyObservedThreads/);
+assert.match(background, /No tab with id/);
+assert.match(background, /myfansQuoteRefreshCancelRequested/);
+assert.match(background, /payload && payload.ok === false/);
 assert.match(background, /myfansLinkSource/);
 assert.match(background, /parentStatusUrl/);
 assert.match(background, /waitForStatusReady/);
@@ -56,6 +63,7 @@ assert.deepEqual(JSON.parse(JSON.stringify(companionState.successPatch(4))), {
   failureDiagnostics: null,
   lastCandidatesCount: 4,
 });
+assert.equal(companionState.successPatch(0, { ok: false, retryable: true, errorCode: "THREAD_NOT_FULLY_OBSERVED" }).finalStatus, "retryable");
 const attempt = { errorCode: "EXECUTE_SCRIPT_NO_RESULT", message: "old diagnostic" };
 assert.deepEqual(JSON.parse(JSON.stringify(companionState.appendAttemptDiagnostic({ attemptDiagnostics: ["kept"] }, attempt))), ["kept", attempt]);
 assert.equal(companionState.isCompleted({ status: "completed", processed_creators: 1, total_creators: 1 }), true);

@@ -1,10 +1,10 @@
 (() => {
   const state = {
-    successPatch(candidatesCount) {
+    successPatch(candidatesCount, payload = null) {
       return {
-        finalStatus: "success",
-        errorCode: null,
-        lastError: null,
+        finalStatus: payload?.ok === false ? (payload?.retryable === false ? "failed" : "retryable") : "success",
+        errorCode: payload?.ok === false ? (payload?.errorCode || "REMOTE_REJECTED") : null,
+        lastError: payload?.ok === false ? (payload?.error || "保存側で処理できませんでした。") : null,
         failureDiagnostics: null,
         lastCandidatesCount: candidatesCount || 0,
       };

@@ -99,7 +99,7 @@ async function refreshJobCounts(jobId: number) {
   const runningItems = (items ?? []).some((item) => item.status === "running");
   const pendingItems = (items ?? []).some((item) => item.status === "pending");
   const currentJob = await getJob(jobId);
-  const status = runningItems ? "running" : pendingItems ? currentJob?.status ?? "pending" : "completed";
+  const status = currentJob?.status === "cancelled" ? "cancelled" : runningItems ? "running" : pendingItems ? currentJob?.status ?? "pending" : "completed";
 
   const { error: updateError } = await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
@@ -256,7 +256,7 @@ async function createJob(payload: Record<string, unknown>) {
   const prioritized = orderedCreators.filter((creator) => selectedIds.has(creator.id));
   if (targetedCreatorIds.length && !prioritized.length) return NextResponse.json({ error: "指定されたtarget creatorは収集対象外です。" }, { status: 400 });
 
-  const selectionNote = `永続cursor ${collectionRotation.nextCursor.cursorOrder} まで進め、最大${MAX_MYFANS_ACCOUNTS_PER_RUN}アカウントを順番に処理。日付ではリセットしない。`;
+  const selectionNote = `最大${MAX_MYFANS_ACCOUNTS_PER_RUN}アカウントを予約。cursorは各creatorのterminal処理時だけ進め、retryableは次回も再訪する。日付ではリセットしない。`;
 
   const { data: job, error: jobError } = await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
@@ -271,10 +271,10 @@ async function createJob(payload: Record<string, unknown>) {
       cooldown_excluded_creators: 0,
       selection_mode: "strict",
       selection_note: selectionNote,
-      collection_cycle_no: collectionRotation.nextCursor.cycleNo,
+      collection_cycle_no: Number(cursor?.cycle_no ?? 1),
       cursor_before_order: Number(cursor?.cursor_order ?? 0),
-      cursor_after_order: collectionRotation.nextCursor.cursorOrder,
-      cycle_completed: collectionRotation.cycleCompleted,
+      cursor_after_order: Number(cursor?.cursor_order ?? 0),
+      cycle_completed: false,
       sensitive_gate_streak_limit: 3,
       sensitive_gate_streak: 0,
     })
@@ -293,14 +293,7 @@ async function createJob(payload: Record<string, unknown>) {
     if (itemError) throw itemError;
   }
 
-  const { error: cursorUpdateError } = await supabaseAdmin.from("myfans_collection_cursors").upsert({
-    collector_key: MYFANS_COLLECTION_KEY,
-    cursor_order: collectionRotation.nextCursor.cursorOrder,
-    cycle_no: collectionRotation.nextCursor.cycleNo,
-    last_run_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "collector_key" });
-  if (cursorUpdateError) throw cursorUpdateError;
+  // The persistent cursor advances only when an item reaches a terminal outcome.
   return NextResponse.json({ ...(await progress(job.id)), rotation: { ...collectionRotation, note: selectionNote, maxAccountsPerRun: MAX_MYFANS_ACCOUNTS_PER_RUN } });
 }
 
@@ -372,9 +365,9 @@ async function updateJobStatus(payload: Record<string, unknown>, status: "paused
   if (status === "cancelled") {
     const { error: itemError } = await supabaseAdmin
       .from("myfans_quote_refresh_job_items")
-      .update({ status: "skipped", error: "一括更新をキャンセルしました。", processed_at: new Date().toISOString() })
+      .update({ error: "一括更新のキャンセル要求を受け付けました。" })
       .eq("job_id", jobId)
-      .in("status", ["pending", "running"]);
+      .eq("status", "pending");
     if (itemError) throw itemError;
   }
   const { error } = await supabaseAdmin

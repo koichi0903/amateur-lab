@@ -166,9 +166,18 @@ async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "f
   const jobId = Number(payload.refreshJobId);
   const itemId = Number(payload.refreshJobItemId);
   if (!Number.isFinite(jobId) || jobId <= 0 || !Number.isFinite(itemId) || itemId <= 0) return;
+  const { data: currentItem } = await supabaseAdmin
+    .from("myfans_quote_refresh_job_items")
+    .select("attempts")
+    .eq("id", itemId)
+    .eq("job_id", jobId)
+    .maybeSingle();
+  const retryableWithinJob = status === "failed" && quoteRefreshErrorCode(detail.error) !== "" && Number(currentItem?.attempts ?? 0) < 3;
   const finalStatus =
     status === "failed" && NON_RETRYABLE_QUOTE_REFRESH_ERRORS.has(quoteRefreshErrorCode(detail.error))
       ? "skipped"
+      : retryableWithinJob
+        ? "pending"
       : status;
   const { error } = await supabaseAdmin
     .from("myfans_quote_refresh_job_items")
@@ -203,6 +212,22 @@ async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "f
       updated_at: new Date().toISOString(),
     }, { onConflict: "creator_id" });
     if (stateError) throw stateError;
+    if (finalStatus === "success" || finalStatus === "skipped") {
+      const { data: cursor } = await supabaseAdmin.from("myfans_collection_cursors").select("cursor_order,cycle_no").eq("collector_key", "myfans_quote_refresh").maybeSingle();
+      const terminalOrder = Number(existingState?.rotation_order ?? creatorId);
+      if (terminalOrder > Number(cursor?.cursor_order ?? 0)) {
+        const { data: lastEligible } = await supabaseAdmin.from("myfans_creator_collection_state").select("rotation_order").eq("collection_enabled", true).order("rotation_order", { ascending: false }).limit(1).maybeSingle();
+        const cycleCompleted = terminalOrder >= Number(lastEligible?.rotation_order ?? terminalOrder);
+        const { error: cursorError } = await supabaseAdmin.from("myfans_collection_cursors").upsert({
+          collector_key: "myfans_quote_refresh",
+          cursor_order: cycleCompleted ? 0 : terminalOrder,
+          cycle_no: Number(cursor?.cycle_no ?? 1) + (cycleCompleted ? 1 : 0),
+          last_run_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "collector_key" });
+        if (cursorError) throw cursorError;
+      }
+    }
   }
   await updateSensitiveGateStreak(jobId, detail.error);
   await updateRefreshProgress(jobId);
@@ -586,7 +611,7 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
     const incomplete = payload.collectionStatuses.some((item) => cleanText(item.status) === "THREAD_NOT_FULLY_OBSERVED");
     const error = incomplete ? "THREAD_NOT_FULLY_OBSERVED: status threadを通常scroll範囲で十分に観測できませんでした。" : undefined;
     await markRefreshItem(payload, incomplete ? "failed" : "success", { collectedCount: 0, topScore: null, error, evidence: collectionEvidence });
-    return NextResponse.json({ ok: !incomplete, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses, profileCounts: payload.profileCounts ?? {}, statusCounts: payload.statusCounts ?? {}, stateTransitions: payload.stateTransitions ?? [], ...(error ? { error } : {}) }, { status: incomplete ? 202 : 200 });
+    return NextResponse.json({ ok: !incomplete, retryable: incomplete, errorCode: incomplete ? "THREAD_NOT_FULLY_OBSERVED" : null, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses, profileCounts: payload.profileCounts ?? {}, statusCounts: payload.statusCounts ?? {}, stateTransitions: payload.stateTransitions ?? [], ...(error ? { error } : {}) }, { status: incomplete ? 202 : 200 });
   }
   if (!creatorXUrl || !sourceXHandle || candidates.length === 0) {
     const message = failureReason || "Xプロフィール上の投稿候補を取得できませんでした。";
@@ -658,7 +683,7 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
       const incomplete = payload.collectionStatuses.some((item) => cleanText(item.status) === "THREAD_NOT_FULLY_OBSERVED");
       const error = incomplete ? "THREAD_NOT_FULLY_OBSERVED: status threadを通常scroll範囲で十分に観測できませんでした。" : undefined;
       await markRefreshItem(payload, incomplete ? "failed" : "success", { collectedCount: 0, topScore: null, error, evidence: collectionEvidence });
-      return NextResponse.json({ ok: !incomplete, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses, profileCounts: payload.profileCounts ?? {}, statusCounts: payload.statusCounts ?? {}, stateTransitions: payload.stateTransitions ?? [], ...(error ? { error } : {}) }, { status: incomplete ? 202 : 200 });
+      return NextResponse.json({ ok: !incomplete, retryable: incomplete, errorCode: incomplete ? "THREAD_NOT_FULLY_OBSERVED" : null, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses, profileCounts: payload.profileCounts ?? {}, statusCounts: payload.statusCounts ?? {}, stateTransitions: payload.stateTransitions ?? [], ...(error ? { error } : {}) }, { status: incomplete ? 202 : 200 });
     }
     const message = "SOURCE_TEXT_MISSING: 表示中投稿に安全に紐付けられる本文がありません。空本文は保存しません。";
     await markRefreshItem(payload, "failed", { collectedCount: 0, error: message });

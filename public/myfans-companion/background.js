@@ -5,6 +5,7 @@ const QUOTE_SETTINGS_KEY = "myfansQuoteRefreshSettings";
 const COMPANION_SETTINGS_KEY = "myfansCompanionSettings";
 const QUOTE_ALARM_NAME = "myfansQuoteRefreshNext";
 const WORKER_TAB_KEY = "myfansQuoteWorkerTabId";
+const QUOTE_CANCEL_KEY = "myfansQuoteRefreshCancelRequested";
 const WORKER_VERSION = chrome.runtime.getManifest().version;
 const COLLECTOR_METHOD = "complete_thread_first_v2";
 const ADMIN_BRIDGE_FILE = "myfans-admin-bridge.js";
@@ -104,15 +105,25 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function observeVisibleThread(tabId) {
+async function observeVisibleThread(tabId, expectedHandle = "", expectedStatusUrl = "") {
   return executeMain(tabId, async () => {
-    const before = document.querySelectorAll('article[data-testid="tweet"]').length;
-    const expandLabels = /返信をさらに表示|Show more replies|Load more replies|さらに返信を表示/i;
+    const articles = () => Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
+    const before = articles().length;
+    const targetUrl = String(expectedStatusUrl || "").replace(/^https:\/\/twitter\.com\//i, "https://x.com/").replace(/[?#].*$/, "");
+    const handle = String(expectedHandle || "").replace(/^@/, "").toLowerCase();
+    const relevantExpand = (button) => {
+      const text = `${button.textContent || ""} ${button.getAttribute("aria-label") || ""} ${button.getAttribute("data-testid") || ""}`.trim();
+      const testId = button.getAttribute("data-testid") || "";
+      const label = /返信をさらに表示|さらに返信を表示|他の返信を表示|Show more replies|Load more replies|View more replies|Show additional replies|More replies/i.test(text);
+      const threadCue = /reply|repl|thread|返信/i.test(text) || /reply|repl|thread/i.test(testId);
+      return !button.hasAttribute("disabled") && label && threadCue;
+    };
     const clicked = [];
+    const scrollPasses = [];
     for (let pass = 0; pass < 3; pass += 1) {
       for (const button of Array.from(document.querySelectorAll('button, [role="button"]'))) {
         const label = `${button.textContent || ""} ${button.getAttribute("aria-label") || ""}`.trim();
-        if (expandLabels.test(label) && !button.hasAttribute("disabled")) {
+        if (relevantExpand(button)) {
           button.click();
           clicked.push(label.slice(0, 80));
         }
@@ -121,18 +132,38 @@ async function observeVisibleThread(tabId) {
       await new Promise((resolve) => setTimeout(resolve, 700));
       window.scrollTo({ top: Math.max(0, document.documentElement.scrollHeight - window.innerHeight), behavior: "instant" });
       await new Promise((resolve) => setTimeout(resolve, 700));
+      scrollPasses.push(pass + 1);
     }
     const remainingExpand = Array.from(document.querySelectorAll('button, [role="button"]'))
-      .map((button) => `${button.textContent || ""} ${button.getAttribute("aria-label") || ""}`)
-      .some((label) => expandLabels.test(label));
+      .filter(relevantExpand)
+      .map((button) => `${button.textContent || ""} ${button.getAttribute("aria-label") || ""}`.trim().slice(0, 80));
+    const visibleArticles = articles();
+    const canonical = (value) => String(value || "").replace(/^https:\/\/twitter\.com\//i, "https://x.com/").replace(/[?#].*$/, "");
+    const articleAuthor = (article) => Array.from(article.querySelectorAll('[data-testid="User-Name"] a[href]'))
+      .map((link) => String(link.getAttribute("href") || "").replace(/^\//, "").split(/[/?#]/)[0].toLowerCase())
+      .find((value) => /^[a-z0-9_]{1,15}$/i.test(value)) || "";
+    const ownArticles = visibleArticles.filter((article) => !handle || articleAuthor(article) === handle);
+    const linksFound = ownArticles.flatMap((article) => Array.from(article.querySelectorAll("a[href]"))
+      .map((link) => String(link.getAttribute("href") || ""))
+      .filter((href) => /^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(href)));
+    const parentFound = Boolean(targetUrl && visibleArticles.some((article) => Array.from(article.querySelectorAll("a[href]"), (link) => canonical(link.getAttribute("href"))).includes(targetUrl)));
+    const articleCountAfter = visibleArticles.length;
+    const observationCompleteness = parentFound && scrollPasses.length >= 3 && remainingExpand.length === 0 ? "complete" : "partial";
     return {
       articleCountBefore: before,
-      articleCountAfter: document.querySelectorAll('article[data-testid="tweet"]').length,
+      articleCountAfter,
+      parentFound,
+      sameAuthorReplyCount: Math.max(0, ownArticles.length - (parentFound ? 1 : 0)),
       clickedExpandCount: clicked.length,
-      remainingExpand,
-      fullyObserved: !remainingExpand,
+      remainingExpandCount: remainingExpand.length,
+      remainingExpandLabels: remainingExpand.slice(0, 10),
+      scrollPasses: scrollPasses.length,
+      linksFound: [...new Set(linksFound)],
+      fullyObserved: observationCompleteness === "complete",
+      observationCompleteness,
+      reason: !parentFound ? "PARENT_NOT_FOUND" : remainingExpand.length ? "RELEVANT_REPLY_EXPAND_REMAINS" : "OBSERVED_STABLE"
     };
-  }, [], { requireResult: true });
+  }, [expectedHandle, expectedStatusUrl], { requireResult: true });
 }
 
 async function waitForStatusReady(tabId, expectedHandle, expectedStatusUrl, timeoutMs = 18000) {
@@ -174,6 +205,7 @@ const FAILURE_CATEGORY = {
   PRIVATE: "PRIVATE",
   NO_POSTS: "NO_POSTS",
   X_TEMPORARY_ERROR: "X_TEMPORARY_ERROR",
+  THREAD_NOT_FULLY_OBSERVED: "THREAD_NOT_FULLY_OBSERVED",
   UNKNOWN: "UNKNOWN"
 };
 
@@ -196,7 +228,8 @@ const LIMITED_RETRY_CATEGORIES = new Set([
   FAILURE_CATEGORY.X_TEMPORARY_ERROR,
   FAILURE_CATEGORY.NO_TWEET_ARTICLES,
   FAILURE_CATEGORY.TAB_NOT_READY,
-  FAILURE_CATEGORY.STATUS_PARENT_NOT_FOUND
+  FAILURE_CATEGORY.STATUS_PARENT_NOT_FOUND,
+  FAILURE_CATEGORY.THREAD_NOT_FULLY_OBSERVED
 ]);
 
 function categorizedError(category, message, diagnostics = {}) {
@@ -390,7 +423,31 @@ async function sendPayload(settings, result) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || `送信に失敗しました (${response.status})`);
+  if (payload && payload.ok === false) {
+    const error = new Error(payload.error || "保存側がretryable/failedを返しました。");
+    error.code = payload.errorCode || (payload.retryable ? "THREAD_NOT_FULLY_OBSERVED" : "REMOTE_REJECTED");
+    error.retryable = payload.retryable !== false;
+    error.diagnostics = payload;
+    throw error;
+  }
   return payload;
+}
+
+async function assertWorkerTabAlive(tabId) {
+  try {
+    await chrome.tabs.get(tabId);
+  } catch (error) {
+    throw categorizedError(FAILURE_CATEGORY.TAB_NOT_READY, error instanceof Error ? error.message : "worker tabが存在しません。", { tabId });
+  }
+}
+
+async function isQuoteCancelRequested(jobId) {
+  const stored = await chrome.storage.local.get([QUOTE_CANCEL_KEY]);
+  return Boolean(stored[QUOTE_CANCEL_KEY] && (!jobId || stored[QUOTE_CANCEL_KEY].jobId === jobId));
+}
+
+async function requestQuoteCancel(jobId) {
+  await chrome.storage.local.set({ [QUOTE_CANCEL_KEY]: { jobId, requestedAt: new Date().toISOString() } });
 }
 
 function diagnosticStatusUrl(value) {
@@ -565,10 +622,12 @@ function collectSingleXStatusCandidate({ sourceXHandle, sourceStatusUrl }) {
 
 async function markItemFailed(settings, jobId, itemId, error) {
   const baseMessage = error instanceof Error ? error.message : String(error || "取得に失敗しました");
+  const errorCode = error && typeof error === "object" && error.code ? String(error.code) : categoryFromError(error);
+  const codedMessage = errorCode && !baseMessage.startsWith(`${errorCode}:`) ? `${errorCode}: ${baseMessage}` : baseMessage;
   const diagnostics = error && typeof error === "object" && error.diagnostics ? error.diagnostics : null;
   const failureReason = diagnostics
-    ? `${baseMessage} [diagnostics=${JSON.stringify(diagnostics)}]`
-    : baseMessage;
+    ? `${codedMessage} [diagnostics=${JSON.stringify(diagnostics)}]`
+    : codedMessage;
   await fetch(`${normalizeBaseUrl(settings.baseUrl)}/api/admin/myfans/companion`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1305,6 +1364,7 @@ async function collectFromWorkerTab(tabId, item, jobId) {
   const transition = (stage, detail = {}) => stateTransitions.push({ stage, at: new Date().toISOString(), ...detail });
   const url = `${item.creator_x_url}?myfans_creator_id=${item.creator_id}&myfans_refresh_job_id=${jobId}&myfans_refresh_item_id=${item.id}`;
   transition("PROFILE_SCAN", { url });
+  await assertWorkerTabAlive(tabId);
   await chrome.tabs.update(tabId, { url, active: false });
   await waitForTabComplete(tabId, 45000);
   const expectedHandle = String(item.creator_x_url || "").match(/^https:\/\/x\.com\/([^/?#]+)/)?.[1] || "";
@@ -1330,29 +1390,29 @@ async function collectFromWorkerTab(tabId, item, jobId) {
     parentStatusUrl: candidate.xPostUrl,
     status: candidate.mediaType === "image" || candidate.mediaType === "video" ? "PENDING_THREAD" : "NO_MEDIA"
   }));
-  let statusThreadsOpened = 0;
+  let statusThreadsObserved = 0;
+  let fullyObservedThreads = 0;
   let statusThreadMyfansLinkCount = 0;
   let threadNotFullyObservedCount = 0;
   transition("MEDIA_STATUS_QUEUE", { queued: parentCandidates.length, profileArticleCount: result.diagnostics?.articleCount ?? 0, profileOwnPostCount: result.diagnostics?.ownPostCount ?? 0 });
   for (const candidate of parentCandidates) {
     try {
       transition("NAVIGATE_STATUS", { parentStatusUrl: candidate.xPostUrl, statusId: candidate.xPostUrl.match(/\/status\/(\d+)/)?.[1] || null });
+      await assertWorkerTabAlive(tabId);
       await chrome.tabs.update(tabId, { url: candidate.xPostUrl, active: false });
       await waitForTabComplete(tabId, 45000);
       transition("WAIT_STATUS_READY", { parentStatusUrl: candidate.xPostUrl });
       const ready = await waitForStatusReady(tabId, expectedHandle, candidate.xPostUrl, 18000);
       transition("STATUS_READY", { parentStatusUrl: candidate.xPostUrl, currentUrl: ready.currentUrl, parentAuthor: ready.parentAuthor });
       transition("COLLECT_THREAD", { parentStatusUrl: candidate.xPostUrl });
-      const observation = await observeVisibleThread(tabId);
+      const observation = await observeVisibleThread(tabId, expectedHandle, candidate.xPostUrl);
       const threadResult = await executeMain(tabId, collectXStatusThreadReplies, [{ sourceXHandle: expectedHandle, sourceStatusUrl: candidate.xPostUrl }], { requireResult: true });
-      if (!threadResult?.ok || !observation?.fullyObserved) {
-        threadNotFullyObservedCount += 1;
-        const entry = collectionStatuses.find((item) => item.parentStatusUrl === candidate.xPostUrl);
-        if (entry) entry.status = "THREAD_NOT_FULLY_OBSERVED";
-        continue;
+      const observed = Boolean(threadResult?.ok && observation?.parentFound);
+      if (observed) {
+        statusThreadsObserved += 1;
+        if (observation.fullyObserved) fullyObservedThreads += 1;
+        transition("THREAD_OBSERVED", { parentStatusUrl: candidate.xPostUrl, articleCount: threadResult.articleCount, authorReplyCount: threadResult.authorReplyCount, diagnostics: observation });
       }
-      statusThreadsOpened += 1;
-      transition("THREAD_OBSERVED", { parentStatusUrl: candidate.xPostUrl, articleCount: threadResult.articleCount, authorReplyCount: threadResult.authorReplyCount });
       statusThreadMyfansLinkCount += threadResult.myfansLinkCount || 0;
       const parent = threadResult.parentCandidate || null;
       const ownRepliesForParent = Array.isArray(threadResult.ownReplies) ? threadResult.ownReplies.filter((reply) => reply.authorHandle?.toLowerCase() === expectedHandle.toLowerCase()) : [];
@@ -1360,6 +1420,11 @@ async function collectFromWorkerTab(tabId, item, jobId) {
       const replyWithLink = ownRepliesForParent.find((reply) => Array.isArray(reply.myfansUrls) && reply.myfansUrls.length > 0) || null;
       const selectedLinkCandidate = parentLinks.length > 0 ? parent : replyWithLink;
       const entry = collectionStatuses.find((item) => item.parentStatusUrl === candidate.xPostUrl);
+      if (!observed || !threadResult?.ok || (!selectedLinkCandidate && !observation?.fullyObserved)) {
+        if (!observed || !observation?.fullyObserved) threadNotFullyObservedCount += 1;
+        if (entry) entry.status = selectedLinkCandidate ? "OBSERVED_LINK_FOUND" : "THREAD_NOT_FULLY_OBSERVED";
+        continue;
+      }
       if (!selectedLinkCandidate) {
         if (entry) entry.status = "NO_OWN_MYFANS_LINK";
         continue;
@@ -1395,7 +1460,7 @@ async function collectFromWorkerTab(tabId, item, jobId) {
   }
   const deduped = completeThreadCandidates.filter((candidate, index, all) => all.findIndex((item) => item.xPostUrl === candidate.xPostUrl) === index);
   const hasCompleteThread = deduped.length > 0;
-  transition("SAVE", { completeThreadsFound: deduped.length, candidatesSaved: deduped.length, statusThreadsObserved: statusThreadsOpened });
+  transition("SAVE", { completeThreadsFound: deduped.length, candidatesSaved: deduped.length, statusThreadsObserved, fullyObservedThreads });
   return {
     ...result,
     ok: hasCompleteThread,
@@ -1408,7 +1473,8 @@ async function collectFromWorkerTab(tabId, item, jobId) {
       ...result.diagnostics,
       collectorMethod: COLLECTOR_METHOD,
       collectionStatuses,
-      statusThreadsOpened,
+      statusThreadsObserved,
+      fullyObservedThreads,
       authorReplyCount: authorReplies.length,
       statusThreadMyfansLinkCount,
       threadNotFullyObservedCount,
@@ -1416,7 +1482,7 @@ async function collectFromWorkerTab(tabId, item, jobId) {
     },
     stateTransitions,
     profileCounts: { articles: result.diagnostics?.articleCount ?? 0, ownPosts: result.diagnostics?.ownPostCount ?? 0, mediaPosts: parentCandidates.length },
-    statusCounts: { navigationAttempted: stateTransitions.filter((entry) => entry.stage === "NAVIGATE_STATUS").length, threadsObserved: statusThreadsOpened, authorReplies: authorReplies.length, threadLinks: statusThreadMyfansLinkCount }
+    statusCounts: { navigationAttempted: stateTransitions.filter((entry) => entry.stage === "NAVIGATE_STATUS").length, threadsObserved: statusThreadsObserved, fullyObserved: fullyObservedThreads, authorReplies: authorReplies.length, threadLinks: statusThreadMyfansLinkCount }
   };
 }
 
@@ -1424,6 +1490,7 @@ async function runBulkQuoteRefresh(settings) {
   if (globalThis.myfansQuoteRefreshRunning) return;
   globalThis.myfansQuoteRefreshRunning = true;
   const persistedSettings = { ...settings };
+  await chrome.storage.local.remove([QUOTE_CANCEL_KEY]);
   globalThis.myfansQuoteRefreshSettings = persistedSettings;
   const startState = { running: true, status: "starting", jobId: persistedSettings.jobId || null, message: "一括更新を開始します。", errorCode: null, lastError: null, failureDiagnostics: null };
   if (!persistedSettings.jobId) startState.attemptDiagnostics = [];
@@ -1456,7 +1523,12 @@ async function runBulkQuoteRefresh(settings) {
     } else {
       await quoteRefreshRequest(persistedSettings, { action: "start", jobId: persistedSettings.jobId });
     }
-    const workerTabId = await ensureWorkerTab(currentTab?.id);
+    if (await isQuoteCancelRequested(persistedSettings.jobId)) {
+      await clearQuoteContinuation();
+      await setQuoteState({ running: false, status: "cancelled", finalStatus: "cancelled", message: "現在の安全な単位の終了後に中止しました。" });
+      return;
+    }
+    let workerTabId = await ensureWorkerTab(currentTab?.id);
     const next = await quoteRefreshRequest(persistedSettings, { action: "next", jobId: persistedSettings.jobId || undefined });
     if (next.paused) {
       await clearQuoteContinuation();
@@ -1477,6 +1549,7 @@ async function runBulkQuoteRefresh(settings) {
     try {
       let result = null;
       let lastCollectError = null;
+      let tabRecreated = false;
       for (let attempt = 1; attempt <= 3; attempt += 1) {
         try {
           await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `処理中: ${creatorName || item.creator_x_url} (${attempt}/3)`, retryCount: attempt - 1, sessionProcessed: processedBefore });
@@ -1490,7 +1563,8 @@ async function runBulkQuoteRefresh(settings) {
             candidateCount: result.quoteCandidates?.length ?? 0,
             videoCandidates: result.diagnostics?.videoCandidates ?? null,
             videoValidation: result.diagnostics?.videoValidation || null,
-            statusThreadsOpened: result.diagnostics?.statusThreadsOpened ?? 0,
+            statusThreadsObserved: result.diagnostics?.statusThreadsObserved ?? 0,
+            fullyObservedThreads: result.diagnostics?.fullyObservedThreads ?? 0,
             authorReplyCount: result.diagnostics?.authorReplyCount ?? 0,
             statusThreadMyfansLinkCount: result.diagnostics?.statusThreadMyfansLinkCount ?? 0,
             retryCount: attempt - 1,
@@ -1500,6 +1574,12 @@ async function runBulkQuoteRefresh(settings) {
           break;
         } catch (collectError) {
           lastCollectError = collectError;
+          let recreatedThisAttempt = false;
+          if (!tabRecreated && /No tab with id|tab.*(?:not found|does not exist)|Could not find tab/i.test(collectError instanceof Error ? collectError.message : String(collectError))) {
+            tabRecreated = true;
+            recreatedThisAttempt = true;
+            workerTabId = await ensureWorkerTab(currentTab?.id);
+          }
           await appendQuoteAttemptDiagnostic({
             at: new Date().toISOString(),
             stage: "COLLECT",
@@ -1509,7 +1589,7 @@ async function runBulkQuoteRefresh(settings) {
             diagnostics: collectError && typeof collectError === "object" && collectError.diagnostics ? collectError.diagnostics : null
           });
           const maxAttempts = categoryFromError(collectError) === FAILURE_CATEGORY.EXECUTE_SCRIPT_NO_RESULT ? 2 : 3;
-          if (attempt >= maxAttempts || !isRetryableError(collectError)) break;
+          if (attempt >= maxAttempts || (!isRetryableError(collectError) && !recreatedThisAttempt)) break;
           const retryMessage = collectError instanceof Error ? collectError.message : "取得を再試行します。";
           await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, stage: categoryFromError(collectError), message: `retry: ${retryMessage}`, lastError: retryMessage, retryCount: attempt, sessionProcessed: processedBefore });
           await prepareRetry(workerTabId, item).catch(() => undefined);
@@ -1518,7 +1598,7 @@ async function runBulkQuoteRefresh(settings) {
       }
       if (!result) throw lastCollectError || categorizedError(FAILURE_CATEGORY.UNKNOWN, "Xページから引用候補を取得できませんでした。");
       const payload = await sendPayload(persistedSettings, result);
-      await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `保存しました: ${creatorName || item.creator_x_url}`, ...MyfansCompanionState.successPatch(payload.candidatesCount), collectionStatuses: payload.collectionStatuses || result.collectionStatuses || [], sessionProcessed: processedBefore + 1 });
+          await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `保存しました: ${creatorName || item.creator_x_url}`, ...MyfansCompanionState.successPatch(payload.candidatesCount, payload), collectionStatuses: payload.collectionStatuses || result.collectionStatuses || [], sessionProcessed: processedBefore + 1 });
     } catch (error) {
       await markItemFailed(persistedSettings, next.jobId, item.id, error);
       const message = error instanceof Error ? error.message : "取得に失敗しました";
@@ -1531,6 +1611,11 @@ async function runBulkQuoteRefresh(settings) {
       }
     }
     const completed = await fetchQuoteProgress(persistedSettings, { jobId: next.jobId }).catch(() => null);
+    if (await isQuoteCancelRequested(next.jobId)) {
+      await clearQuoteContinuation();
+      await setQuoteState({ running: false, status: "cancelled", finalStatus: "cancelled", job: completed?.job || null, message: "現在のアカウント処理を終えて中止しました。" });
+      return;
+    }
     const completedJob = completed?.job;
     if (MyfansCompanionState.isCompleted(completedJob)) {
       await clearQuoteContinuation();
@@ -1591,6 +1676,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const settings = message.settings || {};
     saveCompanionSettings(settings).then(() => saveQuoteSettings(settings)).then(() => runBulkQuoteRefresh(settings)).catch((error) => console.debug("[myfans companion background] start failed", error));
     sendResponse({ ok: true, status: "accepted", workerVersion: WORKER_VERSION, jobId: settings.jobId || null });
+    return true;
+  }
+  if (message?.type === "myfans_quote_refresh_cancel_request") {
+    requestQuoteCancel(Number(message.jobId) || null).then(() => sendResponse({ ok: true, status: "cancel_requested", workerVersion: WORKER_VERSION })).catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error), workerVersion: WORKER_VERSION }));
     return true;
   }
   if (message?.type === "myfans_diagnostic_status_start") {
