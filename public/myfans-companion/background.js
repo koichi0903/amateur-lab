@@ -636,32 +636,83 @@ async function runSingleStatusCollection(settings) {
   }
   diagnosticRunning = true;
   let workerTabId = null;
-  let originalTabId = null;
   let payloadSent = false;
-  await chrome.storage.local.set({ myfansSingleStatusState: { status: "running", runId, sourceStatusUrl } });
+  const transitions = [];
+  let currentStage = "VALIDATE_INPUT";
+  const writeState = (patch = {}) => chrome.storage.local.set({ myfansSingleStatusState: {
+    status: "running",
+    runId,
+    sourceStatusUrl,
+    stage: currentStage,
+    transitions,
+    ...patch
+  } });
+  const stage = async (name, fn, diagnostics = {}) => {
+    currentStage = name;
+    const startedAt = new Date().toISOString();
+    transitions.push({ stage: name, status: "started", startedAt, diagnostics });
+    await writeState();
+    try {
+      const result = await fn();
+      transitions.push({ stage: name, status: "completed", startedAt, finishedAt: new Date().toISOString(), elapsedMs: Date.now() - Date.parse(startedAt), diagnostics });
+      await writeState({ stage: name });
+      return result;
+    } catch (error) {
+      const errorCode = categoryFromError(error);
+      const message = error instanceof Error ? error.message : String(error);
+      error.stage = name;
+      error.diagnostics = { ...diagnostics, ...(error.diagnostics || {}) };
+      transitions.push({ stage: name, status: "failed", startedAt, finishedAt: new Date().toISOString(), elapsedMs: Date.now() - Date.parse(startedAt), errorCode, error: message, diagnostics: error.diagnostics });
+      throw error;
+    }
+  };
+  await writeState();
   try {
     const handle = sourceStatusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "";
-    if (!sourceStatusUrl || !handle) throw new Error("収集対象はx.comの正規status URLを指定してください。");
-    const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    originalTabId = currentTab?.id || null;
-    const workerTab = await chrome.tabs.create({ url: "about:blank", active: true, openerTabId: currentTab?.id });
-    workerTabId = workerTab.id;
-    await chrome.tabs.update(workerTabId, { url: sourceStatusUrl, active: true });
-    await waitForTabComplete(workerTabId, 45000);
-    await waitForTweetRender(workerTabId, handle, 18000);
-    const result = await executeMain(workerTabId, collectSingleXStatusCandidate, [{ sourceXHandle: handle, sourceStatusUrl }], { requireResult: true });
+    if (!sourceStatusUrl || !handle) throw categorizedError("INVALID_STATUS_URL", "収集対象はx.comの正規status URLを指定してください。");
+    const dailyPageTabId = Number.isSafeInteger(Number(settings.dailyPageTabId)) ? Number(settings.dailyPageTabId) : null;
+    const [currentTab] = dailyPageTabId ? [await chrome.tabs.get(dailyPageTabId).catch(() => null)] : await chrome.tabs.query({ active: true, currentWindow: true });
+    const originalTabId = currentTab?.id || dailyPageTabId;
+    let result = null;
+    let lastError = null;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        workerTabId = await stage("CREATE_WORKER_TAB", async () => {
+          const workerTab = await chrome.tabs.create({ url: "about:blank", active: false, openerTabId: originalTabId || undefined });
+          if (!Number.isSafeInteger(workerTab?.id)) throw categorizedError("WORKER_TAB_CREATE_FAILED", "worker tab IDが返りませんでした。");
+          return workerTab.id;
+        }, { attempt, active: false });
+        await stage("NAVIGATE_STATUS", async () => {
+          await assertWorkerTabAlive(workerTabId);
+          await chrome.tabs.update(workerTabId, { url: sourceStatusUrl, active: false });
+          await waitForTabComplete(workerTabId, 45000);
+        }, { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl, active: false });
+        await stage("WAIT_STATUS_READY", () => waitForTweetRender(workerTabId, handle, 18000), { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl });
+        result = await stage("COLLECT_STATUS", () => executeMain(workerTabId, collectSingleXStatusCandidate, [{ sourceXHandle: handle, sourceStatusUrl }], { requireResult: true }), { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl });
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt >= 2 || !isWorkerTabLostError(error)) throw error;
+        transitions.push({ stage: "RECREATE_WORKER_TAB", status: "retrying", attempt, errorCode: categoryFromError(error), error: error instanceof Error ? error.message : String(error) });
+        await writeState({ stage: "RECREATE_WORKER_TAB", workerRetryCount: attempt });
+        if (workerTabId) await chrome.tabs.remove(workerTabId).catch(() => undefined);
+        workerTabId = null;
+      }
+    }
+    if (!result) throw lastError || categorizedError("UNKNOWN", "指定statusの本文取得に失敗しました。");
     if (!result?.ok) throw new Error(result?.errorMessage || "指定statusの本文取得に失敗しました。");
+    currentStage = "SAVE_RESULT";
+    const payload = await stage("SAVE_RESULT", () => sendPayload(settings, { type: "x_single_status_collect", sourceStatusUrl, sourceXHandle: handle, statusCandidate: result.candidate, singleStatusRunId: runId }), { statusUrl: sourceStatusUrl });
     payloadSent = true;
-    const payload = await sendPayload(settings, { type: "x_single_status_collect", sourceStatusUrl, sourceXHandle: handle, statusCandidate: result.candidate, singleStatusRunId: runId });
-    await chrome.storage.local.set({ myfansSingleStatusState: { status: "done", runId, sourceStatusUrl, ...payload } });
+    await chrome.storage.local.set({ myfansSingleStatusState: { status: "done", runId, sourceStatusUrl, stage: "SAVE_RESULT", errorCode: null, error: null, transitions, ...payload } });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const errorCode = categoryFromError(error);
     if (!payloadSent && sourceStatusUrl) {
-      await sendPayload(settings, { type: "x_single_status_collect", sourceStatusUrl, sourceXHandle: sourceStatusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "", singleStatusRunId: runId, collectionError: message }).catch(() => undefined);
+      await sendPayload(settings, { type: "x_single_status_collect", sourceStatusUrl, sourceXHandle: sourceStatusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "", singleStatusRunId: runId, collectionError: `${errorCode}: ${message}` }).catch(() => undefined);
     }
-    await chrome.storage.local.set({ myfansSingleStatusState: { status: "error", runId, sourceStatusUrl, error: message } });
+    await chrome.storage.local.set({ myfansSingleStatusState: { status: "error", runId, sourceStatusUrl, stage: error.stage || currentStage, errorCode, error: message, transitions, workerRetryCount: transitions.filter((entry) => entry.stage === "RECREATE_WORKER_TAB").length } });
   } finally {
-    if (originalTabId) await chrome.tabs.update(originalTabId, { active: true }).catch(() => undefined);
     if (workerTabId) await chrome.tabs.remove(workerTabId).catch(() => undefined);
     diagnosticRunning = false;
   }

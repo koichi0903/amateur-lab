@@ -568,7 +568,8 @@ document.getElementById("singleStatusCollect").addEventListener("click", async (
   }
   try {
     status.textContent = "Daily対象を1件収集中です。Xタブが開いた後も結果はDaily Page/APIに保存されます。";
-    const response = await chrome.runtime.sendMessage({ type: "myfans_single_status_collect_start", settings: { baseUrl: baseUrl(), approvedMediaId: document.getElementById("mediaId").value, approvedMediaName: document.getElementById("mediaName").value, sourceStatusUrl: value, singleStatusRunId: `single-${Date.now()}` } });
+    const dailyPageTabId = (await activeTab()).id;
+    const response = await chrome.runtime.sendMessage({ type: "myfans_single_status_collect_start", settings: { baseUrl: baseUrl(), approvedMediaId: document.getElementById("mediaId").value, approvedMediaName: document.getElementById("mediaName").value, sourceStatusUrl: value, singleStatusRunId: `single-${Date.now()}`, dailyPageTabId } });
     if (!response?.ok) throw new Error(response?.error || "Daily対象収集の開始に失敗しました。");
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : "Daily対象収集の開始に失敗しました。";
