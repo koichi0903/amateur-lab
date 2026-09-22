@@ -29,3 +29,46 @@ test("no match is not a permanent exclusion", () => {
   assert.equal(collectionOutcomeForResult({ candidatesCount: 0, errorCode: "PRIVATE" }), "PRIVATE");
   assert.equal(collectionOutcomeForResult({ candidatesCount: 0, threadIncomplete: true }), "THREAD_INCOMPLETE");
 });
+
+test("mixed ten-account fixture preserves rotation, terminal counts, and exact source linkage", () => {
+  const selected = selectCollectionAccounts(accounts.slice(0, 10), { cursorOrder: 0, cycleNo: 7 }, 10);
+  assert.deepEqual(selected.selected.map((row) => row.creatorId), Array.from({ length: 10 }, (_, index) => index + 1));
+  assert.equal(selected.nextCursor.cursorOrder, 10);
+  assert.equal(selected.nextCursor.cycleNo, 7);
+
+  const outcomes = [
+    collectionOutcomeForResult({ candidatesCount: 1 }),
+    collectionOutcomeForResult({ candidatesCount: 1 }),
+    collectionOutcomeForResult({ candidatesCount: 1 }),
+    collectionOutcomeForResult({ candidatesCount: 0 }),
+    collectionOutcomeForResult({ candidatesCount: 0, errorCode: "NO_POSTS" }),
+    collectionOutcomeForResult({ candidatesCount: 0, errorCode: "PRIVATE" }),
+    collectionOutcomeForResult({ candidatesCount: 0, errorCode: "X_TEMPORARY_ERROR" }),
+    collectionOutcomeForResult({ candidatesCount: 0, threadIncomplete: true }),
+    "CANCELLED",
+    collectionOutcomeForResult({ candidatesCount: 1 }),
+  ];
+  assert.deepEqual(outcomes, [
+    "FOUND_COMPLETE_THREAD", "FOUND_COMPLETE_THREAD", "FOUND_COMPLETE_THREAD", "NO_MATCH_THIS_RUN",
+    "NO_POSTS", "PRIVATE", "TEMP_ERROR", "THREAD_INCOMPLETE", "CANCELLED", "FOUND_COMPLETE_THREAD",
+  ]);
+  assert.equal(outcomes.filter((outcome) => outcome === "FOUND_COMPLETE_THREAD").length, 4);
+  assert.equal(outcomes.filter((outcome) => outcome === "NO_MATCH_THIS_RUN").length, 1);
+  assert.equal(outcomes.filter((outcome) => outcome === "NO_POSTS" || outcome === "PRIVATE").length, 2);
+  assert.equal(outcomes.filter((outcome) => outcome === "TEMP_ERROR" || outcome === "THREAD_INCOMPLETE").length, 2);
+  assert.equal(outcomes.filter((outcome) => outcome === "CANCELLED").length, 1);
+
+  const products = new Map([["https://myfans.jp/posts/existing", 17]]);
+  const candidates = new Map([["https://x.com/creator/status/existing", { id: 127, productId: 17 }]]);
+  const saveExact = (sourceUrl: string, finalUrl: string, productId: number) => {
+    const existing = candidates.get(sourceUrl);
+    candidates.set(sourceUrl, { id: existing?.id ?? candidates.size + 200, productId });
+    products.set(finalUrl, productId);
+    return { candidateId: candidates.get(sourceUrl)?.id, productId };
+  };
+  assert.deepEqual(saveExact("https://x.com/creator/status/existing", "https://myfans.jp/posts/existing", 17), { candidateId: 127, productId: 17 });
+  assert.deepEqual(saveExact("https://x.com/creator/status/imported", "https://myfans.jp/posts/imported", 18), { candidateId: 201, productId: 18 });
+  assert.deepEqual(saveExact("https://x.com/creator/status/existing", "https://myfans.jp/posts/existing", 17), { candidateId: 127, productId: 17 });
+  assert.equal(candidates.size, 2);
+  assert.equal(products.size, 2);
+});

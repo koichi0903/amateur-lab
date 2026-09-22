@@ -242,18 +242,30 @@ async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "f
     if (finalStatus === "success" || finalStatus === "skipped") {
       const { data: cursor } = await supabaseAdmin.from("myfans_collection_cursors").select("cursor_order,cycle_no").eq("collector_key", "myfans_quote_refresh").maybeSingle();
       const terminalOrder = Number(existingState?.rotation_order ?? creatorId);
-      if (terminalOrder > Number(cursor?.cursor_order ?? 0)) {
+      const currentCursorOrder = Number(cursor?.cursor_order ?? 0);
+      let cursorAfterOrder = currentCursorOrder;
+      let cycleCompleted = false;
+      let cycleNo = Number(cursor?.cycle_no ?? 1);
+      if (terminalOrder > currentCursorOrder) {
         const { data: lastEligible } = await supabaseAdmin.from("myfans_creator_collection_state").select("rotation_order").eq("collection_enabled", true).order("rotation_order", { ascending: false }).limit(1).maybeSingle();
-        const cycleCompleted = terminalOrder >= Number(lastEligible?.rotation_order ?? terminalOrder);
+        cycleCompleted = terminalOrder >= Number(lastEligible?.rotation_order ?? terminalOrder);
+        cursorAfterOrder = cycleCompleted ? 0 : terminalOrder;
+        cycleNo += cycleCompleted ? 1 : 0;
         const { error: cursorError } = await supabaseAdmin.from("myfans_collection_cursors").upsert({
           collector_key: "myfans_quote_refresh",
-          cursor_order: cycleCompleted ? 0 : terminalOrder,
-          cycle_no: Number(cursor?.cycle_no ?? 1) + (cycleCompleted ? 1 : 0),
+          cursor_order: cursorAfterOrder,
+          cycle_no: cycleNo,
           last_run_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }, { onConflict: "collector_key" });
         if (cursorError) throw cursorError;
       }
+      const { error: jobCursorError } = await supabaseAdmin.from("myfans_quote_refresh_jobs").update({
+        cursor_after_order: cursorAfterOrder,
+        collection_cycle_no: cycleNo,
+        cycle_completed: cycleCompleted,
+      }).eq("id", jobId);
+      if (jobCursorError) throw jobCursorError;
     }
   }
   await updateSensitiveGateStreak(jobId, detail.error);
@@ -326,12 +338,10 @@ async function updateGlobalQuoteRanks(approvedMediaId: number | null) {
   }
 }
 
-async function saveQuoteCandidate(record: Record<string, unknown>, productId: number | null, creatorId: number, existingCandidateId?: number | null) {
+async function saveQuoteCandidate(record: Record<string, unknown>, creatorId: number, existingCandidateId?: number | null) {
   const postUrl = cleanXStatusUrl(record.x_post_url);
   const query = existingCandidateId
     ? supabaseAdmin.from("myfans_quote_candidates").select("id,selected,media_type,media_permalink,media_count,quote_visual_ready,media_permalink_validation_status,media_permalink_verified_at,visual_score,has_image,has_video").eq("id", existingCandidateId).maybeSingle()
-    : productId
-    ? supabaseAdmin.from("myfans_quote_candidates").select("id,selected,media_type,media_permalink,media_count,quote_visual_ready,media_permalink_validation_status,media_permalink_verified_at,visual_score,has_image,has_video").eq("product_id", productId).eq("x_post_url", postUrl).order("id", { ascending: true }).limit(1).maybeSingle()
     : supabaseAdmin.from("myfans_quote_candidates").select("id,selected,media_type,media_permalink,media_count,quote_visual_ready,media_permalink_validation_status,media_permalink_verified_at,visual_score,has_image,has_video").eq("creator_id", creatorId).eq("x_post_url", postUrl).order("id", { ascending: true }).limit(1).maybeSingle();
   const { data: existing, error: findError } = await query;
   if (findError) throw findError;
@@ -808,7 +818,36 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
   const resolverProducts = await fetchResolverProducts();
 
   const bestFinalUrl = best ? (Array.isArray(best.candidate.myfansUrls) ? best.candidate.myfansUrls : []).map((url) => normalizeMyfansPostUrl(cleanMyfansUrl(url))).find(Boolean) || "" : "";
-  const bestProductResolution = resolveExactMyfansProductByFinalUrl(bestFinalUrl, resolverProducts, resolvedCreatorId);
+  const productResolutions = new Map<string, ExactProductResolution>();
+  const resolveBatchProduct = async (finalMyfansUrl: string) => {
+    if (!finalMyfansUrl) return { product: null, status: "blocked", method: "no_final_myfans_url", missing: ["final MyFans post URL"] } as ExactProductResolution;
+    const cached = productResolutions.get(finalMyfansUrl);
+    if (cached) return cached;
+    let resolution: ExactProductResolution;
+    try {
+      const dbResolution = resolveExactMyfansProductByFinalUrl(finalMyfansUrl, resolverProducts, resolvedCreatorId);
+      resolution = dbResolution.product?.id
+        ? { product: dbResolution.product as Record<string, unknown>, status: "exact" as const, method: "existing_canonical_url", missing: [] }
+        : dbResolution.status === "ambiguous"
+          ? { product: null, status: "ambiguous" as const, method: "exact_canonical_url_duplicate", missing: [] }
+          : await ensureExactProductForCreator(finalMyfansUrl, resolvedCreatorId, approvedMediaId);
+    } catch (error) {
+      const normalizedError = normalizeCompanionError(error, "batch_product_resolution");
+      const { error: auditError } = await supabaseAdmin.from("myfans_audit_logs").insert({
+        entity_type: "creator",
+        entity_id: resolvedCreatorId,
+        action: "batch_product_resolution_failed",
+        summary: finalMyfansUrl,
+        metadata: { collectorMethod: COLLECTOR_METHOD, finalMyfansUrl, error: normalizedError },
+      });
+      if (auditError) console.error("batch product resolution audit failed", auditError);
+      throw companionPersistenceError(normalizedError, normalizedError.errorStage, "batch_product_resolution_failed");
+    }
+    productResolutions.set(finalMyfansUrl, resolution);
+    return resolution;
+  };
+
+  const bestProductResolution = await resolveBatchProduct(bestFinalUrl);
   if (best && bestProductResolution.product?.id) {
     const { error } = await supabaseAdmin.from("myfans_quote_candidates").update({ selected: false }).eq("creator_id", resolvedCreatorId);
     if (error) throw error;
@@ -816,8 +855,9 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
 
   for (const item of ranked) {
     const finalMyfansUrl = (Array.isArray(item.candidate.myfansUrls) ? item.candidate.myfansUrls : []).map((url) => normalizeMyfansPostUrl(cleanMyfansUrl(url))).find(Boolean) || "";
-    const itemProductResolution = resolveExactMyfansProductByFinalUrl(finalMyfansUrl, resolverProducts, resolvedCreatorId);
+    const itemProductResolution = await resolveBatchProduct(finalMyfansUrl);
     const itemProduct = itemProductResolution.product;
+    const itemProductId = itemProduct?.id ? Number(itemProduct.id) : null;
     const resolverEvidence = Array.isArray(item.candidate.resolvedProductEvidence) ? item.candidate.resolvedProductEvidence : [];
     const isVerifiedVideo = item.candidate.mediaType === "video" && item.candidate.validationStatus === "verified_video_permalink" && item.candidate.verifiedVideoPermalink === item.candidate.mediaPermalink;
     const isVerifiedImage = item.candidate.mediaType === "image" && Boolean(item.candidate.mediaPermalink && item.candidate.quoteVisualReady);
@@ -825,7 +865,7 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
     const record = {
       approved_media_id: approvedMediaId ?? product?.approved_media_id ?? null,
       creator_id: resolvedCreatorId,
-      product_id: itemProduct?.id ?? null,
+      product_id: itemProductId,
       creator_x_url: creatorXUrl,
       source_x_handle: sourceXHandle,
       x_post_url: item.candidate.xPostUrl,
@@ -884,38 +924,40 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
       collector_method: item.candidate.collectorMethod || "legacy_profile_scan",
       resolved_product_evidence: item.candidate.resolvedProductEvidence || {},
     };
-    const savedCandidateId = await saveQuoteCandidate(record, itemProduct?.id ?? null, resolvedCreatorId);
+    const savedCandidateId = await saveQuoteCandidate(record, resolvedCreatorId);
     const evidenceText = [item.candidate.text, ...(item.candidate.myfansUrls ?? [])].filter(Boolean).join(" ");
     const resolver = resolverEvidence.find((entry) => entry && typeof entry === "object" && normalizeMyfansPostUrl(cleanMyfansUrl(entry.finalMyfansUrl)) === finalMyfansUrl) || {};
     const rawDiscoveredUrl = cleanText(resolver.observedMfcoUrl || resolver.sourceUrl || finalMyfansUrl).replace(/[?#].*$/, "");
     const discoveredUrl = /^(?:https:\/\/(?:www\.)?(?:mfco\.link|t\.co|myfans\.jp)\/)/i.test(rawDiscoveredUrl) ? rawDiscoveredUrl : finalMyfansUrl;
-    const evidence = finalMyfansUrl
+    const evidence = finalMyfansUrl && itemProductResolution.status === "exact"
       ? {
-        approved_media_id: approvedMediaId ?? itemProduct?.approved_media_id ?? null,
+        approved_media_id: approvedMediaId ?? (itemProduct?.approved_media_id as number | null | undefined) ?? null,
         quote_candidate_id: savedCandidateId,
         source_status_url: item.candidate.ownReplyStatusUrl || item.candidate.xPostUrl,
         source_author_handle: sourceXHandle,
         discovered_myfans_url: discoveredUrl,
         final_myfans_url: finalMyfansUrl,
-        product_id: itemProduct?.id ?? null,
-        resolution_method: itemProduct ? "safe_redirect_product_url" : "myfans_url_resolved_product_not_registered",
+        product_id: itemProductId,
+        resolution_method: itemProductResolution.status === "exact" ? itemProductResolution.method === "existing_canonical_url" ? "exact_product_url" : "safe_redirect_product_url" : "myfans_url_resolved_product_not_registered",
         confidence: "exact",
         evidence_source: item.candidate.myfansLinkSource === "own_reply" ? "author_reply" : "author_post",
         verified_at: new Date().toISOString(),
-        metadata: { link_source: item.candidate.myfansLinkSource === "own_reply" ? "author_reply" : "parent", myfans_post_uuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null, matched_creator_id: resolvedCreatorId, matched_product_id: itemProduct?.id ?? null, product_resolution: itemProductResolution.status, resolver_evidence: resolverEvidence },
+        metadata: { link_source: item.candidate.myfansLinkSource === "own_reply" ? "author_reply" : "parent", myfans_post_uuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null, matched_creator_id: resolvedCreatorId, matched_product_id: itemProductId, product_resolution: itemProductResolution.status, product_resolution_method: itemProductResolution.method, resolver_evidence: resolverEvidence },
       }
-      : resolveTextEvidence({
+      : !finalMyfansUrl
+        ? resolveTextEvidence({
         sourceStatusUrl: item.candidate.ownReplyStatusUrl || item.candidate.xPostUrl,
         sourceAuthorHandle: sourceXHandle,
         text: evidenceText,
         products: resolverProducts,
         evidenceSource: item.candidate.myfansLinkSource === "own_reply" ? "author_reply" : "author_post",
         approvedMediaId: approvedMediaId ?? product?.approved_media_id ?? null,
-      });
+        })
+        : null;
     if (evidence) {
       const { error: evidenceError } = await supabaseAdmin.from("myfans_post_product_linkage_evidence").upsert({
         approved_media_id: evidence.approved_media_id,
-        quote_candidate_id: null,
+        quote_candidate_id: savedCandidateId,
         source_status_url: evidence.source_status_url,
         source_author_handle: evidence.source_author_handle,
         discovered_myfans_url: evidence.discovered_myfans_url,
@@ -1223,7 +1265,7 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
     global_score: scored.score,
     collected_at: new Date().toISOString(),
   };
-  const candidateId = await saveQuoteCandidate(record, productId, creatorMatch.creatorId, existingCandidate?.id);
+  const candidateId = await saveQuoteCandidate(record, creatorMatch.creatorId, existingCandidate?.id);
   auditContext = { ...auditContext, candidateId };
   const isExistingCandidate = Boolean(existingCandidate?.id);
   const partialFailures: string[] = [];
