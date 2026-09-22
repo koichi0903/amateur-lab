@@ -610,6 +610,77 @@ async function importObservedMyfansPost(payload: Record<string, unknown>, approv
   return NextResponse.json({ ok: true, importedType: "post_product", id: productId, productUrl, promotedEvidence, affiliateReady: Boolean(existing?.affiliate_url) });
 }
 
+type ExactProductResolution = {
+  product: Record<string, unknown> | null;
+  status: "exact" | "not_registered" | "ambiguous" | "blocked";
+  method: string;
+  missing: string[];
+};
+
+function extractFinalMyfansUrl(candidate: QuoteScanPayload["statusCandidate"]) {
+  const direct = Array.isArray(candidate?.myfansUrls) ? candidate.myfansUrls : [];
+  const evidence = Array.isArray(candidate?.resolvedProductEvidence) ? candidate.resolvedProductEvidence : [];
+  return [...direct, ...evidence.map((item) => item && typeof item === "object" ? (item as Record<string, unknown>).finalMyfansUrl : "")]
+    .map((url) => normalizeMyfansPostUrl(cleanMyfansUrl(url)))
+    .find(Boolean) || "";
+}
+
+function htmlMeta(html: string, names: string[]) {
+  for (const name of names) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']*)["']`, "i"))
+      || html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${escaped}["']`, "i"));
+    if (match?.[1]) return cleanText(match[1]);
+  }
+  return "";
+}
+
+async function observeMyfansPostForImport(finalMyfansUrl: string) {
+  try {
+    const response = await fetch(finalMyfansUrl, { signal: AbortSignal.timeout(12000), headers: { "user-agent": "Mozilla/5.0" }, cache: "no-store" });
+    if (!response.ok) return { title: "", price: 0, reason: `MYFANS_PAGE_HTTP_${response.status}` };
+    const html = await response.text();
+    const title = htmlMeta(html, ["og:title", "twitter:title"]) || cleanText(html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]);
+    const price = htmlMeta(html, ["product:price:amount", "og:price:amount"]);
+    return { title, price: price ? parseObservedPrice(price) : 0, reason: title ? "og_metadata" : "TITLE_NOT_OBSERVED" };
+  } catch (error) {
+    return { title: "", price: 0, reason: error instanceof Error ? error.message.slice(0, 180) : "MYFANS_PAGE_FETCH_FAILED" };
+  }
+}
+
+async function ensureExactProductForCreator(finalMyfansUrl: string, creatorId: number, approvedMediaId: number | null): Promise<ExactProductResolution> {
+  const canonicalUrl = normalizeMyfansPostUrl(finalMyfansUrl);
+  if (!canonicalUrl) return { product: null, status: "blocked", method: "invalid_final_myfans_url", missing: ["canonical MyFans post URL"] };
+  const { data: matches, error: findError } = await supabaseAdmin
+    .from("myfans_products")
+    .select("id,creator_id,approved_media_id,title,product_url,creator_x_url,affiliate_url,price")
+    .eq("product_url", canonicalUrl);
+  if (findError) throw findError;
+  if ((matches ?? []).length > 1) return { product: null, status: "ambiguous", method: "exact_canonical_url_duplicate", missing: [] };
+  if ((matches ?? []).length === 1) {
+    const existing = matches[0] as Record<string, unknown>;
+    if (existing.creator_id != null && Number(existing.creator_id) !== creatorId) {
+      return { product: null, status: "ambiguous", method: "exact_url_creator_conflict", missing: [] };
+    }
+    const { data: updated, error } = await supabaseAdmin.from("myfans_products")
+      .update({ creator_id: creatorId, ...(approvedMediaId ? { approved_media_id: approvedMediaId } : {}), updated_at: new Date().toISOString() })
+      .eq("id", existing.id).select("id,creator_id,approved_media_id,title,product_url,creator_x_url,affiliate_url,price").single();
+    if (error) throw error;
+    return { product: updated as Record<string, unknown>, status: "exact", method: "existing_canonical_url_then_creator_exact", missing: [] };
+  }
+
+  const observed = await observeMyfansPostForImport(canonicalUrl);
+  if (!observed.title) return { product: null, status: "blocked", method: "canonical_url_observed_title_missing", missing: ["MyFans表示タイトル", observed.reason] };
+  const imported = await importObservedMyfansPost({ productUrl: canonicalUrl, productTitle: observed.title, price: observed.price, pageUrl: canonicalUrl }, approvedMediaId);
+  const importedBody = await imported.json().catch(() => ({}));
+  if (!imported.ok || !importedBody?.id) throw new Error(`MYFANS_PRODUCT_IMPORT_FAILED: ${String(importedBody?.error || imported.status)}`);
+  const { data: linked, error: linkError } = await supabaseAdmin.from("myfans_products")
+    .update({ creator_id: creatorId, updated_at: new Date().toISOString() }).eq("id", Number(importedBody.id))
+    .select("id,creator_id,approved_media_id,title,product_url,creator_x_url,affiliate_url,price").single();
+  if (linkError) throw linkError;
+  return { product: linked as Record<string, unknown>, status: "exact", method: "canonical_url_observed_import_then_creator_exact", missing: [] };
+}
+
 async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number | null) {
   const parsedProductId = Number(payload.productId);
   const parsedCreatorId = Number(payload.creatorId);
@@ -982,6 +1053,7 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
   const sourceStatusUrl = cleanDiagnosticStatusUrl(payload.sourceStatusUrl);
   const sourceXHandle = cleanText(payload.sourceXHandle).replace(/^@/, "");
   const candidate = payload.statusCandidate;
+  let auditContext: Record<string, unknown> = { sourceStatusUrl, sourceXHandle, candidateId: null, matchedCreatorId: null, observedMfcoUrl: null, finalMyfansUrl: null, myfansPostUuid: null, matchedOrCreatedProductId: null, productResolutionMethod: null, resultReason: null };
   const candidateUrl = cleanXStatusUrl(candidate?.xPostUrl);
   const candidateAuthor = cleanText(candidate?.authorHandle).replace(/^@/, "");
   const sourceHandleFromStatus = sourceStatusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "";
@@ -991,7 +1063,7 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
       entity_id: null,
       action: "single_status_collect",
       summary,
-      metadata,
+      metadata: { ...auditContext, ...metadata },
     });
     if (error) throw error;
   };
@@ -1034,6 +1106,7 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
     .select("id,creator_x_url,source_x_handle");
   if (creatorError) throw creatorError;
   const creatorMatch = resolveExactMyfansCreator(creators ?? [], sourceXHandle);
+  auditContext = { ...auditContext, matchedCreatorId: creatorMatch.creatorId, resultReason: creatorMatch.status === "exact" ? null : creatorMatch.status === "ambiguous" ? "ambiguous_creator_author" : "no_exact_creator_author" };
   if (!creatorMatch.creatorId) {
     const reason = creatorMatch.status === "ambiguous" ? "ambiguous_creator_author" : "no_exact_creator_author";
     await audit({ ok: false, sourceStatusUrl, sourceXHandle: canonicalMyfansXHandle(sourceXHandle), authorStatusMatch: true, sourceTextSaved: true, reason }, sourceStatusUrl);
@@ -1053,13 +1126,27 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
   const products = await fetchResolverProducts();
   const resolvedEvidence = Array.isArray(candidate?.resolvedProductEvidence) ? candidate.resolvedProductEvidence : [];
   const observedLinkCount = Array.isArray(candidate?.myfansUrls) ? candidate.myfansUrls.length : 0;
-  const finalMyfansUrl = (Array.isArray(candidate?.myfansUrls) ? candidate.myfansUrls : [])
-    .map((url) => normalizeMyfansPostUrl(cleanMyfansUrl(url)))
-    .find(Boolean) || "";
-  const productResolution = resolveExactMyfansProductByFinalUrl(finalMyfansUrl, products, creatorMatch.creatorId);
-  const product = productResolution.product;
-  const productId = product?.id ?? null;
-  const productMatch = productResolution.status === "exact" ? "exact" : productResolution.status === "not_registered" ? "product_not_registered" : "unresolved";
+  const finalMyfansUrl = extractFinalMyfansUrl(candidate);
+  const observedMfcoUrl = resolvedEvidence.find((item) => item && typeof item === "object" && cleanText((item as Record<string, unknown>).observedMfcoUrl)) as Record<string, unknown> | undefined;
+  auditContext = { ...auditContext, observedMfcoUrl: cleanText(observedMfcoUrl?.observedMfcoUrl || (Array.isArray(candidate?.myfansUrls) ? candidate.myfansUrls.find((url) => /^https:\/\/(?:www\.)?(?:mfco\.link|t\.co)\//i.test(String(url))) : null) || null), finalMyfansUrl: finalMyfansUrl || null, myfansPostUuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null };
+  const dbProductResolution = resolveExactMyfansProductByFinalUrl(finalMyfansUrl, products, creatorMatch.creatorId);
+  let product: Record<string, unknown> | null = dbProductResolution.product as Record<string, unknown> | null;
+  const productResolution: ExactProductResolution = await (async () => {
+    try {
+      return product
+        ? { product, status: "exact", method: "existing_canonical_url", missing: [] as string[] }
+        : finalMyfansUrl
+          ? await ensureExactProductForCreator(finalMyfansUrl, creatorMatch.creatorId, approvedMediaId)
+          : { product: null, status: "blocked" as const, method: "no_final_myfans_url", missing: observedLinkCount > 0 ? ["final MyFans post URL"] : [] };
+    } catch (error) {
+      await audit({ ...auditContext, ok: false, reason: "product_resolution_failed", error: error instanceof Error ? error.message.slice(0, 500) : String(error) }, sourceStatusUrl);
+      throw error;
+    }
+  })();
+  product = productResolution.product;
+  const productId = product?.id ? Number(product.id) : null;
+  const productMatch = productResolution.status === "exact" ? "exact" : productResolution.status === "blocked" ? "product_registration_blocked" : "unresolved";
+  auditContext = { ...auditContext, matchedOrCreatedProductId: productId, productResolutionMethod: productResolution.method, resultReason: productResolution.status === "exact" ? null : productResolution.status === "ambiguous" ? "ambiguous_product_identity" : productResolution.missing.join("|") || "product_not_registered" };
 
   const normalized = {
     ...candidate,
@@ -1074,7 +1161,7 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
     mediaCount: Math.max(0, Math.round(Number(candidate?.mediaCount ?? 0) || 0)),
     myfansUrls: finalMyfansUrl ? [finalMyfansUrl] : [],
     myfansLinkSource: candidate?.myfansLinkSource === "own_reply" ? "own_reply" : candidate?.myfansLinkSource === "parent" ? "parent" : null,
-    resolvedProductEvidence: resolvedEvidence.length > 0 ? resolvedEvidence : (finalMyfansUrl ? [{ finalMyfansUrl, myfansPostUuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null, resolverMethod: productResolution.status === "exact" ? "safe_redirect_product_url" : "myfans_url_resolved_product_not_registered", confidence: "exact" }] : null),
+    resolvedProductEvidence: resolvedEvidence.length > 0 ? resolvedEvidence : (finalMyfansUrl ? [{ finalMyfansUrl, myfansPostUuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null, resolverMethod: productResolution.method, confidence: "exact" }] : null),
     isReply: false,
   } as MyfansQuoteScanCandidate;
   const scored = scoreMyfansQuoteCandidate(normalized);
@@ -1135,6 +1222,7 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
     collected_at: new Date().toISOString(),
   };
   const candidateId = await saveQuoteCandidate(record, productId, creatorMatch.creatorId, existingCandidate?.id);
+  auditContext = { ...auditContext, candidateId };
   const isExistingCandidate = Boolean(existingCandidate?.id);
   const partialFailures: string[] = [];
   if (productId) {
@@ -1153,11 +1241,11 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
       discovered_myfans_url: discoveredUrl,
       final_myfans_url: finalMyfansUrl,
       product_id: productId,
-      resolution_method: productResolution.status === "exact" ? "safe_redirect_product_url" : "myfans_url_resolved_product_not_registered",
+       resolution_method: productResolution.status === "exact" ? productResolution.method === "existing_canonical_url" ? "exact_product_url" : "safe_redirect_product_url" : "myfans_url_resolved_product_not_registered",
       confidence: "exact",
       evidence_source: candidate?.myfansLinkSource === "own_reply" ? "author_reply" : "author_post",
       verified_at: new Date().toISOString(),
-      metadata: { link_source: candidate?.myfansLinkSource === "own_reply" ? "author_reply" : "parent", myfans_post_uuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null, matched_creator_id: creatorMatch.creatorId, matched_product_id: productId, product_resolution: productResolution.status, resolver_evidence: resolvedEvidence },
+       metadata: { link_source: candidate?.myfansLinkSource === "own_reply" ? "author_reply" : "parent", myfans_post_uuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null, matched_creator_id: creatorMatch.creatorId, matched_product_id: productId, product_resolution: productResolution.status, product_resolution_method: productResolution.method, missing_product_fields: productResolution.missing, resolver_evidence: resolvedEvidence },
       updated_at: new Date().toISOString(),
     }, { onConflict: "source_status_url,discovered_myfans_url,evidence_source" });
     if (evidenceError && !/myfans_post_product_linkage_evidence|schema cache|does not exist/i.test(evidenceError.message)) throw evidenceError;
@@ -1168,7 +1256,7 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
     if (error instanceof Error && error.message.startsWith("JOB_IDENTITY_MISMATCH:")) return NextResponse.json({ ok: false, retryable: false, errorCode: "JOB_IDENTITY_MISMATCH", error: error.message }, { status: 409 });
     partialFailures.push(`global rank update: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const metadata = { ok: true, sourceStatusUrl, candidateId, creatorId: creatorMatch.creatorId, creatorMatch: "exact", productId, productMatch, productResolution: productResolution.status, linkDetected: observedLinkCount > 0, linkResolution: finalMyfansUrl ? "mfco_resolved" : observedLinkCount > 0 ? "unresolved" : "no_link", finalMyfansUrl: finalMyfansUrl || null, myfansPostUuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null, linkSource: normalized.myfansLinkSource, existingCandidate: isExistingCandidate, sourceTextSaved: true, authorStatusMatch: true, visualStatus: quoteVisualReady ? "verified" : normalized.mediaType === "none" ? "unavailable" : "metadata_only", score: scored.score, eligible: scored.eligible };
+  const metadata = { ok: true, sourceStatusUrl, candidateId, creatorId: creatorMatch.creatorId, matchedCreatorId: creatorMatch.creatorId, creatorMatch: "exact", productId, matchedOrCreatedProductId: productId, productMatch, productResolution: productResolution.status, productResolutionMethod: productResolution.method, resultReason: productResolution.status === "exact" ? (isExistingCandidate ? "NO_NEW_CANDIDATE" : "candidate_saved") : productResolution.missing.join("|") || "product_not_registered", linkDetected: observedLinkCount > 0, linkResolution: finalMyfansUrl ? "mfco_resolved" : observedLinkCount > 0 ? "unresolved" : "no_link", observedMfcoUrl: auditContext.observedMfcoUrl, finalMyfansUrl: finalMyfansUrl || null, myfansPostUuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null, linkSource: normalized.myfansLinkSource, existingCandidate: isExistingCandidate, sourceTextSaved: true, authorStatusMatch: true, visualStatus: quoteVisualReady ? "verified" : normalized.mediaType === "none" ? "unavailable" : "metadata_only", score: scored.score, eligible: scored.eligible };
   try {
     await audit(metadata, sourceStatusUrl);
   } catch (error) {
