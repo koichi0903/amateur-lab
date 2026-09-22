@@ -4,7 +4,7 @@ import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummar
 import { evaluateMyfansSourceValue } from "@/lib/myfansSourceValue";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { MAX_MYFANS_ACCOUNTS_PER_RUN, MYFANS_COLLECTION_KEY, selectCollectionAccounts } from "@/lib/myfansCollectionRotation";
-import { isActiveQuoteRefreshStatus } from "@/lib/myfansQuoteRefreshLifecycle";
+import { isActiveQuoteRefreshStatus, isProtectedQuoteRefreshRun, isStaleQuoteRefreshJob, staleQuoteRefreshCleanupPreview } from "@/lib/myfansQuoteRefreshLifecycle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 const MAX_ATTEMPTS = 3;
 const CANCELLED_BY_USER = "CANCELLED_BY_USER: ユーザーが一括更新を中止しました。";
 const STALE_ITEM_AGE_MS = 5 * 60_000;
+const STALE_JOB_CLEANUP_REASON = "STALE_JOB_FINALIZED: Companion runの進行が長時間更新されなかったためexecution lifecycleのみ終了しました。rotation eligibilityとcursorは保持されています。";
 
 async function auditContinuation(jobId: number, action: string, summary: string, metadata: Record<string, unknown> = {}) {
   const { error } = await supabaseAdmin.from("myfans_audit_logs").insert({
@@ -228,6 +229,7 @@ async function createJob(payload: Record<string, unknown>) {
   const queueLimit = Math.min(MAX_MYFANS_ACCOUNTS_PER_RUN, normalizeQueueLimit(payload.queueLimit) ?? batchSize);
   const sessionId = cleanText(payload.sessionId) || randomUUID();
   const runToken = cleanText(payload.runToken) || randomUUID();
+  await reconcileStaleActiveJobs({ sessionId, runToken, collectorVersion: cleanText(payload.collectorVersion) || null });
   const targetedCreatorIds = normalizeTargetedCreatorIds(payload.targetedCreatorIds);
   const { data: creators, error } = await supabaseAdmin
     .from("myfans_creators")
@@ -401,6 +403,66 @@ async function nextItem(payload: Record<string, unknown>) {
   return NextResponse.json({ done: false, jobId: activeJob.id, batchSize: activeJob.batch_size, item: running });
 }
 
+async function reconcileStaleActiveJobs(protectedIdentity?: { jobId?: number | null; sessionId?: string | null; runToken?: string | null; collectorVersion?: string | null }) {
+  const { data: jobs, error } = await supabaseAdmin
+    .from("myfans_quote_refresh_jobs")
+    .select("*")
+    .not("collection_session_id", "is", null)
+    .not("collection_run_token", "is", null)
+    .not("collector_version", "is", null)
+    .in("status", ["pending", "running"])
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  if (!jobs?.length) return [];
+
+  const jobIds = jobs.map((job) => job.id);
+  const { data: items, error: itemReadError } = await supabaseAdmin
+    .from("myfans_quote_refresh_job_items")
+    .select("id,job_id,status,collection_state,error,processed_at")
+    .in("job_id", jobIds);
+  if (itemReadError) throw itemReadError;
+  const itemsByJob = new Map<number, typeof items>();
+  for (const item of items ?? []) itemsByJob.set(Number(item.job_id), [...(itemsByJob.get(Number(item.job_id)) ?? []), item]);
+  const { data: cursor, error: cursorError } = await supabaseAdmin
+    .from("myfans_collection_cursors")
+    .select("cursor_order,cycle_no")
+    .eq("collector_key", MYFANS_COLLECTION_KEY)
+    .maybeSingle();
+  if (cursorError) throw cursorError;
+
+  const finalized: number[] = [];
+  for (const job of jobs) {
+    const jobItems = itemsByJob.get(Number(job.id)) ?? [];
+    if (!isStaleQuoteRefreshJob(job, jobItems, Date.now(), protectedIdentity)) continue;
+    const preview = staleQuoteRefreshCleanupPreview(job, jobItems, STALE_JOB_CLEANUP_REASON);
+    if (!preview.changed) continue;
+    const now = new Date().toISOString();
+    const itemPatch = { status: "skipped", error: STALE_JOB_CLEANUP_REASON, processed_at: now, collection_state: "CANCELLED", collection_evidence: { final_collection_state: "CANCELLED", final_error: STALE_JOB_CLEANUP_REASON, rotation_eligibility_preserved: true } };
+    const { error: pendingError } = await supabaseAdmin.from("myfans_quote_refresh_job_items").update(itemPatch).eq("job_id", job.id).eq("status", "pending");
+    if (pendingError) throw pendingError;
+    const { error: runningError } = await supabaseAdmin.from("myfans_quote_refresh_job_items").update(itemPatch).eq("job_id", job.id).eq("status", "running").lt("processed_at", new Date(Date.now() - STALE_ITEM_AGE_MS).toISOString());
+    if (runningError) throw runningError;
+    const { data: finalizedJob, error: jobError } = await supabaseAdmin.from("myfans_quote_refresh_jobs").update({ status: "cancelled", completed_at: now, last_error: STALE_JOB_CLEANUP_REASON }).eq("id", job.id).in("status", ["pending", "running"]).select("id").maybeSingle();
+    if (jobError) throw jobError;
+    if (!finalizedJob) continue;
+    await auditContinuation(job.id, "STALE_JOB_FINALIZED", "stale jobをexecution lifecycleのみterminalizeしました。", {
+      reason: STALE_JOB_CLEANUP_REASON,
+      cursor_before_order: cursor?.cursor_order ?? job.cursor_after_order ?? 0,
+      cursor_after_order: cursor?.cursor_order ?? job.cursor_after_order ?? 0,
+      job_cursor_before_order: job.cursor_before_order ?? null,
+      job_cursor_after_order: job.cursor_after_order ?? null,
+      cursor_unchanged: true,
+      cycle_no: job.collection_cycle_no ?? cursor?.cycle_no ?? 1,
+      cycle_completed: job.cycle_completed ?? false,
+      pending_count: preview.pendingCount,
+      rotation_eligibility_preserved: true,
+      protected_run: isProtectedQuoteRefreshRun(job, protectedIdentity),
+    });
+    finalized.push(Number(job.id));
+  }
+  return finalized;
+}
+
 async function auditContinuationAction(payload: Record<string, unknown>) {
   const jobId = numberValue(payload.jobId, 0);
   const sessionId = cleanText(payload.sessionId);
@@ -458,10 +520,17 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const jobId = numberValue(url.searchParams.get("jobId"), 0);
     if (!jobId && !url.searchParams.get("sessionId")) await reconcileLegacyActiveJobs();
+    const requestedSessionId = cleanText(url.searchParams.get("sessionId"));
     const approvedMediaId = numberValue(url.searchParams.get("approvedMediaId"), 0) || null;
+    const requestedJob = jobId ? await getJob(jobId) : requestedSessionId ? await getCurrentSessionJob(approvedMediaId, requestedSessionId) : null;
+    await reconcileStaleActiveJobs({
+      jobId: jobId || null,
+      sessionId: requestedSessionId || null,
+      runToken: requestedJob?.collection_run_token ?? null,
+      collectorVersion: requestedJob?.collector_version ?? null,
+    });
     if (url.searchParams.get("targeted") === "1") return NextResponse.json(await targetedCreatorRecommendations(approvedMediaId));
-    const sessionId = cleanText(url.searchParams.get("sessionId"));
-    const job = jobId ? await getJob(jobId) : sessionId ? await getCurrentSessionJob(approvedMediaId, sessionId) : null;
+    const job = requestedJob;
     if (!job) return NextResponse.json({ job: null, items: [] });
     return NextResponse.json(await progress(job.id));
   } catch (error) {
