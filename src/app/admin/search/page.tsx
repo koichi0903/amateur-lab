@@ -4,6 +4,8 @@ import { useState } from "react";
 import type { DmmItem } from "@/types/dmm";
 import { supabase } from "@/lib/supabase";
 
+type RegistrationState = "registered" | "partial" | "failed";
+
 export default function AdminSearchPage() {
   const [keyword, setKeyword] =
     useState("");
@@ -16,6 +18,11 @@ export default function AdminSearchPage() {
 
   const [registeredIds, setRegisteredIds] =
   useState(new Set<string>());
+
+  const [registrationStates, setRegistrationStates] =
+  useState(new Map<string, RegistrationState>());
+
+  const [searchError, setSearchError] = useState("");
 
   const [registeringIds, setRegisteringIds] =
   useState(new Set<string>());
@@ -40,11 +47,9 @@ export default function AdminSearchPage() {
     if (!keyword.trim()) return;
 
     setLoading(true);
+    setSearchError("");
 
     try {
-
-        
-
       const res = await fetch(
         `/api/dmm?keyword=${encodeURIComponent(
           keyword
@@ -53,29 +58,40 @@ export default function AdminSearchPage() {
 
       const data = await res.json();
 
-const items: DmmItem[] =
-  data.result?.items || [];
+      if (!res.ok || data.success !== true || !Array.isArray(data.items)) {
+        setSearchResults([]);
+        setRegisteredIds(new Set());
+        setSearchError(
+          data.error?.message || "DMM検索に失敗しました。検索結果は0件として扱っていません。",
+        );
+        return;
+      }
 
-setSearchResults(items);
+      const items: DmmItem[] = data.items;
+
+      setSearchResults(items);
 
 // 検索結果だけ登録済み判定
-const ids = items.map(
-  (item) => item.content_id
-);
+      const ids = items.map((item) => item.content_id);
 
-const { data: registered } =
-  await supabase
-    .from("works")
-    .select("product_id")
-    .in("product_id", ids);
+      if (ids.length === 0) {
+        setRegisteredIds(new Set());
+        return;
+      }
 
-setRegisteredIds(
-  new Set(
-    (registered ?? []).map(
-      (work) => work.product_id
-    )
-  )
-);
+      const { data: registered } = await supabase
+        .from("works")
+        .select("product_id")
+        .in("product_id", ids);
+
+      setRegisteredIds(
+        new Set((registered ?? []).map((work) => work.product_id)),
+      );
+    } catch (error) {
+      console.error(error);
+      setSearchResults([]);
+      setRegisteredIds(new Set());
+      setSearchError("検索結果を取得できませんでした。時間をおいて再試行してください。");
     } finally {
       setLoading(false);
     }
@@ -108,12 +124,17 @@ setRegisteredIds(
     });
 
     try {
-      await handleRegister(item, false);
-      success++;
-      setLogs((prev) => [
-  ...prev,
-  `✅ ${item.content_id}`,
-]);
+      const result = await handleRegister(item, false);
+      if (result?.status === "registered") {
+        success++;
+        setLogs((prev) => [...prev, `✅ ${item.content_id} 登録完了`]);
+      } else {
+        failed++;
+        setLogs((prev) => [
+          ...prev,
+          `${result?.status === "partial" ? "⚠️" : "❌"} ${item.content_id} ${result?.message ?? "登録失敗"}`,
+        ]);
+      }
     } catch (error) {
       console.error(error);
       failed++;
@@ -171,22 +192,17 @@ setRegisteredIds(
     const result =
       await res.json();
 
-    if (!result.success) {
-  throw new Error();
-}
+    if (result.status === "registered" || result.status === "already_registered") {
+      setRegistrationStates((prev) => new Map(prev).set(item.content_id, "registered"));
+      setRegisteredIds((prev) => new Set(prev).add(item.content_id));
+    } else if (result.status === "partial") {
+      setRegistrationStates((prev) => new Map(prev).set(item.content_id, "partial"));
+    } else {
+      setRegistrationStates((prev) => new Map(prev).set(item.content_id, "failed"));
+    }
 
-// 登録済みに追加
-setRegisteredIds((prev) => {
-  const next = new Set(prev);
-
-  next.add(item.content_id);
-
-  return next;
-});
-
-if (showAlert) {
-  alert("登録しました");
-}
+    if (showAlert) alert(result.message || "登録処理が完了しました");
+    return result;
 
   } catch (error) {
   console.error(error);
@@ -194,6 +210,7 @@ if (showAlert) {
   if (showAlert) {
     alert("登録に失敗しました");
   }
+  return null;
 } finally {
   setRegisteringIds((prev) => {
     const next = new Set(prev);
@@ -393,6 +410,12 @@ const displayResults = searchResults.filter(
 
         <div className="mt-10">
 
+          {searchError && (
+            <div className="mb-4 rounded-lg border border-red-800 bg-red-950/50 p-4 text-sm text-red-200" role="alert">
+              検索エラー：{searchError}
+            </div>
+          )}
+
           <p className="mb-4 text-zinc-400">
             
             検索結果：
@@ -487,7 +510,11 @@ const displayResults = searchResults.filter(
 
 </div>
 
-    {displayResults.map((item) => (
+    {displayResults.map((item) => {
+      const registrationState = registrationStates.get(item.content_id);
+      const isRegistered = registrationState === "registered" || (!registrationState && registeredIds.has(item.content_id));
+      const isPartial = registrationState === "partial";
+      return (
   <div
     key={item.content_id}
     className="
@@ -538,16 +565,22 @@ const displayResults = searchResults.filter(
 
       <p
   className={`mt-3 font-bold ${
-    registeredIds.has(item.content_id)
+    isRegistered
       ? "text-green-400"
-      : "text-yellow-400"
+      : isPartial
+        ? "text-orange-300"
+        : "text-yellow-400"
   }`}
 >
-  {registeredIds.has(item.content_id)
+  {isRegistered
     ? "✅ 登録済み"
-    : "🆕 未登録"}
+    : isPartial
+      ? "⚠️ 不完全・要再試行"
+      : registrationState === "failed"
+        ? "❌ 登録失敗"
+        : "🆕 未登録"}
 </p>
-      {!registeredIds.has(item.content_id) && (
+      {!isRegistered && (
   <button
     onClick={() => handleRegister(item)}
     disabled={registeringIds.has(item.content_id)}
@@ -574,7 +607,8 @@ const displayResults = searchResults.filter(
       
     </div>
   </div>
-))}
+      );
+    })}
 
         </div>
 

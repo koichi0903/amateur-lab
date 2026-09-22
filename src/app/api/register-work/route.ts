@@ -6,18 +6,23 @@ export async function POST(request: Request) {
   try {
     const item = await request.json();
 
-    const registered = await registerWork(item);
+    const registration = await registerWork(item);
 
     return NextResponse.json({
-      success: registered,
-      message: registered ? "作品を登録しました" : "作品は登録済みです",
+      ...registration,
+    }, {
+      status: registration.status === "failed" ? 500 : registration.status === "partial" ? 422 : 200,
     });
   } catch (error) {
-    console.error(error);
+    console.error("register-work request failed", error instanceof Error ? error.message : "unknown");
 
     return NextResponse.json(
       {
         success: false,
+        status: "failed",
+        retryable: false,
+        message: "登録処理に失敗しました。",
+        verification: null,
       },
       {
         status: 500,
