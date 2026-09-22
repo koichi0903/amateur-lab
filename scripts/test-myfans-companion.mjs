@@ -20,7 +20,7 @@ vm.runInNewContext(companionStateSource, stateContext);
 const companionState = stateContext.globalThis.MyfansCompanionState;
 
 assert.match(manifest.version, /^0\.1\.\d+$/);
-assert.equal(manifest.version, "0.1.32");
+assert.equal(manifest.version, "0.1.33");
 const popupScripts = [...popupHtml.matchAll(/<script\s+src="([^"]+)"\s*><\/script>/g)].map((match) => match[1]);
 assert.deepEqual(popupScripts, ["state.js", "popup.js"], "popup must load shared state before popup runtime");
 assert.match(companionStateSource, /globalThis\.MyfansCompanionState\s*=\s*state/);
@@ -157,6 +157,7 @@ assert.equal(companionState.sanitizeForDisplay({ running: true, status: "schedul
 assert.equal(companionState.sanitizeForDisplay({ running: true, status: "scheduled", identity }, activeJob, "0.1.27").current, true);
 assert.equal(companionState.shouldInvalidateStoredRun({ collectorVersion: "0.1.26" }, { running: true, identity }, "0.1.27"), true);
 assert.equal(companionState.shouldInvalidateStoredRun({}, { running: true, identity: { job_id: 36 } }, "0.1.27"), true);
+assert.equal(companionState.shouldInvalidateStoredRun({ collectorVersion: "0.1.32" }, { running: true, collectorVersion: "0.1.32", identity: { job_id: 36, collection_session_id: "old-session", run_token: "old-run", collector_version: "0.1.32" } }, "0.1.33"), true);
 assert.match(popup, /blocked \$\{/);
 assert.match(popup, /\(partial\)/);
 assert.match(popup, /finalStatus !== "success"/);
