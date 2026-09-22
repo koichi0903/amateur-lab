@@ -18,7 +18,12 @@ async function sessionToken() {
 }
 
 export async function isAdminRequest(request: NextRequest) {
-  if (["localhost", "127.0.0.1"].includes(request.nextUrl.hostname)) return true;
+  if (
+    process.env.NODE_ENV === "development" &&
+    ["localhost", "127.0.0.1"].includes(request.nextUrl.hostname)
+  ) {
+    return true;
+  }
   const username = process.env.ADMIN_USERNAME;
   const password = process.env.ADMIN_PASSWORD;
   if (!username || !password) return false;

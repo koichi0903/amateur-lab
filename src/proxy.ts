@@ -25,6 +25,10 @@ const LOCAL_UPDATE_API_PATHS = new Set([
   "/api/update-sale",
   "/api/update-semi-new",
 ]);
+const LOCAL_ADMIN_API_PATHS = new Set([
+  "/api/dmm",
+  "/api/register-work",
+]);
 const ADMIN_SESSION_MAX_AGE = 60 * 60 * 12;
 const WORK_SOCIAL_IMAGE_PATH_PATTERN = /^\/works\/[^/]+\/(?:opengraph-image|twitter-image)$/;
 
@@ -138,9 +142,11 @@ async function authenticatedAdminResponse(request: NextRequest) {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const isLocalRequest = ["localhost", "127.0.0.1"].includes(
-    request.nextUrl.hostname,
-  );
+  const isLocalDevelopmentRequest =
+    process.env.NODE_ENV === "development" &&
+    ["localhost", "127.0.0.1"].includes(
+      request.nextUrl.hostname,
+    );
 
   if (WORK_SOCIAL_IMAGE_PATH_PATTERN.test(pathname)) {
     return NextResponse.redirect(new URL("/ogp.png", request.url), {
@@ -154,17 +160,24 @@ export async function proxy(request: NextRequest) {
   // The local admin UI is the control panel for update jobs that cannot run
   // reliably on Vercel (notably Playwright). Keep production admin routes
   // authenticated, while allowing the loopback-only development server.
-  if (isLocalRequest && pathname.startsWith("/admin")) {
+  if (isLocalDevelopmentRequest && pathname.startsWith("/admin")) {
     return NextResponse.next();
   }
 
-  if (isLocalRequest && pathname.startsWith("/api/admin/")) {
+  if (isLocalDevelopmentRequest && pathname.startsWith("/api/admin/")) {
     return NextResponse.next();
   }
 
   if (
     LOCAL_UPDATE_API_PATHS.has(pathname) &&
-    isLocalRequest
+    isLocalDevelopmentRequest
+  ) {
+    return NextResponse.next();
+  }
+
+  if (
+    LOCAL_ADMIN_API_PATHS.has(pathname) &&
+    isLocalDevelopmentRequest
   ) {
     return NextResponse.next();
   }
