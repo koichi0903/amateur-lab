@@ -412,6 +412,31 @@ export async function buildInsightsForWorks(
     .filter((work): work is HomePriceInsightWork => work !== null);
 }
 
+export async function buildInsightsForWorkIds(
+  works: Work[],
+  since: string,
+  options: { requireBuyTimingSignal?: boolean } = {},
+) {
+  const workIds = [...new Set(works.map((work) => work.id).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (!workIds.length) return [];
+
+  const { data, error } = await supabase
+    .from("works")
+    .select(HOME_PRICE_WORK_COLUMNS)
+    .in("id", workIds);
+  if (error) throw error;
+
+  const worksById = new Map(
+    ((data ?? []) as unknown as HomePriceInsightWork[]).map((work) => [work.id, work]),
+  );
+  const enrichedWorks: HomePriceInsightWork[] = works.flatMap((work) => {
+      const priceWork = worksById.get(work.id);
+      return priceWork?.product_id ? [{ ...work, ...priceWork } as HomePriceInsightWork] : [];
+    });
+
+  return buildInsightsForWorks(enrichedWorks, since, options);
+}
+
 const isBuyTimingWork = (work: HomePriceInsightWork) =>
   work.peak90Price > work.currentPrice && work.currentPrice <= work.low90Price;
 

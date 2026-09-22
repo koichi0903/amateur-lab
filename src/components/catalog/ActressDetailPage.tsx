@@ -9,7 +9,7 @@ import { pageMetadata } from "@/lib/seo";
 import { workDetailHref } from "@/lib/affiliateTracking";
 import { getActressBest10, type ActressBest10Item } from "@/lib/getActressBest10";
 import MiniPriceHistoryChart from "@/components/home/MiniPriceHistoryChart";
-import { buildInsightsForWorks, type HomePriceInsightWork } from "@/lib/getHomePriceInsights";
+import { buildInsightsForWorkIds, type HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 import CatalogIntentGuide from "@/components/catalog/CatalogIntentGuide";
 import EntityEditorialGuide from "@/components/editorial/EntityEditorialGuide";
 import { analyzeCatalogIntent } from "@/lib/catalog/catalogIntentAnalyzer";
@@ -174,8 +174,8 @@ export async function ActressDetailPage({ actressName, currentPage }: { actressN
   ].filter((work, index, all) => all.findIndex((candidate) => candidate.id === work.id) === index);
   if (chartWorks.length) {
     try {
-      priceInsights = await buildInsightsForWorks(
-        chartWorks as unknown as HomePriceInsightWork[],
+      priceInsights = await buildInsightsForWorkIds(
+        chartWorks,
         new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
         { requireBuyTimingSignal: false },
       );

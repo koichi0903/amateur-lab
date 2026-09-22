@@ -9,7 +9,7 @@ import { SITE_URL, pageMetadata } from "@/lib/seo";
 import { workDetailHref } from "@/lib/affiliateTracking";
 import { getEntityBest10, type EntityBest10Item } from "@/lib/getActressBest10";
 import MiniPriceHistoryChart from "@/components/home/MiniPriceHistoryChart";
-import { buildInsightsForWorks, type HomePriceInsightWork } from "@/lib/getHomePriceInsights";
+import { buildInsightsForWorkIds, type HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 import CatalogIntentGuide from "@/components/catalog/CatalogIntentGuide";
 import EntityEditorialGuide from "@/components/editorial/EntityEditorialGuide";
 import { analyzeCatalogIntent } from "@/lib/catalog/catalogIntentAnalyzer";
@@ -250,8 +250,8 @@ export default async function CatalogDetailPage({ kind, name, page = 1 }: { kind
   ].filter((work, index, all) => all.findIndex((candidate) => candidate.id === work.id) === index);
   if (chartWorks.length) {
     try {
-      priceInsights = await buildInsightsForWorks(
-        chartWorks as unknown as HomePriceInsightWork[],
+      priceInsights = await buildInsightsForWorkIds(
+        chartWorks,
         new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
         { requireBuyTimingSignal: false },
       );
