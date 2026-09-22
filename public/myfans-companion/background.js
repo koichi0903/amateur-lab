@@ -358,7 +358,15 @@ async function getCompanionSettings() {
     if (detected.approvedMediaId) settings.approvedMediaId = detected.approvedMediaId;
     await chrome.storage.local.set({ [COMPANION_SETTINGS_KEY]: settings });
   }
-  return { settings, detected, state: stored[QUOTE_STATE_KEY] || null };
+  const rawState = stored[QUOTE_STATE_KEY] || null;
+  const progress = rawState?.jobId ? await fetchQuoteProgress(settings, rawState).catch(() => null) : null;
+  const state = MyfansCompanionState.sanitizeForDisplay(rawState, progress?.job || null, WORKER_VERSION);
+  if (rawState && state.status !== rawState.status) await chrome.storage.local.set({ [QUOTE_STATE_KEY]: state });
+  if (rawState && MyfansCompanionState.shouldInvalidateStoredRun(settings, rawState, WORKER_VERSION)) {
+    await chrome.alarms.clear(QUOTE_ALARM_NAME).catch(() => undefined);
+    await chrome.storage.local.remove([QUOTE_SETTINGS_KEY]);
+  }
+  return { settings, detected, state, progress };
 }
 
 async function saveCompanionSettings(settings) {
@@ -437,6 +445,17 @@ async function sendPayload(settings, result) {
   }
   return payload;
 }
+
+chrome.runtime.onInstalled.addListener((details) => {
+  if (!["install", "update"].includes(details.reason)) return;
+  chrome.storage.local.get([COMPANION_SETTINGS_KEY, QUOTE_SETTINGS_KEY, QUOTE_STATE_KEY]).then(async (stored) => {
+    const state = stored[QUOTE_STATE_KEY];
+    const settings = stored[COMPANION_SETTINGS_KEY] || stored[QUOTE_SETTINGS_KEY];
+    if (!MyfansCompanionState.shouldInvalidateStoredRun(settings, state, WORKER_VERSION)) return;
+    await chrome.alarms.clear(QUOTE_ALARM_NAME).catch(() => undefined);
+    await chrome.storage.local.remove([QUOTE_SETTINGS_KEY, QUOTE_STATE_KEY]);
+  }).catch((error) => console.debug("[myfans companion background] stale state cleanup failed", error));
+});
 
 async function assertWorkerTabAlive(tabId) {
   try {
@@ -1987,8 +2006,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     return chrome.storage.local.get([QUOTE_STATE_KEY]).then((stateStored) => {
       const state = stateStored[QUOTE_STATE_KEY];
       const sameSession = savedSettings?.sessionId && savedSettings.sessionId === state?.sessionId;
-      const resumable = sameSession && state?.running === true && state?.jobId && ["running", "scheduled"].includes(state?.status);
-      if (savedSettings?.baseUrl && resumable) return runBulkQuoteRefresh({ ...savedSettings, launchMode: "resumed" });
+      const identity = state?.identity || {};
+      const resumable = sameSession && state?.running === true && state?.jobId && ["running", "scheduled"].includes(state?.status) && identity.collector_version === WORKER_VERSION;
+      if (savedSettings?.baseUrl && resumable) {
+        return fetchQuoteProgress(savedSettings, state).then((payload) => {
+          const job = payload?.job;
+          if (!MyfansCompanionState.isCurrentActiveRun(state, job, WORKER_VERSION)) return clearQuoteContinuation();
+          return runBulkQuoteRefresh({ ...savedSettings, jobId: job.id, runToken: job.collection_run_token, collectorVersion: job.collector_version, launchMode: "resumed" });
+        });
+      }
       return clearQuoteContinuation();
     });
   }).catch((error) => console.debug("[myfans companion background] continuation failed", error));

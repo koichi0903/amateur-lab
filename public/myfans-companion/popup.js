@@ -410,7 +410,14 @@ function saveSettings() {
 
 function renderBatchState(state, progress) {
   const job = progress?.job || state?.job;
-  if (!state && !job) return;
+  const workerVersion = chrome.runtime.getManifest().version;
+  const current = MyfansCompanionState.isCurrentActiveRun(state, job, workerVersion);
+  if (!current) {
+    document.getElementById("batchStatus").textContent = job?.status && MyfansCompanionState.isTerminalStatus(job.status)
+      ? `履歴 job ${job.id}: ${job.status}（現在実行中の一括jobなし）`
+      : "現在実行中の一括jobなし";
+    return;
+  }
   const summary = progress?.summary;
   const counts = job ? `processed ${summary?.processed ?? job.processed_creators ?? 0}/${job.total_creators ?? 0}, success ${summary?.success ?? job.success_creators ?? 0}, failed ${summary?.failed ?? job.failed_creators ?? 0}, blocked ${summary?.blocked ?? 0}, skipped ${summary?.skipped ?? progress?.skippedCreators ?? 0}` : "";
   document.getElementById("batchStatus").textContent = [

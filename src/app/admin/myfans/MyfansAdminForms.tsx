@@ -584,8 +584,12 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
   const workerIdentity = bridgeStatus.identity;
   const identityMatches = Boolean(job?.id && job.collection_session_id && job.collection_run_token && workerIdentity?.job_id === job.id && workerIdentity.collection_session_id === job.collection_session_id && workerIdentity.run_token === job.collection_run_token && workerIdentity.collector_version === (job.collector_version ?? bridgeStatus.workerVersion));
   const displayJob = job && job.collection_session_id && job.collection_run_token && identityMatches ? job : null;
-  const current = progress?.items.find((item) => item.status === "running") ?? null;
-  const recent = progress?.items.filter((item) => ["success", "failed", "skipped"].includes(item.status)).slice(-5).reverse() ?? [];
+  const current = displayJob && ["pending", "running", "paused"].includes(displayJob.status)
+    ? progress?.items.find((item) => item.status === "running") ?? null
+    : null;
+  const recent = displayJob
+    ? progress?.items.filter((item) => ["success", "failed", "skipped"].includes(item.status)).slice(-5).reverse() ?? []
+    : [];
   const summary: NonNullable<QuoteRefreshProgress["summary"]> = progress?.summary ?? summarizeMyfansQuoteRefreshItems(progress?.items ?? []);
   const successRateBase = summary.success + summary.failed;
   const successRate = successRateBase > 0 ? Math.round((summary.success / successRateBase) * 100) : null;
