@@ -4,7 +4,7 @@ import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummar
 import { evaluateMyfansSourceValue } from "@/lib/myfansSourceValue";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { MAX_MYFANS_ACCOUNTS_PER_RUN, MYFANS_COLLECTION_KEY, selectCollectionAccounts } from "@/lib/myfansCollectionRotation";
-import { isActiveQuoteRefreshStatus, isProtectedQuoteRefreshRun, isStaleQuoteRefreshJob, staleQuoteRefreshCleanupPreview } from "@/lib/myfansQuoteRefreshLifecycle";
+import { isActiveQuoteRefreshStatus, isProtectedQuoteRefreshRun, isStaleQuoteRefreshJob, isTerminalQuoteRefreshStatus, recomputeQuoteRefreshStatus, staleQuoteRefreshCleanupPreview } from "@/lib/myfansQuoteRefreshLifecycle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,7 +22,45 @@ async function auditContinuation(jobId: number, action: string, summary: string,
     summary,
     metadata: { source: "myfans_companion_batch", ...metadata },
   });
-  if (error) console.error("myfans quote refresh continuation audit failed", error);
+  if (error) throw new Error(`myfans quote refresh continuation audit failed: ${error.message}`);
+}
+
+async function auditStaleJobFinalized(jobId: number, metadata: Record<string, unknown>) {
+  const existing = await supabaseAdmin
+    .from("myfans_audit_logs")
+    .select("id")
+    .eq("entity_type", "quote_refresh_job")
+    .eq("entity_id", jobId)
+    .eq("action", "STALE_JOB_FINALIZED")
+    .limit(1)
+    .maybeSingle();
+  if (existing.error) throw new Error(`stale job audit lookup failed: ${existing.error.message}`);
+  if (existing.data) return;
+
+  const { error } = await supabaseAdmin.from("myfans_audit_logs").insert({
+    entity_type: "quote_refresh_job",
+    entity_id: jobId,
+    action: "STALE_JOB_FINALIZED",
+    summary: "stale jobをexecution lifecycleのみterminalizeしました。",
+    metadata: { source: "myfans_companion_batch", ...metadata },
+  });
+  if (!error) return;
+
+  // A concurrent cleanup may have won the unique audit insert. Treat that as idempotent success;
+  // every other persistence failure must remain visible to the caller.
+  if (/duplicate key|unique constraint/i.test(error.message)) {
+    const retry = await supabaseAdmin
+      .from("myfans_audit_logs")
+      .select("id")
+      .eq("entity_type", "quote_refresh_job")
+      .eq("entity_id", jobId)
+      .eq("action", "STALE_JOB_FINALIZED")
+      .limit(1)
+      .maybeSingle();
+    if (!retry.error && retry.data) return;
+    if (retry.error) throw new Error(`stale job audit confirmation failed: ${retry.error.message}`);
+  }
+  throw new Error(`stale job audit persistence failed: ${error.message}`);
 }
 
 async function reconcileLegacyActiveJobs() {
@@ -138,7 +176,14 @@ async function refreshJobCounts(jobId: number) {
   const runningItems = (items ?? []).some((item) => item.status === "running");
   const pendingItems = (items ?? []).some((item) => item.status === "pending");
   const currentJob = await getJob(jobId);
-  const status = currentJob?.status === "cancelled" ? "cancelled" : runningItems ? "running" : pendingItems ? currentJob?.status ?? "pending" : "completed";
+  const currentStatus = String(currentJob?.status ?? "pending");
+  const status = recomputeQuoteRefreshStatus(currentStatus, runningItems, pendingItems);
+  const completedAt = isTerminalQuoteRefreshStatus(currentStatus)
+    ? currentJob?.completed_at ?? null
+    : status === "completed" ? new Date().toISOString() : null;
+  const statusScope = isTerminalQuoteRefreshStatus(currentStatus)
+    ? [currentStatus]
+    : ["pending", "running", "paused"];
 
   const { error: updateError } = await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
@@ -154,9 +199,10 @@ async function refreshJobCounts(jobId: number) {
       excluded_no_posts: excludedNoPosts,
       excluded_private: excludedPrivate,
       retryable_errors: retryableErrors,
-      completed_at: status === "completed" ? new Date().toISOString() : null,
+      completed_at: completedAt,
     })
-    .eq("id", jobId);
+    .eq("id", jobId)
+    .in("status", statusScope);
   if (updateError) throw updateError;
 }
 
@@ -437,16 +483,10 @@ async function reconcileStaleActiveJobs(protectedIdentity?: { jobId?: number | n
     const preview = staleQuoteRefreshCleanupPreview(job, jobItems, STALE_JOB_CLEANUP_REASON);
     if (!preview.changed) continue;
     const now = new Date().toISOString();
-    const itemPatch = { status: "skipped", error: STALE_JOB_CLEANUP_REASON, processed_at: now, collection_state: "CANCELLED", collection_evidence: { final_collection_state: "CANCELLED", final_error: STALE_JOB_CLEANUP_REASON, rotation_eligibility_preserved: true } };
-    const { error: pendingError } = await supabaseAdmin.from("myfans_quote_refresh_job_items").update(itemPatch).eq("job_id", job.id).eq("status", "pending");
-    if (pendingError) throw pendingError;
-    const { error: runningError } = await supabaseAdmin.from("myfans_quote_refresh_job_items").update(itemPatch).eq("job_id", job.id).eq("status", "running").lt("processed_at", new Date(Date.now() - STALE_ITEM_AGE_MS).toISOString());
-    if (runningError) throw runningError;
-    const { data: finalizedJob, error: jobError } = await supabaseAdmin.from("myfans_quote_refresh_jobs").update({ status: "cancelled", completed_at: now, last_error: STALE_JOB_CLEANUP_REASON }).eq("id", job.id).in("status", ["pending", "running"]).select("id").maybeSingle();
-    if (jobError) throw jobError;
-    if (!finalizedJob) continue;
-    await auditContinuation(job.id, "STALE_JOB_FINALIZED", "stale jobをexecution lifecycleのみterminalizeしました。", {
+    const auditMetadata = {
       reason: STALE_JOB_CLEANUP_REASON,
+      prior_status: job.status,
+      final_status: "cancelled",
       cursor_before_order: cursor?.cursor_order ?? job.cursor_after_order ?? 0,
       cursor_after_order: cursor?.cursor_order ?? job.cursor_after_order ?? 0,
       job_cursor_before_order: job.cursor_before_order ?? null,
@@ -457,7 +497,17 @@ async function reconcileStaleActiveJobs(protectedIdentity?: { jobId?: number | n
       pending_count: preview.pendingCount,
       rotation_eligibility_preserved: true,
       protected_run: isProtectedQuoteRefreshRun(job, protectedIdentity),
-    });
+    };
+    // Persist the proof before terminalizing the job so an audit failure cannot be reported as a successful cleanup.
+    await auditStaleJobFinalized(job.id, auditMetadata);
+    const itemPatch = { status: "skipped", error: STALE_JOB_CLEANUP_REASON, processed_at: now, collection_state: "CANCELLED", collection_evidence: { final_collection_state: "CANCELLED", final_error: STALE_JOB_CLEANUP_REASON, rotation_eligibility_preserved: true } };
+    const { error: pendingError } = await supabaseAdmin.from("myfans_quote_refresh_job_items").update(itemPatch).eq("job_id", job.id).eq("status", "pending");
+    if (pendingError) throw pendingError;
+    const { error: runningError } = await supabaseAdmin.from("myfans_quote_refresh_job_items").update(itemPatch).eq("job_id", job.id).eq("status", "running").lt("processed_at", new Date(Date.now() - STALE_ITEM_AGE_MS).toISOString());
+    if (runningError) throw runningError;
+    const { data: finalizedJob, error: jobError } = await supabaseAdmin.from("myfans_quote_refresh_jobs").update({ status: "cancelled", completed_at: now, last_error: STALE_JOB_CLEANUP_REASON }).eq("id", job.id).in("status", ["pending", "running"]).select("id").maybeSingle();
+    if (jobError) throw jobError;
+    if (!finalizedJob) continue;
     finalized.push(Number(job.id));
   }
   return finalized;

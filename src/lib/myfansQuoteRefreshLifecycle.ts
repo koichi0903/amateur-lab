@@ -87,6 +87,17 @@ export function isActiveQuoteRefreshStatus(status: unknown): boolean {
   return ACTIVE_QUOTE_REFRESH_STATUSES.includes(String(status) as typeof ACTIVE_QUOTE_REFRESH_STATUSES[number]);
 }
 
+export function isTerminalQuoteRefreshStatus(status: unknown): boolean {
+  return TERMINAL_QUOTE_REFRESH_STATUSES.includes(String(status) as typeof TERMINAL_QUOTE_REFRESH_STATUSES[number]);
+}
+
+export function recomputeQuoteRefreshStatus(currentStatus: string, runningItems: boolean, pendingItems: boolean): string {
+  if (isTerminalQuoteRefreshStatus(currentStatus)) return currentStatus;
+  if (runningItems) return "running";
+  if (pendingItems) return currentStatus;
+  return "completed";
+}
+
 export function mayAutoContinueQuoteRefresh(job: QuoteRefreshJobLifecycle | null | undefined, sessionId: string | null | undefined) {
   return Boolean(job && isActiveQuoteRefreshStatus(job.status) && sessionId && job.collection_session_id === sessionId);
 }
