@@ -200,6 +200,9 @@ const FAILURE_CATEGORY = {
   PAGE_LOAD_TIMEOUT: "PAGE_LOAD_TIMEOUT",
   VIDEO_VALIDATION_NO_RESULT: "VIDEO_VALIDATION_NO_RESULT",
   VIDEO_VALIDATION_TIMEOUT: "VIDEO_VALIDATION_TIMEOUT",
+  API_FETCH_FAILED: "API_FETCH_FAILED",
+  API_HTTP_ERROR: "API_HTTP_ERROR",
+  API_RESPONSE_INVALID: "API_RESPONSE_INVALID",
   NO_TWEET_ARTICLES: "NO_TWEET_ARTICLES",
   OWN_POST_FILTER_ZERO: "OWN_POST_FILTER_ZERO",
   ONLY_REPOSTS_OR_REPLIES: "ONLY_REPOSTS_OR_REPLIES",
@@ -283,6 +286,9 @@ function humanReasonForCategory(category) {
     PAGE_LOAD_TIMEOUT: "Xプロフィールの読み込みが完了しませんでした。",
     VIDEO_VALIDATION_NO_RESULT: "動画URL検証の結果が返りませんでした。",
     VIDEO_VALIDATION_TIMEOUT: "動画URL検証が時間切れになりました。",
+    API_FETCH_FAILED: "localhost APIへ到達できませんでした。",
+    API_HTTP_ERROR: "localhost APIがHTTPエラーを返しました。",
+    API_RESPONSE_INVALID: "localhost APIの応答をJSONとして読めませんでした。",
     NO_TWEET_ARTICLES: "投稿DOMがまだ表示されていません。",
     OWN_POST_FILTER_ZERO: "本人投稿のURLを抽出できませんでした。",
     ONLY_REPOSTS_OR_REPLIES: "表示範囲がリポスト/返信のみでした。",
@@ -331,6 +337,67 @@ function ensureStructuredScanResult(value, fallbackStage = "EXTRACT") {
 
 function normalizeBaseUrl(value) {
   return String(value || "").trim().replace(/\/$/, "");
+}
+
+function safeApiEndpoint(url) {
+  try {
+    const parsed = new URL(String(url || ""));
+    const local = parsed.protocol === "http:" && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1");
+    return {
+      origin: parsed.origin,
+      pathname: parsed.pathname,
+      urlKind: local ? "localhost_api" : "non_local_api",
+      hasQuery: Boolean(parsed.search),
+      hasCredentials: Boolean(parsed.username || parsed.password)
+    };
+  } catch {
+    return { origin: "", pathname: "", urlKind: "invalid_api_url", hasQuery: false, hasCredentials: false };
+  }
+}
+
+async function fetchCompanionJson(url, init, operation) {
+  const endpoint = safeApiEndpoint(url);
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  let response;
+  try {
+    response = await fetch(url, init);
+  } catch (error) {
+    throw categorizedError(FAILURE_CATEGORY.API_FETCH_FAILED, "localhost APIへ到達できませんでした。", {
+      operation,
+      endpoint,
+      httpReached: false,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      elapsedMs: Date.now() - startedMs,
+      transportError: error instanceof Error ? error.message : String(error)
+    });
+  }
+  const text = await response.text().catch((error) => {
+    throw categorizedError(FAILURE_CATEGORY.API_RESPONSE_INVALID, "localhost APIの応答本文を読み取れませんでした。", {
+      operation, endpoint, httpReached: true, status: response.status, statusText: response.statusText,
+      readError: error instanceof Error ? error.message : String(error)
+    });
+  });
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch (error) {
+    throw categorizedError(FAILURE_CATEGORY.API_RESPONSE_INVALID, "localhost APIの応答をJSONとして読めませんでした。", {
+      operation, endpoint, httpReached: true, status: response.status, statusText: response.statusText,
+      responseContentType: response.headers.get("content-type") || "", responseBodyLength: text.length,
+      parseError: error instanceof Error ? error.message : String(error)
+    });
+  }
+  if (!response.ok) {
+    const error = categorizedError(FAILURE_CATEGORY.API_HTTP_ERROR, payload?.error || `localhost APIがHTTP ${response.status}を返しました。`, {
+      operation, endpoint, httpReached: true, status: response.status, statusText: response.statusText,
+      responseErrorCode: payload?.errorCode || null, responseRetryable: payload?.retryable ?? null
+    });
+    error.remotePayload = payload;
+    throw error;
+  }
+  return payload;
 }
 
 function dailyPageContext(urlValue) {
@@ -429,13 +496,12 @@ async function quoteRefreshRequest(settings, body) {
 }
 
 async function sendPayload(settings, result) {
-  const response = await fetch(`${normalizeBaseUrl(settings.baseUrl)}/api/admin/myfans/companion`, {
+  const endpoint = `${normalizeBaseUrl(settings.baseUrl)}/api/admin/myfans/companion`;
+  const payload = await fetchCompanionJson(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...result, refreshJobId: settings.jobId || result.refreshJobId || null, collectionSessionId: settings.sessionId || result.collectionSessionId || null, runToken: settings.runToken || result.runToken || null, collectorVersion: settings.collectorVersion || WORKER_VERSION, approvedMediaId: settings.approvedMediaId || null, approvedMediaName: settings.approvedMediaName || "@lumi_reviw" })
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `送信に失敗しました (${response.status})`);
+  }, result.type === "x_single_status_collect" ? "single_status_save" : "companion_save");
   if (payload && payload.ok === false) {
     const error = new Error(payload.error || "保存側がretryable/failedを返しました。");
     error.code = payload.errorCode || (payload.retryable ? "THREAD_NOT_FULLY_OBSERVED" : "REMOTE_REJECTED");
@@ -708,10 +774,18 @@ async function runSingleStatusCollection(settings) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const errorCode = categoryFromError(error);
+    const failureDiagnostics = error?.diagnostics || {};
     if (!payloadSent && sourceStatusUrl) {
-      await sendPayload(settings, { type: "x_single_status_collect", sourceStatusUrl, sourceXHandle: sourceStatusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "", singleStatusRunId: runId, collectionError: `${errorCode}: ${message}` }).catch(() => undefined);
+      await sendPayload(settings, {
+        type: "x_single_status_collect",
+        sourceStatusUrl,
+        sourceXHandle: sourceStatusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "",
+        singleStatusRunId: runId,
+        collectionError: `${errorCode}: ${message}`,
+        collectionFailure: { stage: error.stage || currentStage, errorCode, diagnostics: failureDiagnostics, transitions: transitions.slice(-12) }
+      }).catch(() => undefined);
     }
-    await chrome.storage.local.set({ myfansSingleStatusState: { status: "error", runId, sourceStatusUrl, stage: error.stage || currentStage, errorCode, error: message, transitions, workerRetryCount: transitions.filter((entry) => entry.stage === "RECREATE_WORKER_TAB").length } });
+    await chrome.storage.local.set({ myfansSingleStatusState: { status: "error", runId, sourceStatusUrl, stage: error.stage || currentStage, errorCode, error: message, failureDiagnostics, transitions, workerRetryCount: transitions.filter((entry) => entry.stage === "RECREATE_WORKER_TAB").length } });
   } finally {
     if (workerTabId) await chrome.tabs.remove(workerTabId).catch(() => undefined);
     diagnosticRunning = false;

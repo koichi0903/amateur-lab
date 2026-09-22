@@ -147,6 +147,8 @@ type SingleStatusResult = {
     visualStatus?: string;
     productId?: number | null;
     reason?: string;
+    error?: string;
+    failure?: Record<string, unknown> | null;
   };
 };
 
@@ -363,9 +365,12 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
       <div className="mt-3 rounded-md border border-emerald-800 bg-emerald-950/20 p-3 text-xs leading-5">
         <p className="font-black text-emerald-200">直近のDaily対象1件収集</p>
         {singleResult ? (
-          <p className={singleResult.metadata?.ok ? "text-emerald-100" : "text-amber-200"}>
-            {singleResult.metadata?.ok ? "成功" : "失敗"} / {singleResult.metadata?.sourceStatusUrl ?? singleResult.summary ?? "-"} / candidate {singleResult.metadata?.candidateId ?? "-"} / 本文保存 {singleResult.metadata?.sourceTextSaved ? "あり" : "なし"} / author・status一致 {singleResult.metadata?.authorStatusMatch ? "OK" : "NG"} / visual {singleResult.metadata?.visualStatus ?? "-"}
-          </p>
+          <>
+            <p className={singleResult.metadata?.ok ? "text-emerald-100" : "text-amber-200"}>
+              {singleResult.metadata?.ok ? "成功" : "失敗"} / {singleResult.metadata?.sourceStatusUrl ?? singleResult.summary ?? "-"} / candidate {singleResult.metadata?.candidateId ?? "-"} / 本文保存 {singleResult.metadata?.sourceTextSaved ? "あり" : "なし"} / author・status一致 {singleResult.metadata?.authorStatusMatch ? "OK" : "NG"} / visual {singleResult.metadata?.visualStatus ?? "-"}
+            </p>
+            {!singleResult.metadata?.ok && <pre className="mt-2 max-h-40 overflow-auto rounded bg-zinc-950 p-2 text-[10px] leading-4 text-zinc-300">{JSON.stringify({ reason: singleResult.metadata?.reason, error: singleResult.metadata?.error, failure: singleResult.metadata?.failure }, null, 2)}</pre>}
+          </>
         ) : <p className="text-zinc-400">まだ結果はありません。</p>}
       </div>
       {state?.replyStatuses?.map((reply, index) => <p key={`${reply.statusUrl}-${index}`} className="mt-2 text-xs text-zinc-300">reply {index + 1}: {reply.statusUrl ?? "-"} / author {reply.authorHandle ? `@${reply.authorHandle.replace(/^@/, "")}` : "-"} / exact reply={String(reply.isReply)} / link {reply.myfansUrls?.join(", ") || "-"}</p>)}

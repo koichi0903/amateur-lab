@@ -269,7 +269,7 @@ async function refreshSingleStatusState() {
   output.textContent = current.status === "done" || current.status === "no_new_candidate"
     ? `直近結果: ${current.status === "no_new_candidate" ? "正常再確認 / NO_NEW_CANDIDATE" : "成功"} / candidate ${current.candidateId ?? "保存済み"} / creator ${current.creatorMatch || "-"} / product ${current.productMatch || "unresolved"} / 本文保存 ${current.sourceTextSaved ? "あり" : "なし"} / author・status一致 ${current.authorStatusMatch ? "OK" : "NG"} / visual ${current.visualStatus || "-"}`
     : current.status === "error"
-      ? `直近結果: 失敗 / ${current.error || "理由不明"}`
+      ? `直近結果: 失敗 / stage ${current.stage || "-"} / ${current.errorCode || "UNKNOWN"} / ${current.error || "理由不明"}${current.failureDiagnostics?.endpoint ? ` / ${current.failureDiagnostics.endpoint.urlKind} ${current.failureDiagnostics.httpReached ? "HTTP到達" : "HTTP到達前"}` : ""}`
       : `直近結果: ${current.status}`;
 }
 

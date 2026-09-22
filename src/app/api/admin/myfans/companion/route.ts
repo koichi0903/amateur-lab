@@ -99,6 +99,7 @@ type QuoteScanPayload = {
   statusCandidate?: MyfansQuoteScanCandidate & { authorHandle?: unknown };
   singleStatusRunId?: unknown;
   collectionError?: unknown;
+  collectionFailure?: { stage?: unknown; errorCode?: unknown; diagnostics?: Record<string, unknown>; transitions?: Array<Record<string, unknown>> };
   collectionStatuses?: Array<{ parentStatusUrl?: unknown; status?: unknown }>;
   stateTransitions?: Array<{ stage?: unknown; at?: unknown; [key: string]: unknown }>;
   profileCounts?: Record<string, unknown>;
@@ -977,6 +978,12 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
       singleStatusRunId: cleanText(payload.singleStatusRunId),
       reason: "x_collection_failed",
       error: collectionError.slice(0, 500),
+      failure: payload.collectionFailure ? {
+        stage: cleanText(payload.collectionFailure.stage),
+        errorCode: cleanText(payload.collectionFailure.errorCode),
+        diagnostics: payload.collectionFailure.diagnostics ?? {},
+        transitions: (payload.collectionFailure.transitions ?? []).slice(-12),
+      } : null,
     }, sourceStatusUrl || "single status収集失敗");
     return NextResponse.json({ error: collectionError }, { status: 400 });
   }
