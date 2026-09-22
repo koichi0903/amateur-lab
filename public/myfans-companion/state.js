@@ -1,5 +1,10 @@
 (() => {
   const state = {
+    SINGLE_TERMINAL_STATUSES: ["SUCCEEDED", "FAILED", "REPLAYED"],
+    SINGLE_ACTIVE_STATUSES: ["STARTING", "SENDING", "ACCEPTED", "COLLECTING", "SAVING"],
+    isSingleTerminalStatus(status) { return this.SINGLE_TERMINAL_STATUSES.includes(String(status || "")); },
+    isSingleActiveStatus(status) { return this.SINGLE_ACTIVE_STATUSES.includes(String(status || "")); },
+    isSameSingleRun(stateValue, runId) { return Boolean(runId && stateValue?.runId === runId); },
     ACTIVE_STATUSES: ["pending", "running", "paused"],
     TERMINAL_STATUSES: ["completed", "failed", "cancelled"],
     isActiveStatus(status) {

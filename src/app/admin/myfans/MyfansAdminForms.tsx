@@ -99,6 +99,8 @@ const DIAGNOSTIC_REQUEST_EVENT = "amateur-lab:myfans-diagnostic:start";
 const DIAGNOSTIC_RESPONSE_EVENT = "amateur-lab:myfans-diagnostic:ack";
 const DIAGNOSTIC_STATE_REQUEST_EVENT = "amateur-lab:myfans-diagnostic:state";
 const DIAGNOSTIC_STATE_RESPONSE_EVENT = "amateur-lab:myfans-diagnostic:state:ack";
+const SINGLE_STATUS_STATE_REQUEST_EVENT = "amateur-lab:myfans-single-status:state";
+const SINGLE_STATUS_STATE_RESPONSE_EVENT = "amateur-lab:myfans-single-status:state:ack";
 const DEFAULT_DIAGNOSTIC_STATUS_URL = "https://x.com/lumi_reviw/status/2099793163909202032";
 
 type DiagnosticEvidence = {
@@ -139,6 +141,10 @@ type SingleStatusResult = {
   summary?: string;
   created_at?: string;
   metadata?: {
+    singleStatusRunId?: string | null;
+    serverAccepted?: boolean;
+    saveReached?: boolean;
+    resultReason?: string | null;
     ok?: boolean;
     candidateId?: number | null;
     sourceStatusUrl?: string;
@@ -158,6 +164,7 @@ type SingleStatusResult = {
     failure?: Record<string, unknown> | null;
   };
 };
+type SingleStatusWorkerState = { status?: string; runId?: string | null; stage?: string | null; serverAccepted?: boolean; saveReached?: boolean; reason?: string | null; error?: string | null };
 
 function workerStatusFromDetail(detail: unknown) {
   if (!detail || typeof detail !== "object") return "idle";
@@ -285,10 +292,25 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
   useEffect(() => {
     let disposed = false;
     const refresh = async () => {
-      const singleResponse = await fetch("/api/admin/myfans/companion?action=single_status_latest", { cache: "no-store" });
-      const singlePayload = (await singleResponse.json()) as { result?: SingleStatusResult | null };
-      if (!disposed) setSingleResult(singlePayload.result ?? null);
       const next = await readWorkerState();
+      const singleState = await new Promise<SingleStatusWorkerState | null>((resolve) => {
+        const requestId = `single-state-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const timeout = window.setTimeout(() => { window.removeEventListener(SINGLE_STATUS_STATE_RESPONSE_EVENT, onResponse); resolve(null); }, 2500);
+        const onResponse = (event: Event) => {
+          const detail = event instanceof CustomEvent ? event.detail : null;
+          if (detail?.requestId !== requestId) return;
+          window.clearTimeout(timeout);
+          window.removeEventListener(SINGLE_STATUS_STATE_RESPONSE_EVENT, onResponse);
+          resolve(detail?.state ?? null);
+        };
+        window.addEventListener(SINGLE_STATUS_STATE_RESPONSE_EVENT, onResponse);
+        window.dispatchEvent(new CustomEvent(SINGLE_STATUS_STATE_REQUEST_EVENT, { detail: { requestId } }));
+      });
+      if (singleState?.runId) {
+        const singleResponse = await fetch(`/api/admin/myfans/companion?action=single_status_latest&runId=${encodeURIComponent(singleState.runId)}`, { cache: "no-store" });
+        const singlePayload = (await singleResponse.json()) as { result?: SingleStatusResult | null };
+        if (!disposed) setSingleResult(singlePayload.result ?? null);
+      } else if (!disposed) setSingleResult(null);
       if (disposed || !next) return;
       setState(next);
       if (next.status === "done" && next.diagnosticRunId) {
@@ -374,7 +396,7 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
         {singleResult ? (
           <>
             <p className={singleResult.metadata?.ok ? "text-emerald-100" : "text-amber-200"}>
-              {singleResult.metadata?.ok ? "成功" : "失敗"} / {singleResult.metadata?.sourceStatusUrl ?? singleResult.summary ?? "-"} / candidate {singleResult.metadata?.candidateId ?? "-"} / link {singleResult.metadata?.linkSource ?? "-"}/{singleResult.metadata?.linkResolution ?? "-"} / final myfans {singleResult.metadata?.finalMyfansUrl ?? "-"} / product {singleResult.metadata?.productMatch ?? "unresolved"} / 本文保存 {singleResult.metadata?.sourceTextSaved ? "あり" : "なし"} / author・status一致 {singleResult.metadata?.authorStatusMatch ? "OK" : "NG"} / visual {singleResult.metadata?.visualStatus ?? "-"}
+              run {singleResult.metadata?.singleStatusRunId ?? "-"} / {singleResult.metadata?.ok ? "保存成功" : "失敗"} / {singleResult.metadata?.sourceStatusUrl ?? singleResult.summary ?? "-"} / candidate {singleResult.metadata?.candidateId ?? "-"} / link {singleResult.metadata?.linkSource ?? "-"}/{singleResult.metadata?.linkResolution ?? "-"} / final myfans {singleResult.metadata?.finalMyfansUrl ?? "-"} / product {singleResult.metadata?.productMatch ?? "unresolved"} / 本文保存 {singleResult.metadata?.sourceTextSaved ? "あり" : "なし"} / author・status一致 {singleResult.metadata?.authorStatusMatch ? "OK" : "NG"} / visual {singleResult.metadata?.visualStatus ?? "-"}
             </p>
             {!singleResult.metadata?.ok && <pre className="mt-2 max-h-40 overflow-auto rounded bg-zinc-950 p-2 text-[10px] leading-4 text-zinc-300">{JSON.stringify({ reason: singleResult.metadata?.reason, error: singleResult.metadata?.error, failure: singleResult.metadata?.failure }, null, 2)}</pre>}
           </>

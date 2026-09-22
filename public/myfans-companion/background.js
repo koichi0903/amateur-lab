@@ -519,6 +519,11 @@ async function sendPayload(settings, result) {
     error.diagnostics = payload;
     throw error;
   }
+  if (result.type === "x_single_status_collect" && (payload?.ok !== true || payload?.singleStatusRunId !== result.singleStatusRunId || payload?.saveReached !== true)) {
+    const error = categorizedError(FAILURE_CATEGORY.API_RESPONSE_INVALID, "同一runの保存成功応答を確認できませんでした。", { payload, expectedRunId: result.singleStatusRunId, saveReached: payload?.saveReached ?? false });
+    error.remotePayload = payload;
+    throw error;
+  }
   return payload;
 }
 
@@ -708,10 +713,15 @@ async function runDiagnosticStatus(settings) {
 }
 
 async function runSingleStatusCollection(settings) {
-  const runId = settings.singleStatusRunId || `single-${Date.now()}`;
+  const runId = String(settings.singleStatusRunId || "").trim();
   const sourceStatusUrl = diagnosticStatusUrl(settings.sourceStatusUrl);
+  const runStartedAt = new Date().toISOString();
+  if (!runId) {
+    await chrome.storage.local.set({ myfansSingleStatusState: { status: "FAILED", runId: null, sourceStatusUrl, stage: "STARTING", reason: "missing_run_id", serverAccepted: false, saveReached: false } });
+    return;
+  }
   if (diagnosticRunning) {
-    await chrome.storage.local.set({ myfansSingleStatusState: { status: "error", runId, sourceStatusUrl, error: "別のCompanion収集が実行中です。完了後にもう一度実行してください。" } });
+    await chrome.storage.local.set({ myfansSingleStatusState: { status: "FAILED", runId, sourceStatusUrl, stage: "STARTING", reason: "SINGLE_RUN_ALREADY_ACTIVE", serverAccepted: false, saveReached: false, error: "別のCompanion収集が実行中です。" } });
     return;
   }
   diagnosticRunning = true;
@@ -721,11 +731,16 @@ async function runSingleStatusCollection(settings) {
   let currentStage = "VALIDATE_INPUT";
   const writeState = (patch = {}) => chrome.storage.local.set({ myfansSingleStatusState: {
     workerVersion: WORKER_VERSION,
-    status: "running",
+    status: currentStage === "SAVE_RESULT" ? "SAVING" : currentStage === "VALIDATE_INPUT" ? "STARTING" : "COLLECTING",
     runId,
     sourceStatusUrl,
+    startedAt: runStartedAt,
     stage: currentStage,
     transitions,
+    current: true,
+    serverAccepted: false,
+    saveReached: false,
+    reason: null,
     ...patch
   } });
   const stage = async (name, fn, diagnostics = {}) => {
@@ -792,7 +807,7 @@ async function runSingleStatusCollection(settings) {
     currentStage = "SAVE_RESULT";
     const payload = await stage("SAVE_RESULT", () => sendPayload(settings, { type: "x_single_status_collect", sourceStatusUrl, sourceXHandle: handle, statusCandidate: result.candidate, singleStatusRunId: runId }), { statusUrl: sourceStatusUrl });
     payloadSent = true;
-    await chrome.storage.local.set({ myfansSingleStatusState: { workerVersion: WORKER_VERSION, status: "done", runId, sourceStatusUrl, stage: "SAVE_RESULT", errorCode: null, error: null, transitions, ...payload } });
+    await chrome.storage.local.set({ myfansSingleStatusState: { workerVersion: WORKER_VERSION, status: "SUCCEEDED", current: false, runId, sourceStatusUrl, startedAt: runStartedAt, stage: "SAVING", errorCode: null, error: null, reason: payload.resultReason || payload.resultCode || "saved", serverAccepted: true, saveReached: true, finishedAt: new Date().toISOString(), transitions, ...payload } });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const errorCode = categoryFromError(error);
@@ -807,7 +822,7 @@ async function runSingleStatusCollection(settings) {
         collectionFailure: { stage: error.stage || currentStage, errorCode, diagnostics: failureDiagnostics, transitions: transitions.slice(-12) }
       }).catch(() => undefined);
     }
-    await chrome.storage.local.set({ myfansSingleStatusState: { workerVersion: WORKER_VERSION, status: "error", runId, sourceStatusUrl, stage: error.stage || currentStage, errorCode, error: message, failureDiagnostics, transitions, workerRetryCount: transitions.filter((entry) => entry.stage === "RECREATE_WORKER_TAB").length } });
+    await chrome.storage.local.set({ myfansSingleStatusState: { workerVersion: WORKER_VERSION, status: "FAILED", current: false, runId, sourceStatusUrl, startedAt: runStartedAt, stage: error.stage || currentStage, errorCode, reason: error.remotePayload?.reason || message, serverAccepted: Boolean(error.remotePayload?.serverAccepted), saveReached: Boolean(error.remotePayload?.saveReached), error: message, failureDiagnostics, finishedAt: new Date().toISOString(), transitions, workerRetryCount: transitions.filter((entry) => entry.stage === "RECREATE_WORKER_TAB").length } });
   } finally {
     if (workerTabId) await chrome.tabs.remove(workerTabId).catch(() => undefined);
     diagnosticRunning = false;

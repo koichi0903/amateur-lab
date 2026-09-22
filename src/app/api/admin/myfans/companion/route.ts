@@ -1063,7 +1063,7 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
       entity_id: null,
       action: "single_status_collect",
       summary,
-      metadata: { ...auditContext, ...metadata },
+      metadata: { phase: "saved", ...auditContext, ...metadata },
     });
     if (error) throw error;
   };
@@ -1270,8 +1270,17 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
 }
 
 async function saveSingleStatusCollection(payload: QuoteScanPayload, approvedMediaId: number | null) {
+  const singleStatusRunId = cleanText(payload.singleStatusRunId);
+  if (!singleStatusRunId) return NextResponse.json({ ok: false, serverAccepted: false, saveReached: false, reason: "missing_run_id" }, { status: 400 });
+  const { data: replay } = await supabaseAdmin.from("myfans_audit_logs").select("id").eq("action", "single_status_collect").contains("metadata", { singleStatusRunId, phase: "saved" }).limit(1).maybeSingle();
+  if (replay) return NextResponse.json({ ok: false, serverAccepted: true, saveReached: false, replayed: true, reason: "duplicate/replayed", singleStatusRunId }, { status: 200 });
+  const { error: receivedError } = await supabaseAdmin.from("myfans_audit_logs").insert({ entity_type: "import", entity_id: null, action: "single_status_collect", summary: cleanDiagnosticStatusUrl(payload.sourceStatusUrl) || "single status received", metadata: { phase: "received", ok: true, serverAccepted: true, saveReached: false, singleStatusRunId, sourceStatusUrl: cleanDiagnosticStatusUrl(payload.sourceStatusUrl), receivedAt: new Date().toISOString() } });
+  if (receivedError) return NextResponse.json({ ok: false, serverAccepted: false, saveReached: false, reason: "received_audit_failed", error: receivedError.message, singleStatusRunId }, { status: 500 });
   try {
-    return await saveSingleStatusCollectionCore(payload, approvedMediaId);
+    const response = await saveSingleStatusCollectionCore(payload, approvedMediaId);
+    if (response.status >= 400) return response;
+    const body = await response.json();
+    return NextResponse.json({ ...body, ok: true, serverAccepted: true, saveReached: true, singleStatusRunId }, { status: 200 });
   } catch (error) {
     const sourceStatusUrl = cleanDiagnosticStatusUrl(payload.sourceStatusUrl);
     const detail = error instanceof Error ? error.message : String(error);
@@ -1281,6 +1290,7 @@ async function saveSingleStatusCollection(payload: QuoteScanPayload, approvedMed
       action: "single_status_collect",
       summary: sourceStatusUrl || "single status収集失敗",
       metadata: {
+        phase: "saved",
         ok: false,
         sourceStatusUrl,
         sourceXHandle: cleanText(payload.sourceXHandle).replace(/^@/, ""),
@@ -1290,17 +1300,19 @@ async function saveSingleStatusCollection(payload: QuoteScanPayload, approvedMed
       },
     });
     if (auditError) console.error("single_status_collect audit failed", auditError);
-    return NextResponse.json({ error: detail }, { status: 500 });
+    return NextResponse.json({ ok: false, serverAccepted: true, saveReached: false, reason: "server_persistence_failed", singleStatusRunId, error: detail }, { status: 500 });
   }
 }
 
 export async function GET(request: Request) {
   const query = new URL(request.url).searchParams;
   if (query.get("action") === "single_status_latest") {
+    const runId = cleanText(query.get("runId"));
     const { data, error } = await supabaseAdmin
       .from("myfans_audit_logs")
       .select("id,summary,metadata,created_at")
       .eq("action", "single_status_collect")
+      .contains("metadata", runId ? { singleStatusRunId: runId, phase: "saved" } : { phase: "saved" })
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();

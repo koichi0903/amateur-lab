@@ -11,6 +11,8 @@ const DIAGNOSTIC_REQUEST_EVENT = "amateur-lab:myfans-diagnostic:start";
 const DIAGNOSTIC_RESPONSE_EVENT = "amateur-lab:myfans-diagnostic:ack";
 const DIAGNOSTIC_STATE_REQUEST_EVENT = "amateur-lab:myfans-diagnostic:state";
 const DIAGNOSTIC_STATE_RESPONSE_EVENT = "amateur-lab:myfans-diagnostic:state:ack";
+const SINGLE_STATUS_STATE_REQUEST_EVENT = "amateur-lab:myfans-single-status:state";
+const SINGLE_STATUS_STATE_RESPONSE_EVENT = "amateur-lab:myfans-single-status:state:ack";
 const BRIDGE_DIAGNOSTIC_VERSION = chrome.runtime.getManifest().version;
 let bridgeDisconnected = false;
 let bridgeDisconnectReported = false;
@@ -262,6 +264,13 @@ function requestDiagnosticState(rawDetail) {
   });
 }
 
+function requestSingleStatusState(rawDetail) {
+  const requestId = rawDetail?.requestId || null;
+  sendRuntimeMessage({ type: "myfans_single_status_collect_state", source: "admin_bridge" }, (response) => {
+    dispatchPageEvent(SINGLE_STATUS_STATE_RESPONSE_EVENT, { requestId, ...(response || { ok: false, error: "状態を取得できません。" }) });
+  });
+}
+
 const requestHandler = (event) => {
   startFromDetail(event instanceof CustomEvent ? event.detail || {} : {});
 };
@@ -273,6 +282,9 @@ const diagnosticRequestHandler = (event) => {
 };
 const diagnosticStateRequestHandler = (event) => {
   requestDiagnosticState(event instanceof CustomEvent ? event.detail || {} : {});
+};
+const singleStatusStateRequestHandler = (event) => {
+  requestSingleStatusState(event instanceof CustomEvent ? event.detail || {} : {});
 };
 
 const pingHandler = async (event) => {
@@ -291,12 +303,14 @@ window.addEventListener(REQUEST_EVENT, requestHandler);
 window.addEventListener(VISUAL_REQUEST_EVENT, visualRequestHandler);
 window.addEventListener(DIAGNOSTIC_REQUEST_EVENT, diagnosticRequestHandler);
 window.addEventListener(DIAGNOSTIC_STATE_REQUEST_EVENT, diagnosticStateRequestHandler);
+window.addEventListener(SINGLE_STATUS_STATE_REQUEST_EVENT, singleStatusStateRequestHandler);
 window.addEventListener(PING_EVENT, pingHandler);
 window.__MYFANS_COMPANION_BRIDGE_CLEANUP__ = () => {
   window.removeEventListener(REQUEST_EVENT, requestHandler);
   window.removeEventListener(VISUAL_REQUEST_EVENT, visualRequestHandler);
   window.removeEventListener(DIAGNOSTIC_REQUEST_EVENT, diagnosticRequestHandler);
   window.removeEventListener(DIAGNOSTIC_STATE_REQUEST_EVENT, diagnosticStateRequestHandler);
+  window.removeEventListener(SINGLE_STATUS_STATE_REQUEST_EVENT, singleStatusStateRequestHandler);
   window.removeEventListener(PING_EVENT, pingHandler);
 };
 

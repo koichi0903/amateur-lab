@@ -266,11 +266,20 @@ async function refreshSingleStatusState() {
   const output = document.getElementById("singleStatusState");
   if (!output || !state?.state) return;
   const current = state.state;
-  output.textContent = current.status === "done" || current.status === "no_new_candidate"
-    ? `直近結果: ${current.status === "no_new_candidate" ? "正常再確認 / NO_NEW_CANDIDATE" : "成功"} / candidate ${current.candidateId ?? "保存済み"} / creator ${current.creatorMatch || "-"} / link ${current.linkSource || "-"}/${current.linkResolution || "-"} / final myfans ${current.finalMyfansUrl || "-"} / product ${current.productMatch || "unresolved"} / 本文保存 ${current.sourceTextSaved ? "あり" : "なし"} / author・status一致 ${current.authorStatusMatch ? "OK" : "NG"} / visual ${current.visualStatus || "-"}`
-    : current.status === "error"
-      ? `直近結果: 失敗 / stage ${current.stage || "-"} / ${current.errorCode || "UNKNOWN"} / ${current.error || "理由不明"}${current.failureDiagnostics?.endpoint ? ` / ${current.failureDiagnostics.endpoint.urlKind} ${current.failureDiagnostics.httpReached ? "HTTP到達" : "HTTP到達前"}` : ""}`
-      : `直近結果: ${current.status}`;
+  output.textContent = MyfansCompanionState.isSingleTerminalStatus(current.status)
+    ? `run ${current.runId || "-"}: ${current.status === "SUCCEEDED" ? "保存成功" : current.status === "REPLAYED" ? "duplicate/replayed" : "失敗"} / stage ${current.stage || "-"} / server accepted ${current.serverAccepted ? "YES" : "NO"} / save reached ${current.saveReached ? "YES" : "NO"} / ${current.reason || current.error || "-"}`
+    : `run ${current.runId || "-"}: ${current.status || "-"} / stage ${current.stage || "-"} / server accepted ${current.serverAccepted ? "YES" : "NO"}`;
+}
+
+async function ensureSingleStatusReady(tab) {
+  if (!isDailyPageUrl(tab?.url)) throw new Error("canonical localhost:3000 のDaily Pageを開いてください。");
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const ping = await pingDailyPage(tab.id).catch(() => ({ ok: false }));
+    if (ping?.ok) return ping;
+    await sendRuntimeMessage({ type: "myfans_admin_bridge_inject", tabId: tab.id, reason: "single_status_readiness" }).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+  }
+  throw new Error("Daily Page/Companion bridgeのreadinessを確認できませんでした。X収集は開始していません。");
 }
 
 async function connectBridge() {
@@ -567,10 +576,13 @@ document.getElementById("singleStatusCollect").addEventListener("click", async (
     return;
   }
   try {
-    status.textContent = "Daily対象を1件収集中です。Xタブが開いた後も結果はDaily Page/APIに保存されます。";
-    const dailyPageTabId = (await activeTab()).id;
-    const response = await chrome.runtime.sendMessage({ type: "myfans_single_status_collect_start", settings: { baseUrl: baseUrl(), approvedMediaId: document.getElementById("mediaId").value, approvedMediaName: document.getElementById("mediaName").value, sourceStatusUrl: value, singleStatusRunId: `single-${Date.now()}`, dailyPageTabId } });
+    const tab = await activeTab();
+    await ensureSingleStatusReady(tab);
+    const singleStatusRunId = `single-${crypto.randomUUID()}`;
+    status.textContent = `run ${singleStatusRunId} を開始しています...`;
+    const response = await chrome.runtime.sendMessage({ type: "myfans_single_status_collect_start", settings: { baseUrl: baseUrl(), approvedMediaId: document.getElementById("mediaId").value, approvedMediaName: document.getElementById("mediaName").value, sourceStatusUrl: value, singleStatusRunId, dailyPageTabId: tab.id } });
     if (!response?.ok) throw new Error(response?.error || "Daily対象収集の開始に失敗しました。");
+    await refreshSingleStatusState();
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : "Daily対象収集の開始に失敗しました。";
   }
