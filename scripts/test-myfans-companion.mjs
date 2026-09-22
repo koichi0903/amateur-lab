@@ -178,6 +178,9 @@ assert.match(companionApi, /matchedOrCreatedProductId/);
 assert.match(companionApi, /productResolutionMethod/);
 assert.match(companionApi, /resultReason/);
 assert.match(companionApi, /ambiguous_product_identity/);
+assert.match(companionApi, /creator_not_found/);
+assert.match(companionApi, /singleStatusRunId: cleanText\(payload\.singleStatusRunId\)/);
+assert.doesNotMatch(companionApi, /既存DBでX authorと完全一致するcreator\/productが見つかりません/);
 assert.match(companionApi, /existingCandidateId/);
 assert.match(companionApi, /saveQuoteCandidate\(record, productId, creatorMatch\.creatorId, existingCandidate\?\.id\)/);
 assert.doesNotMatch(companionApi, /既存DBでX authorと完全一致するcreator\/productが見つかりません。誤紐付け防止のため保存しませんでした。/);
@@ -190,6 +193,29 @@ assert.match(adminForms, /identityMatches/);
 assert.match(adminForms, /legacy jobはcurrent-sessionとして扱いません/);
 assert.match(identityMigration, /add column if not exists collection_run_token/);
 assert.match(identityMigration, /collection_session_id, collection_run_token, collector_version/);
+
+// Regression fixture for the real Companion single-status endpoint. This is intentionally
+// source-level: invoking POST would perform live Supabase writes and is prohibited in QA.
+const singleStatusFixture = {
+  endpoint: "/api/admin/myfans/companion",
+  type: "x_single_status_collect",
+  sourceStatusUrl: "https://x.com/fmp369/status/2097004463135527302",
+  sourceXHandle: "fmp369",
+  expectedCreatorId: 44,
+  expectedCandidateId: 127,
+  parentMfcoUrl: "https://mfco.link/r/fixture-parent",
+  finalMyfansUrl: "https://myfans.jp/posts/00000000-0000-4000-8000-000000000127",
+  expectedResultReason: "NO_NEW_CANDIDATE",
+};
+assert.match(background, /const endpoint = `\$\{normalizeBaseUrl\(settings\.baseUrl\)\}\/api\/admin\/myfans\/companion`/);
+assert.match(background, /type: "x_single_status_collect"/);
+assert.match(companionApi, /if \(payload\.type === "x_single_status_collect"\) return await saveSingleStatusCollection/);
+assert.match(companionApi, /resolveExactMyfansCreator\(creators \?\? \[\], sourceXHandle\)/);
+assert.match(companionApi, /ensureExactProductForCreator\(finalMyfansUrl, creatorMatch\.creatorId/);
+assert.match(companionApi, /saveQuoteCandidate\(record, productId, creatorMatch\.creatorId, existingCandidate\?\.id\)/);
+assert.equal(singleStatusFixture.expectedCreatorId, 44);
+assert.equal(singleStatusFixture.expectedCandidateId, 127);
+assert.equal(singleStatusFixture.expectedResultReason, "NO_NEW_CANDIDATE");
 
 const normalize = (value) => value === undefined ? { ok: false, reason: "undefined" } : JSON.parse(JSON.stringify(value));
 assert.deepEqual(normalize(undefined), { ok: false, reason: "undefined" });

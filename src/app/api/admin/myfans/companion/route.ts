@@ -1053,7 +1053,7 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
   const sourceStatusUrl = cleanDiagnosticStatusUrl(payload.sourceStatusUrl);
   const sourceXHandle = cleanText(payload.sourceXHandle).replace(/^@/, "");
   const candidate = payload.statusCandidate;
-  let auditContext: Record<string, unknown> = { sourceStatusUrl, sourceXHandle, candidateId: null, matchedCreatorId: null, observedMfcoUrl: null, finalMyfansUrl: null, myfansPostUuid: null, matchedOrCreatedProductId: null, productResolutionMethod: null, resultReason: null };
+  let auditContext: Record<string, unknown> = { sourceStatusUrl, sourceXHandle, singleStatusRunId: cleanText(payload.singleStatusRunId) || null, candidateId: null, matchedCreatorId: null, observedMfcoUrl: null, finalMyfansUrl: null, myfansPostUuid: null, matchedOrCreatedProductId: null, productResolutionMethod: null, resultReason: null };
   const candidateUrl = cleanXStatusUrl(candidate?.xPostUrl);
   const candidateAuthor = cleanText(candidate?.authorHandle).replace(/^@/, "");
   const sourceHandleFromStatus = sourceStatusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "";
@@ -1106,11 +1106,11 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
     .select("id,creator_x_url,source_x_handle");
   if (creatorError) throw creatorError;
   const creatorMatch = resolveExactMyfansCreator(creators ?? [], sourceXHandle);
-  auditContext = { ...auditContext, matchedCreatorId: creatorMatch.creatorId, resultReason: creatorMatch.status === "exact" ? null : creatorMatch.status === "ambiguous" ? "ambiguous_creator_author" : "no_exact_creator_author" };
+  auditContext = { ...auditContext, matchedCreatorId: creatorMatch.creatorId, resultReason: creatorMatch.status === "exact" ? null : creatorMatch.status === "ambiguous" ? "ambiguous_creator_author" : "creator_not_found" };
   if (!creatorMatch.creatorId) {
-    const reason = creatorMatch.status === "ambiguous" ? "ambiguous_creator_author" : "no_exact_creator_author";
+    const reason = creatorMatch.status === "ambiguous" ? "ambiguous_creator_author" : "creator_not_found";
     await audit({ ok: false, sourceStatusUrl, sourceXHandle: canonicalMyfansXHandle(sourceXHandle), authorStatusMatch: true, sourceTextSaved: true, reason }, sourceStatusUrl);
-    return NextResponse.json({ error: creatorMatch.status === "ambiguous" ? "X authorに一致するcreatorが複数あるため保存しませんでした。" : "既存DBでX authorと完全一致するcreatorが見つかりません。誤紐付け防止のため保存しませんでした。", creatorMatch: creatorMatch.status, productMatch: "unresolved" }, { status: 400 });
+    return NextResponse.json({ error: creatorMatch.status === "ambiguous" ? "X authorに一致するcreatorが複数あるため保存しませんでした。" : "既存DBにX authorと完全一致するcreatorが見つかりません。productの有無とは無関係に保存しませんでした。", creatorMatch: creatorMatch.status, productMatch: "unresolved", resultReason: reason, singleStatusRunId: cleanText(payload.singleStatusRunId) || null }, { status: 400 });
   }
 
   const { data: existingCandidate, error: existingCandidateError } = await supabaseAdmin
