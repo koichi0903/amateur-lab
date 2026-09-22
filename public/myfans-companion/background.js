@@ -176,15 +176,23 @@ async function waitForStatusReady(tabId, expectedHandle, expectedStatusUrl, time
   if (!target) throw categorizedError(FAILURE_CATEGORY.STATUS_PARENT_NOT_FOUND, "対象status URLを解析できませんでした。", { expectedStatusUrl });
   const startedAt = Date.now();
   let lastState = null;
+  let lastExecutionError = null;
   while (Date.now() - startedAt < timeoutMs) {
-    lastState = await executeMain(tabId, inspectXStatusReady, [target, expectedHandle]);
+    try {
+      lastState = await executeMain(tabId, inspectXStatusReady, [target, expectedHandle], { requireResult: true });
+      lastExecutionError = null;
+    } catch (error) {
+      lastExecutionError = error instanceof Error ? error.message : String(error);
+      await wait(300);
+      continue;
+    }
     if (lastState.hasChallenge) throw categorizedError(FAILURE_CATEGORY.LOGIN_OR_CHALLENGE, "Xのログイン/認証画面を検知しました。", lastState);
     if (lastState.isPrivate) throw categorizedError(FAILURE_CATEGORY.PRIVATE, "鍵付き/private statusのためthreadを閲覧できません。", lastState);
     if (lastState.hasRetry) throw categorizedError(FAILURE_CATEGORY.X_TEMPORARY_ERROR, "Xの一時エラー/Retry表示を検知しました。", lastState);
     if (lastState.ready) return lastState;
     await wait(500);
   }
-  throw categorizedError(FAILURE_CATEGORY.STATUS_PARENT_NOT_FOUND, "対象statusの親articleまたはauthor一致を確認できませんでした。", { ...lastState, expectedStatusUrl, expectedHandle });
+  throw categorizedError(FAILURE_CATEGORY.STATUS_PARENT_NOT_FOUND, "対象statusの親articleまたはauthor一致を確認できませんでした。", { ...lastState, expectedStatusUrl, expectedHandle, lastExecutionError });
 }
 
 const FAILURE_CATEGORY = {
@@ -616,8 +624,8 @@ async function runDiagnosticStatus(settings) {
         await stage("NAVIGATE_STATUS", async () => {
           await assertWorkerTabAlive(diagnosticWorkerTabId);
           try {
-            await chrome.tabs.update(diagnosticWorkerTabId, { url: statusUrl, active: true });
-            await waitForTabComplete(diagnosticWorkerTabId, 45000);
+            await chrome.tabs.update(diagnosticWorkerTabId, { url: statusUrl, active: false });
+            await waitForStatusNavigation(diagnosticWorkerTabId, statusUrl, 45000);
           } catch (error) {
             if (isWorkerTabLostError(error)) throw error;
             throw categorizedError(categoryFromError(error) === FAILURE_CATEGORY.NAVIGATION_TIMEOUT ? FAILURE_CATEGORY.NAVIGATION_TIMEOUT : "NAVIGATION_FAILED", error instanceof Error ? error.message : String(error), { statusUrl, tabId: diagnosticWorkerTabId });
@@ -751,9 +759,9 @@ async function runSingleStatusCollection(settings) {
         await stage("NAVIGATE_STATUS", async () => {
           await assertWorkerTabAlive(workerTabId);
           await chrome.tabs.update(workerTabId, { url: sourceStatusUrl, active: false });
-          await waitForTabComplete(workerTabId, 45000);
+          await waitForStatusNavigation(workerTabId, sourceStatusUrl, 45000);
         }, { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl, active: false });
-        await stage("WAIT_STATUS_READY", () => waitForTweetRender(workerTabId, handle, 18000), { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl });
+        await stage("WAIT_STATUS_READY", () => waitForStatusReady(workerTabId, handle, sourceStatusUrl, 18000), { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl });
         result = await stage("COLLECT_STATUS", () => executeMain(workerTabId, collectSingleXStatusCandidate, [{ sourceXHandle: handle, sourceStatusUrl }], { requireResult: true }), { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl });
         break;
       } catch (error) {
@@ -927,7 +935,7 @@ async function recreateWorkerTabForStatus(openerTabId, oldTabId, statusUrl, expe
   await chrome.storage.local.remove([WORKER_TAB_KEY]);
   const tabId = await ensureWorkerTab(openerTabId);
   await chrome.tabs.update(tabId, { url: statusUrl, active: false });
-  await waitForTabComplete(tabId, 45000);
+  await waitForStatusNavigation(tabId, statusUrl, 45000);
   const ready = await waitForStatusReady(tabId, expectedHandle, statusUrl, 18000);
   return {
     tabId,
@@ -1223,12 +1231,16 @@ function inspectXStatusReady(expected, expectedHandle) {
   const targetUrl = `https://x.com/${expected.handle}/status/${expected.statusId}`;
   const currentUrl = canonicalStatus(location.href);
   const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
+  const statusAnchors = Array.from(document.querySelectorAll("a[href]"))
+    .map((link) => canonicalStatus(link.getAttribute("href")))
+    .filter(Boolean);
   const handleOf = (article) => Array.from(article.querySelectorAll('[data-testid="User-Name"] a[href]'))
     .map((link) => String(link.getAttribute("href") || "").replace(/^\//, "").split(/[/?#]/)[0])
     .find((handle) => /^[A-Za-z0-9_]{1,15}$/.test(handle)) || "";
   const parentArticle = articles.find((article) => Array.from(article.querySelectorAll("a[href]"))
     .some((link) => canonicalStatus(link.getAttribute("href")) === targetUrl));
   const parentAuthor = parentArticle ? handleOf(parentArticle) : "";
+  const authorCandidates = [...new Set(articles.map(handleOf).filter(Boolean))].slice(0, 20);
   const hasChallenge = /captcha|challenge|認証|ロボット|不審なログイン|ログインしてください|Sign in to X|Log in to X/i.test(text);
   const isPrivate = /このアカウントは非公開です|ポストは非公開|These posts are protected|This account is private|非公開アカウント/i.test(text);
   const hasRetry = Boolean(document.querySelector('[data-testid="retry"]')) || /問題が発生しました|Something went wrong|Try again|Retry/i.test(text);
@@ -1237,6 +1249,9 @@ function inspectXStatusReady(expected, expectedHandle) {
     currentUrl,
     targetUrl,
     articleCount: articles.length,
+    statusAnchorCount: statusAnchors.filter((url) => url === targetUrl).length,
+    observedStatusIds: [...new Set(statusAnchors.map((url) => url.match(/\/status\/(\d+)/)?.[1]).filter(Boolean))].slice(0, 20),
+    authorCandidates,
     parentFound: Boolean(parentArticle),
     parentAuthor,
     hasChallenge,
@@ -1682,8 +1697,55 @@ async function runVisualVerification(settings) {
 }
 
 function statusParts(statusUrl) {
-  const match = String(statusUrl || "").match(/^https:\/\/x\.com\/([^/?#]+)\/status\/(\d+)$/);
+  const match = String(statusUrl || "").replace(/^https:\/\/twitter\.com\//i, "https://x.com/").match(/^https:\/\/x\.com\/([^/?#]+)\/status\/(\d+)(?:\/(?:photo|video)\/\d+)?(?:[?#].*)?$/i);
   return match ? { handle: match[1], statusId: match[2] } : null;
+}
+
+function canonicalStatusUrl(value) {
+  const parts = statusParts(String(value || ""));
+  return parts ? `https://x.com/${parts.handle}/status/${parts.statusId}` : "";
+}
+
+async function waitForStatusNavigation(tabId, expectedStatusUrl, timeoutMs = 45000) {
+  const targetUrl = canonicalStatusUrl(expectedStatusUrl);
+  const target = statusParts(targetUrl);
+  const startedAt = Date.now();
+  let lastTab = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    lastTab = await chrome.tabs.get(tabId);
+    const observedUrl = canonicalStatusUrl(lastTab.url || "");
+    if (observedUrl === targetUrl) {
+      return {
+        targetUrl,
+        observedUrl,
+        tabStatus: lastTab.status || null,
+        committed: true,
+        elapsedMs: Date.now() - startedAt
+      };
+    }
+    await wait(300);
+  }
+  let domDiagnostics = {};
+  if (target) {
+    try {
+      domDiagnostics = await executeMain(tabId, inspectXStatusReady, [target, target.handle], { requireResult: true });
+    } catch (error) {
+      domDiagnostics = { domProbeError: error instanceof Error ? error.message : String(error) };
+    }
+  }
+  throw categorizedError(
+    lastTab?.url && !/^about:/.test(lastTab.url) ? FAILURE_CATEGORY.PAGE_LOAD_TIMEOUT : FAILURE_CATEGORY.NAVIGATION_TIMEOUT,
+    "X status URLのcommitを確認できませんでした。",
+    {
+      targetUrl,
+      observedUrl: lastTab?.url || "",
+      observedCanonicalUrl: canonicalStatusUrl(lastTab?.url || ""),
+      tabStatus: lastTab?.status || null,
+      committed: false,
+      elapsedMs: Date.now() - startedAt,
+      ...domDiagnostics
+    }
+  );
 }
 
 async function validateVideoPermalinks(tabId, result) {
@@ -1812,7 +1874,7 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
           await timedStage("STATUS_NAVIGATION", async () => {
             await assertWorkerTabAlive(tabId);
             await chrome.tabs.update(tabId, { url: candidate.xPostUrl, active: false });
-            await waitForTabComplete(tabId, 45000);
+            await waitForStatusNavigation(tabId, candidate.xPostUrl, 45000);
           }, { parentStatusUrl: candidate.xPostUrl, statusId });
           transition("WAIT_STATUS_READY", { parentStatusUrl: candidate.xPostUrl, statusId });
           const ready = await timedStage("STATUS_READY", () => waitForStatusReady(tabId, expectedHandle, candidate.xPostUrl, 18000), { parentStatusUrl: candidate.xPostUrl, statusId });
@@ -2188,6 +2250,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message?.type === "myfans_single_status_collect_start") {
+    if (diagnosticRunning) {
+      sendResponse({ ok: false, status: "busy", errorCode: "SINGLE_RUN_ALREADY_ACTIVE", error: "Companion収集が実行中です。現在のrunを完了してから再実行してください。", workerVersion: WORKER_VERSION });
+      return true;
+    }
     runSingleStatusCollection(message.settings || {});
     sendResponse({ ok: true, status: "accepted", workerVersion: WORKER_VERSION });
     return true;
