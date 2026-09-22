@@ -266,8 +266,8 @@ async function refreshSingleStatusState() {
   const output = document.getElementById("singleStatusState");
   if (!output || !state?.state) return;
   const current = state.state;
-  output.textContent = current.status === "done"
-    ? `直近結果: 成功 / candidate ${current.candidateId ?? "保存済み"} / 本文保存 ${current.sourceTextSaved ? "あり" : "なし"} / author・status一致 ${current.authorStatusMatch ? "OK" : "NG"} / visual ${current.visualStatus || "-"}`
+  output.textContent = current.status === "done" || current.status === "no_new_candidate"
+    ? `直近結果: ${current.status === "no_new_candidate" ? "正常再確認 / NO_NEW_CANDIDATE" : "成功"} / candidate ${current.candidateId ?? "保存済み"} / creator ${current.creatorMatch || "-"} / product ${current.productMatch || "unresolved"} / 本文保存 ${current.sourceTextSaved ? "あり" : "なし"} / author・status一致 ${current.authorStatusMatch ? "OK" : "NG"} / visual ${current.visualStatus || "-"}`
     : current.status === "error"
       ? `直近結果: 失敗 / ${current.error || "理由不明"}`
       : `直近結果: ${current.status}`;

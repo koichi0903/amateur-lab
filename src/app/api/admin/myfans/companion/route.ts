@@ -7,6 +7,7 @@ import { calculateMyfansSelectionScore, myfansLaunchPriority } from "@/lib/myfan
 import { mergePersistedQuoteMediaEvidence } from "@/lib/myfansQuoteCandidateEvidence";
 import { evaluateMyfansSourceValue } from "@/lib/myfansSourceValue";
 import { isCompleteThreadCandidate } from "@/lib/myfansCompleteThread";
+import { canonicalMyfansXHandle, resolveExactMyfansCreator, resolveExactMyfansProductId } from "@/lib/myfansAuthorMatch";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -994,16 +995,31 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
     return NextResponse.json({ error: "指定statusの具体的な本文を取得できませんでした。保存しませんでした。" }, { status: 400 });
   }
 
-  const products = await fetchResolverProducts();
-  const exactHandle = `https://x.com/${sourceXHandle}`.toLowerCase();
-  const product = products
-    .filter((item) => cleanXProfileUrl(item.creator_x_url).toLowerCase() === exactHandle)
-    .filter((item) => !approvedMediaId || item.approved_media_id === approvedMediaId)
-    .sort((a, b) => (b.selection_score ?? 0) - (a.selection_score ?? 0))[0];
-  if (!product?.id || !product.creator_id) {
-    await audit({ ok: false, sourceStatusUrl, authorStatusMatch: true, sourceTextSaved: true, reason: "no_exact_existing_product_creator" }, sourceStatusUrl);
-    return NextResponse.json({ error: "既存DBでX authorと完全一致するcreator/productが見つかりません。誤紐付け防止のため保存しませんでした。" }, { status: 400 });
+  const { data: creators, error: creatorError } = await supabaseAdmin
+    .from("myfans_creators")
+    .select("id,creator_x_url,source_x_handle");
+  if (creatorError) throw creatorError;
+  const creatorMatch = resolveExactMyfansCreator(creators ?? [], sourceXHandle);
+  if (!creatorMatch.creatorId) {
+    const reason = creatorMatch.status === "ambiguous" ? "ambiguous_creator_author" : "no_exact_creator_author";
+    await audit({ ok: false, sourceStatusUrl, sourceXHandle: canonicalMyfansXHandle(sourceXHandle), authorStatusMatch: true, sourceTextSaved: true, reason }, sourceStatusUrl);
+    return NextResponse.json({ error: creatorMatch.status === "ambiguous" ? "X authorに一致するcreatorが複数あるため保存しませんでした。" : "既存DBでX authorと完全一致するcreatorが見つかりません。誤紐付け防止のため保存しませんでした。", creatorMatch: creatorMatch.status, productMatch: "unresolved" }, { status: 400 });
   }
+
+  const { data: existingCandidate, error: existingCandidateError } = await supabaseAdmin
+    .from("myfans_quote_candidates")
+    .select("id,creator_id,product_id,approved_media_id,creator_x_url,source_x_handle")
+    .eq("creator_id", creatorMatch.creatorId)
+    .eq("x_post_url", sourceStatusUrl)
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (existingCandidateError) throw existingCandidateError;
+
+  const products = await fetchResolverProducts();
+  const productId = resolveExactMyfansProductId(products, creatorMatch.creatorId, cleanXStatusUrl(sourceStatusUrl), existingCandidate?.product_id);
+  const product = products.find((item) => item.id === productId && item.creator_id === creatorMatch.creatorId) ?? null;
+  const productMatch = productId ? "exact" : "unresolved";
 
   const normalized = {
     ...candidate,
@@ -1025,10 +1041,10 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
     || (normalized.mediaType === "image" && normalized.quoteVisualReady)
   ));
   const record = {
-    approved_media_id: approvedMediaId ?? product.approved_media_id ?? null,
-    creator_id: product.creator_id,
-    product_id: product.id,
-    creator_x_url: product.creator_x_url,
+    approved_media_id: approvedMediaId ?? existingCandidate?.approved_media_id ?? product?.approved_media_id ?? null,
+    creator_id: creatorMatch.creatorId,
+    product_id: productId,
+    creator_x_url: product?.creator_x_url || existingCandidate?.creator_x_url || `https://x.com/${canonicalMyfansXHandle(sourceXHandle)}`,
     source_x_handle: sourceXHandle,
     x_post_url: normalized.xPostUrl,
     media_permalink: normalized.mediaPermalink || null,
@@ -1076,17 +1092,20 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
     global_score: scored.score,
     collected_at: new Date().toISOString(),
   };
-  const candidateId = await saveQuoteCandidate(record, product.id, product.creator_id);
+  const candidateId = await saveQuoteCandidate(record, productId, creatorMatch.creatorId);
+  const isExistingCandidate = Boolean(existingCandidate?.id);
   const partialFailures: string[] = [];
-  const { error: productUpdateError } = await supabaseAdmin.from("myfans_products").update({ quote_candidate_x_url: normalized.mediaPermalink || normalized.xPostUrl, updated_at: new Date().toISOString() }).eq("id", product.id);
-  if (productUpdateError) partialFailures.push(`product pointer update: ${productUpdateError.message}`);
+  if (productId) {
+    const { error: productUpdateError } = await supabaseAdmin.from("myfans_products").update({ quote_candidate_x_url: normalized.mediaPermalink || normalized.xPostUrl, updated_at: new Date().toISOString() }).eq("id", productId);
+    if (productUpdateError) partialFailures.push(`product pointer update: ${productUpdateError.message}`);
+  }
   try {
-    await updateGlobalQuoteRanks(approvedMediaId ?? product.approved_media_id ?? null);
+    await updateGlobalQuoteRanks(approvedMediaId ?? existingCandidate?.approved_media_id ?? product?.approved_media_id ?? null);
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("JOB_IDENTITY_MISMATCH:")) return NextResponse.json({ ok: false, retryable: false, errorCode: "JOB_IDENTITY_MISMATCH", error: error.message }, { status: 409 });
     partialFailures.push(`global rank update: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const metadata = { ok: true, sourceStatusUrl, candidateId, productId: product.id, creatorId: product.creator_id, sourceTextSaved: true, authorStatusMatch: true, visualStatus: quoteVisualReady ? "verified" : normalized.mediaType === "none" ? "unavailable" : "metadata_only", score: scored.score, eligible: scored.eligible };
+  const metadata = { ok: true, sourceStatusUrl, candidateId, creatorId: creatorMatch.creatorId, creatorMatch: "exact", productId, productMatch, existingCandidate: isExistingCandidate, sourceTextSaved: true, authorStatusMatch: true, visualStatus: quoteVisualReady ? "verified" : normalized.mediaType === "none" ? "unavailable" : "metadata_only", score: scored.score, eligible: scored.eligible };
   try {
     await audit(metadata, sourceStatusUrl);
   } catch (error) {
@@ -1096,7 +1115,7 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
   if (partialFailures.length > 0) {
     return NextResponse.json({ importedType: "single_status_quote_candidate", ...metadata, status: "partial", partialFailure: true, failures: partialFailures }, { status: 200 });
   }
-  return NextResponse.json({ importedType: "single_status_quote_candidate", ...metadata, status: "done" });
+  return NextResponse.json({ importedType: "single_status_quote_candidate", ...metadata, status: isExistingCandidate ? "no_new_candidate" : "done", resultCode: isExistingCandidate ? "NO_NEW_CANDIDATE" : "NEW_CANDIDATE" });
 }
 
 async function saveSingleStatusCollection(payload: QuoteScanPayload, approvedMediaId: number | null) {
