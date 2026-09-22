@@ -4,7 +4,6 @@ import type { BuyTimingResult } from "@/lib/buyTiming";
 
 type Props = {
   decision: BuyTimingResult;
-  discoveryScore: number | null;
   workId: number;
   affiliateUrl: string | null;
   sourcePage?: AffiliateSource;
@@ -17,44 +16,34 @@ const evaluationToneClasses = {
   watch: "border-zinc-200 bg-zinc-50 text-zinc-700",
 };
 
-function getEvaluation(score: number | null) {
-  if (typeof score !== "number") {
+function getEvaluation(score: number) {
+  if (score >= 82) {
     return {
-      label: "比較して判断",
-      description: "価格・レビューを確認して判断したい作品",
-      tone: "watch" as const,
-    };
-  }
-
-  if (score >= 85) {
-    return {
-      label: "かなりおすすめ",
-      description: "高評価・信頼十分で、発掘余地も強い候補",
+      label: "今買う",
+      description: "価格と評価の条件がそろった購入候補",
       tone: "strong" as const,
     };
   }
 
-  if (score >= 75) {
+  if (score >= 68) {
     return {
-      label: "おすすめ",
-      description: "発掘候補として十分チェックしたい作品",
-      tone: "good" as const,
-    };
-  }
-
-  if (score >= 60) {
-    return {
-      label: "条件次第",
-      description: "好みや価格条件が合えば候補に入る作品",
+      label: "比較して判断",
+      description: "価格・レビュー・候補作品を見て決めたい作品",
       tone: "compare" as const,
     };
   }
 
   return {
-    label: "様子見",
-    description: "ほかの候補と比較して判断したい作品",
+    label: "待つ",
+    description: "過去最安値や代替作品と比べてから判断したい作品",
     tone: "watch" as const,
   };
+}
+
+function formatHistoryDays(value: number | null) {
+  if (value === null) return "記録中";
+  if (value === 0) return "今日から";
+  return `${value}日分`;
 }
 
 function normalizeReasonFact(reason: string) {
@@ -71,15 +60,19 @@ function formatPrice(value: number | null) {
   return value && value > 0 ? `¥${value.toLocaleString("ja-JP")}` : "確認中";
 }
 
+function formatReview(average: number | null, count: number) {
+  if (!average || count <= 0) return "未集計";
+  return `★${average.toFixed(1)} / ${count}件`;
+}
+
 export default function BuyTimingPanel({
   decision,
-  discoveryScore,
   workId,
   affiliateUrl,
   sourcePage,
 }: Props) {
   const link = affiliateUrl?.trim() || null;
-  const evaluation = getEvaluation(discoveryScore);
+  const evaluation = getEvaluation(decision.score);
   const reasonFacts = [
     decision.discountRate > 0 ? `${decision.discountRate}%OFF` : null,
     decision.lowestPriceComparison === "lowest" ? "過去最安値クラス" : null,
@@ -106,7 +99,7 @@ export default function BuyTimingPanel({
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-6">
             <div className="rounded-2xl bg-pink-50 p-3">
               <div className="text-[11px] font-bold text-zinc-500">現在価格</div>
               <div className="mt-1 text-xl font-black text-pink-600">
@@ -129,6 +122,18 @@ export default function BuyTimingPanel({
               <div className="text-[11px] font-bold text-zinc-500">過去最安値</div>
               <div className="mt-1 text-base font-black text-zinc-700">
                 {formatPrice(decision.lowestPrice)}
+              </div>
+            </div>
+            <div className="rounded-2xl bg-zinc-50 p-3">
+              <div className="text-[11px] font-bold text-zinc-500">価格記録</div>
+              <div className="mt-1 text-base font-black text-zinc-700">
+                {formatHistoryDays(decision.historyDays)}
+              </div>
+            </div>
+            <div className="rounded-2xl bg-zinc-50 p-3">
+              <div className="text-[11px] font-bold text-zinc-500">レビュー</div>
+              <div className="mt-1 text-base font-black text-zinc-700">
+                {formatReview(decision.reviewAverage, decision.reviewCount)}
               </div>
             </div>
           </div>

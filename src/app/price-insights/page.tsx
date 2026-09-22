@@ -127,7 +127,7 @@ export default async function PriceInsightsPage() {
                   >
                     <div className="flex gap-4">
                       <Link
-                        href={workDetailHref(work.id, "deals")}
+                        href={workDetailHref(work.id, "price-report")}
                         className="relative h-32 w-28 shrink-0 overflow-hidden rounded-xl bg-slate-100 sm:h-40 sm:w-36"
                       >
                         <WorkImage
@@ -157,7 +157,7 @@ export default async function PriceInsightsPage() {
                         </div>
 
                         <h2 className="mt-3 line-clamp-2 break-all text-base font-black leading-6 sm:text-lg">
-                          <Link href={workDetailHref(work.id, "deals")} className="hover:text-pink-600">
+                          <Link href={workDetailHref(work.id, "price-report")} className="hover:text-pink-600">
                             {work.title}
                           </Link>
                         </h2>
@@ -222,7 +222,7 @@ export default async function PriceInsightsPage() {
                         TOPと同じ買い時スコア・価格履歴で表示
                       </p>
                       <Link
-                        href={workDetailHref(work.id, "deals")}
+                        href={workDetailHref(work.id, "price-report")}
                         className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-pink-600 px-4 text-sm font-black text-white transition hover:bg-pink-700"
                       >
                         価格と理由を見る <ArrowRight size={16} />

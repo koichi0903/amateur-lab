@@ -8,6 +8,7 @@ const PRIOR_PAGE_VIEWS = 12;
 const PRIOR_CTR = 4;
 
 export type BuyTimingPriceHistoryItem = {
+  changed_at?: string | null;
   normal_price: number | null;
   sale_price: number | null;
 };
@@ -43,7 +44,10 @@ export type BuyTimingResult = {
   currentPrice: number | null;
   regularPrice: number | null;
   discountRate: number;
+  reviewAverage: number | null;
+  reviewCount: number;
   lowestPrice: number | null;
+  historyDays: number | null;
   lowestPriceComparison: "lowest" | "near_lowest" | "above_lowest" | "unknown";
   lowestPriceText: string;
   reasons: string[];
@@ -148,6 +152,12 @@ export function calculateBuyTimingScore({
   const historyPrices = priceHistory
     .map(getEffectivePrice)
     .filter((price): price is number => price !== null);
+  const historyTimes = priceHistory
+    .map((item) => item.changed_at ? Date.parse(item.changed_at) : Number.NaN)
+    .filter((time): time is number => Number.isFinite(time));
+  const historyDays = historyTimes.length
+    ? Math.max(0, Math.floor((Date.now() - Math.min(...historyTimes)) / DAY_MS))
+    : null;
   const lowestPrice =
     validPrice(work.lowest_price) ??
     (historyPrices.length ? Math.min(...historyPrices) : null);
@@ -246,7 +256,10 @@ export function calculateBuyTimingScore({
     currentPrice,
     regularPrice,
     discountRate,
+    reviewAverage: work.review_average ?? null,
+    reviewCount,
     lowestPrice,
+    historyDays,
     lowestPriceComparison,
     lowestPriceText,
     reasons: reasons.slice(0, 4),

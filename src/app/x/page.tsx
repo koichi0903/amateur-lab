@@ -9,8 +9,8 @@ import { pageMetadata } from "@/lib/seo";
 export const revalidate = 1800;
 
 export const metadata = pageMetadata({
-  title: "Xで見つけたFANZA作品の価格・買い時メモ | 発掘LAB",
-  description: "Xで気になったFANZA作品を、現在価格、過去最安値、レビュー、サンプルから比較し、今買うか待つか判断できます。",
+  title: "@hakkutsu_lab発 FANZA作品の価格・買い時メモ | 発掘LAB",
+  description: "@hakkutsu_labで紹介したFANZA作品を、現在価格、過去最安値、レビュー、サンプルから比較し、今買うか待つか判断できます。",
   canonical: "/x",
   robots: { index: false, follow: true },
 });
@@ -80,7 +80,7 @@ export default async function XLandingPage() {
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 border-b border-zinc-800 pb-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-xs font-black tracking-[0.18em] text-pink-400">X向け入口</p>
+            <p className="text-xs font-black tracking-[0.18em] text-pink-400">@hakkutsu_lab X向け入口</p>
             <h1 className="mt-2 text-3xl font-black sm:text-5xl">Xで見つけた作品の買い時メモ</h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
               価格、過去最安値、サンプル、レビュー数を見て、今買うか待つか判断しやすい候補だけをまとめています。

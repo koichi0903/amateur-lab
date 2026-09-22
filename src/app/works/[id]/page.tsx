@@ -537,7 +537,6 @@ const buyTiming = calculateBuyTimingScore({
 
       <BuyTimingPanel
         decision={buyTiming}
-        discoveryScore={typeof work.score === "number" ? work.score : null}
         workId={work.id}
         affiliateUrl={work.affiliate_url}
       />
