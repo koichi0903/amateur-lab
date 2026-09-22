@@ -24,6 +24,8 @@ export default function AdminSearchPage() {
 
   const [searchError, setSearchError] = useState("");
 
+  const [searchMode, setSearchMode] = useState<"keyword" | "cid" | "actress" | "">("");
+
   const [registeringIds, setRegisteringIds] =
   useState(new Set<string>());
 
@@ -48,6 +50,7 @@ export default function AdminSearchPage() {
 
     setLoading(true);
     setSearchError("");
+    setSearchMode("");
 
     try {
       const res = await fetch(
@@ -61,6 +64,7 @@ export default function AdminSearchPage() {
       if (!res.ok || data.success !== true || !Array.isArray(data.items)) {
         setSearchResults([]);
         setRegisteredIds(new Set());
+        setSearchMode("");
         setSearchError(
           data.error?.message || "DMM検索に失敗しました。検索結果は0件として扱っていません。",
         );
@@ -70,6 +74,7 @@ export default function AdminSearchPage() {
       const items: DmmItem[] = data.items;
 
       setSearchResults(items);
+      setSearchMode(data.meta?.searchMode ?? "keyword");
 
 // 検索結果だけ登録済み判定
       const ids = items.map((item) => item.content_id);
@@ -91,6 +96,7 @@ export default function AdminSearchPage() {
       console.error(error);
       setSearchResults([]);
       setRegisteredIds(new Set());
+      setSearchMode("");
       setSearchError("検索結果を取得できませんでした。時間をおいて再試行してください。");
     } finally {
       setLoading(false);
@@ -420,6 +426,11 @@ const displayResults = searchResults.filter(
             
             検索結果：
 {displayResults.length}件
+            {!searchError && displayResults.length === 0 && searchMode && (
+              <span className="ml-2 text-xs text-zinc-500">
+                （FANZA / デジタル動画）
+              </span>
+            )}
           </p>
 
           <div className="mb-6 flex gap-3">
