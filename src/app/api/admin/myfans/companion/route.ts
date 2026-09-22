@@ -8,6 +8,7 @@ import { mergePersistedQuoteMediaEvidence } from "@/lib/myfansQuoteCandidateEvid
 import { evaluateMyfansSourceValue } from "@/lib/myfansSourceValue";
 import { isCompleteThreadCandidate } from "@/lib/myfansCompleteThread";
 import { canonicalMyfansXHandle, resolveExactMyfansCreator } from "@/lib/myfansAuthorMatch";
+import { companionPersistenceError, normalizeCompanionError } from "@/lib/myfansCompanionErrors";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -523,7 +524,7 @@ async function importObservedMyfansPost(payload: Record<string, unknown>, approv
   if (existingError) throw existingError;
 
   const record = {
-    ...(existing ? {} : { creator_id: null, affiliate_url: "", source_x_url: "", genre: cleanText(payload.genre), product_type: "single", status: "candidate", price: 0, reward_rate: 0, estimated_reward: 0, plan_signup_reward: 0, recurring_reward_rate: 0, likes_count: 0, saves_count: 0, is_new: false, selection_reason: "通常Chromeで表示確認したmyfans投稿の最小商品レコード。creator/affiliateは未推測。", selection_score: 0, launch_priority: "hold" }),
+    ...(existing ? {} : { creator_id: null, affiliate_url: "", source_x_url: "", genre: cleanText(payload.genre), product_type: "single", status: "candidate", price: 0, reward_rate: 0, estimated_reward: 0, plan_signup_reward: 0, recurring_reward_rate: 0, likes_count: 0, saves_count: 0, is_new: false, selection_reason: "通常Chromeで表示確認したmyfans投稿の最小商品レコード。creator/affiliateは未推測。", selection_score: 0, launch_priority: "low" }),
     ...(approvedMediaId ? { approved_media_id: approvedMediaId } : {}),
     title,
     product_url: productUrl,
@@ -545,7 +546,7 @@ async function importObservedMyfansPost(payload: Record<string, unknown>, approv
       : supabaseAdmin.from("myfans_products").insert(legacyRecord).select("id").single();
     ({ data: saved, error: saveError } = await legacyQuery);
   }
-  if (saveError) throw saveError;
+  if (saveError) throw companionPersistenceError(saveError, "myfans_product_import");
   if (!saved) throw new Error("myfans商品の保存結果を取得できませんでした。");
   const productId = Number(saved.id);
 
@@ -563,7 +564,7 @@ async function importObservedMyfansPost(payload: Record<string, unknown>, approv
     evidenceRows = (fallbackEvidence.data ?? []) as SupplyEvidenceRow[];
     evidenceSelectError = fallbackEvidence.error;
   }
-  if (evidenceSelectError) throw evidenceSelectError;
+  if (evidenceSelectError) throw companionPersistenceError(evidenceSelectError, "myfans_evidence_lookup");
   let promotedEvidence = 0;
   for (const evidence of evidenceRows ?? []) {
     if (evidence.confidence === "exact" && evidence.product_id === productId) continue;
@@ -590,7 +591,7 @@ async function importObservedMyfansPost(payload: Record<string, unknown>, approv
       const legacyPromotion = Object.fromEntries(Object.entries(promotion).filter(([key]) => key !== "resolution_history"));
       ({ error: promoteError } = await supabaseAdmin.from("myfans_post_product_linkage_evidence").update(legacyPromotion).eq("id", evidence.id));
     }
-    if (promoteError) throw promoteError;
+    if (promoteError) throw companionPersistenceError(promoteError, "myfans_evidence_promotion");
     promotedEvidence += 1;
     await supabaseAdmin.from("myfans_audit_logs").insert({
       entity_type: "evidence",
@@ -1139,8 +1140,9 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
           ? await ensureExactProductForCreator(finalMyfansUrl, creatorMatch.creatorId, approvedMediaId)
           : { product: null, status: "blocked" as const, method: "no_final_myfans_url", missing: observedLinkCount > 0 ? ["final MyFans post URL"] : [] };
     } catch (error) {
-      await audit({ ...auditContext, ok: false, reason: "product_resolution_failed", error: error instanceof Error ? error.message.slice(0, 500) : String(error) }, sourceStatusUrl);
-      throw error;
+      const normalizedError = normalizeCompanionError(error, "product_resolution");
+      await audit({ ...auditContext, ok: false, reason: "product_resolution_failed", ...normalizedError }, sourceStatusUrl);
+      throw companionPersistenceError(normalizedError, normalizedError.errorStage, "product_resolution_failed");
     }
   })();
   product = productResolution.product;
@@ -1283,7 +1285,8 @@ async function saveSingleStatusCollection(payload: QuoteScanPayload, approvedMed
     return NextResponse.json({ ...body, ok: true, serverAccepted: true, saveReached: true, singleStatusRunId }, { status: 200 });
   } catch (error) {
     const sourceStatusUrl = cleanDiagnosticStatusUrl(payload.sourceStatusUrl);
-    const detail = error instanceof Error ? error.message : String(error);
+    const normalizedError = normalizeCompanionError(error, "single_status_persistence");
+    const reason = normalizedError.reason || "server_persistence_failed";
     const { error: auditError } = await supabaseAdmin.from("myfans_audit_logs").insert({
       entity_type: "import",
       entity_id: null,
@@ -1295,12 +1298,14 @@ async function saveSingleStatusCollection(payload: QuoteScanPayload, approvedMed
         sourceStatusUrl,
         sourceXHandle: cleanText(payload.sourceXHandle).replace(/^@/, ""),
         singleStatusRunId: cleanText(payload.singleStatusRunId),
-        reason: "server_persistence_failed",
-        error: detail.slice(0, 500),
+        reason,
+        errorCode: normalizedError.errorCode,
+        errorMessage: normalizedError.errorMessage.slice(0, 500),
+        errorStage: normalizedError.errorStage,
       },
     });
     if (auditError) console.error("single_status_collect audit failed", auditError);
-    return NextResponse.json({ ok: false, serverAccepted: true, saveReached: false, reason: "server_persistence_failed", singleStatusRunId, error: detail }, { status: 500 });
+    return NextResponse.json({ ok: false, serverAccepted: true, saveReached: false, reason, singleStatusRunId, errorCode: normalizedError.errorCode, errorMessage: normalizedError.errorMessage, errorStage: normalizedError.errorStage, error: normalizedError.errorMessage }, { status: 500 });
   }
 }
 

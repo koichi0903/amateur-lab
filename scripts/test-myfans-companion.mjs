@@ -215,7 +215,9 @@ const singleStatusFixture = {
   expectedCreatorId: 44,
   expectedCandidateId: 127,
   parentMfcoUrl: "https://mfco.link/r/fixture-parent",
-  finalMyfansUrl: "https://myfans.jp/posts/00000000-0000-4000-8000-000000000127",
+  finalMyfansUrl: "https://myfans.jp/posts/70f73fe4-fc68-4acb-b6be-eac05f1b677c",
+  observedMfcoUrl: "https://mfco.link/i9zZO2RJ",
+  expectedProductIdBeforeImport: null,
   expectedResultReason: "NO_NEW_CANDIDATE",
 };
 assert.match(background, /const endpoint = `\$\{normalizeBaseUrl\(settings\.baseUrl\)\}\/api\/admin\/myfans\/companion`/);
@@ -226,6 +228,15 @@ assert.match(companionApi, /ensureExactProductForCreator\(finalMyfansUrl, creato
 assert.match(companionApi, /saveQuoteCandidate\(record, productId, creatorMatch\.creatorId, existingCandidate\?\.id\)/);
 assert.equal(singleStatusFixture.expectedCreatorId, 44);
 assert.equal(singleStatusFixture.expectedCandidateId, 127);
+assert.equal(singleStatusFixture.expectedProductIdBeforeImport, null);
+assert.equal(singleStatusFixture.observedMfcoUrl, "https://mfco.link/i9zZO2RJ");
+assert.match(companionApi, /launch_priority: "low"/);
+assert.match(companionApi, /myfans_product_import/);
+assert.match(companionApi, /errorCode: normalizedError\.errorCode/);
+assert.match(companionApi, /errorStage: normalizedError\.errorStage/);
+assert.match(companionApi, /const reason = normalizedError\.reason \|\| "server_persistence_failed"/);
+assert.doesNotMatch(companionApi, /error:\s*detail\.slice/);
+assert.doesNotMatch(companionApi, /error:\s*error instanceof Error \? error\.message\.slice\(0, 500\) : String\(error\)/);
 assert.equal(singleStatusFixture.expectedResultReason, "NO_NEW_CANDIDATE");
 
 const normalize = (value) => value === undefined ? { ok: false, reason: "undefined" } : JSON.parse(JSON.stringify(value));
