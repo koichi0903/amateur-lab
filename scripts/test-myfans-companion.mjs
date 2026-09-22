@@ -20,7 +20,10 @@ vm.runInNewContext(companionStateSource, stateContext);
 const companionState = stateContext.globalThis.MyfansCompanionState;
 
 assert.match(manifest.version, /^0\.1\.\d+$/);
-assert.equal(manifest.version, "0.1.26");
+assert.equal(manifest.version, "0.1.27");
+const popupScripts = [...popupHtml.matchAll(/<script\s+src="([^"]+)"\s*><\/script>/g)].map((match) => match[1]);
+assert.deepEqual(popupScripts, ["state.js", "popup.js"], "popup must load shared state before popup runtime");
+assert.match(companionStateSource, /globalThis\.MyfansCompanionState\s*=\s*state/);
 assert.match(background, /chrome\.runtime\.getManifest\(\)\.version/);
 assert.match(bridge, /chrome\.runtime\.getManifest\(\)\.version/);
 assert.match(background, /resultsが空でした/);
@@ -117,19 +120,19 @@ assert.deepEqual(JSON.parse(JSON.stringify(companionState.appendAttemptDiagnosti
 assert.equal(companionState.isCompleted({ status: "completed", processed_creators: 1, total_creators: 1 }), true);
 assert.equal(companionState.isCompleted({ status: "running", processed_creators: 1, total_creators: 1 }), true);
 assert.equal(companionState.isCompleted({ status: "running", processed_creators: 0, total_creators: 1 }), false);
-const identity = { job_id: 36, collection_session_id: "session-a", run_token: "run-a", collector_version: "0.1.26" };
-const activeJob = { id: 36, status: "running", collection_session_id: "session-a", collection_run_token: "run-a", collector_version: "0.1.26" };
-assert.equal(companionState.isCurrentActiveRun({ running: true, status: "running", identity }, activeJob, "0.1.26"), true);
+const identity = { job_id: 36, collection_session_id: "session-a", run_token: "run-a", collector_version: "0.1.27" };
+const activeJob = { id: 36, status: "running", collection_session_id: "session-a", collection_run_token: "run-a", collector_version: "0.1.27" };
+assert.equal(companionState.isCurrentActiveRun({ running: true, status: "running", identity }, activeJob, "0.1.27"), true);
 for (const status of ["completed", "cancelled", "failed"]) {
-  assert.equal(companionState.isCurrentActiveRun({ running: true, status: "scheduled", identity }, { ...activeJob, status }, "0.1.26"), false);
+  assert.equal(companionState.isCurrentActiveRun({ running: true, status: "scheduled", identity }, { ...activeJob, status }, "0.1.27"), false);
 }
-assert.equal(companionState.isCurrentActiveRun({ running: true, status: "scheduled", identity }, { ...activeJob, collection_session_id: null }, "0.1.26"), false);
-assert.equal(companionState.isCurrentActiveRun({ running: true, status: "scheduled", identity }, { ...activeJob, collection_run_token: null }, "0.1.26"), false);
-assert.equal(companionState.isCurrentActiveRun({ running: true, status: "scheduled", identity: { ...identity, collector_version: "0.1.25" } }, activeJob, "0.1.26"), false);
-assert.equal(companionState.sanitizeForDisplay({ running: true, status: "scheduled", identity }, { ...activeJob, status: "completed" }, "0.1.26").history, true);
-assert.equal(companionState.sanitizeForDisplay({ running: true, status: "scheduled", identity }, activeJob, "0.1.26").current, true);
-assert.equal(companionState.shouldInvalidateStoredRun({ collectorVersion: "0.1.25" }, { running: true, identity }, "0.1.26"), true);
-assert.equal(companionState.shouldInvalidateStoredRun({}, { running: true, identity: { job_id: 36 } }, "0.1.26"), true);
+assert.equal(companionState.isCurrentActiveRun({ running: true, status: "scheduled", identity }, { ...activeJob, collection_session_id: null }, "0.1.27"), false);
+assert.equal(companionState.isCurrentActiveRun({ running: true, status: "scheduled", identity }, { ...activeJob, collection_run_token: null }, "0.1.27"), false);
+assert.equal(companionState.isCurrentActiveRun({ running: true, status: "scheduled", identity: { ...identity, collector_version: "0.1.26" } }, activeJob, "0.1.27"), false);
+assert.equal(companionState.sanitizeForDisplay({ running: true, status: "scheduled", identity }, { ...activeJob, status: "completed" }, "0.1.27").history, true);
+assert.equal(companionState.sanitizeForDisplay({ running: true, status: "scheduled", identity }, activeJob, "0.1.27").current, true);
+assert.equal(companionState.shouldInvalidateStoredRun({ collectorVersion: "0.1.26" }, { running: true, identity }, "0.1.27"), true);
+assert.equal(companionState.shouldInvalidateStoredRun({}, { running: true, identity: { job_id: 36 } }, "0.1.27"), true);
 assert.match(popup, /blocked \$\{/);
 assert.match(popup, /\(partial\)/);
 assert.match(popup, /finalStatus !== "success"/);
