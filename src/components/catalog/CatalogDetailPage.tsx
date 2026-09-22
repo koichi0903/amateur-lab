@@ -8,6 +8,8 @@ import type { Work } from "@/types/work";
 import { SITE_URL, pageMetadata } from "@/lib/seo";
 import { workDetailHref } from "@/lib/affiliateTracking";
 import { getEntityBest10, type EntityBest10Item } from "@/lib/getActressBest10";
+import MiniPriceHistoryChart from "@/components/home/MiniPriceHistoryChart";
+import { buildInsightsForWorks, type HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 import CatalogIntentGuide from "@/components/catalog/CatalogIntentGuide";
 import EntityEditorialGuide from "@/components/editorial/EntityEditorialGuide";
 import { analyzeCatalogIntent } from "@/lib/catalog/catalogIntentAnalyzer";
@@ -85,7 +87,21 @@ function Price({ work }: { work: Work }) {
   return <span className={work.sale_price > 0 ? "text-rose-600" : "text-slate-900"}>{price > 0 ? `¥${price.toLocaleString("ja-JP")}` : "価格未取得"}</span>;
 }
 
-function WorkCard({ work, rank, kind }: { work: Work; rank: number; kind: CatalogKind }) {
+function PriceChart({ insight }: { insight?: HomePriceInsightWork }) {
+  if (!insight) return null;
+  return <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1">
+    <MiniPriceHistoryChart
+      points={insight.priceHistory}
+      windowStartAt={insight.priceWindowStartAt}
+      windowEndAt={insight.priceWindowEndAt}
+      lowPrice={insight.low90Price}
+      currentPrice={insight.currentPrice}
+      variant="compact"
+    />
+  </div>;
+}
+
+function WorkCard({ work, rank, kind, insight }: { work: Work; rank: number; kind: CatalogKind; insight?: HomePriceInsightWork }) {
   return (
     <Link href={workDetailHref(work.id, kind)} className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-pink-200 hover:shadow-md sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-5 sm:p-4">
       <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100">
@@ -96,6 +112,7 @@ function WorkCard({ work, rank, kind }: { work: Work; rank: number; kind: Catalo
         <div className="flex items-baseline gap-1.5 text-pink-600"><span className="text-[10px] font-black tracking-wider">発掘スコア</span><strong className="text-2xl leading-none">{work.score > 0 ? work.score : "—"}</strong></div>
         <h2 className="mt-2 line-clamp-2 break-words text-sm font-black leading-5 sm:text-base sm:leading-6">{work.title}</h2>
         <div className="mt-auto flex items-end justify-between gap-2 pt-3 text-xs font-black sm:text-sm"><Price work={work} /><span className="flex shrink-0 items-center gap-1 text-pink-600">詳細 <ArrowRight size={14} /></span></div>
+        <PriceChart insight={insight} />
       </div>
     </Link>
   );
@@ -139,7 +156,7 @@ function formatRanking(value: number | null | undefined) {
   return value && value > 0 && value < 9999 ? `${value}位` : "圏外/未取得";
 }
 
-function Best10Card({ work, rank, kind, scoreLabel }: { work: EntityBest10Item; rank: number; kind: CatalogKind; scoreLabel: string }) {
+function Best10Card({ work, rank, kind, scoreLabel, insight }: { work: EntityBest10Item; rank: number; kind: CatalogKind; scoreLabel: string; insight?: HomePriceInsightWork }) {
   return (
     <Link href={workDetailHref(work.id, kind)} className="group grid min-w-0 grid-cols-[96px_minmax(0,1fr)] gap-3 border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-pink-200 hover:shadow-md sm:grid-cols-[132px_minmax(0,1fr)] sm:gap-4 sm:p-4">
       <div className="relative aspect-[4/3] overflow-hidden bg-slate-100 sm:aspect-[3/4]">
@@ -167,13 +184,14 @@ function Best10Card({ work, rank, kind, scoreLabel }: { work: EntityBest10Item; 
         <div className="mt-3 flex flex-wrap gap-1.5">
           {work.best10Reasons.map((reason) => <span key={reason} className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-700">{reason}</span>)}
         </div>
+        <PriceChart insight={insight} />
         <span className="mt-auto flex items-center gap-1 pt-3 text-xs font-black text-pink-600">価格と理由を見る <ArrowRight size={14} /></span>
       </div>
     </Link>
   );
 }
 
-function Best10Section({ id, title, eyebrow, description, items, kind, icon: Icon, scoreLabel }: { id: string; title: string; eyebrow: string; description: string; items: EntityBest10Item[]; kind: CatalogKind; icon: typeof Trophy; scoreLabel: string }) {
+function Best10Section({ id, title, eyebrow, description, items, kind, icon: Icon, scoreLabel, insightsByWorkId }: { id: string; title: string; eyebrow: string; description: string; items: EntityBest10Item[]; kind: CatalogKind; icon: typeof Trophy; scoreLabel: string; insightsByWorkId?: ReadonlyMap<number, HomePriceInsightWork> }) {
   if (!items.length) return null;
   return (
     <section id={id} className="mt-10 scroll-mt-24">
@@ -186,7 +204,7 @@ function Best10Section({ id, title, eyebrow, description, items, kind, icon: Ico
         </div>
       </div>
       <div className="grid gap-3 lg:grid-cols-2">
-        {items.map((work, index) => <Best10Card key={work.id} work={work} rank={index + 1} kind={kind} scoreLabel={scoreLabel} />)}
+        {items.map((work, index) => <Best10Card key={work.id} work={work} rank={index + 1} kind={kind} scoreLabel={scoreLabel} insight={insightsByWorkId?.get(work.id)} />)}
       </div>
     </section>
   );
@@ -223,6 +241,25 @@ export default async function CatalogDetailPage({ kind, name, page = 1 }: { kind
   const best10 = currentPage === 1 && !error
     ? await getEntityBest10(name, contextWorks as Work[], { entityLabel: config.label })
     : null;
+  let priceInsights: HomePriceInsightWork[] = [];
+  const chartWorks = [
+    ...works,
+    ...(best10?.overall ?? []),
+    ...(best10?.hiddenGems ?? []),
+    ...(best10?.buyNow ?? []),
+  ].filter((work, index, all) => all.findIndex((candidate) => candidate.id === work.id) === index);
+  if (chartWorks.length) {
+    try {
+      priceInsights = await buildInsightsForWorks(
+        chartWorks as unknown as HomePriceInsightWork[],
+        new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+        { requireBuyTimingSignal: false },
+      );
+    } catch (error) {
+      console.warn("[catalog] price histories are temporarily unavailable", error);
+    }
+  }
+  const priceInsightsByWorkId = new Map(priceInsights.map((insight) => [insight.id, insight]));
 
   return <><Header /><JsonLd kind={kind} name={name} works={displayedWorks} page={currentPage} pageSize={ENTITY_PAGE_SIZE} /><main className="min-h-screen bg-[#f8fafc] text-slate-950">
     <section className="border-b border-slate-200 bg-white"><div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
@@ -234,6 +271,6 @@ export default async function CatalogDetailPage({ kind, name, page = 1 }: { kind
         </div>
       </div>
     </div></section>
-    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{currentPage === 1 && kind === "genre" && <EntityEditorialGuide name={name} profile={genreEditorialProfiles[name]} />}{!error && works.length > 0 && <CatalogIntentGuide name={name} source={kind} analysis={intentAnalysis} />}{best10 && <div className="border-y border-pink-100 bg-white px-4 py-6 shadow-sm sm:px-6"><p className="text-xs font-black tracking-widest text-pink-600">{best10Eyebrow[kind]}</p><h2 className="mt-1 break-words text-2xl font-black">{name} おすすめBEST10</h2><p className="mt-3 text-sm leading-7 text-slate-600">{best10.summary}</p><div className="mt-4 flex flex-wrap gap-2"><Link href="#best10-overall" className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white hover:bg-pink-600">まず見る10本</Link><Link href="#best10-buy-now" className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-black text-rose-700 hover:border-rose-300">価格で選ぶ</Link><Link href="#best10-hidden-gems" className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-black text-amber-700 hover:border-amber-300">定番外から選ぶ</Link></div></div>}{best10 && <Best10Section id="best10-overall" title={`${name} 総合BEST10`} eyebrow="RECOMMEND BEST10" description="発掘スコア、レビュー平均と件数、価格判断、直近30日の送客実績を合わせて、単純な人気順に寄せすぎず選んでいます。" items={best10.overall} kind={kind} icon={Trophy} scoreLabel="総合" />}{best10 && <Best10Section id="best10-hidden-gems" title={`${name}の定番外候補`} eyebrow="HIDDEN GEMS" description="ランキング上位だけでなく、順位は低めでも評価・レビュー・価格条件が強い作品を優先しています。" items={best10.hiddenGems} kind={kind} icon={Gem} scoreLabel="埋もれ度" />}{best10 && <Best10Section id="best10-buy-now" title={`${name} 価格で選ぶ候補`} eyebrow="SALE & BUY TIMING" description="割引率、過去最安値との比較、価格判断を重視して、今チェックする理由がある作品を並べています。" items={best10.buyNow} kind={kind} icon={BadgePercent} scoreLabel="価格判断" />}{error ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">作品を読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : works.length ? <><div className="mb-6 mt-12 flex items-end justify-between gap-4"><div className="min-w-0"><p className="text-xs font-black tracking-widest text-pink-600">TOP WORKS</p><h2 className="mt-1 break-words text-2xl font-black">{name}の作品</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{totalCount}作品中 {offset + 1}〜{offset + displayedWorks.length}作品</span></div><div className="grid gap-3 lg:grid-cols-2">{displayedWorks.map((work, index) => <WorkCard key={work.id} work={work} rank={offset + index + 1} kind={kind} />)}</div>{totalPages > 1 && <nav aria-label={`${name}の作品一覧のページ送り`} className="mt-10 flex items-center justify-center gap-3">{currentPage > 1 && <Link href={pageHref(currentPage - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-pink-300 hover:text-pink-600">← 前の60作品</Link>}<span className="text-xs font-bold text-slate-400">{currentPage} / {totalPages}</span>{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-pink-600">次の60作品 →</Link>}</nav>}</> : <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Icon className="mx-auto text-slate-300" size={40} /><p className="mt-4 font-black">登録作品がまだありません</p><Link href={`/${kind}`} className="mt-3 inline-block text-sm font-black text-pink-600">{config.label}一覧に戻る</Link></div>}</div>
+    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{currentPage === 1 && kind === "genre" && <EntityEditorialGuide name={name} profile={genreEditorialProfiles[name]} />}{!error && works.length > 0 && <CatalogIntentGuide name={name} source={kind} analysis={intentAnalysis} />}{best10 && <div className="border-y border-pink-100 bg-white px-4 py-6 shadow-sm sm:px-6"><p className="text-xs font-black tracking-widest text-pink-600">{best10Eyebrow[kind]}</p><h2 className="mt-1 break-words text-2xl font-black">{name} おすすめBEST10</h2><p className="mt-3 text-sm leading-7 text-slate-600">{best10.summary}</p><div className="mt-4 flex flex-wrap gap-2"><Link href="#best10-overall" className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white hover:bg-pink-600">まず見る10本</Link><Link href="#best10-buy-now" className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-black text-rose-700 hover:border-rose-300">価格で選ぶ</Link><Link href="#best10-hidden-gems" className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-black text-amber-700 hover:border-amber-300">定番外から選ぶ</Link></div></div>}{best10 && <Best10Section id="best10-overall" title={`${name} 総合BEST10`} eyebrow="RECOMMEND BEST10" description="発掘スコア、レビュー平均と件数、価格判断、直近30日の送客実績を合わせて、単純な人気順に寄せすぎず選んでいます。" items={best10.overall} kind={kind} icon={Trophy} scoreLabel="総合" insightsByWorkId={priceInsightsByWorkId} />}{best10 && <Best10Section id="best10-hidden-gems" title={`${name}の定番外候補`} eyebrow="HIDDEN GEMS" description="ランキング上位だけでなく、順位は低めでも評価・レビュー・価格条件が強い作品を優先しています。" items={best10.hiddenGems} kind={kind} icon={Gem} scoreLabel="埋もれ度" insightsByWorkId={priceInsightsByWorkId} />}{best10 && <Best10Section id="best10-buy-now" title={`${name} 価格で選ぶ候補`} eyebrow="SALE & BUY TIMING" description="割引率、過去最安値との比較、価格判断を重視して、今チェックする理由がある作品を並べています。" items={best10.buyNow} kind={kind} icon={BadgePercent} scoreLabel="価格判断" insightsByWorkId={priceInsightsByWorkId} />}{error ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">作品を読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : works.length ? <><div className="mb-6 mt-12 flex items-end justify-between gap-4"><div className="min-w-0"><p className="text-xs font-black tracking-widest text-pink-600">TOP WORKS</p><h2 className="mt-1 break-words text-2xl font-black">{name}の作品</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{totalCount}作品中 {offset + 1}〜{offset + displayedWorks.length}作品</span></div><div className="grid gap-3 lg:grid-cols-2">{displayedWorks.map((work, index) => <WorkCard key={work.id} work={work} rank={offset + index + 1} kind={kind} insight={priceInsightsByWorkId.get(work.id)} />)}</div>{totalPages > 1 && <nav aria-label={`${name}の作品一覧のページ送り`} className="mt-10 flex items-center justify-center gap-3">{currentPage > 1 && <Link href={pageHref(currentPage - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-pink-300 hover:text-pink-600">← 前の60作品</Link>}<span className="text-xs font-bold text-slate-400">{currentPage} / {totalPages}</span>{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-pink-600">次の60作品 →</Link>}</nav>}</> : <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Icon className="mx-auto text-slate-300" size={40} /><p className="mt-4 font-black">登録作品がまだありません</p><Link href={`/${kind}`} className="mt-3 inline-block text-sm font-black text-pink-600">{config.label}一覧に戻る</Link></div>}</div>
   </main></>;
 }
