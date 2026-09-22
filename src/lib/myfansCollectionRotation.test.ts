@@ -28,6 +28,7 @@ test("no match is not a permanent exclusion", () => {
   assert.equal(collectionOutcomeForResult({ candidatesCount: 0, errorCode: "NO_POSTS" }), "NO_POSTS");
   assert.equal(collectionOutcomeForResult({ candidatesCount: 0, errorCode: "PRIVATE" }), "PRIVATE");
   assert.equal(collectionOutcomeForResult({ candidatesCount: 0, threadIncomplete: true }), "THREAD_INCOMPLETE");
+  assert.equal(collectionOutcomeForResult({ candidatesCount: 0, errorCode: "THREAD_OBSERVATION_FAILED" }), "THREAD_INCOMPLETE");
 });
 
 test("mixed ten-account fixture preserves rotation, terminal counts, and exact source linkage", () => {
@@ -44,7 +45,7 @@ test("mixed ten-account fixture preserves rotation, terminal counts, and exact s
     collectionOutcomeForResult({ candidatesCount: 0, errorCode: "NO_POSTS" }),
     collectionOutcomeForResult({ candidatesCount: 0, errorCode: "PRIVATE" }),
     collectionOutcomeForResult({ candidatesCount: 0, errorCode: "X_TEMPORARY_ERROR" }),
-    collectionOutcomeForResult({ candidatesCount: 0, threadIncomplete: true }),
+    collectionOutcomeForResult({ candidatesCount: 0, errorCode: "THREAD_OBSERVATION_FAILED" }),
     "CANCELLED",
     collectionOutcomeForResult({ candidatesCount: 1 }),
   ];

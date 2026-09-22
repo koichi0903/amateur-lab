@@ -108,7 +108,35 @@ function wait(ms) {
 }
 
 async function observeVisibleThread(tabId, expectedHandle = "", expectedStatusUrl = "") {
-  return executeMain(tabId, async () => {
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  let lastObservation = null;
+  for (let pass = 0; pass < 3; pass += 1) {
+    try {
+      lastObservation = await executeMain(tabId, observeVisibleThreadSnapshot, [expectedHandle, expectedStatusUrl, pass], { requireResult: true });
+    } catch (error) {
+      throw categorizedError(FAILURE_CATEGORY.THREAD_OBSERVATION_FAILED, error instanceof Error ? error.message : String(error), {
+        statusUrl: expectedStatusUrl,
+        statusId: String(expectedStatusUrl).match(/\/status\/(\d+)/)?.[1] || null,
+        expectedAuthor: expectedHandle,
+        elapsedMs: Date.now() - startedMs,
+        failureReason: error instanceof Error ? error.message : String(error),
+        causeCode: categoryFromError(error),
+        causeDiagnostics: error?.diagnostics || null
+      });
+    }
+    if (lastObservation?.parentFound && (lastObservation.fullyObserved || pass === 2)) {
+      return { ...lastObservation, observationStartedAt: startedAt, elapsedMs: Date.now() - startedMs, observationAttempts: pass + 1 };
+    }
+    if (pass < 2) await wait(700);
+  }
+  if (!lastObservation || typeof lastObservation !== "object") {
+    throw categorizedError(FAILURE_CATEGORY.THREAD_OBSERVATION_FAILED, "status threadのDOM観測結果が返りませんでした。", { expectedHandle, expectedStatusUrl, elapsedMs: Date.now() - startedMs });
+  }
+  return { ...lastObservation, observationStartedAt: startedAt, elapsedMs: Date.now() - startedMs, observationAttempts: 3 };
+}
+
+function observeVisibleThreadSnapshot(expectedHandle = "", expectedStatusUrl = "", pass = 0) {
     const observationStartedAt = new Date().toISOString();
     const observationStartedMs = Date.now();
     const articles = () => Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
@@ -124,20 +152,16 @@ async function observeVisibleThread(tabId, expectedHandle = "", expectedStatusUr
     };
     const clicked = [];
     const scrollPasses = [];
-    for (let pass = 0; pass < 3; pass += 1) {
-      for (const button of Array.from(document.querySelectorAll('button, [role="button"]'))) {
-        const label = `${button.textContent || ""} ${button.getAttribute("aria-label") || ""}`.trim();
-        if (relevantExpand(button)) {
-          button.click();
-          clicked.push(label.slice(0, 80));
-        }
+    for (const button of Array.from(document.querySelectorAll('button, [role="button"]'))) {
+      const label = `${button.textContent || ""} ${button.getAttribute("aria-label") || ""}`.trim();
+      if (relevantExpand(button)) {
+        button.click();
+        clicked.push(label.slice(0, 80));
       }
-      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      window.scrollTo({ top: Math.max(0, document.documentElement.scrollHeight - window.innerHeight), behavior: "instant" });
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      scrollPasses.push(pass + 1);
     }
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
+    window.scrollTo({ top: Math.max(0, document.documentElement.scrollHeight - window.innerHeight), behavior: "instant" });
+    scrollPasses.push(pass + 1);
     const remainingExpand = Array.from(document.querySelectorAll('button, [role="button"]'))
       .filter(relevantExpand)
       .map((button) => `${button.textContent || ""} ${button.getAttribute("aria-label") || ""}`.trim().slice(0, 80));
@@ -152,9 +176,8 @@ async function observeVisibleThread(tabId, expectedHandle = "", expectedStatusUr
       .filter((href) => /^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(href)));
     const parentFound = Boolean(targetUrl && visibleArticles.some((article) => Array.from(article.querySelectorAll("a[href]"), (link) => canonical(link.getAttribute("href"))).includes(targetUrl)));
     const articleCountAfter = visibleArticles.length;
-    const observationCompleteness = parentFound && scrollPasses.length >= 3 && remainingExpand.length === 0 ? "complete" : "partial";
+    const observationCompleteness = parentFound && pass >= 2 && remainingExpand.length === 0 ? "complete" : "partial";
     return {
-      observationStartedAt,
       observationFinishedAt: new Date().toISOString(),
       elapsedMs: Date.now() - observationStartedMs,
       articleCountBefore: before,
@@ -168,9 +191,11 @@ async function observeVisibleThread(tabId, expectedHandle = "", expectedStatusUr
       linksFound: [...new Set(linksFound)],
       fullyObserved: observationCompleteness === "complete",
       observationCompleteness,
-      reason: !parentFound ? "PARENT_NOT_FOUND" : remainingExpand.length ? "RELEVANT_REPLY_EXPAND_REMAINS" : "OBSERVED_STABLE"
+      reason: !parentFound ? "PARENT_NOT_FOUND" : remainingExpand.length ? "RELEVANT_REPLY_EXPAND_REMAINS" : "OBSERVED_STABLE",
+      observationPass: pass,
+      observationStartedAt,
+      observationElapsedMs: Date.now() - observationStartedMs
     };
-  }, [expectedHandle, expectedStatusUrl], { requireResult: true });
 }
 
 async function waitForStatusReady(tabId, expectedHandle, expectedStatusUrl, timeoutMs = 18000) {
@@ -224,6 +249,7 @@ const FAILURE_CATEGORY = {
   NO_POSTS: "NO_POSTS",
   X_TEMPORARY_ERROR: "X_TEMPORARY_ERROR",
   THREAD_NOT_FULLY_OBSERVED: "THREAD_NOT_FULLY_OBSERVED",
+  THREAD_OBSERVATION_FAILED: "THREAD_OBSERVATION_FAILED",
   UNKNOWN: "UNKNOWN"
 };
 
@@ -247,7 +273,8 @@ const LIMITED_RETRY_CATEGORIES = new Set([
   FAILURE_CATEGORY.NO_TWEET_ARTICLES,
   FAILURE_CATEGORY.TAB_NOT_READY,
   FAILURE_CATEGORY.STATUS_PARENT_NOT_FOUND,
-  FAILURE_CATEGORY.THREAD_NOT_FULLY_OBSERVED
+  FAILURE_CATEGORY.THREAD_NOT_FULLY_OBSERVED,
+  FAILURE_CATEGORY.THREAD_OBSERVATION_FAILED
 ]);
 
 function categorizedError(category, message, diagnostics = {}) {
@@ -309,6 +336,7 @@ function humanReasonForCategory(category) {
     PRIVATE: "鍵付き/privateアカウントのため投稿を閲覧できません。",
     NO_POSTS: "投稿がないことを確認しました。",
     X_TEMPORARY_ERROR: "Xの一時エラー表示を検知しました。",
+    THREAD_OBSERVATION_FAILED: "status threadのDOM観測に失敗しました。次回の収集で再試行します。",
     UNKNOWN: "原因を分類できませんでした。"
   }[category] || "原因を分類できませんでした。";
 }
@@ -784,7 +812,9 @@ async function runSingleStatusCollection(settings) {
           await waitForStatusNavigation(workerTabId, sourceStatusUrl, 45000);
         }, { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl, active: false });
         await stage("WAIT_STATUS_READY", () => waitForStatusReady(workerTabId, handle, sourceStatusUrl, 18000), { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl });
+        const threadObservation = await stage("COLLECT_THREAD", () => observeVisibleThread(workerTabId, handle, sourceStatusUrl), { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl });
         result = await stage("COLLECT_STATUS", () => executeMain(workerTabId, collectSingleXStatusCandidate, [{ sourceXHandle: handle, sourceStatusUrl }], { requireResult: true }), { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl });
+        result = { ...result, threadObservationDiagnostics: threadObservation };
         result = await stage("RESOLVE_LINK", async () => {
           const resolvedCandidate = await resolveCandidateMyfansLinks(workerTabId, result.candidate, sourceStatusUrl, handle);
           if ((result.candidate.myfansUrls || []).length > 0 && resolvedCandidate.myfansUrls.length === 0) {
@@ -2015,6 +2045,7 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
   let fullyObservedThreads = 0;
   let statusThreadMyfansLinkCount = 0;
   let threadNotFullyObservedCount = 0;
+  let observationFailureCount = 0;
   transition("MEDIA_STATUS_QUEUE", { queued: parentCandidates.length, profileArticleCount: result.diagnostics?.articleCount ?? 0, profileOwnPostCount: result.diagnostics?.ownPostCount ?? 0 });
   for (const candidate of parentCandidates) {
     try {
@@ -2077,7 +2108,21 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
       const entry = collectionStatuses.find((item) => item.parentStatusUrl === candidate.xPostUrl);
       if (entry) entry.evidence = statusEvidence;
       if (!observation) {
-        if (entry) entry.status = "OBSERVATION_NULL";
+        observationFailureCount += 1;
+        statusEvidence.observationDiagnostics = {
+          statusUrl: candidate.xPostUrl,
+          statusId,
+          expectedAuthor: expectedHandle,
+          observedAuthor: null,
+          articleCount: threadResult?.articleCount ?? result.diagnostics?.articleCount ?? null,
+          media: { parentHasMedia, mediaType: parent?.mediaType || candidate.mediaType || "none", mediaCount: parent?.mediaCount ?? candidate.mediaCount ?? 0 },
+          parentLinkCandidates: parentLinks,
+          selfReplyLinkCandidates: ownRepliesForParent.flatMap((reply) => Array.isArray(reply.myfansUrls) ? reply.myfansUrls : []),
+          elapsedMs: Date.now() - statusStartedMs,
+          failureReason: "executeMain returned no observation value",
+          errorCode: "THREAD_OBSERVATION_FAILED"
+        };
+        if (entry) entry.status = "THREAD_OBSERVATION_FAILED";
         continue;
       }
       if (!observed || !observation.parentFound) {
@@ -2134,7 +2179,27 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
     } catch (error) {
       threadNotFullyObservedCount += 1;
       const entry = collectionStatuses.find((item) => item.parentStatusUrl === candidate.xPostUrl);
-      if (entry) entry.status = "THREAD_RESULT_NOT_OK";
+      const errorCode = categoryFromError(error);
+      if (errorCode === FAILURE_CATEGORY.THREAD_OBSERVATION_FAILED || errorCode === FAILURE_CATEGORY.RESULT_UNDEFINED || errorCode === FAILURE_CATEGORY.RESULT_EMPTY || errorCode === FAILURE_CATEGORY.RESULT_FRAME_MISSING) observationFailureCount += 1;
+      if (entry) {
+        entry.status = errorCode === FAILURE_CATEGORY.THREAD_OBSERVATION_FAILED ? "THREAD_OBSERVATION_FAILED" : "THREAD_RESULT_NOT_OK";
+        entry.evidence = {
+          ...(entry.evidence || {}),
+          observationDiagnostics: {
+            statusUrl: candidate.xPostUrl,
+            statusId,
+            expectedAuthor: expectedHandle,
+            observedAuthor: null,
+            articleCount: result.diagnostics?.articleCount ?? null,
+            media: { parentHasMedia: false, mediaType: candidate.mediaType || "none", mediaCount: candidate.mediaCount || 0 },
+            parentLinkCandidates: [],
+            selfReplyLinkCandidates: [],
+            elapsedMs: 0,
+            failureReason: error instanceof Error ? error.message : String(error),
+            errorCode
+          }
+        };
+      }
       transition("THREAD_NOT_FULLY_OBSERVED", { parentStatusUrl: candidate.xPostUrl, error: error instanceof Error ? error.message : String(error) });
     }
   }
@@ -2145,8 +2210,8 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
     ...result,
     ok: hasCompleteThread,
     stage: hasCompleteThread ? "COMPLETE_THREAD" : "COMPLETE_THREAD_NO_MATCH",
-    errorCode: hasCompleteThread ? null : (threadNotFullyObservedCount > 0 ? "THREAD_INCOMPLETE_WITHOUT_LINK" : "NO_OWN_MYFANS_LINK"),
-    errorMessage: hasCompleteThread ? null : (threadNotFullyObservedCount > 0 ? "threadを十分に観測できなかったため、リンクなしとは判定しませんでした。" : "本人の親本文または自己リプにmyfansリンクがありませんでした。"),
+    errorCode: hasCompleteThread ? null : (observationFailureCount > 0 ? "THREAD_OBSERVATION_FAILED" : (threadNotFullyObservedCount > 0 ? "THREAD_INCOMPLETE_WITHOUT_LINK" : "NO_OWN_MYFANS_LINK")),
+    errorMessage: hasCompleteThread ? null : (observationFailureCount > 0 ? "status threadの観測に失敗したため、リンクなしとは判定しませんでした。" : (threadNotFullyObservedCount > 0 ? "threadを十分に観測できなかったため、リンクなしとは判定しませんでした。" : "本人の親本文または自己リプにmyfansリンクがありませんでした。")),
     collectionStatuses,
     quoteCandidates: deduped,
     diagnostics: {
@@ -2158,6 +2223,7 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
       authorReplyCount: authorReplies.length,
       statusThreadMyfansLinkCount,
       threadNotFullyObservedCount,
+      observationFailureCount,
       completeThreadCandidateCount: deduped.length
     },
     stateTransitions,

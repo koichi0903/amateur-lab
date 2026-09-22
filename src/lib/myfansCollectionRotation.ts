@@ -42,7 +42,7 @@ export function selectCollectionAccounts(
 export function collectionOutcomeForResult(input: { candidatesCount: number; errorCode?: string | null; threadIncomplete?: boolean }) {
   if (input.errorCode === "NO_POSTS") return "NO_POSTS" as const;
   if (input.errorCode === "PRIVATE") return "PRIVATE" as const;
-  if (input.threadIncomplete) return "THREAD_INCOMPLETE" as const;
+  if (input.threadIncomplete || input.errorCode === "THREAD_OBSERVATION_FAILED" || input.errorCode === "THREAD_INCOMPLETE_WITHOUT_LINK") return "THREAD_INCOMPLETE" as const;
   if (input.errorCode === "LOGIN_OR_CHALLENGE" || input.errorCode === "X_TEMPORARY_ERROR") return "TEMP_ERROR" as const;
   return input.candidatesCount > 0 ? "FOUND_COMPLETE_THREAD" as const : "NO_MATCH_THIS_RUN" as const;
 }

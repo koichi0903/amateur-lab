@@ -20,7 +20,7 @@ vm.runInNewContext(companionStateSource, stateContext);
 const companionState = stateContext.globalThis.MyfansCompanionState;
 
 assert.match(manifest.version, /^0\.1\.\d+$/);
-assert.equal(manifest.version, "0.1.34");
+assert.equal(manifest.version, "0.1.35");
 const popupScripts = [...popupHtml.matchAll(/<script\s+src="([^"]+)"\s*><\/script>/g)].map((match) => match[1]);
 assert.deepEqual(popupScripts, ["state.js", "popup.js"], "popup must load shared state before popup runtime");
 assert.match(companionStateSource, /globalThis\.MyfansCompanionState\s*=\s*state/);
@@ -40,7 +40,11 @@ assert.match(background, /extractSourceTextInPage/);
 assert.match(background, /complete_thread_first_v2/);
 assert.match(background, /THREAD_NOT_FULLY_OBSERVED/);
 assert.match(background, /LINK_FOUND_THREAD_INCOMPLETE/);
-assert.match(background, /OBSERVATION_NULL/);
+assert.match(companionApi, /OBSERVATION_NULL/);
+assert.match(background, /THREAD_OBSERVATION_FAILED/);
+assert.match(background, /observeVisibleThreadSnapshot/);
+assert.match(background, /executeMain returned no observation value/);
+assert.doesNotMatch(background, /async function observeVisibleThreadSnapshot/);
 assert.match(background, /THREAD_RESULT_NOT_OK/);
 assert.match(background, /PARENT_NOT_FOUND/);
 assert.match(background, /THREAD_INCOMPLETE_WITHOUT_LINK/);
@@ -357,5 +361,47 @@ assert.match(serializationSource, /circular/);
 assert.match(background, /RESULT_UNDEFINED/);
 assert.match(background, /RESULT_EMPTY/);
 assert.match(background, /RESULT_FRAME_MISSING/);
+
+const snapshotSource = extractFunction(background, "function observeVisibleThreadSnapshot", "async function waitForStatusReady");
+const observeVisibleThreadSnapshot = new Function(`return (${snapshotSource});`)();
+globalThis.observeVisibleThreadSnapshot = observeVisibleThreadSnapshot;
+globalThis.window = { innerHeight: 800, scrollTo() {} };
+const observationStatusUrl = "https://x.com/creator/status/123";
+const observationArticle = {
+  querySelectorAll(selector) {
+    if (selector === 'a[href]') return [
+      { getAttribute(name) { return name === "href" ? observationStatusUrl : null; } },
+      { getAttribute(name) { return name === "href" ? "/creator" : null; } },
+      { getAttribute(name) { return name === "href" ? "https://mfco.link/r/parent" : null; } },
+    ];
+    if (selector === '[data-testid="User-Name"] a[href]') return [{ getAttribute(name) { return name === "href" ? "/creator" : null; } }];
+    return [];
+  },
+};
+globalThis.document = {
+  documentElement: { scrollHeight: 1000 },
+  querySelectorAll(selector) {
+    if (selector === 'article[data-testid="tweet"]') return [observationArticle];
+    if (selector === 'button, [role="button"]') return [];
+    return [];
+  },
+};
+const observationCategories = { THREAD_OBSERVATION_FAILED: "THREAD_OBSERVATION_FAILED" };
+const observationError = (category, message, diagnostics) => Object.assign(new Error(`${category}: ${message}`), { category, diagnostics });
+const observationWrapper = (executeMain) => new Function("executeMain", "wait", "categorizedError", "FAILURE_CATEGORY", "categoryFromError", `return (${extractFunction(background, "async function observeVisibleThread", "function observeVisibleThreadSnapshot")});`)(executeMain, async () => {}, observationError, observationCategories, (error) => error?.category || "UNKNOWN");
+let transientCalls = 0;
+const transientObservation = await observationWrapper(async (_tabId, functionValue, args) => {
+  transientCalls += 1;
+  if (transientCalls === 1) return null;
+  return functionValue(...args);
+})(1, "creator", observationStatusUrl);
+assert.equal(transientObservation.parentFound, true);
+assert.equal(transientObservation.observationAttempts, 3);
+let persistentCalls = 0;
+await assert.rejects(() => observationWrapper(async () => {
+  persistentCalls += 1;
+  return null;
+})(1, "creator", observationStatusUrl), (error) => error.category === "THREAD_OBSERVATION_FAILED");
+assert.equal(persistentCalls, 3);
 
 console.log(`Myfans Companion checks passed (manifest ${manifest.version})`);

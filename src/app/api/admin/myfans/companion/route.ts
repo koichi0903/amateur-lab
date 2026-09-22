@@ -111,7 +111,7 @@ type QuoteScanPayload = {
   collectorVersion?: unknown;
 };
 
-const THREAD_INCOMPLETE_STATUSES = new Set(["THREAD_NOT_FULLY_OBSERVED", "LINK_FOUND_THREAD_INCOMPLETE", "THREAD_INCOMPLETE_WITHOUT_LINK"]);
+const THREAD_INCOMPLETE_STATUSES = new Set(["THREAD_NOT_FULLY_OBSERVED", "LINK_FOUND_THREAD_INCOMPLETE", "THREAD_INCOMPLETE_WITHOUT_LINK", "THREAD_OBSERVATION_FAILED", "OBSERVATION_NULL"]);
 
 async function validateRunIdentity(payload: QuoteScanPayload) {
   const jobId = Number(payload.refreshJobId);
