@@ -9,8 +9,8 @@ import { pageMetadata } from "@/lib/seo";
 export const revalidate = 1800;
 
 export const metadata = pageMetadata({
-  title: "Xから来た人向けのFANZA作品メモ | 発掘LAB",
-  description: "価格、サンプル、レビュー数、セール情報から、X経由で見やすいFANZA作品を整理しています。",
+  title: "Xで見つけたFANZA作品の価格・買い時メモ | 発掘LAB",
+  description: "Xで気になったFANZA作品を、現在価格、過去最安値、レビュー、サンプルから比較し、今買うか待つか判断できます。",
   canonical: "/x",
   robots: { index: false, follow: true },
 });
@@ -81,17 +81,21 @@ export default async function XLandingPage() {
         <div className="flex flex-col gap-4 border-b border-zinc-800 pb-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-black tracking-[0.18em] text-pink-400">X向け入口</p>
-            <h1 className="mt-2 text-3xl font-black sm:text-5xl">迷ったときに見るFANZA作品メモ</h1>
+            <h1 className="mt-2 text-3xl font-black sm:text-5xl">Xで見つけた作品の買い時メモ</h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
-              価格、サンプル、レビュー数、セール状況を見て、選びやすい候補だけをまとめています。
+              価格、過去最安値、サンプル、レビュー数を見て、今買うか待つか判断しやすい候補だけをまとめています。
             </p>
           </div>
           <Link
             href="/sale?from=x"
             className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-black text-black transition hover:bg-pink-100"
           >
-            セール一覧へ <ArrowRight size={16} />
+            買い時一覧へ <ArrowRight size={16} />
           </Link>
+          <div className="flex flex-wrap gap-2 text-xs font-black text-zinc-400">
+            <Link href="/price-insights?from=x" className="rounded-full border border-zinc-700 px-3 py-2 hover:border-pink-500 hover:text-pink-300">今日の買い時</Link>
+            <Link href="/reports/price-drops?from=x" className="rounded-full border border-zinc-700 px-3 py-2 hover:border-pink-500 hover:text-pink-300">価格下落・過去最安</Link>
+          </div>
         </div>
 
         {data.error && (

@@ -6,6 +6,7 @@ import {
 } from "@/lib/catalog/entityIndexSummaries";
 import { SITE_URL } from "@/lib/seo";
 import {
+  WORK_INDEX_MIN_REVIEW_COUNT,
   WORK_INDEX_MIN_PRICE,
   WORK_INDEX_MIN_SCORE,
 } from "@/lib/seoQuality";
@@ -91,6 +92,7 @@ const getQualityWorkCount = unstable_cache(
       .select("id", { count: "exact", head: true })
       .neq("stage", "DISCONTINUED")
       .gte("score", WORK_INDEX_MIN_SCORE)
+      .gte("review_count", WORK_INDEX_MIN_REVIEW_COUNT)
       .gte("price", WORK_INDEX_MIN_PRICE)
       .not("image_url", "is", null)
       .neq("image_url", "")
@@ -100,7 +102,7 @@ const getQualityWorkCount = unstable_cache(
     if (error) throw error;
     return count ?? 0;
   },
-  ["seo-sitemap-quality-work-count-v2"],
+  ["seo-sitemap-quality-work-count-v3"],
   { revalidate: 3600 },
 );
 
@@ -127,6 +129,7 @@ export async function getWorkSitemapEntries(
         .select("id, created_at, updated_at")
         .neq("stage", "DISCONTINUED")
         .gte("score", WORK_INDEX_MIN_SCORE)
+        .gte("review_count", WORK_INDEX_MIN_REVIEW_COUNT)
         .gte("price", WORK_INDEX_MIN_PRICE)
         .not("image_url", "is", null)
         .neq("image_url", "")
@@ -138,7 +141,7 @@ export async function getWorkSitemapEntries(
       if (error) throw error;
       return (data ?? []) as SitemapWork[];
     },
-    ["seo-sitemap-quality-work-chunk-v2", String(chunkNumber)],
+    ["seo-sitemap-quality-work-chunk-v3", String(chunkNumber)],
     { revalidate: 3600 },
   );
   const works = await getChunk();

@@ -4,6 +4,7 @@ import { isWorkIndexable } from "./seoQuality.ts";
 
 const qualityWork = {
   score: 80,
+  review_count: 12,
   price: 500,
   image_url: "https://example.com/image.jpg",
   affiliate_url: "https://example.com/product",
@@ -17,6 +18,8 @@ test("スコア、価格、画像、紹介先の不足はインデックス対�
   for (const work of [
     { ...qualityWork, stage: "DISCONTINUED" },
     { ...qualityWork, score: 0 },
+    { ...qualityWork, score: 59 },
+    { ...qualityWork, review_count: 0 },
     { ...qualityWork, price: 0 },
     { ...qualityWork, image_url: null },
     { ...qualityWork, affiliate_url: "  " },

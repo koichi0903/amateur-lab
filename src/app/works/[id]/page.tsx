@@ -28,7 +28,6 @@ import { pageMetadata, SITE_URL } from "@/lib/seo";
 import {
   isWorkIndexable,
   WORK_INDEX_MIN_PRICE,
-  WORK_INDEX_MIN_SCORE,
 } from "@/lib/seoQuality";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
@@ -85,7 +84,6 @@ const getWork = cache(
           .select(WORK_DETAIL_COLUMNS)
           .eq("id", id)
           .neq("stage", "DISCONTINUED")
-          .gte("score", WORK_INDEX_MIN_SCORE)
           .gte("price", WORK_INDEX_MIN_PRICE)
           .not("image_url", "is", null)
           .neq("image_url", "")
@@ -299,8 +297,8 @@ export async function generateMetadata(
   const reviewText = work.review_count > 0
     ? `レビュー${work.review_average.toFixed(2)}（${work.review_count}件）。`
     : "";
-  const title = `${work.title}｜価格・レビュー${scoreText} | 発掘LAB`;
-  const description = `${work.title}の価格推移と買い時を分析。${priceText}${reviewText}${actressText}同価格帯の作品と比較できます。`;
+  const title = `${work.title}｜価格推移・過去最安値・買い時${scoreText} | 発掘LAB`;
+  const description = `${work.title}の現在価格、価格推移、過去最安値、買い時を確認。${priceText}${reviewText}${actressText}同価格帯の作品とも比較できます。`;
   const encodedId = encodeURIComponent(id);
   const socialImage = work.image_url || `${SITE_URL}/ogp.png`;
   const metadata = pageMetadata({

@@ -15,9 +15,9 @@ export const revalidate = 1800;
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = pageMetadata({
-  title: "今日の買い時ランキング | 価格とレビューで選ぶ | 発掘LAB",
+  title: "FANZA作品の買い時・過去最安値ランキング | 発掘LAB",
   description:
-    "FANZA作品の現在価格、割引、過去最安、レビュー、ランキング、直近30日の送客傾向をもとに、今チェックする理由がある作品を紹介します。",
+    "FANZA作品の現在価格、価格推移、過去最安値、割引、レビューを比較し、今買うか待つか判断できる作品を紹介します。",
   canonical: "/price-insights",
 });
 
@@ -58,7 +58,7 @@ export default async function PriceInsightsPage() {
         <section className="border-b border-slate-200 bg-white">
           <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
             <Link href="/" className="text-xs font-bold text-slate-500 hover:text-pink-600">
-              TOP / 今日の買い時
+              TOP / FANZA作品の買い時
             </Link>
             <div className="mt-5 flex max-w-4xl items-start gap-4">
               <span className="shrink-0 rounded-2xl bg-pink-50 p-3 text-pink-600">
@@ -69,13 +69,19 @@ export default async function PriceInsightsPage() {
                   BUY TIMING RANKING
                 </p>
                 <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">
-                  今日の買い時ランキング
+                  FANZA作品の買い時・過去最安値ランキング
                 </h1>
                 <p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">
-                  値下げ幅、過去最安との近さ、レビューの安定感、直近30日の送客傾向を合わせて、今日チェックする理由がある作品を並べています。
+                  値下げ幅、過去最安値との近さ、レビューの安定感を合わせて、今買うか待つか判断しやすい作品を並べています。価格だけでなく、作品詳細で価格履歴と同価格帯の候補も確認できます。
                 </p>
               </div>
             </div>
+
+            <nav aria-label="買い時関連ページ" className="mt-5 flex flex-wrap gap-2 text-sm font-black">
+              <Link href="/reports/price-drops" className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-emerald-700 hover:border-emerald-300">価格下落・過去最安</Link>
+              <Link href="/reports/sale-ending" className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-amber-700 hover:border-amber-300">終了間近のセール</Link>
+              <Link href="/guides/sale-buying-guide" className="rounded-full border border-slate-200 bg-white px-4 py-2 text-slate-700 hover:border-pink-300 hover:text-pink-600">セールの見方</Link>
+            </nav>
 
             <div className="mt-8 grid gap-3 rounded-2xl border border-pink-100 bg-white p-5 text-sm font-bold leading-6 text-slate-600 sm:grid-cols-3">
               <p className="flex gap-2">
