@@ -146,6 +146,13 @@ type SingleStatusResult = {
     authorStatusMatch?: boolean;
     visualStatus?: string;
     productId?: number | null;
+    productMatch?: string;
+    productResolution?: string;
+    linkResolution?: string;
+    linkDetected?: boolean;
+    finalMyfansUrl?: string | null;
+    myfansPostUuid?: string | null;
+    linkSource?: string | null;
     reason?: string;
     error?: string;
     failure?: Record<string, unknown> | null;
@@ -367,7 +374,7 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
         {singleResult ? (
           <>
             <p className={singleResult.metadata?.ok ? "text-emerald-100" : "text-amber-200"}>
-              {singleResult.metadata?.ok ? "成功" : "失敗"} / {singleResult.metadata?.sourceStatusUrl ?? singleResult.summary ?? "-"} / candidate {singleResult.metadata?.candidateId ?? "-"} / 本文保存 {singleResult.metadata?.sourceTextSaved ? "あり" : "なし"} / author・status一致 {singleResult.metadata?.authorStatusMatch ? "OK" : "NG"} / visual {singleResult.metadata?.visualStatus ?? "-"}
+              {singleResult.metadata?.ok ? "成功" : "失敗"} / {singleResult.metadata?.sourceStatusUrl ?? singleResult.summary ?? "-"} / candidate {singleResult.metadata?.candidateId ?? "-"} / link {singleResult.metadata?.linkSource ?? "-"}/{singleResult.metadata?.linkResolution ?? "-"} / final myfans {singleResult.metadata?.finalMyfansUrl ?? "-"} / product {singleResult.metadata?.productMatch ?? "unresolved"} / 本文保存 {singleResult.metadata?.sourceTextSaved ? "あり" : "なし"} / author・status一致 {singleResult.metadata?.authorStatusMatch ? "OK" : "NG"} / visual {singleResult.metadata?.visualStatus ?? "-"}
             </p>
             {!singleResult.metadata?.ok && <pre className="mt-2 max-h-40 overflow-auto rounded bg-zinc-950 p-2 text-[10px] leading-4 text-zinc-300">{JSON.stringify({ reason: singleResult.metadata?.reason, error: singleResult.metadata?.error, failure: singleResult.metadata?.failure }, null, 2)}</pre>}
           </>

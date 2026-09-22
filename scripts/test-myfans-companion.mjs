@@ -108,6 +108,10 @@ assert.match(background, /authorCandidates/);
 assert.match(background, /SINGLE_RUN_ALREADY_ACTIVE/);
 assert.match(background, /active: false/);
 assert.match(background, /waitForStatusReady\(workerTabId, handle, sourceStatusUrl/);
+assert.match(background, /canonicalMyfansPostUrl/);
+assert.match(background, /safe_redirect_product_url/);
+assert.match(background, /linkResolutionStatus/);
+assert.match(background, /isParentCandidate/);
 assert.match(background, /API_FETCH_FAILED/);
 assert.match(background, /API_HTTP_ERROR/);
 assert.match(background, /single_status_save/);
@@ -161,6 +165,10 @@ assert.match(companionApi, /resolveExactMyfansCreator/);
 assert.match(companionApi, /myfans_creators/);
 assert.match(companionApi, /NO_NEW_CANDIDATE/);
 assert.match(companionApi, /productMatch/);
+assert.match(companionApi, /myfans_url_resolved_product_not_registered/);
+assert.match(companionApi, /resolveExactMyfansProductByFinalUrl/);
+assert.match(companionApi, /existingCandidateId/);
+assert.match(companionApi, /saveQuoteCandidate\(record, productId, creatorMatch\.creatorId, existingCandidate\?\.id\)/);
 assert.doesNotMatch(companionApi, /既存DBでX authorと完全一致するcreator\/productが見つかりません。誤紐付け防止のため保存しませんでした。/);
 assert.match(companionApi, /final_collection_state/);
 assert.match(companionApi, /profileScan/);
@@ -210,7 +218,7 @@ globalThis.document = {
   body: { innerText: "fixture thread" },
   querySelectorAll(selector) {
     return selector === 'article[data-testid="tweet"]'
-      ? [threadArticle("lumi_reviw", "209979316390920203"), threadArticle("lumi_reviw", "2", "https://mfco.link/p/own"), threadArticle("lumi_reviw", "4", "", { cardHref: "https://t.co/card-own" }), threadArticle("lumi_reviw", "5", "", { quotedCardHref: "https://t.co/card-quoted" }), threadArticle("other_user", "3", "https://mfco.link/p/foreign")]
+      ? [threadArticle("lumi_reviw", "209979316390920203", "https://mfco.link/i9zZO2RJ"), threadArticle("lumi_reviw", "2", "https://mfco.link/p/own"), threadArticle("lumi_reviw", "4", "", { cardHref: "https://t.co/card-own" }), threadArticle("lumi_reviw", "5", "", { quotedCardHref: "https://t.co/card-quoted" }), threadArticle("other_user", "3", "https://mfco.link/p/foreign")]
       : [];
   }
 };
@@ -221,12 +229,21 @@ assert.equal(threadResult.authorReplyCount, 3);
 assert.equal(threadResult.foreignReplyCount, 1);
 assert.equal(threadResult.quoteCandidates.length, 3);
 assert.equal(threadResult.quoteCandidates[0].myfansUrls[0], "https://mfco.link/p/own");
+assert.equal(threadResult.parentCandidate.myfansUrls[0], "https://mfco.link/i9zZO2RJ");
+assert.equal(threadResult.parentCandidate.isParentCandidate, true);
 const cardReply = threadResult.quoteCandidates.find((reply) => reply.xPostUrl.endsWith("/4"));
 assert.deepEqual(cardReply.myfansUrls, ["https://t.co/card-own"]);
 assert.equal(cardReply.linkDiagnostics.cardAnchorCount, 1);
 assert.equal(cardReply.linkDiagnostics.tcoCount, 1);
 assert.equal(cardReply.linkDiagnostics.acceptedMyfansLinkCount, 0);
 assert.equal(threadResult.quoteCandidates.find((reply) => reply.xPostUrl.endsWith("/5")).myfansUrls.length, 0);
+
+globalThis.document.querySelectorAll = (selector) => selector === 'article[data-testid="tweet"]'
+  ? [threadArticle("lumi_reviw", "209979316390920203", "https://myfans.jp/posts/03ba5744-5376-47e7-94bb-d3b1f7ceeb99"), threadArticle("lumi_reviw", "2", "https://myfans.jp/posts/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")]
+  : [];
+const directLinkThreadResult = await collectXStatusThreadReplies({ sourceXHandle: "lumi_reviw", sourceStatusUrl: "https://x.com/lumi_reviw/status/209979316390920203" });
+assert.equal(directLinkThreadResult.parentCandidate.myfansUrls[0], "https://myfans.jp/posts/03ba5744-5376-47e7-94bb-d3b1f7ceeb99");
+assert.equal(directLinkThreadResult.ownReplies[0].myfansUrls[0], "https://myfans.jp/posts/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
 
 globalThis.document.querySelectorAll = (selector) => selector === 'article[data-testid="tweet"]'
   ? [threadArticle("lumi_reviw", "209979316390920203"), threadArticle("lumi_reviw", "2")]

@@ -763,6 +763,13 @@ async function runSingleStatusCollection(settings) {
         }, { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl, active: false });
         await stage("WAIT_STATUS_READY", () => waitForStatusReady(workerTabId, handle, sourceStatusUrl, 18000), { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl });
         result = await stage("COLLECT_STATUS", () => executeMain(workerTabId, collectSingleXStatusCandidate, [{ sourceXHandle: handle, sourceStatusUrl }], { requireResult: true }), { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl });
+        result = await stage("RESOLVE_LINK", async () => {
+          const resolvedCandidate = await resolveCandidateMyfansLinks(workerTabId, result.candidate, sourceStatusUrl, handle);
+          if ((result.candidate.myfansUrls || []).length > 0 && resolvedCandidate.myfansUrls.length === 0) {
+            throw categorizedError("LINK_RESOLUTION_FAILED", "mfco/t.coを最終myfans投稿URLへ解決できませんでした。", { resolverEvidence: resolvedCandidate.resolvedProductEvidence || [] });
+          }
+          return { ...result, candidate: resolvedCandidate };
+        }, { attempt, tabId: workerTabId, statusUrl: sourceStatusUrl });
         break;
       } catch (error) {
         lastError = error;
@@ -774,7 +781,7 @@ async function runSingleStatusCollection(settings) {
       }
     }
     if (!result) throw lastError || categorizedError("UNKNOWN", "指定statusの本文取得に失敗しました。");
-    if (!result?.ok) throw new Error(result?.errorMessage || "指定statusの本文取得に失敗しました。");
+    if (!result?.ok) throw categorizedError(result?.errorCode || FAILURE_CATEGORY.STATUS_PARENT_NOT_FOUND, result?.errorMessage || "指定statusの本文取得に失敗しました。", result?.diagnostics || {});
     currentStage = "SAVE_RESULT";
     const payload = await stage("SAVE_RESULT", () => sendPayload(settings, { type: "x_single_status_collect", sourceStatusUrl, sourceXHandle: handle, statusCandidate: result.candidate, singleStatusRunId: runId }), { statusUrl: sourceStatusUrl });
     payloadSent = true;
@@ -812,17 +819,40 @@ function collectSingleXStatusCandidate({ sourceXHandle, sourceStatusUrl }) {
   const articleHandle = (article) => Array.from(article.querySelectorAll('[data-testid="User-Name"] a[href]'))
     .map((link) => cleanHandle(link.getAttribute("href")))
     .find((handle) => /^[A-Za-z0-9_]{1,15}$/.test(handle)) || "";
+  const isDirectAnchor = (link, article) => {
+    let node = link.parentElement;
+    while (node && node !== article) {
+      if (node.matches?.('article[data-testid="tweet"]')) return false;
+      node = node.parentElement;
+    }
+    return true;
+  };
+  const extractLinkUrls = (article) => {
+    const urls = [];
+    for (const link of Array.from(article.querySelectorAll("a[href]"))) {
+      if (!isDirectAnchor(link, article)) continue;
+      const visible = [link.getAttribute("href") || "", link.textContent || "", link.getAttribute("aria-label") || ""].join(" ");
+      urls.push(...(visible.match(/https?:\/\/(?:www\.)?(?:mfco\.link|myfans\.jp)\/[^\s"'<>）)]+/gi) || []).map((url) => url.replace(/[?#].*$/, "").replace(/[.,。、]+$/, "")));
+      try {
+        const parsed = new URL(String(link.getAttribute("href") || ""), location.href);
+        if (parsed.hostname.toLowerCase() === "t.co") urls.push(`${parsed.origin}${parsed.pathname}`);
+      } catch {}
+    }
+    return [...new Set(urls)];
+  };
   const extractText = (article) => {
     const direct = article.querySelector('[data-testid="tweetText"]')?.textContent?.replace(/\s+/g, " ").trim() || "";
     if (direct) return direct.slice(0, 180);
     return (article.innerText || "").split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter((line) => line.length >= 3).filter((line) => !/^(返信先:|Replying to|リポストしました|reposted|いいね|返信|リポスト|ブックマーク|共有|表示|Views?|Likes?|Reposts?|Replies?)(?:\s|$)/i.test(line)).filter((line) => !/^https?:\/\//i.test(line)).join(" ").slice(0, 180);
   };
   const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
-  const article = articles.find((item) => {
-    const hrefs = Array.from(item.querySelectorAll("a[href]")).map((link) => canonical(link.getAttribute("href")));
-    return hrefs.includes(targetUrl);
+  const exactParentArticles = articles.filter((item) => {
+    const directTarget = Array.from(item.querySelectorAll("a[href]")).some((link) => isDirectAnchor(link, item) && canonical(link.getAttribute("href")) === targetUrl);
+    const author = articleHandle(item);
+    return directTarget && author.toLowerCase() === String(sourceXHandle || "").toLowerCase();
   });
-  if (!article) return { ok: false, errorMessage: "指定statusのtweet articleが表示されませんでした。" };
+  const article = exactParentArticles.length === 1 ? exactParentArticles[0] : null;
+  if (!article) return { ok: false, errorCode: exactParentArticles.length > 1 ? "AMBIGUOUS_PARENT_ARTICLE" : "STATUS_PARENT_NOT_FOUND", errorMessage: exactParentArticles.length > 1 ? "対象statusに一致する親articleが複数あります。" : "対象status ID・authorに一致する親articleが表示されませんでした。", diagnostics: { articleCount: articles.length, targetStatusId, parentCandidateCount: exactParentArticles.length, authorCandidates: [...new Set(articles.map(articleHandle).filter(Boolean))].slice(0, 20) } };
   const authorHandle = articleHandle(article);
   const statusUrl = canonical(Array.from(article.querySelectorAll("a[href]")).map((link) => link.getAttribute("href")).find((href) => canonical(href) === targetUrl));
   const mediaHrefs = Array.from(article.querySelectorAll("a[href]"))
@@ -841,6 +871,8 @@ function collectSingleXStatusCandidate({ sourceXHandle, sourceStatusUrl }) {
       sourceXHandle,
       authorHandle,
       text: extractText(article),
+      myfansUrls: extractLinkUrls(article),
+      myfansLinkSource: "parent",
       mediaPermalink,
       verifiedVideoPermalink: videoHref ? mediaPermalink : "",
       generatedVideoPermalink: hasVideo ? `${targetUrl}/video/1` : "",
@@ -956,20 +988,46 @@ async function resolveWorkerTabLink(tabId, sourceUrl, statusUrl, expectedHandle)
   const startedAt = new Date().toISOString();
   const startedMs = Date.now();
   await chrome.tabs.update(tabId, { url: sourceUrl, active: false });
-  await waitForTabComplete(tabId, 30000);
-  const tab = await chrome.tabs.get(tabId);
-  const resolvedUrl = String(tab.url || "").replace(/[?#].*$/, "");
-  const resolved = /^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(resolvedUrl);
+  const observedUrls = [];
+  let lastObservedUrl = "";
+  let finalUrl = "";
+  const resolverStartedAt = Date.now();
+  while (Date.now() - resolverStartedAt < 30000) {
+    const tab = await chrome.tabs.get(tabId);
+    const observedUrl = String(tab.url || "").replace(/[?#].*$/, "");
+    if (observedUrl && observedUrl !== lastObservedUrl) {
+      observedUrls.push(observedUrl);
+      lastObservedUrl = observedUrl;
+    }
+    finalUrl = canonicalMyfansPostUrl(observedUrl);
+    if (finalUrl) break;
+    const pageUrl = await executeMain(tabId, () => location.href, [], { requireResult: true }).catch(() => "");
+    const pageFinalUrl = canonicalMyfansPostUrl(pageUrl);
+    if (pageFinalUrl) {
+      finalUrl = pageFinalUrl;
+      if (pageUrl && pageUrl !== lastObservedUrl) observedUrls.push(String(pageUrl).replace(/[?#].*$/, ""));
+      break;
+    }
+    await wait(500);
+  }
+  const resolved = Boolean(finalUrl);
   await chrome.tabs.update(tabId, { url: statusUrl, active: false });
-  await waitForTabComplete(tabId, 45000);
+  await waitForStatusNavigation(tabId, statusUrl, 45000);
   const ready = await waitForStatusReady(tabId, expectedHandle, statusUrl, 18000);
   return {
     resolved,
-    resolvedUrl: resolved ? resolvedUrl : "",
+    resolvedUrl: resolved ? finalUrl : "",
     evidence: {
       sourceUrl,
-      resolvedUrl: resolved ? resolvedUrl : null,
+      observedMfcoUrl: /^https:\/\/(?:www\.)?mfco\.link\//i.test(sourceUrl) ? sourceUrl : null,
+      redirectChain: observedUrls.slice(0, 8),
+      finalMyfansUrl: resolved ? finalUrl : null,
+      myfansPostUuid: finalUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null,
+      resolvedUrl: resolved ? finalUrl : null,
       resolved,
+      resolverMethod: resolved ? "safe_redirect_product_url" : "safe_redirect_failed",
+      confidence: resolved ? "exact" : "unresolved",
+      failureReason: resolved ? null : "MYFANS_POST_URL_NOT_REACHED",
       startedAt,
       finishedAt: new Date().toISOString(),
       elapsedMs: Date.now() - startedMs,
@@ -977,6 +1035,53 @@ async function resolveWorkerTabLink(tabId, sourceUrl, statusUrl, expectedHandle)
       statusId: statusUrl.match(/\/status\/(\d+)/)?.[1] || null,
       authorMatch: String(ready.parentAuthor || "").toLowerCase() === String(expectedHandle || "").toLowerCase()
     }
+  };
+}
+
+function canonicalMyfansPostUrl(value) {
+  try {
+    const parsed = new URL(String(value || ""));
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    const match = parsed.pathname.match(/^\/posts\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/?$/i);
+    return host === "myfans.jp" && match ? `https://myfans.jp/posts/${match[1].toLowerCase()}` : "";
+  } catch {
+    return "";
+  }
+}
+
+async function resolveCandidateMyfansLinks(tabId, candidate, statusUrl, expectedHandle) {
+  const observedLinks = Array.isArray(candidate?.myfansUrls) ? [...new Set(candidate.myfansUrls.filter(Boolean))] : [];
+  const resolvedLinks = [];
+  const evidence = [];
+  for (const observedUrl of observedLinks) {
+    const directFinalUrl = canonicalMyfansPostUrl(observedUrl);
+    if (directFinalUrl) {
+      resolvedLinks.push(directFinalUrl);
+      evidence.push({
+        sourceUrl: observedUrl,
+        observedMfcoUrl: null,
+        redirectChain: [observedUrl],
+        finalMyfansUrl: directFinalUrl,
+        myfansPostUuid: directFinalUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null,
+        resolvedUrl: directFinalUrl,
+        resolved: true,
+        resolverMethod: "direct_myfans_url",
+        confidence: "exact",
+        linkSource: candidate?.myfansLinkSource || "parent",
+      });
+      continue;
+    }
+    if (!/^https:\/\/(?:www\.)?(?:mfco\.link|t\.co)\//i.test(observedUrl)) continue;
+    const resolved = await resolveWorkerTabLink(tabId, observedUrl, statusUrl, expectedHandle);
+    evidence.push({ ...resolved.evidence, linkSource: candidate?.myfansLinkSource || "parent" });
+    if (resolved.resolvedUrl) resolvedLinks.push(resolved.resolvedUrl);
+  }
+  return {
+    ...candidate,
+    myfansUrls: [...new Set(resolvedLinks)],
+    resolvedProductEvidence: evidence.length > 0 ? evidence : null,
+    linkResolutionStatus: observedLinks.length === 0 ? "no_link" : resolvedLinks.length > 0 ? "resolved" : "failed",
+    linkResolutionDiagnostics: evidence,
   };
 }
 
@@ -1237,8 +1342,20 @@ function inspectXStatusReady(expected, expectedHandle) {
   const handleOf = (article) => Array.from(article.querySelectorAll('[data-testid="User-Name"] a[href]'))
     .map((link) => String(link.getAttribute("href") || "").replace(/^\//, "").split(/[/?#]/)[0])
     .find((handle) => /^[A-Za-z0-9_]{1,15}$/.test(handle)) || "";
-  const parentArticle = articles.find((article) => Array.from(article.querySelectorAll("a[href]"))
-    .some((link) => canonicalStatus(link.getAttribute("href")) === targetUrl));
+  const isDirectAnchor = (link, article) => {
+    let node = link.parentElement;
+    while (node && node !== article) {
+      if (node.matches?.('article[data-testid="tweet"]')) return false;
+      node = node.parentElement;
+    }
+    return true;
+  };
+  const exactParentArticles = articles.filter((article) => {
+    const directTargetAnchors = Array.from(article.querySelectorAll("a[href]")).filter((link) => isDirectAnchor(link, article) && canonicalStatus(link.getAttribute("href")) === targetUrl);
+    const timeTarget = Array.from(article.querySelectorAll("time")).some((time) => canonicalStatus(time.closest("a")?.getAttribute("href")) === targetUrl);
+    return directTargetAnchors.length > 0 && (timeTarget || directTargetAnchors.length > 0) && handleOf(article).toLowerCase() === String(expectedHandle || "").toLowerCase();
+  });
+  const parentArticle = exactParentArticles.length === 1 ? exactParentArticles[0] : null;
   const parentAuthor = parentArticle ? handleOf(parentArticle) : "";
   const authorCandidates = [...new Set(articles.map(handleOf).filter(Boolean))].slice(0, 20);
   const hasChallenge = /captcha|challenge|認証|ロボット|不審なログイン|ログインしてください|Sign in to X|Log in to X/i.test(text);
@@ -1252,6 +1369,8 @@ function inspectXStatusReady(expected, expectedHandle) {
     statusAnchorCount: statusAnchors.filter((url) => url === targetUrl).length,
     observedStatusIds: [...new Set(statusAnchors.map((url) => url.match(/\/status\/(\d+)/)?.[1]).filter(Boolean))].slice(0, 20),
     authorCandidates,
+    parentCandidateCount: exactParentArticles.length,
+    ambiguousParent: exactParentArticles.length > 1,
     parentFound: Boolean(parentArticle),
     parentAuthor,
     hasChallenge,
@@ -1320,6 +1439,18 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
     .map((link) => link.getAttribute("href") || "")
     .map(cleanHandle)
     .find((handle) => /^[A-Za-z0-9_]{1,15}$/.test(handle) && !["home", "explore", "search", "notifications", "messages", "i", "settings"].includes(handle.toLowerCase())) || "";
+  const isDirectAnchor = (link, article) => {
+    let node = link.parentElement;
+    while (node && node !== article) {
+      if (node.matches?.('article[data-testid="tweet"]')) return false;
+      node = node.parentElement;
+    }
+    return true;
+  };
+  const exactParentArticles = articles.filter((article) => {
+    const directTarget = Array.from(article.querySelectorAll("a[href]")).some((link) => isDirectAnchor(link, article) && canonicalStatus(link.getAttribute("href")).toLowerCase() === `https://x.com/${sourceXHandle}/status/${targetStatusId}`.toLowerCase());
+    return directTarget && articleHandle(article).toLowerCase() === normalizeHandle(sourceXHandle);
+  });
   const extractMyfansUrls = (article) => {
     const urls = [];
     const rejectionReasons = {};
@@ -1422,7 +1553,8 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
     // X's Japanese thread UI does not expose the reply-to marker in article text.
     // On a status thread, a distinct status URL is the stable boundary between
     // the opening post and a reply; author ownership remains an exact handle match.
-    const isReply = Boolean(statusUrl && statusId && statusId !== targetStatusId);
+    const isParentCandidate = exactParentArticles.includes(article);
+    const isReply = Boolean(statusUrl && statusId && !isParentCandidate && statusId !== targetStatusId);
     const media = mediaInfo(article, statusUrl);
     const rawText = article.innerText || "";
     const linkEvidence = extractMyfansUrls(article);
@@ -1440,6 +1572,7 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
       sourceXHandle,
       authorHandle,
       authorStatusUrl: statusUrl,
+      isParentCandidate,
       postedAt: article.querySelector("time")?.getAttribute("datetime") || null,
       text: extractSourceTextInPage(article.querySelector('[data-testid="tweetText"]')?.textContent || "", rawText),
       myfansUrls,
@@ -1457,18 +1590,17 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
       isQuote: Boolean(article.querySelector('div[role="link"] article'))
     };
   }).filter((candidate, index, all) => candidate.xPostUrl && all.findIndex((item) => item.xPostUrl === candidate.xPostUrl) === index);
-  const sourceArticle = articles.find((article) => {
-    const href = Array.from(article.querySelectorAll("a[href]")).map((link) => link.getAttribute("href") || "").find((value) => /\/status\/\d+/.test(value));
-    return String(href || "").match(/\/status\/(\d+)/)?.[1] === targetStatusId;
-  });
+  const sourceArticle = exactParentArticles.length === 1 ? exactParentArticles[0] : null;
   const sourceAuthorHandle = sourceArticle ? articleHandle(sourceArticle) : "";
-  const parentCandidate = candidates.find((candidate) => candidate.xPostUrl === sourceStatusUrl) || null;
+  const parentCandidate = candidates.find((candidate) => candidate.isParentCandidate) || null;
   const ownReplies = candidates.filter((candidate) => candidate.isReply && normalizeHandle(candidate.authorHandle) === normalizeHandle(sourceXHandle));
   const foreignReplies = candidates.filter((candidate) => candidate.isReply && normalizeHandle(candidate.authorHandle) !== normalizeHandle(sourceXHandle));
   const payload = {
-    ok: true,
+    ok: Boolean(parentCandidate),
     sourceStatusUrl,
     sourceAuthorHandle,
+    errorCode: parentCandidate ? null : "STATUS_PARENT_NOT_FOUND",
+    errorMessage: parentCandidate ? null : "対象status ID・authorに一致する親articleが表示されませんでした。",
     articleCount: articles.length,
     authorReplyCount: ownReplies.length,
     myfansLinkCount: [parentCandidate, ...ownReplies].filter(Boolean).reduce((total, candidate) => total + candidate.myfansUrls.length, 0),
@@ -1483,7 +1615,10 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
         statusUrl: reply.xPostUrl,
         authorHandle: reply.authorHandle,
         ...reply.linkDiagnostics
-      }))
+      })),
+      parentCandidateCount: exactParentArticles.length,
+      targetStatusId,
+      authorCandidates: [...new Set(articles.map(articleHandle).filter(Boolean))].slice(0, 20)
     }
   };
   try {
@@ -1951,15 +2086,9 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
       }
       transition("RESOLVE_LINK", { parentStatusUrl: candidate.xPostUrl, source: parentLinks.length > 0 ? "parent" : "own_reply" });
       const ownReply = selectedLinkCandidate === parent ? null : selectedLinkCandidate;
-      let selectedLinks = (parentLinks.length > 0 ? parentLinks : ownReply.myfansUrls).filter(Boolean);
-      for (const redirectUrl of selectedLinks.filter((url) => /^https:\/\/t\.co\//i.test(url))) {
-        const resolvedLink = await resolveWorkerTabLink(tabId, redirectUrl, candidate.xPostUrl, expectedHandle);
-        statusEvidence.resolverEvidence.push(resolvedLink.evidence);
-        if (resolvedLink.resolved) {
-          selectedLinks = selectedLinks.map((url) => url === redirectUrl ? resolvedLink.resolvedUrl : url);
-        }
-      }
-      selectedLinks = selectedLinks.filter((url) => !/^https:\/\/t\.co\//i.test(url));
+      const linkCandidate = await resolveCandidateMyfansLinks(tabId, { ...(selectedLinkCandidate || {}), myfansLinkSource: parentLinks.length > 0 ? "parent" : "own_reply" }, candidate.xPostUrl, expectedHandle);
+      let selectedLinks = linkCandidate.myfansUrls;
+      statusEvidence.resolverEvidence.push(...(linkCandidate.resolvedProductEvidence || []));
       if (selectedLinks.length === 0) {
         if (entry) entry.status = "LINK_UNRESOLVED";
         continue;
@@ -1974,7 +2103,8 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
         myfansUrls: [...new Set(selectedLinks)],
         threadCollectionStatus: "FOUND_COMPLETE_THREAD",
         collectorMethod: COLLECTOR_METHOD,
-        resolvedProductEvidence: statusEvidence.resolverEvidence.length > 0 ? statusEvidence.resolverEvidence : null
+        resolvedProductEvidence: statusEvidence.resolverEvidence.length > 0 ? statusEvidence.resolverEvidence : null,
+        linkResolutionStatus: linkCandidate.linkResolutionStatus
       };
       completeThreadCandidates.push(merged);
       if (entry) entry.status = "FOUND_COMPLETE_THREAD";
