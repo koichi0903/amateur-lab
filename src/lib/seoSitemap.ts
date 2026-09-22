@@ -42,6 +42,7 @@ const staticEntries: SitemapEntry[] = [
     priority: 0.8,
   })),
   { url: `${SITE_URL}/guides`, changeFrequency: "weekly", priority: 0.9 },
+  { url: `${SITE_URL}/compare-guide`, changeFrequency: "monthly", priority: 0.9 },
   ...editorialGuides.map((guide) => ({
     url: `${SITE_URL}/guides/${guide.slug}`,
     changeFrequency: "monthly" as const,
