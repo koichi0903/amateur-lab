@@ -6,6 +6,41 @@ import { supabase } from "@/lib/supabase";
 
 type RegistrationState = "registered" | "partial" | "failed";
 
+type SearchStageDiagnostic = {
+  httpStatus: number | null;
+  logicalStatus: string | null;
+  logicalCode: string | null;
+  totalCount: number | null;
+  itemsLength: number | null;
+  responseShape: "valid" | "invalid" | "unavailable";
+};
+
+type SearchDiagnostics = {
+  requestedKeyword: string;
+  primary: SearchStageDiagnostic;
+  actressSearch: SearchStageDiagnostic & {
+    attempted: boolean;
+    returnedCount: number;
+    exactMatchCount: number;
+    exactMatches: Array<{ name: string; actress_id: string }>;
+  };
+  actressFallback: SearchStageDiagnostic & {
+    attempted: boolean;
+    selectedActressId: string | null;
+  };
+  finalSource: "keyword" | "actress" | "none";
+  normalizedFinalItemsLength: number;
+};
+
+function diagnosticStatus(stage: SearchStageDiagnostic) {
+  if (stage.responseShape === "unavailable") return "未実行";
+  if (stage.responseShape === "invalid") return "形式不正";
+  if (stage.httpStatus !== 200) return `HTTP ${stage.httpStatus ?? "-"}`;
+  if (stage.logicalStatus && stage.logicalStatus !== "200") return `status ${stage.logicalStatus}`;
+  if (stage.logicalCode && !["0", "200"].includes(stage.logicalCode)) return `code ${stage.logicalCode}`;
+  return "正常";
+}
+
 export default function AdminSearchPage() {
   const [keyword, setKeyword] =
     useState("");
@@ -25,6 +60,9 @@ export default function AdminSearchPage() {
   const [searchError, setSearchError] = useState("");
 
   const [searchMode, setSearchMode] = useState<"keyword" | "cid" | "actress" | "">("");
+
+  const [searchDiagnostics, setSearchDiagnostics] =
+    useState<SearchDiagnostics | null>(null);
 
   const [registeringIds, setRegisteringIds] =
   useState(new Set<string>());
@@ -60,6 +98,7 @@ export default function AdminSearchPage() {
       );
 
       const data = await res.json();
+      setSearchDiagnostics(data.diagnostics ?? null);
 
       if (!res.ok || data.success !== true || !Array.isArray(data.items)) {
         setSearchResults([]);
@@ -97,6 +136,7 @@ export default function AdminSearchPage() {
       setSearchResults([]);
       setRegisteredIds(new Set());
       setSearchMode("");
+      setSearchDiagnostics(null);
       setSearchError("検索結果を取得できませんでした。時間をおいて再試行してください。");
     } finally {
       setLoading(false);
@@ -432,6 +472,39 @@ const displayResults = searchResults.filter(
               </span>
             )}
           </p>
+
+          {searchDiagnostics && (
+            <section className="mb-6 rounded-lg border border-cyan-900/70 bg-cyan-950/20 p-4 text-xs text-cyan-100" aria-label="検索診断">
+              <h2 className="mb-3 text-sm font-bold text-cyan-200">検索診断</h2>
+              <div className="grid gap-2 md:grid-cols-3">
+                <div className="rounded border border-cyan-900/60 p-2">
+                  <div className="font-semibold">1. keyword ItemList</div>
+                  <div>状態: {diagnosticStatus(searchDiagnostics.primary)}</div>
+                  <div>HTTP: {searchDiagnostics.primary.httpStatus ?? "-"} / status: {searchDiagnostics.primary.logicalStatus ?? "-"} / code: {searchDiagnostics.primary.logicalCode ?? "-"}</div>
+                  <div>total_count: {searchDiagnostics.primary.totalCount ?? "-"} / items: {searchDiagnostics.primary.itemsLength ?? "-"}</div>
+                </div>
+                <div className="rounded border border-cyan-900/60 p-2">
+                  <div className="font-semibold">2. ActressSearch</div>
+                  <div>実行: {searchDiagnostics.actressSearch.attempted ? "yes" : "no"} / 状態: {diagnosticStatus(searchDiagnostics.actressSearch)}</div>
+                  <div>returned: {searchDiagnostics.actressSearch.returnedCount} / 完全一致: {searchDiagnostics.actressSearch.exactMatchCount}</div>
+                  <div>HTTP: {searchDiagnostics.actressSearch.httpStatus ?? "-"} / status: {searchDiagnostics.actressSearch.logicalStatus ?? "-"} / code: {searchDiagnostics.actressSearch.logicalCode ?? "-"}</div>
+                  {searchDiagnostics.actressSearch.exactMatches.length > 0 && (
+                    <div className="mt-1 break-words">候補: {searchDiagnostics.actressSearch.exactMatches.map((match) => `${match.name} (${match.actress_id})`).join(", ")}</div>
+                  )}
+                </div>
+                <div className="rounded border border-cyan-900/60 p-2">
+                  <div className="font-semibold">3. actress ItemList</div>
+                  <div>実行: {searchDiagnostics.actressFallback.attempted ? "yes" : "no"} / 状態: {diagnosticStatus(searchDiagnostics.actressFallback)}</div>
+                  <div>actress_id: {searchDiagnostics.actressFallback.selectedActressId ?? "-"}</div>
+                  <div>HTTP: {searchDiagnostics.actressFallback.httpStatus ?? "-"} / status: {searchDiagnostics.actressFallback.logicalStatus ?? "-"} / code: {searchDiagnostics.actressFallback.logicalCode ?? "-"}</div>
+                  <div>total_count: {searchDiagnostics.actressFallback.totalCount ?? "-"} / items: {searchDiagnostics.actressFallback.itemsLength ?? "-"}</div>
+                </div>
+              </div>
+              <div className="mt-3 text-cyan-200">
+                keyword: {searchDiagnostics.requestedKeyword} / finalSource: {searchDiagnostics.finalSource} / normalized final items: {searchDiagnostics.normalizedFinalItemsLength}
+              </div>
+            </section>
+          )}
 
           <div className="mb-6 flex gap-3">
 
