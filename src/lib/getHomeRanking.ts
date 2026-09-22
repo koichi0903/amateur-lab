@@ -6,7 +6,7 @@ import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
 const fetchHomeRanking = async () => {
   const { data, error } = await supabase
     .from("works")
-    .select("id,title,image_url,genre,score,price,sale_price,list_price,discount_rate,sale_end_at")
+    .select("id,product_id,title,image_url,genre,score,price,sale_price,list_price,discount_rate,sale_end_at")
     .or(NON_VR_GENRE_OR_FILTER)
     .not("title", "ilike", "%VR%")
     .order("score", { ascending: false })

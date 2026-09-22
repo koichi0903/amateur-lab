@@ -3,6 +3,8 @@ import type { Work } from "@/types/work";
 import WorkImage from "../WorkImage";
 import { workDetailHref } from "@/lib/affiliateTracking";
 import SaleCountdown from "../SaleCountdown";
+import MiniPriceHistoryChart from "../MiniPriceHistoryChart";
+import type { HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 
 const medals = ["🥇", "🥈", "🥉"];
 
@@ -21,7 +23,13 @@ const saleDetails = (work: Work) => {
   return { isSale, rate, regularPrice, salePrice };
 };
 
-export default function RankingSection({ works }: { works: Work[] }) {
+export default function RankingSection({
+  works,
+  priceInsightsByWorkId,
+}: {
+  works: Work[];
+  priceInsightsByWorkId?: ReadonlyMap<number, HomePriceInsightWork>;
+}) {
   return (
     <section className="mx-auto mt-16 max-w-[1500px] px-4 sm:px-6 lg:px-8">
       <div className="mb-6 flex items-end justify-between gap-4">
@@ -71,6 +79,18 @@ export default function RankingSection({ works }: { works: Work[] }) {
                   </p>
                 )}
               </div>
+              {priceInsightsByWorkId?.get(work.id) && (
+                <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1">
+                  <MiniPriceHistoryChart
+                    points={priceInsightsByWorkId.get(work.id)!.priceHistory}
+                    windowStartAt={priceInsightsByWorkId.get(work.id)!.priceWindowStartAt}
+                    windowEndAt={priceInsightsByWorkId.get(work.id)!.priceWindowEndAt}
+                    lowPrice={priceInsightsByWorkId.get(work.id)!.low90Price}
+                    currentPrice={priceInsightsByWorkId.get(work.id)!.currentPrice}
+                    variant="compact"
+                  />
+                </div>
+              )}
             </Link>
             );
           })}

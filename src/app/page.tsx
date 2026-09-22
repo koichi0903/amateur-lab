@@ -11,7 +11,7 @@ import {
 import PriceInsightSections from "@/components/home/PriceInsightSections";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
-import { buildInsightsForWorks, getHeroPriceDrop, getHomePriceInsights } from "@/lib/getHomePriceInsights";
+import { buildInsightsForWorks, getHeroPriceDrop, getHomePriceInsights, type HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 import { getLatestDailyUpdate } from "@/lib/getLatestDailyUpdate";
 import { getHomeRanking } from "@/lib/getHomeRanking";
 import { getAiDiscoveries } from "@/lib/getAiDiscoveries";
@@ -70,7 +70,7 @@ export default async function Home() {
       recoverHomeData("ranking", getHomeRanking(), []),
       supabase
         .from("works")
-        .select("id,title,image_url,genre,price,sale_price,list_price,discount_rate,sale_end_at")
+        .select("id,product_id,title,image_url,genre,price,sale_price,list_price,discount_rate,sale_end_at")
         .eq("is_on_sale", true)
         .or(NON_VR_GENRE_OR_FILTER)
         .not("title", "ilike", "%VR%")
@@ -92,6 +92,20 @@ export default async function Home() {
     [],
   );
   const aiPriceInsightsById = new Map(aiPriceInsights.map((work) => [work.id, work]));
+  const rankingWorks = rankingResult as Work[];
+  const saleWorks = ((saleResult.data ?? []) as Work[]).filter(isNonVrWork).slice(0, 5);
+  const topCardPriceInsights = await recoverHomeData(
+    "ranking and sale price histories",
+    buildInsightsForWorks(
+      [...new Map(
+        [...rankingWorks, ...saleWorks].map((work) => [work.id, work]),
+      ).values()] as unknown as HomePriceInsightWork[],
+      new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+      { requireBuyTimingSignal: false },
+    ),
+    [],
+  );
+  const topCardPriceInsightsById = new Map(topCardPriceInsights.map((work) => [work.id, work]));
   const featuredWork = heroPriceDrop
     ? aiDiscoveries.find((work) => work.id === heroPriceDrop.id) ?? null
     : null;
@@ -115,8 +129,8 @@ export default async function Home() {
           buyTiming={priceInsights.buyTiming}
         />
         <RevenuePathSection />
-        <RankingSection works={rankingResult as Work[]} />
-        <SaleSection works={((saleResult.data ?? []) as Work[]).filter(isNonVrWork).slice(0, 5)} />
+        <RankingSection works={rankingWorks} priceInsightsByWorkId={topCardPriceInsightsById} />
+        <SaleSection works={saleWorks} priceInsightsByWorkId={topCardPriceInsightsById} />
         <CategorySection />
       </main>
     </>
