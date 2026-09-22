@@ -8,6 +8,8 @@ import type { Work } from "@/types/work";
 import { pageMetadata } from "@/lib/seo";
 import { workDetailHref } from "@/lib/affiliateTracking";
 import { formatJapanDateTime, parseDatabaseDate } from "@/lib/dateTime";
+import MiniPriceHistoryChart from "@/components/home/MiniPriceHistoryChart";
+import { buildInsightsForWorks, type HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 
 const PAGE_SIZE = 20;
 export const revalidate = 86400;
@@ -66,7 +68,7 @@ function formatSaleEnd(value: string | null) {
   return formatJapanDateTime(value);
 }
 
-function SaleCard({ work }: { work: Work }) {
+function SaleCard({ work, insight }: { work: Work; insight?: HomePriceInsightWork }) {
   const sale = saleDetails(work);
   const saleEnd = formatSaleEnd(work.sale_end_at);
   return (
@@ -91,6 +93,16 @@ function SaleCard({ work }: { work: Work }) {
           </span>
           <span className="shrink-0 text-pink-600">価格・サンプル →</span>
         </div>
+        {insight && <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1">
+          <MiniPriceHistoryChart
+            points={insight.priceHistory}
+            windowStartAt={insight.priceWindowStartAt}
+            windowEndAt={insight.priceWindowEndAt}
+            lowPrice={insight.low90Price}
+            currentPrice={insight.currentPrice}
+            variant="compact"
+          />
+        </div>}
       </div>
     </Link>
   );
@@ -106,7 +118,7 @@ export default async function SalePage({ searchParams }: { searchParams: Promise
   const offset = (page - 1) * PAGE_SIZE;
   let query = supabase
     .from("works")
-    .select("id,title,image_url,price,sale_price,list_price,discount_rate,score,review_average,review_count,sale_end_at,sample_movie_url,is_bottom_price,lowest_price", { count: "exact" })
+    .select("id,product_id,title,image_url,price,sale_price,list_price,discount_rate,score,review_average,review_count,sale_end_at,sample_movie_url,is_bottom_price,lowest_price,ranking,realtime_rank", { count: "exact" })
     .gt("sale_price", 0)
     .gt("discount_rate", 0);
 
@@ -122,6 +134,19 @@ export default async function SalePage({ searchParams }: { searchParams: Promise
   const { data, count, error } = await query.range(offset, offset + PAGE_SIZE - 1);
 
   const works = (data ?? []) as unknown as Work[];
+  let saleInsights: HomePriceInsightWork[] = [];
+  if (works.length) {
+    try {
+      saleInsights = await buildInsightsForWorks(
+        works as unknown as HomePriceInsightWork[],
+        new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+        { requireBuyTimingSignal: false },
+      );
+    } catch (historyError) {
+      console.warn("[sale] price histories are temporarily unavailable", historyError);
+    }
+  }
+  const saleInsightsById = new Map(saleInsights.map((insight) => [insight.id, insight]));
   const total = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const pageHref = (target: number) => {
@@ -165,7 +190,7 @@ export default async function SalePage({ searchParams }: { searchParams: Promise
           {error ? (
             <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center font-black">セール作品を読み込めませんでした</div>
           ) : works.length ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">{works.map((work) => <SaleCard key={work.id} work={work} />)}</div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">{works.map((work) => <SaleCard key={work.id} work={work} insight={saleInsightsById.get(work.id)} />)}</div>
           ) : (
             <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><p className="font-black">現在掲載中のセール作品はありません</p></div>
           )}
