@@ -13,6 +13,17 @@ const MAX_ATTEMPTS = 3;
 const CANCELLED_BY_USER = "CANCELLED_BY_USER: ユーザーが一括更新を中止しました。";
 const STALE_ITEM_AGE_MS = 5 * 60_000;
 
+async function auditContinuation(jobId: number, action: string, summary: string, metadata: Record<string, unknown> = {}) {
+  const { error } = await supabaseAdmin.from("myfans_audit_logs").insert({
+    entity_type: "quote_refresh_job",
+    entity_id: jobId,
+    action,
+    summary,
+    metadata: { source: "myfans_companion_batch", ...metadata },
+  });
+  if (error) console.error("myfans quote refresh continuation audit failed", error);
+}
+
 async function reconcileLegacyActiveJobs() {
   const { data: jobs, error } = await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
@@ -327,6 +338,13 @@ async function nextItem(payload: Record<string, unknown>) {
   if (!isActiveQuoteRefreshStatus(activeJob.status)) return NextResponse.json({ done: true, job: activeJob });
   if (sessionId && activeJob.collection_session_id !== sessionId) return NextResponse.json({ done: true, job: activeJob, reason: "session_mismatch" });
 
+  await auditContinuation(activeJob.id, "NEXT_REQUESTED", "次のbatch itemを要求", {
+    sessionId,
+    runTokenPresent: Boolean(runToken),
+    collectorVersion,
+    requestedJobId: requestedJobId || null,
+  });
+
   await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
     .update({ status: "running", started_at: activeJob.started_at ?? new Date().toISOString() })
@@ -339,6 +357,15 @@ async function nextItem(payload: Record<string, unknown>) {
     .eq("status", "running")
     .lt("processed_at", new Date(Date.now() - STALE_ITEM_AGE_MS).toISOString());
   if (stale?.length) return NextResponse.json({ done: true, stale: true, needsUserAction: true, job: activeJob, staleItemIds: stale.map((item) => item.id), message: "staleな実行項目があります。明示的なresume操作が必要です。" });
+
+  const { data: activeItems, error: activeItemsError } = await supabaseAdmin
+    .from("myfans_quote_refresh_job_items")
+    .select("id")
+    .eq("job_id", activeJob.id)
+    .eq("status", "running")
+    .limit(1);
+  if (activeItemsError) throw activeItemsError;
+  if (activeItems?.length) return NextResponse.json({ done: false, busy: true, jobId: activeJob.id, job: activeJob, message: "別のitemが処理中のためclaimを保留しました。" });
 
   const { data: item, error } = await supabaseAdmin
     .from("myfans_quote_refresh_job_items")
@@ -359,11 +386,34 @@ async function nextItem(payload: Record<string, unknown>) {
     .from("myfans_quote_refresh_job_items")
     .update({ status: "running", attempts: item.attempts + 1, processed_at: new Date().toISOString(), error: null })
     .eq("id", item.id)
+    .eq("status", "pending")
     .select("id,job_id,creator_id,creator_x_url,attempts,myfans_creators(display_name)")
-    .single();
+    .maybeSingle();
   if (updateError) throw updateError;
 
+  if (!running) {
+    await auditContinuation(activeJob.id, "NEXT_CLAIM_SKIPPED", "競合中のclaimを破棄", { itemId: item.id, reason: "claim_lost" });
+    return NextResponse.json({ done: false, claimed: false, duplicate: true, jobId: activeJob.id, job: activeJob });
+  }
+
+  await auditContinuation(activeJob.id, "NEXT_CLAIMED", "次のbatch itemをclaim", { itemId: running.id, creatorId: running.creator_id, attempts: running.attempts });
+
   return NextResponse.json({ done: false, jobId: activeJob.id, batchSize: activeJob.batch_size, item: running });
+}
+
+async function auditContinuationAction(payload: Record<string, unknown>) {
+  const jobId = numberValue(payload.jobId, 0);
+  const sessionId = cleanText(payload.sessionId);
+  const runToken = cleanText(payload.runToken);
+  const collectorVersion = cleanText(payload.collectorVersion);
+  const job = jobId ? await getJob(jobId) : null;
+  if (!job || !sessionId || !runToken || job.collection_session_id !== sessionId || job.collection_run_token !== runToken || job.collector_version !== collectorVersion) {
+    return NextResponse.json({ error: "JOB_IDENTITY_MISMATCH: continuation auditのidentityが一致しません。", errorCode: "JOB_IDENTITY_MISMATCH" }, { status: 409 });
+  }
+  const action = cleanText(payload.continuationAction);
+  if (!["ITEM_SAVED", "CONTINUE_DIRECT", "WATCHDOG_FIRED", "DB_RUNNING_CONFIRMED", "RESUME_REQUESTED", "RESUME_CLAIMED", "CONTINUATION_STOPPED"].includes(action)) return NextResponse.json({ error: "未対応のcontinuation auditです。" }, { status: 400 });
+  await auditContinuation(job.id, action, cleanText(payload.summary) || action, typeof payload.metadata === "object" && payload.metadata ? payload.metadata as Record<string, unknown> : {});
+  return NextResponse.json({ ok: true });
 }
 
 async function startJob(payload: Record<string, unknown>) {
@@ -430,6 +480,7 @@ export async function POST(request: Request) {
     if (action === "create") return await createJob(payload);
     if (action === "start") return await startJob(payload);
     if (action === "next") return await nextItem(payload);
+    if (action === "audit") return await auditContinuationAction(payload);
     if (action === "pause") return await updateJobStatus(payload, "paused");
     if (action === "resume") return await updateJobStatus(payload, "running");
     if (action === "cancel") return await updateJobStatus(payload, "cancelled");

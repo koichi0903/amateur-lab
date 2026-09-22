@@ -20,7 +20,7 @@ vm.runInNewContext(companionStateSource, stateContext);
 const companionState = stateContext.globalThis.MyfansCompanionState;
 
 assert.match(manifest.version, /^0\.1\.\d+$/);
-assert.equal(manifest.version, "0.1.36");
+assert.equal(manifest.version, "0.1.37");
 const popupScripts = [...popupHtml.matchAll(/<script\s+src="([^"]+)"\s*><\/script>/g)].map((match) => match[1]);
 assert.deepEqual(popupScripts, ["state.js", "popup.js"], "popup must load shared state before popup runtime");
 assert.match(companionStateSource, /globalThis\.MyfansCompanionState\s*=\s*state/);

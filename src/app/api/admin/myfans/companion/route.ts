@@ -714,6 +714,24 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
     final_collection_state: null,
     final_error: null,
   };
+  if (Number.isFinite(Number(payload.refreshJobId)) && Number(payload.refreshJobId) > 0 && Number.isFinite(Number(payload.refreshJobItemId)) && Number(payload.refreshJobItemId) > 0) {
+    const { data: existingItem } = await supabaseAdmin
+      .from("myfans_quote_refresh_job_items")
+      .select("status,collection_state,collected_count")
+      .eq("id", Number(payload.refreshJobItemId))
+      .eq("job_id", Number(payload.refreshJobId))
+      .maybeSingle();
+    if (existingItem && ["success", "failed", "skipped"].includes(existingItem.status)) {
+      await supabaseAdmin.from("myfans_audit_logs").insert({
+        entity_type: "quote_refresh_job_item",
+        entity_id: Number(payload.refreshJobItemId),
+        action: "duplicate_batch_save_ignored",
+        summary: "既にterminalのbatch itemへの重複保存を無視",
+        metadata: { jobId: Number(payload.refreshJobId), status: existingItem.status, collectionState: existingItem.collection_state ?? null },
+      });
+      return NextResponse.json({ ok: true, replayed: true, candidatesCount: Number(existingItem.collected_count ?? 0), collectionState: existingItem.collection_state ?? null });
+    }
+  }
   if (candidates.length === 0 && Array.isArray(payload.collectionStatuses) && payload.collectionStatuses.length > 0 && cleanXProfileUrl(payload.creatorXUrl)) {
     const creatorIdForAudit = Number(payload.creatorId);
     if (Number.isSafeInteger(creatorIdForAudit) && creatorIdForAudit > 0) {

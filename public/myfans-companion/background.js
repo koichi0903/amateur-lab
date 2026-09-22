@@ -578,6 +578,19 @@ async function sendPayload(settings, result) {
   return payload;
 }
 
+async function recordContinuationAudit(settings, continuationAction, metadata = {}) {
+  if (!settings?.jobId || !settings?.sessionId || !settings?.runToken) return;
+  await quoteRefreshRequest(settings, {
+    action: "audit",
+    jobId: settings.jobId,
+    sessionId: settings.sessionId,
+    runToken: settings.runToken,
+    collectorVersion: settings.collectorVersion || WORKER_VERSION,
+    continuationAction,
+    metadata,
+  }).catch((error) => console.debug("[myfans companion background] continuation audit failed", error));
+}
+
 chrome.runtime.onInstalled.addListener((details) => {
   if (!["install", "update"].includes(details.reason)) return;
   chrome.storage.local.get([COMPANION_SETTINGS_KEY, QUOTE_SETTINGS_KEY, QUOTE_STATE_KEY, DIAGNOSTIC_STATE_KEY, SINGLE_STATUS_STATE_KEY]).then(async (stored) => {
@@ -2329,6 +2342,8 @@ async function runBulkQuoteRefresh(settings) {
       return;
     }
     let workerTabId = await ensureWorkerTab(currentTab?.id);
+    while (true) {
+    await recordContinuationAudit(persistedSettings, "CONTINUE_DIRECT", { mode: persistedSettings.launchMode || "new" });
     const next = await quoteRefreshRequest(persistedSettings, { action: "next", jobId: persistedSettings.jobId || undefined, sessionId, runToken: persistedSettings.runToken, collectorVersion: persistedSettings.collectorVersion || WORKER_VERSION });
     if (next.stale || next.needsUserAction || next.reason === "session_mismatch" || next.errorCode === "JOB_IDENTITY_MISMATCH") {
       await clearQuoteContinuation();
@@ -2346,6 +2361,7 @@ async function runBulkQuoteRefresh(settings) {
       return;
     }
     const item = next.item;
+    if (persistedSettings.launchMode === "resumed") await recordContinuationAudit(persistedSettings, "RESUME_CLAIMED", { itemId: item.id });
     await setQuoteState({ collectionStatuses: [], articleCount: null, ownPostCount: null, candidateCount: 0, videoCandidates: null, videoCount: 0, videoValidation: null, statusThreadsObserved: 0, fullyObservedThreads: 0, authorReplyCount: 0, statusThreadMyfansLinkCount: 0, currentItemId: item.id, currentJobId: next.jobId, identity: { job_id: next.jobId, collection_session_id: sessionId, run_token: persistedSettings.runToken, collector_version: persistedSettings.collectorVersion || WORKER_VERSION } });
     const creatorName = Array.isArray(item.myfans_creators) ? item.myfans_creators[0]?.display_name : item.myfans_creators?.display_name;
     const progressBefore = await fetchQuoteProgress(persistedSettings, { jobId: next.jobId }).catch(() => null);
@@ -2404,7 +2420,8 @@ async function runBulkQuoteRefresh(settings) {
       }
       if (!result) throw lastCollectError || categorizedError(FAILURE_CATEGORY.UNKNOWN, "Xページから引用候補を取得できませんでした。");
       const payload = await sendPayload(persistedSettings, result);
-          await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `保存しました: ${creatorName || item.creator_x_url}`, ...MyfansCompanionState.successPatch(payload.candidatesCount, payload), collectionStatuses: payload.collectionStatuses || result.collectionStatuses || [], sessionProcessed: processedBefore + 1 });
+      await recordContinuationAudit(persistedSettings, "ITEM_SAVED", { itemId: item.id, candidatesCount: payload.candidatesCount || 0, collectionState: payload.candidatesCount ? "ELIGIBLE" : "NO_MATCH_THIS_RUN" });
+      await setQuoteState({ status: "running", currentCreator: creatorName || item.creator_x_url, message: `保存しました: ${creatorName || item.creator_x_url}`, ...MyfansCompanionState.successPatch(payload.candidatesCount, payload), collectionStatuses: payload.collectionStatuses || result.collectionStatuses || [], sessionProcessed: processedBefore + 1 });
     } catch (error) {
       await markItemFailed(persistedSettings, next.jobId, item.id, error);
       const message = error instanceof Error ? error.message : "取得に失敗しました";
@@ -2422,17 +2439,23 @@ async function runBulkQuoteRefresh(settings) {
       await setQuoteState({ running: false, status: "cancelled", finalStatus: "cancelled", job: completed?.job || null, message: "現在のアカウント処理を終えて中止しました。" });
       return;
     }
+    if (next.busy || next.duplicate || next.claimed === false) {
+      persistedSettings.launchMode = "resumed";
+      await scheduleQuoteContinuation(persistedSettings, 5000);
+      await setQuoteState({ running: true, status: "scheduled", jobId: persistedSettings.jobId, sessionId, launchMode: "resumed", collectorVersion: WORKER_VERSION, message: "別のworkerが処理中のためwatchdogで継続確認します。" });
+      return;
+    }
     const completedJob = completed?.job;
     if (MyfansCompanionState.isCompleted(completedJob)) {
       await clearQuoteContinuation();
       await setQuoteState({ running: false, status: "done", job: completedJob, message: "一括更新が完了しました。" });
       return;
     }
-    const batchSize = Number(next.batchSize || persistedSettings.batchSize || 10);
-    const delayMs = (processedBefore + 1) % batchSize === 0 ? 60000 : 5000;
+    // The alarm remains armed as a recovery watchdog. Normal progress continues in this worker.
     persistedSettings.launchMode = "resumed";
-    await scheduleQuoteContinuation(persistedSettings, delayMs);
-    await setQuoteState({ running: true, status: "scheduled", jobId: persistedSettings.jobId, sessionId, launchMode: "resumed", collectorVersion: WORKER_VERSION, message: `同一current-sessionのjobを${Math.round(delayMs / 1000)}秒後に継続します。` });
+    await scheduleQuoteContinuation(persistedSettings, 120000);
+    await setQuoteState({ running: true, status: "running", jobId: persistedSettings.jobId, sessionId, launchMode: "resumed", collectorVersion: WORKER_VERSION, message: "保存後、同一worker内で次のitemへ継続します。" });
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "一括更新を実行できませんでした。";
     await setQuoteState({ running: false, status: "error", message, lastError: message });
@@ -2459,8 +2482,26 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       if (savedSettings?.baseUrl && resumable) {
         return fetchQuoteProgress(savedSettings, state).then((payload) => {
           const job = payload?.job;
-          if (!MyfansCompanionState.isCurrentActiveRun(state, job, WORKER_VERSION)) return clearQuoteContinuation();
-          return runBulkQuoteRefresh({ ...savedSettings, jobId: job.id, runToken: job.collection_run_token, collectorVersion: job.collector_version, launchMode: "resumed" });
+          const watchdogSettings = { ...savedSettings, jobId: job?.id || state.jobId, runToken: job?.collection_run_token || state.runToken, collectorVersion: job?.collector_version || state.collectorVersion };
+          return recordContinuationAudit(watchdogSettings, "WATCHDOG_FIRED", { jobStatus: job?.status || null }).then(async () => {
+            if (!MyfansCompanionState.isCurrentActiveRun(state, job, WORKER_VERSION)) {
+              await recordContinuationAudit(watchdogSettings, "CONTINUATION_STOPPED", { reason: "identity_or_terminal_mismatch" });
+              return clearQuoteContinuation();
+            }
+            const runningItem = payload?.items?.find((item) => item.status === "running");
+            if (runningItem) {
+              const runningAt = Date.parse(runningItem.processed_at || "");
+              if (Number.isFinite(runningAt) && Date.now() - runningAt >= 5 * 60_000) {
+                await recordContinuationAudit(watchdogSettings, "CONTINUATION_STOPPED", { reason: "stale_running_item", itemId: runningItem.id });
+                await clearQuoteContinuation();
+                return setQuoteState({ running: false, status: "needs_user_action", jobId: job.id, sessionId: state.sessionId, message: "staleなitemがあるため自動再開を停止しました。明示的なresumeが必要です。" });
+              }
+              await recordContinuationAudit(watchdogSettings, "DB_RUNNING_CONFIRMED", { itemId: runningItem.id });
+              return scheduleQuoteContinuation(watchdogSettings, 120000);
+            }
+            await recordContinuationAudit(watchdogSettings, "RESUME_REQUESTED", { pendingItems: payload?.items?.filter((item) => item.status === "pending").length || 0 });
+            return runBulkQuoteRefresh({ ...watchdogSettings, launchMode: "resumed" });
+          });
         });
       }
       return clearQuoteContinuation();
@@ -2568,3 +2609,5 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   return false;
 });
+
+if (globalThis.__MYFANS_COMPANION_TEST__) globalThis.__myfansCompanionTestHooks = { runBulkQuoteRefresh };
