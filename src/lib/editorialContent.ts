@@ -155,6 +155,7 @@ export const actressEditorialProfiles: Record<string, EntityEditorialProfile> = 
 
 export const reportDefinitions = [
   { slug: "price-drops", title: "今週の価格下落・過去最安作品", description: "現在価格と取得済みの過去価格を比較し、値下がりや最安を確認できる作品を掲載します。" },
+  { slug: "price-bands", title: "価格帯別に比較しやすいFANZA作品", description: "1,000円未満、1,000〜3,000円、3,000円以上の価格帯に分け、レビューと価格条件を一緒に比較できる作品を掲載します。" },
   { slug: "ranking-movers", title: "今週のランキング急上昇作品", description: "前回順位と現在順位を比較し、順位を大きく上げた作品を掲載します。" },
   { slug: "sale-ending", title: "まもなく終了するセール作品", description: "セール終了日時を取得できた作品から、終了が近い高評価作品を掲載します。" },
 ] as const;

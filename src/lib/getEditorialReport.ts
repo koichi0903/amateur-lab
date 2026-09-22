@@ -3,6 +3,7 @@ import type { DealWork } from "@/components/deals/DealWorkCard";
 import type { ReportSlug } from "@/lib/editorialContent";
 import { DEAL_COLUMNS } from "@/lib/getDeals";
 import { supabase } from "@/lib/supabase";
+import { isNonVrWork } from "@/lib/vr";
 
 export type EditorialReportWork = DealWork & {
   previous_realtime_rank?: number | null;
@@ -36,6 +37,22 @@ const getRankingMovers = unstable_cache(async () => {
   return { works, error };
 }, ["editorial-report-ranking-movers-v1"], { revalidate: 1800 });
 
+const getPriceBands = unstable_cache(async () => {
+  const { data, error } = await supabase
+    .from("works")
+    .select(DEAL_COLUMNS)
+    .gt("price", 0)
+    .gte("review_count", 1)
+    .not("image_url", "is", null)
+    .order("score", { ascending: false, nullsFirst: false })
+    .limit(150);
+  const works = ((data ?? []) as unknown as EditorialReportWork[])
+    .filter(isNonVrWork)
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, 60);
+  return { works, error };
+}, ["editorial-report-price-bands-v1"], { revalidate: 1800 });
+
 const getSaleEnding = unstable_cache(async () => {
   const now = new Date();
   const limit = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -52,6 +69,7 @@ const getSaleEnding = unstable_cache(async () => {
 
 export async function getEditorialReport(slug: ReportSlug) {
   if (slug === "price-drops") return getPriceDrops();
+  if (slug === "price-bands") return getPriceBands();
   if (slug === "ranking-movers") return getRankingMovers();
   return getSaleEnding();
 }

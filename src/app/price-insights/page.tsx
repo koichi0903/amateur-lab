@@ -79,6 +79,7 @@ export default async function PriceInsightsPage() {
 
             <nav aria-label="買い時関連ページ" className="mt-5 flex flex-wrap gap-2 text-sm font-black">
               <Link href="/reports/price-drops" className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-emerald-700 hover:border-emerald-300">価格下落・過去最安</Link>
+              <Link href="/reports/price-bands" className="rounded-full border border-pink-200 bg-pink-50 px-4 py-2 text-pink-700 hover:border-pink-300">価格帯別に比較</Link>
               <Link href="/reports/sale-ending" className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-amber-700 hover:border-amber-300">終了間近のセール</Link>
               <Link href="/guides/sale-buying-guide" className="rounded-full border border-slate-200 bg-white px-4 py-2 text-slate-700 hover:border-pink-300 hover:text-pink-600">セールの見方</Link>
             </nav>
