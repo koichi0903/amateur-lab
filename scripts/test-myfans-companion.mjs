@@ -20,7 +20,7 @@ vm.runInNewContext(companionStateSource, stateContext);
 const companionState = stateContext.globalThis.MyfansCompanionState;
 
 assert.match(manifest.version, /^0\.1\.\d+$/);
-assert.equal(manifest.version, "0.1.35");
+assert.equal(manifest.version, "0.1.36");
 const popupScripts = [...popupHtml.matchAll(/<script\s+src="([^"]+)"\s*><\/script>/g)].map((match) => match[1]);
 assert.deepEqual(popupScripts, ["state.js", "popup.js"], "popup must load shared state before popup runtime");
 assert.match(companionStateSource, /globalThis\.MyfansCompanionState\s*=\s*state/);
@@ -140,6 +140,11 @@ assert.match(background, /new URL\(raw\)/);
 assert.match(background, /url\.pathname/);
 assert.match(background, /authorMatch/);
 assert.match(background, /sameAuthorReplyCount/);
+assert.match(background, /target_status_id_exact/);
+assert.match(background, /ready_verified_target_identity_fallback/);
+assert.match(background, /readyFallbackUsed/);
+assert.match(background, /observeVisibleThread\(tabId, expectedHandle, candidate\.xPostUrl, ready\)/);
+assert.match(background, /readyEvidence: ready/);
 assert.match(background, /reply\.authorHandle\?\.toLowerCase\(\) === expectedHandle\.toLowerCase\(\)/);
 assert.match(background, /payload\.ok === false/);
 assert.match(popupHtml, /画像\/動画＋本人myfansリンク付き投稿を最大5件収集/);
@@ -263,9 +268,9 @@ const collectXStatusThreadReplies = new Function(`return (${threadSource.trim()}
 const link = (href, text = "", parentElement = null, attributes = {}) => ({ href, textContent: text, parentElement, matches() { return false; }, getAttribute(name) { return name === "href" ? href : attributes[name] || null; } });
 const card = (label = "card.layoutLarge.media") => ({ parentElement: null, className: "", matches() { return false; }, getAttribute(name) { return name === "data-testid" ? label : null; } });
 const threadArticle = (author, statusId, myfansUrl = "", options = {}) => {
-  const statusLink = link(`/${author}/status/${statusId}`);
+  const statusLink = options.omitStatusAnchor ? null : link(options.statusHref || `/${author}/status/${statusId}`);
   const authorLink = link(`/${author}`, `@${author}`);
-  const links = [authorLink, statusLink];
+  const links = [authorLink, ...(statusLink ? [statusLink] : [])];
   if (myfansUrl) links.push(link(myfansUrl, myfansUrl));
   if (options.cardHref) links.push(link(options.cardHref, options.cardText || "mfco.link/から", options.cardParent || card()));
   if (options.quotedCardHref) {
@@ -319,6 +324,35 @@ globalThis.document.querySelectorAll = (selector) => selector === 'article[data-
 const noLinkThreadResult = await collectXStatusThreadReplies({ sourceXHandle: "lumi_reviw", sourceStatusUrl: "https://x.com/lumi_reviw/status/209979316390920203" });
 assert.equal(noLinkThreadResult.authorReplyCount, 1);
 assert.equal(noLinkThreadResult.myfansLinkCount, 0);
+
+// Target identity is canonicalized before parent/reply classification.
+globalThis.document.querySelectorAll = (selector) => selector === 'article[data-testid="tweet"]'
+  ? [threadArticle("lumi_reviw", "209979316390920203", "https://mfco.link/r/parent", { statusHref: "/lumi_reviw/status/209979316390920203/photo/1" }), threadArticle("lumi_reviw", "2", "https://mfco.link/p/own")]
+  : [];
+globalThis.location = { href: "https://x.com/lumi_reviw/status/209979316390920203/photo/1" };
+const suffixThreadResult = await collectXStatusThreadReplies({ sourceXHandle: "lumi_reviw", sourceStatusUrl: "https://x.com/lumi_reviw/status/209979316390920203/photo/1" });
+assert.equal(suffixThreadResult.parentCandidate.isParentCandidate, true);
+assert.equal(suffixThreadResult.authorReplyCount, 1);
+assert.equal(suffixThreadResult.parentCandidate.myfansUrls[0], "https://mfco.link/r/parent");
+
+// When X temporarily omits the target anchor, only the ready-verified identity plus
+// exact current target URL and a single same-author article may activate the fallback.
+globalThis.document.querySelectorAll = (selector) => selector === 'article[data-testid="tweet"]'
+  ? [threadArticle("lumi_reviw", "209979316390920203", "https://mfco.link/r/fallback", { omitStatusAnchor: true })]
+  : [];
+const readyEvidence = { ready: true, currentUrl: "https://x.com/lumi_reviw/status/209979316390920203", parentAuthor: "lumi_reviw", parentCandidateCount: 1 };
+const fallbackThreadResult = await collectXStatusThreadReplies({ sourceXHandle: "lumi_reviw", sourceStatusUrl: "https://x.com/lumi_reviw/status/209979316390920203", readyEvidence });
+assert.equal(fallbackThreadResult.ok, true, JSON.stringify(fallbackThreadResult));
+assert.equal(fallbackThreadResult.parentCandidate.isParentCandidate, true);
+assert.equal(fallbackThreadResult.diagnostics.readyFallbackUsed, true);
+assert.equal(fallbackThreadResult.quoteCandidates.length, 0);
+
+globalThis.document.querySelectorAll = (selector) => selector === 'article[data-testid="tweet"]'
+  ? [threadArticle("wrong_author", "209979316390920203", "https://mfco.link/r/wrong", { omitStatusAnchor: true })]
+  : [];
+const rejectedFallback = await collectXStatusThreadReplies({ sourceXHandle: "lumi_reviw", sourceStatusUrl: "https://x.com/lumi_reviw/status/209979316390920203", readyEvidence });
+assert.equal(rejectedFallback.ok, false);
+assert.equal(rejectedFallback.errorCode, "STATUS_PARENT_NOT_FOUND");
 
 function extractFunction(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);

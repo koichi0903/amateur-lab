@@ -107,13 +107,13 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function observeVisibleThread(tabId, expectedHandle = "", expectedStatusUrl = "") {
+async function observeVisibleThread(tabId, expectedHandle = "", expectedStatusUrl = "", readyEvidence = null) {
   const startedAt = new Date().toISOString();
   const startedMs = Date.now();
   let lastObservation = null;
   for (let pass = 0; pass < 3; pass += 1) {
     try {
-      lastObservation = await executeMain(tabId, observeVisibleThreadSnapshot, [expectedHandle, expectedStatusUrl, pass], { requireResult: true });
+      lastObservation = await executeMain(tabId, observeVisibleThreadSnapshot, [expectedHandle, expectedStatusUrl, pass, readyEvidence], { requireResult: true });
     } catch (error) {
       throw categorizedError(FAILURE_CATEGORY.THREAD_OBSERVATION_FAILED, error instanceof Error ? error.message : String(error), {
         statusUrl: expectedStatusUrl,
@@ -136,12 +136,18 @@ async function observeVisibleThread(tabId, expectedHandle = "", expectedStatusUr
   return { ...lastObservation, observationStartedAt: startedAt, elapsedMs: Date.now() - startedMs, observationAttempts: 3 };
 }
 
-function observeVisibleThreadSnapshot(expectedHandle = "", expectedStatusUrl = "", pass = 0) {
+function observeVisibleThreadSnapshot(expectedHandle = "", expectedStatusUrl = "", pass = 0, readyEvidence = null) {
     const observationStartedAt = new Date().toISOString();
     const observationStartedMs = Date.now();
     const articles = () => Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
     const before = articles().length;
-    const targetUrl = String(expectedStatusUrl || "").replace(/^https:\/\/twitter\.com\//i, "https://x.com/").replace(/[?#].*$/, "");
+    const canonicalStatus = (value) => {
+      const raw = String(value || "").replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
+      const match = raw.match(/^(?:https:\/\/x\.com)?\/([^/?#]+)\/status\/(\d+)/i);
+      return match ? `https://x.com/${match[1]}/status/${match[2]}` : "";
+    };
+    const targetUrl = canonicalStatus(expectedStatusUrl);
+    const currentUrl = canonicalStatus(location.href);
     const handle = String(expectedHandle || "").replace(/^@/, "").toLowerCase();
     const relevantExpand = (button) => {
       const text = `${button.textContent || ""} ${button.getAttribute("aria-label") || ""} ${button.getAttribute("data-testid") || ""}`.trim();
@@ -166,15 +172,30 @@ function observeVisibleThreadSnapshot(expectedHandle = "", expectedStatusUrl = "
       .filter(relevantExpand)
       .map((button) => `${button.textContent || ""} ${button.getAttribute("aria-label") || ""}`.trim().slice(0, 80));
     const visibleArticles = articles();
-    const canonical = (value) => String(value || "").replace(/^https:\/\/twitter\.com\//i, "https://x.com/").replace(/[?#].*$/, "");
     const articleAuthor = (article) => Array.from(article.querySelectorAll('[data-testid="User-Name"] a[href]'))
       .map((link) => String(link.getAttribute("href") || "").replace(/^\//, "").split(/[/?#]/)[0].toLowerCase())
       .find((value) => /^[a-z0-9_]{1,15}$/i.test(value)) || "";
+    const isDirectAnchor = (link, article) => {
+      let node = link.parentElement;
+      while (node && node !== article) {
+        if (node.matches?.('article[data-testid="tweet"]')) return false;
+        node = node.parentElement;
+      }
+      return true;
+    };
     const ownArticles = visibleArticles.filter((article) => !handle || articleAuthor(article) === handle);
     const linksFound = ownArticles.flatMap((article) => Array.from(article.querySelectorAll("a[href]"))
       .map((link) => String(link.getAttribute("href") || ""))
       .filter((href) => /^https:\/\/(?:www\.)?(?:myfans\.jp|mfco\.link)\//i.test(href)));
-    const parentFound = Boolean(targetUrl && visibleArticles.some((article) => Array.from(article.querySelectorAll("a[href]"), (link) => canonical(link.getAttribute("href"))).includes(targetUrl)));
+    const exactTargetArticles = visibleArticles.filter((article) => Array.from(article.querySelectorAll("a[href]")).some((link) => isDirectAnchor(link, article) && canonicalStatus(link.getAttribute("href")) === targetUrl));
+    const readyFallback = exactTargetArticles.length === 0
+      && Boolean(readyEvidence?.ready)
+      && currentUrl === targetUrl
+      && canonicalStatus(readyEvidence.currentUrl) === targetUrl
+      && String(readyEvidence.parentAuthor || "").toLowerCase() === handle
+      && Number(readyEvidence.parentCandidateCount) === 1
+      && ownArticles.length === 1;
+    const parentFound = Boolean(targetUrl && (exactTargetArticles.length === 1 || readyFallback));
     const articleCountAfter = visibleArticles.length;
     const observationCompleteness = parentFound && pass >= 2 && remainingExpand.length === 0 ? "complete" : "partial";
     return {
@@ -184,6 +205,8 @@ function observeVisibleThreadSnapshot(expectedHandle = "", expectedStatusUrl = "
       articleCountAfter,
       parentFound,
       sameAuthorReplyCount: Math.max(0, ownArticles.length - (parentFound ? 1 : 0)),
+      parentDetection: exactTargetArticles.length === 1 ? "target_status_id_exact" : readyFallback ? "ready_verified_target_identity_fallback" : "not_found",
+      readyFallbackUsed: readyFallback,
       clickedExpandCount: clicked.length,
       remainingExpandCount: remainingExpand.length,
       remainingExpandLabels: remainingExpand.slice(0, 10),
@@ -1433,7 +1456,7 @@ function inspectXStatusReady(expected, expectedHandle) {
   };
 }
 
-async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
+async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl, readyEvidence = null }) {
   const extractSourceTextInPage = (tweetText, articleText) => {
     const direct = String(tweetText || "").replace(/\s+/g, " ").trim();
     if (direct) return direct.slice(0, 180);
@@ -1470,6 +1493,7 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
   const pageText = document.body?.innerText || "";
   const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]')).slice(0, 40);
   const targetStatusId = String(sourceStatusUrl || "").match(/\/status\/(\d+)/)?.[1] || "";
+  const targetUrl = `https://x.com/${sourceXHandle}/status/${targetStatusId}`;
   const parseCount = (label) => {
     if (!label) return null;
     const match = String(label).replace(/,/g, "").match(/([\d.]+)\s*([KMB万億]?)/i);
@@ -1503,6 +1527,18 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
     const directTarget = Array.from(article.querySelectorAll("a[href]")).some((link) => isDirectAnchor(link, article) && canonicalStatus(link.getAttribute("href")).toLowerCase() === `https://x.com/${sourceXHandle}/status/${targetStatusId}`.toLowerCase());
     return directTarget && articleHandle(article).toLowerCase() === normalizeHandle(sourceXHandle);
   });
+  const sameAuthorArticles = articles.filter((article) => articleHandle(article).toLowerCase() === normalizeHandle(sourceXHandle));
+  const currentUrl = canonicalStatus(location.href);
+  const readyFallback = exactParentArticles.length === 0
+    && Boolean(readyEvidence?.ready)
+    && currentUrl === targetUrl
+    && canonicalStatus(readyEvidence.currentUrl) === targetUrl
+    && normalizeHandle(readyEvidence.parentAuthor) === normalizeHandle(sourceXHandle)
+    && Number(readyEvidence.parentCandidateCount) === 1
+    && sameAuthorArticles.length === 1;
+  const parentArticles = exactParentArticles.length === 1
+    ? exactParentArticles
+    : readyFallback ? sameAuthorArticles : [];
   const extractMyfansUrls = (article) => {
     const urls = [];
     const rejectionReasons = {};
@@ -1598,14 +1634,19 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
     };
   };
   const candidates = articles.map((article) => {
-    const hrefs = Array.from(article.querySelectorAll("a[href]")).map((link) => link.getAttribute("href") || "");
-    const statusUrl = hrefs.map(canonicalStatus).find(Boolean) || "";
-    const statusId = statusUrl.match(/\/status\/(\d+)/)?.[1] || "";
+    const links = Array.from(article.querySelectorAll("a[href]"));
+    const hrefs = links.map((link) => link.getAttribute("href") || "");
+    const directTargetStatus = links
+      .filter((link) => isDirectAnchor(link, article))
+      .map((link) => canonicalStatus(link.getAttribute("href")))
+      .find((url) => url.toLowerCase() === targetUrl.toLowerCase()) || "";
     const authorHandle = articleHandle(article);
     // X's Japanese thread UI does not expose the reply-to marker in article text.
     // On a status thread, a distinct status URL is the stable boundary between
     // the opening post and a reply; author ownership remains an exact handle match.
-    const isParentCandidate = exactParentArticles.includes(article);
+    const isParentCandidate = parentArticles.includes(article);
+    const statusUrl = isParentCandidate ? targetUrl : directTargetStatus || hrefs.map(canonicalStatus).find(Boolean) || "";
+    const statusId = statusUrl.match(/\/status\/(\d+)/)?.[1] || "";
     const isReply = Boolean(statusUrl && statusId && !isParentCandidate && statusId !== targetStatusId);
     const media = mediaInfo(article, statusUrl);
     const rawText = article.innerText || "";
@@ -1642,7 +1683,7 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
       isQuote: Boolean(article.querySelector('div[role="link"] article'))
     };
   }).filter((candidate, index, all) => candidate.xPostUrl && all.findIndex((item) => item.xPostUrl === candidate.xPostUrl) === index);
-  const sourceArticle = exactParentArticles.length === 1 ? exactParentArticles[0] : null;
+  const sourceArticle = parentArticles.length === 1 ? parentArticles[0] : null;
   const sourceAuthorHandle = sourceArticle ? articleHandle(sourceArticle) : "";
   const parentCandidate = candidates.find((candidate) => candidate.isParentCandidate) || null;
   const ownReplies = candidates.filter((candidate) => candidate.isReply && normalizeHandle(candidate.authorHandle) === normalizeHandle(sourceXHandle));
@@ -1668,7 +1709,9 @@ async function collectXStatusThreadReplies({ sourceXHandle, sourceStatusUrl }) {
         authorHandle: reply.authorHandle,
         ...reply.linkDiagnostics
       })),
-      parentCandidateCount: exactParentArticles.length,
+      parentCandidateCount: parentArticles.length,
+      parentDetection: exactParentArticles.length === 1 ? "target_status_id_exact" : readyFallback ? "ready_verified_target_identity_fallback" : "not_found",
+      readyFallbackUsed: readyFallback,
       targetStatusId,
       authorCandidates: [...new Set(articles.map(articleHandle).filter(Boolean))].slice(0, 20)
     }
@@ -2067,8 +2110,8 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
           transition("WAIT_STATUS_READY", { parentStatusUrl: candidate.xPostUrl, statusId });
           const ready = await timedStage("STATUS_READY", () => waitForStatusReady(tabId, expectedHandle, candidate.xPostUrl, 18000), { parentStatusUrl: candidate.xPostUrl, statusId });
           transition("STATUS_READY_CONFIRMED", { parentStatusUrl: candidate.xPostUrl, statusId, currentUrl: ready.currentUrl, parentAuthor: ready.parentAuthor, authorMatch: ready.parentAuthor?.toLowerCase() === expectedHandle.toLowerCase() });
-          observation = await timedStage("COLLECT_THREAD", () => observeVisibleThread(tabId, expectedHandle, candidate.xPostUrl), { parentStatusUrl: candidate.xPostUrl, statusId });
-          threadResult = await timedStage("DOM_THREAD_SNAPSHOT", () => executeMain(tabId, collectXStatusThreadReplies, [{ sourceXHandle: expectedHandle, sourceStatusUrl: candidate.xPostUrl }], { requireResult: true }), { parentStatusUrl: candidate.xPostUrl, statusId });
+          observation = await timedStage("COLLECT_THREAD", () => observeVisibleThread(tabId, expectedHandle, candidate.xPostUrl, ready), { parentStatusUrl: candidate.xPostUrl, statusId });
+          threadResult = await timedStage("DOM_THREAD_SNAPSHOT", () => executeMain(tabId, collectXStatusThreadReplies, [{ sourceXHandle: expectedHandle, sourceStatusUrl: candidate.xPostUrl, readyEvidence: ready }], { requireResult: true }), { parentStatusUrl: candidate.xPostUrl, statusId });
           transition("COLLECT_THREAD_COMPLETE", {
             parentStatusUrl: candidate.xPostUrl,
             statusId,
