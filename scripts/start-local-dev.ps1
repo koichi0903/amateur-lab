@@ -19,10 +19,9 @@ function Get-OwnerClassification {
     $samePid = [int]$Marker.pid -eq $OwnerPid
     $sameRepo = [string]$Marker.repoRoot -eq $RepoRoot
     $isNext = [string]$ProcessInfo.CommandLine -match "(?i)(next|next\\dist\\bin)"
-    $hasPort = [string]$ProcessInfo.CommandLine -match "(?i)(3000|--port|-p)"
 
-    if ($samePid -and $sameRepo -and $isNext -and $hasPort) { return "same-repo" }
-    if (-not $sameRepo -and [string]$Marker.repoRoot -match "(?i)(amateur-lab|bijyo)" -and $isNext -and $hasPort) {
+    if ($samePid -and $sameRepo -and $isNext) { return "same-repo" }
+    if (-not $sameRepo -and [string]$Marker.repoRoot -match "(?i)(amateur-lab|bijyo)" -and $isNext) {
         return "known-different"
     }
     return "unknown"
@@ -52,7 +51,7 @@ if (-not (Test-Path -LiteralPath $envPath)) {
     Write-Warning "No .env.local at $envPath. Values are never printed by this launcher; HTTP readiness will determine whether the app can run."
 }
 
-$head = (& git -C $repoRoot rev-parse HEAD 2>$null).Trim()
+$head = (& git -c "safe.directory=$repoRoot" -C $repoRoot rev-parse HEAD 2>$null).Trim()
 if (-not $head) { throw "Could not resolve the Git HEAD for $repoRoot" }
 
 try {
@@ -87,6 +86,29 @@ function Get-PortOwner {
         }
     }
     return 0
+}
+
+function Test-IsProcessTreeMember {
+    param(
+        [int]$ProcessId,
+        [int]$RootProcessId
+    )
+
+    $currentId = $ProcessId
+    $visited = @{}
+    while ($currentId -and -not $visited.ContainsKey($currentId)) {
+        if ($currentId -eq $RootProcessId) { return $true }
+        $visited[$currentId] = $true
+        try {
+            $process = Get-CimInstance Win32_Process -Filter "ProcessId = $currentId" -ErrorAction Stop
+        }
+        catch {
+            return $false
+        }
+        if ($null -eq $process) { return $false }
+        $currentId = [int]$process.ParentProcessId
+    }
+    return $false
 }
 
 $ownerPid = Get-PortOwner
@@ -138,7 +160,7 @@ try {
     for ($attempt = 1; $attempt -le 60; $attempt++) {
         if ($server.HasExited) { throw "Next exited before HTTP became ready. See $logPath and $errorLogPath" }
         $currentOwner = Get-PortOwner
-        if ($currentOwner -eq $server.Id) {
+        if ($currentOwner -eq $server.Id -or (Test-IsProcessTreeMember $currentOwner $server.Id)) {
             try {
                 $response = Invoke-WebRequest -Uri "http://127.0.0.1:3000/admin/bijyo-reserved" -UseBasicParsing -TimeoutSec 3
                 if ($response.StatusCode -eq 200) { $ready = $true; break }
@@ -148,7 +170,10 @@ try {
         Start-Sleep -Seconds 1
     }
     if (-not $ready) { throw "Next did not become ready on http://127.0.0.1:3000 within 60 seconds. See $logPath and $errorLogPath" }
-    Write-Host "port 3000 PID: $($server.Id)"
+    $listenerPid = Get-PortOwner
+    $markerData.pid = $listenerPid
+    $markerData | ConvertTo-Json | Set-Content -LiteralPath $markerPath -Encoding utf8
+    Write-Host "port 3000 PID: $listenerPid"
     Write-Host "cwd: $repoRoot"
     Write-Host "HEAD: $head"
     Write-Host "HTTP: 200 /admin/bijyo-reserved"
