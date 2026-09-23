@@ -155,6 +155,87 @@ export type XDailyTopPick = XGrowthOpportunity & {
   };
 };
 
+export type XGrowthVariantDiagnostic = {
+  workId: number;
+  slot: XDailyTopPick["slotId"] | null;
+  role: XGrowthIntent;
+  variantId: string;
+  mediaType: XCreativeVariant["mediaType"];
+  sampleMovie: {
+    isSampleMovie: boolean;
+    mediaAssetId: number | null;
+    sourceUrl: string | null;
+  };
+  factTypes: string[];
+  videoEligibility: {
+    eligible: boolean;
+    reasons: string[];
+  } | null;
+  postText: string;
+  humanVoice: XCreativeVariant["quality"]["lastMile"]["humanVoice"];
+  nativeXVoice: XCreativeVariant["quality"]["lastMile"]["nativeXVoice"];
+  lastMile: {
+    passed: boolean;
+    verdict: XCreativeVariant["quality"]["lastMile"]["verdict"];
+    checks: {
+      humanVoice: boolean;
+      nativeXVoice: boolean;
+      noReasons: boolean;
+    };
+    reasons: string[];
+  };
+  quality: {
+    passed: boolean;
+    recommendation: XCreativeVariant["quality"]["recommendation"];
+    score: number;
+    failedReasons: string[];
+  };
+  isSoftQualityEligible: boolean;
+  videoSupply: {
+    officialEligible: boolean;
+    strongSafeEligible: boolean;
+    finalCandidate: boolean;
+    selected: boolean;
+    reason: string;
+  } | null;
+  selected: boolean;
+  selectedReason: string;
+};
+
+export function summarizeXGrowthVariantDiagnostics(diagnostics: readonly XGrowthVariantDiagnostic[]) {
+  const humanVoiceNgByCheck: Record<string, number> = {};
+  const nativeXVoiceNgByCheck: Record<string, number> = {};
+  const lastMileNgReasons: Record<string, number> = {};
+  const qualityNgReasons: Record<string, number> = {};
+  const factTypeCounts: Record<string, number> = {};
+  const videoRejectionReasons: Record<string, number> = {};
+  const mediaTypeCounts: Record<string, number> = {};
+  const selectedByMediaType: Record<string, number> = {};
+  for (const diagnostic of diagnostics) {
+    mediaTypeCounts[diagnostic.mediaType] = (mediaTypeCounts[diagnostic.mediaType] ?? 0) + 1;
+    if (diagnostic.selected) selectedByMediaType[diagnostic.mediaType] = (selectedByMediaType[diagnostic.mediaType] ?? 0) + 1;
+    for (const factType of diagnostic.factTypes) factTypeCounts[factType] = (factTypeCounts[factType] ?? 0) + 1;
+    for (const [check, passed] of Object.entries(diagnostic.humanVoice.checks)) if (!passed) humanVoiceNgByCheck[check] = (humanVoiceNgByCheck[check] ?? 0) + 1;
+    for (const [check, passed] of Object.entries(diagnostic.nativeXVoice.checks)) if (!passed) nativeXVoiceNgByCheck[check] = (nativeXVoiceNgByCheck[check] ?? 0) + 1;
+    for (const reason of diagnostic.lastMile.reasons) lastMileNgReasons[reason] = (lastMileNgReasons[reason] ?? 0) + 1;
+    for (const reason of diagnostic.quality.failedReasons) qualityNgReasons[reason] = (qualityNgReasons[reason] ?? 0) + 1;
+    for (const reason of diagnostic.videoSupply?.reason.split(" / ") ?? []) {
+      if (diagnostic.videoSupply && !diagnostic.videoSupply.finalCandidate && reason) videoRejectionReasons[reason] = (videoRejectionReasons[reason] ?? 0) + 1;
+    }
+  }
+  return {
+    totalVariants: diagnostics.length,
+    mediaTypeCounts,
+    selectedByMediaType,
+    humanVoiceNgByCheck,
+    nativeXVoiceNgByCheck,
+    lastMileNgReasons,
+    qualityNgReasons,
+    factTypeCounts,
+    videoRejectionReasons,
+  };
+}
+
 type CandidateIdentity = Pick<XGrowthOpportunity, "workId" | "productId" | "sampleMovieUrl" | "mediaAsset"> & {
   candidateId?: string | null;
   imageUrl?: string | null;
@@ -278,6 +359,8 @@ export type XGrowthOS = {
       slotEligibleVideo: number;
       eligibleStrongVideos: number;
       eligibleOfficialVideos: number;
+      officialCandidateCount: number;
+      officialVariantEligibleCount: number;
       selectedVideos: number;
       fallbackOfficialSelected: number;
       selectedVideosBySlot: Record<string, number>;
@@ -1623,6 +1706,8 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
     slotEligibleVideo: strongVideoSupply.size,
     eligibleStrongVideos: strongVideoSupply.size,
     eligibleOfficialVideos: officialVideoSupply.size,
+    officialCandidateCount: videoEligibleItems.length,
+    officialVariantEligibleCount: officialVideoSupply.size,
     selectedVideos,
     fallbackOfficialSelected: Math.max(0, selectedVideos - strongVideoSupply.size),
     selectedVideosBySlot: selectedBySlot,
@@ -1937,6 +2022,88 @@ function semanticSupplyDiagnostics(opportunities: XGrowthOpportunity[], picks: X
   return { supply, selected, overflowReasons, mappingReasons };
 }
 
+function rawVideoEligibilityReasons(item: XGrowthOpportunity) {
+  const reasons: string[] = [];
+  if (!isVideoCandidate({ ...item, mediaType: "sample_movie" })) reasons.push("video media/sample_movie_urlなし");
+  if (!item.canNativeVideo) reasons.push("rightsまたはX使用可否未確認");
+  if (!isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable) reasons.push("official sample / fetch / safety gate NG");
+  return [...new Set(reasons)];
+}
+
+export function buildXGrowthVariantDiagnostic(
+  item: XGrowthOpportunity,
+  variant: XCreativeVariant,
+  picks: readonly XDailyTopPick[] = [],
+): XGrowthVariantDiagnostic {
+  const selectedPick = picks.find((pick) => pick.workId === item.workId && pick.creativeVariantId === variant.id);
+  const sameWorkSelected = picks.some((pick) => pick.workId === item.workId);
+  const isVideo = variant.mediaType === "sample_movie";
+  const officialEligible = isVideo && isOfficialEligibleVideoCandidate(item);
+  const strongSafeEligible = isVideo && isStrongSafeVideoCandidate(item, variant);
+  const finalCandidate = isVideo
+    && officialEligible
+    && isSoftQualityEligible(variant)
+    && variant.quality.dimensions.adSmell <= (variant.intent === "MONEY" ? 48 : 30);
+  const videoReasons = isVideo ? videoEligibilityReasons({ ...item, mediaType: "sample_movie" }, variant) : [];
+  const selected = Boolean(selectedPick);
+  const selectedReason = selected
+    ? selectedPick?.alternativeReason || selectedPick?.whyBuzz || "最終候補として選定"
+    : sameWorkSelected
+      ? "同一workの別variant/roleを選定"
+      : !variant.quality.passed
+        ? `quality gate NG: ${variant.quality.gate.failed.join(", ") || variant.quality.lastMile.reasons.join(" / ") || variant.quality.recommendation}`
+        : isVideo && !finalCandidate
+          ? `動画供給候補外: ${videoReasons.join(" / ") || "official/soft-quality条件未達"}`
+          : "枠・多様性・重複・スコアによる最終選定で非選択（個別reject codeなし）";
+  return {
+    workId: item.workId,
+    slot: selectedPick?.slotId ?? null,
+    role: variant.intent,
+    variantId: variant.id,
+    mediaType: variant.mediaType,
+    sampleMovie: {
+      isSampleMovie: isVideo,
+    mediaAssetId: isVideo && Number.isSafeInteger(Number(item.mediaAsset?.id)) ? Number(item.mediaAsset?.id) : null,
+      sourceUrl: isVideo ? item.mediaAsset?.source_url ?? item.sampleMovieUrl ?? null : null,
+    },
+    factTypes: item.visualFacts.facts.map((fact) => fact.kind),
+    videoEligibility: isVideo ? { eligible: officialEligible, reasons: rawVideoEligibilityReasons(item) } : null,
+    postText: variant.bodyText,
+    humanVoice: variant.quality.lastMile.humanVoice,
+    nativeXVoice: variant.quality.lastMile.nativeXVoice,
+    lastMile: {
+      passed: variant.quality.lastMile.passed,
+      verdict: variant.quality.lastMile.verdict,
+      checks: {
+        humanVoice: variant.quality.lastMile.humanVoice.passed,
+        nativeXVoice: variant.quality.lastMile.nativeXVoice.passed,
+        noReasons: variant.quality.lastMile.reasons.length === 0,
+      },
+      reasons: variant.quality.lastMile.reasons,
+    },
+    quality: {
+      passed: variant.quality.passed,
+      recommendation: variant.quality.recommendation,
+      score: variant.quality.total,
+      failedReasons: [...variant.quality.gate.failed, ...variant.quality.lastMile.reasons],
+    },
+    isSoftQualityEligible: isSoftQualityEligible(variant),
+    videoSupply: isVideo ? {
+      officialEligible,
+      strongSafeEligible,
+      finalCandidate,
+      selected,
+      reason: selected
+        ? "最終動画候補としてselected"
+        : officialEligible && finalCandidate
+          ? "official/soft-quality条件は通過したが最終枠では非選択"
+          : videoReasons.join(" / ") || "official/soft-quality条件未達",
+    } : null,
+    selected,
+    selectedReason,
+  };
+}
+
 function buildSupplyDiagnostics(
   opportunities: XGrowthOpportunity[],
   picks: XDailyTopPick[],
@@ -1950,6 +2117,8 @@ function buildSupplyDiagnostics(
     slotEligibleVideo: number;
     eligibleStrongVideos: number;
     eligibleOfficialVideos: number;
+    officialCandidateCount: number;
+    officialVariantEligibleCount: number;
     selectedVideos: number;
     fallbackOfficialSelected: number;
     selectedVideosBySlot: Record<string, number>;
@@ -2035,6 +2204,8 @@ function buildSupplyDiagnostics(
   for (const entry of moneyGateReasons) for (const reason of entry.reasons) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
   const moneyTopFailureReason = [...reasonCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   const semantic = semanticSupplyDiagnostics(opportunities, picks);
+  const variantDiagnostics = opportunities.flatMap((item) => item.creativeVariants.map((variant) => buildXGrowthVariantDiagnostic(item, variant, picks)));
+  const variantDiagnosticsSummary = summarizeXGrowthVariantDiagnostics(variantDiagnostics);
   const target = picks.length >= 9 ? "3slot × 最大3候補" as const : "候補不足" as const;
   const shortages = [
     reachGenerated < 5 ? `REACH供給目標5件に対して${reachGenerated}件` : "",
@@ -2086,6 +2257,8 @@ function buildSupplyDiagnostics(
     semanticQuota: SEMANTIC_CATEGORY_QUOTA,
     semanticQuotaOverflowReasons: semantic.overflowReasons,
     semanticMappingReasons: semantic.mappingReasons,
+    variantDiagnostics,
+    variantDiagnosticsSummary,
     pipeline: candidateDiagnostics?.pipeline ?? {
       rawCandidates: opportunities.length,
       afterPosted: opportunities.length,
@@ -2104,6 +2277,8 @@ function buildSupplyDiagnostics(
       slotEligibleVideo: 0,
       eligibleStrongVideos: 0,
       eligibleOfficialVideos: 0,
+      officialCandidateCount: 0,
+      officialVariantEligibleCount: 0,
       selectedVideos: picks.filter((pick) => pick.mediaType === "sample_movie").length,
       fallbackOfficialSelected: 0,
       selectedVideosBySlot: {},

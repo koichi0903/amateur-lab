@@ -44,7 +44,7 @@ export type XQualityScore = {
     rewriteCount: number;
     humanVoice: {
       passed: boolean;
-      checks: Record<"xNative" | "audienceClear" | "readerAction" | "noInternalMetric" | "noRepeatedFact" | "concreteOpening", boolean>;
+      checks: Record<"xNative" | "audienceClear" | "readerAction" | "noInternalMetric" | "noRepeatedFact" | "concreteOpening" | "concreteVisualFact", boolean>;
       forbiddenHits: string[];
       reasons: string[];
     };
