@@ -68,4 +68,12 @@ assert.equal(isDistinctCandidate(
   [{ workId: 13, productId: "image-d", sampleMovieUrl: null, imageUrl: "https://image/shared.jpg", mediaAsset: null }],
 ), false);
 
+const repairedSet = [
+  { workId: 21, productId: "unique-a", sampleMovieUrl: "https://movie/unique-a", mediaAsset: { id: 201 } },
+  { workId: 22, productId: "duplicate", sampleMovieUrl: "https://movie/duplicate", mediaAsset: { id: 202 } },
+  { workId: 22, productId: "duplicate", sampleMovieUrl: "https://movie/duplicate", mediaAsset: { id: 202 } },
+];
+assert.equal(auditCandidateUniqueness(repairedSet).passed, false);
+assert.equal(auditCandidateUniqueness(repairedSet.filter((candidate, index) => index !== 2)).passed, true);
+
 console.log("xMediaMix tests passed");

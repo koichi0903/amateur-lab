@@ -1565,14 +1565,31 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
     if (isDistinctCandidate(current, rest) && !postedWorkIds.has(current.workId)) continue;
     const replacement = pool
       .filter((candidate) => !postedWorkIds.has(candidate.workId) && isDistinctCandidate(candidate, rest))
-      .map((candidate) => ({ candidate, selected: getCachedVariant(candidate, current.role) }))
-      .filter((entry): entry is { candidate: XGrowthOpportunity; selected: NonNullable<ReturnType<typeof selectCandidateVariant>> } => Boolean(entry.selected))
+      .flatMap((candidate) => {
+        // A duplicate can be created by an older persisted plan or by a media
+        // swap whose original role has no remaining variant. Reuse the slot's
+        // allowed roles for the replacement, while keeping the candidate and
+        // media identity hard gates unchanged.
+        const roles = [current.role, ...slotRoles(current.slotId ?? "slot_1")].filter((role, roleIndex, all) => all.indexOf(role) === roleIndex);
+        return roles.flatMap((role) => {
+          const selected = getCachedVariant(candidate, role);
+          return selected ? [{ candidate, role, selected }] : [];
+        });
+      })
+      .filter(({ candidate, role, selected }) => {
+        if (role !== "MONEY" && selected.variant.mediaType === "sample_movie") {
+          const tags = candidate.mediaAsset?.manual_tags ?? [];
+          if (!candidate.canNativeVideo || !isPostableOfficialSampleMovie(candidate.mediaAsset, candidate.sampleMovieUrl).usable) return false;
+          if (tags.includes("too_explicit_for_reach") || candidate.mediaAsset?.media_quality === "weak") return false;
+        }
+        return hasRealMedia(candidate, selected.variant);
+      })
       .sort((a, b) => b.selected.score - a.selected.score)[0];
     if (!replacement) continue;
-    const audit = diversityConflicts(replacement.candidate, current.role, replacement.selected.variant, rest, logs);
+    const audit = diversityConflicts(replacement.candidate, replacement.role, replacement.selected.variant, rest, logs);
     picked[index] = buildTopPickCandidate({
       item: replacement.candidate,
-      role: current.role,
+      role: replacement.role,
       variant: replacement.selected.variant,
       audit,
       score: clamp(replacement.selected.score),
@@ -1581,7 +1598,7 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
       slotRole: current.slotRole ?? "REACH",
       slotLabel: current.slotLabel ?? "",
       candidateRank: current.candidateRank ?? "C",
-      reason: "最終Unique Audit: duplicate work/media/urlをhard gate内で修復",
+      reason: "最終Unique Audit: duplicate work/media/urlを別role候補でhard gate内に修復",
     });
   }
   const uniqueAudit = auditCandidateUniqueness(picked, postedWorkIds);
