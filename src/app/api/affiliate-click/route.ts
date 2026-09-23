@@ -10,6 +10,7 @@ import {
 
 const placements = new Set<AffiliatePlacement>([
   "detail-sidebar",
+  "buy-timing-panel",
   "mobile-sticky",
   "compare-card",
   "sample-movie-fallback",
