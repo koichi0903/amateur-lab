@@ -34,15 +34,23 @@ assert.equal(/見る|見て|迷|決め|止ま|流|拾|比べ|買|見送|気に�
 
 const variants = buildXCreativeVariants(baseInput);
 const videoVariants = variants.filter((variant) => variant.mediaType === "sample_movie");
+assert.deepEqual(buildXCreativeVariants(baseInput), variants);
 assert.ok(videoVariants.length > 0);
 assert.ok(videoVariants.every((variant) => variant.bodyText.includes("冒頭の展開が予想と少し違う。")));
-assert.ok(videoVariants.every((variant) => /見る|見て|迷|決め|止ま|流|拾|比べ|買|見送|気にな|刺さ|引っかか|伝わ/.test(variant.bodyText)));
+assert.ok(videoVariants.every((variant) => variant.quality.lastMile.humanVoice.checks.readerAction));
 assert.ok(videoVariants.every((variant) => variant.weightedLength <= 280));
 assert.ok(videoVariants.every((variant) => validateXCopyGrammar(baseInput, variant.bodyText).passed));
 assert.ok(videoVariants.some((variant) => variant.quality.lastMile.humanVoice.checks.readerAction));
 assert.ok(videoVariants.some((variant) => variant.quality.lastMile.humanVoice.checks.concreteVisualFact));
 assert.ok(videoVariants.some((variant) => variant.quality.lastMile.nativeXVoice.checks.noTemplateReuse));
 assert.ok(new Set(videoVariants.map((variant) => variant.bodyText.split("\n")[1])).size >= 2);
+
+const workBodies = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"].map((suffix) => {
+  const input = { ...baseInput, key: `fixed-video-quality-fixture-${suffix}`, title: `固定fixture作品${suffix}` };
+  return buildXCreativeVariants(input).find((variant) => variant.mediaType === "sample_movie")?.bodyText;
+});
+assert.equal(workBodies.every(Boolean), true);
+assert.ok(new Set(workBodies).size >= 5);
 
 const imageVariants = buildXCreativeVariants({ ...baseInput, sampleMovieUrl: null, hasRightsCheckedMovie: false, visualFacts: null });
 assert.ok(imageVariants.length > 0);

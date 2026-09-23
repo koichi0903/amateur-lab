@@ -294,60 +294,76 @@ function concreteVisualPhrase(fact: NonNullable<ReturnType<typeof primaryUsableV
   return fact.safePhrase ?? "";
 }
 
+function stableChoiceIndex(value: string, length: number) {
+  let hash = 2166136261;
+  for (const character of value) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash) % length;
+}
+
 function videoReaderActionLine(
+  input: XCreativeInput,
   fact: NonNullable<ReturnType<typeof primaryUsableVisualFact>>,
   intent: XGrowthIntent,
   tag: XVideoManualTag | null,
+  direction: XHookDirection,
 ) {
   const linesByValue: Record<string, string[]> = {
     opening_change: [
-      "冒頭だけ見て、続きも気になる。",
-      "この入り方、もう少し見ていたくなる。",
-      "最初の差が、もう少し気になる。",
-      "この入り方、見た人も気になりそう。",
+      "最初の数秒で、続きまで見ていたくなった。",
+      "この入り方、思わずもう少し見てしまう。",
+      "冒頭の違いが、続きまで気になってしまう。",
+      "開いてすぐの流れ、ここで離れるのは惜しい。",
+      "この始まり方なら、先も見て確かめたくなる。",
     ],
     first_seconds_attention: [
-      "最初の数秒だけでも、続きが気になる。",
-      "開いてすぐの変化を、もう少し見ていたい。",
-      "最初の動きで、もう少し見ていたくなる。",
-      "この始まり方、見た人も気になりそう。",
+      "開いてすぐの動きで、続きを見ていたくなった。",
+      "最初の数秒に、目が止まってしまう。",
+      "この変化は、もう少し先まで見ていたい。",
+      "始まってすぐ、流し見をやめたくなる。",
+      "最初の動きだけで、先も見て確かめたくなる。",
     ],
     safe_preview: [
-      "冒頭だけ見て、続きも気になる。",
-      "まず少し見てから、続きを考えればよさそう。",
-      "短く見て、雰囲気が合うか気になる。",
-      "この見え方、見た人も気になりそう。",
+      "冒頭を少し見たら、続きまで見て確かめたくなった。",
+      "短く見ても、先の流れが気になってくる。",
+      "この見え方なら、もう少し再生していたい。",
+      "まず冒頭を見て、合うかどうか決めたくなる。",
+      "サンプルの入り口から、続きも見て探りたくなる。",
     ],
     actress_fit: [
-      "この見え方、もう少し見ていたくなる。",
-      "いつもと違う見え方を、もう少し見ていたい。",
-      "雰囲気が合うか、冒頭だけ見てみたい。",
-      "この違い、見た人も気になりそう。",
+      "この見え方、もう少し先まで見ていたくなる。",
+      "いつもと違う表情だから、冒頭から目が止まる。",
+      "この空気が合うか、まず続きを見て確かめたい。",
+      "見慣れた印象と違って、もう一度見ていたくなる。",
+      "この違いは、冒頭だけで流さず見ておきたい。",
     ],
     jacket_sample_mismatch: [
-      "サンプルを見てから、続きも気になる。",
-      "ジャケだけで決めず、冒頭も見ていたい。",
-      "この見え方の差を、もう少し見ていたい。",
-      "この差、見た人も気になりそう。",
+      "サンプルを見たら、続きの見え方も見て確かめたくなる。",
+      "ジャケだけで決めず、冒頭からもう少し見たい。",
+      "この見え方の差は、先まで見て判断したくなる。",
+      "表紙との違いが、かえって続きまで気になってしまう。",
+      "この差を見ずに流すのは、少しもったいない。",
     ],
   };
   const choices = linesByValue[String(fact.value)] ?? [
-    "冒頭だけ見て、続きも気になる。",
-    "この見え方、もう少し見ていたくなる。",
-    "見てから、もう少し気になる。",
-    "この違い、見た人も気になりそう。",
+    "冒頭を見たら、続きまで見て確かめたくなった。",
+    "この見え方、もう少し先まで見ていたい。",
+    "開いてすぐの違いに、目が止まってしまう。",
+    "この変化は、流さず見ておきたくなる。",
+      "最初の印象だけで、続きを見て探りたくなる。",
   ];
-  const intentIndex: Record<XGrowthIntent, number> = { REACH: 0, FOLLOW: 1, AUTHORITY: 2, MONEY: 3, CONVERSATION: 3 };
-  const tagOffset = tag === "scene_surprise" ? 1 : tag === "visual_mismatch" ? 2 : tag === "actress_fit" ? 3 : 0;
-  return choices[(intentIndex[intent] + tagOffset) % choices.length];
+  const selectionKey = [input.key, input.title, input.url, String(fact.value), intent, tag ?? "none", direction].join("|");
+  return choices[stableChoiceIndex(selectionKey, choices.length)];
 }
 
-function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPlan: XLinkPlan) {
+function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPlan: XLinkPlan, direction: XHookDirection) {
   const visualFact = primaryUsableVisualFact(input.visualFacts);
   const concretePhrase = visualFact ? concreteVisualPhrase(visualFact) : "";
   if (concretePhrase) {
     const link = linkPlan === "body_link" ? input.url : "";
-    const action = visualFact ? videoReaderActionLine(visualFact, intent, primaryVideoTag(input)) : "";
+    const action = visualFact ? videoReaderActionLine(input, visualFact, intent, primaryVideoTag(input), direction) : "";
     return [concretePhrase, action, intent === "MONEY" ? humanProofLine(input, intent) : "", link].filter(Boolean);
   }
   const tag = primaryVideoTag(input);
@@ -397,7 +413,7 @@ function hookOpenings(input: XCreativeInput, intent: XGrowthIntent): Array<{ dir
   const moneyReason = input.isNinetyDayLow ? "過去90日でかなり安い" : input.saleEndAt ? "セール期限が近い" : input.discountRate >= 30 ? "値下げ幅が大きい" : "サンプルで判断しやすい";
   const genre = input.genre?.split(/[,、/]/)[0]?.trim();
   const discount = input.discountRate >= 30 ? `${pct(input.discountRate)}OFF` : "セール";
-  const videoLines = input.hasRightsCheckedMovie && input.sampleMovieUrl ? videoSpecificLines(input, intent, "no_link") : null;
+  const videoLines = input.hasRightsCheckedMovie && input.sampleMovieUrl ? videoSpecificLines(input, intent, "no_link", "curiosity") : null;
   const openings: Array<{ direction: XHookDirection; opening: string; score: number }> = [
     ...(videoLines ? [{ direction: primaryVideoTag(input) === "visual_mismatch" ? "contrast" as const : primaryVideoTag(input) === "scene_surprise" ? "surprise" as const : "curiosity" as const, opening: videoLines[0], score: 104 }] : []),
     ...(input.sourceType === "MARKET" ? [
@@ -850,7 +866,7 @@ function buildLastMileBodies(input: XCreativeInput, intent: XGrowthIntent, linkP
   const link = linkPlan === "body_link" ? input.url : "";
   const moneyReason = moneyClickReason(input);
   const reachReason = input.imageUrl ? "ジャケだけだと少し流してた。" : "知らなかった人でも、サンプルからなら入りやすい。";
-  const videoLines = input.hasRightsCheckedMovie && input.sampleMovieUrl ? videoSpecificLines(input, intent, linkPlan) : null;
+  const videoLines = input.hasRightsCheckedMovie && input.sampleMovieUrl ? videoSpecificLines(input, intent, linkPlan, direction) : null;
   if (videoLines) {
     return [formatText(videoLines, input.title)].map(sanitizePublicText);
   }
