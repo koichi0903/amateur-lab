@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Breadcrumb from "@/app/components/Breadcrumb";
 import { pageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = pageMetadata({ title: "発掘LABについて | 発掘LAB", description: "発掘LABの発掘スコア、AI分析、掲載データについて紹介します。", canonical: "/about" });
+export const metadata: Metadata = pageMetadata({ title: "発掘LABについて｜FANZA作品の価格・レビュー分析 | 発掘LAB", description: "発掘LABがFANZA作品の価格、レビュー、ランキング、買い時をどのように分析・掲載しているか紹介します。", canonical: "/about" });
 
 export default async function AboutPage() {
 

@@ -44,7 +44,7 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   const page = parsePage(params.page);
   const hasFilters = Boolean(params.sort || params.maxPrice || params.minRating || params.sample);
   return pageMetadata({
-    title: `セール中の作品${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
+    title: `FANZAセール中の作品${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
     description: "現在セール中のFANZA作品を、割引率が高い順に紹介します。",
     canonical: page > 1 ? `/sale?page=${page}` : "/sale",
     robots: hasFilters ? { index: false, follow: true } : undefined,

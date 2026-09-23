@@ -16,7 +16,7 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   const requestedPage = Number.parseInt(params.page ?? "1", 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 1 ? requestedPage : 1;
   return pageMetadata({
-    title: `新着作品${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
+    title: `FANZA新着作品${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
     description: "発売日の新しいFANZA作品を発掘スコアとともに紹介します。",
     canonical: page > 1 ? `/new?page=${page}` : "/new",
     robots: params.sort || params.maxPrice || params.sample ? { index: false, follow: true } : undefined,

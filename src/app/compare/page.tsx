@@ -5,7 +5,7 @@ import CompareClient from "./CompareClient";
 import { pageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = pageMetadata({
-  title: "作品を比較 | 発掘LAB",
+  title: "FANZA作品を比較｜価格・レビュー・過去最安値 | 発掘LAB",
   description: "候補に追加したFANZA作品の価格・割引・レビュー・発掘スコア・サンプル動画を横並びで比較できます。",
   canonical: "/compare",
   robots: { index: false, follow: true },

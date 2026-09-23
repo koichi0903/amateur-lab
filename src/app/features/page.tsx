@@ -34,7 +34,7 @@ export default function FeaturesPage() {
               </span>
               <div>
                 <p className="text-xs font-black tracking-[0.18em] text-indigo-600">EDITORIAL PICKS</p>
-                <h1 className="mt-2 text-3xl font-black sm:text-5xl">目的別の作品特集</h1>
+                  <h1 className="mt-2 text-3xl font-black sm:text-5xl">FANZA作品の目的別特集</h1>
                 <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600 sm:text-base">
                   価格だけ、評価だけで決めず、自分の選び方に合う入口から作品を比較できます。
                 </p>

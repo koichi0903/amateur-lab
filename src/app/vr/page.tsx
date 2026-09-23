@@ -13,7 +13,7 @@ export const revalidate = 1800;
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = pageMetadata({
-  title: "VR作品ランキング | VR専用のおすすめ・セール | 発掘LAB",
+  title: "FANZA VR作品ランキング | VR専用のおすすめ・セール | 発掘LAB",
   description:
     "VR機器を持っている人向けに、FANZAのVR作品だけを発掘スコア、レビュー、価格条件で紹介します。通常ランキングとは分けて掲載しています。",
   canonical: "/vr",

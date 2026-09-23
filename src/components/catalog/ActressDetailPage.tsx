@@ -46,7 +46,7 @@ export async function actressMetadata(actressName: string, page = 1): Promise<Me
   } catch {
     // Avoid indexing an error-thin page while quality data is unavailable.
   }
-  return pageMetadata({ title: `${actressName}のおすすめ作品・セール・埋もれ名作BEST10${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`, description: `${actressName}のおすすめ作品、セール中作品、埋もれ名作をBEST10形式で比較。発掘スコア、埋もれ度、レビュー件数、価格条件から選べます。`, canonical: `/actress/${encodeURIComponent(actressName)}${page > 1 ? `/page/${page}` : ""}`, robots });
+  return pageMetadata({ title: `${actressName}のFANZA作品おすすめ・セール・埋もれ名作BEST10${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`, description: `${actressName}のFANZAおすすめ作品、セール中作品、埋もれ名作をBEST10形式で比較。発掘スコア、埋もれ度、レビュー件数、価格条件から選べます。`, canonical: `/actress/${encodeURIComponent(actressName)}${page > 1 ? `/page/${page}` : ""}`, robots });
 }
 
 function Price({ work }: { work: Work }) {
@@ -187,7 +187,7 @@ export async function ActressDetailPage({ actressName, currentPage }: { actressN
 
   return <><Header /><main className="min-h-screen bg-[#f8fafc] text-slate-950">
     <section className="border-b border-slate-200 bg-white"><div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8"><div className="text-xs font-bold text-slate-500"><Link href="/" className="hover:text-pink-600">TOP</Link><span className="mx-1">/</span><Link href="/actress" className="hover:text-pink-600">女優</Link><span className="mx-1">/</span>{actressName}</div>
-      <div className="mt-6 grid gap-6 md:grid-cols-[280px_minmax(0,1fr)] lg:gap-10"><div className="relative aspect-[4/3] overflow-hidden rounded-3xl bg-slate-100 shadow-sm"><WorkImage src={topWork?.image_url} alt={`${actressName}の出演作品`} sizes="(max-width: 768px) 92vw, 280px" priority unoptimized className="object-cover" /></div><div className="min-w-0"><p className="text-xs font-black tracking-[0.18em] text-pink-600">ACTRESS PROFILE</p><h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">{actressName}</h1><p className="mt-4 text-sm leading-7 text-slate-600">出演作品を発掘スコア順に掲載。高評価作品から、この女優の魅力を発掘できます。</p>
+      <div className="mt-6 grid gap-6 md:grid-cols-[280px_minmax(0,1fr)] lg:gap-10"><div className="relative aspect-[4/3] overflow-hidden rounded-3xl bg-slate-100 shadow-sm"><WorkImage src={topWork?.image_url} alt={`${actressName}の出演作品`} sizes="(max-width: 768px) 92vw, 280px" priority unoptimized className="object-cover" /></div><div className="min-w-0"><p className="text-xs font-black tracking-[0.18em] text-pink-600">ACTRESS PROFILE</p><h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">{actressName}のFANZA作品</h1><p className="mt-4 text-sm leading-7 text-slate-600">FANZA出演作品を発掘スコア順に掲載。高評価、価格、レビューから、この女優の魅力を発掘できます。</p>
         <div className="mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">{[{ icon: Clapperboard, label: "登録作品", value: `${totalCount}作品` }, { icon: Trophy, label: "最高スコア", value: summary?.maxScore ? String(summary.maxScore) : topWork?.score > 0 ? String(topWork.score) : "—" }, { icon: Sparkles, label: "上位作品平均", value: averageScore > 0 ? String(averageScore) : "—" }, { icon: Star, label: "上位レビュー平均", value: averageReview }].map((stat) => <div key={stat.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><stat.icon size={18} className="text-pink-600" /><p className="mt-3 text-xs font-bold text-slate-500">{stat.label}</p><p className="mt-1 text-xl font-black">{stat.value}</p></div>)}</div>
       </div></div>
     </div></section>

@@ -16,8 +16,8 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   const query = (params.q ?? "").trim();
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
   return pageMetadata({
-    title: `${query ? `「${query}」の女優検索結果` : "女優ランキング"}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
-    description: "登録作品数と発掘スコアから、注目の女優と出演作品を探せます。",
+    title: `${query ? `「${query}」のFANZA女優検索結果` : "FANZA女優ランキング"}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
+    description: "FANZA登録作品数と発掘スコアから、注目の女優と出演作品を探せます。",
     canonical: query ? "/actress" : `/actress${page > 1 ? `?page=${page}` : ""}`,
     robots: query ? { index: false, follow: true } : undefined,
   });

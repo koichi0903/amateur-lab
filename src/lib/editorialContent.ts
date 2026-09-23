@@ -87,8 +87,8 @@ export const editorialGuides: readonly EditorialGuide[] = [
   {
     slug: "single-vs-subscription",
     eyebrow: "PURCHASE GUIDE",
-    title: "単品購入と定額サービスを選ぶときの比較ポイント",
-    description: "見たい作品が決まっている場合と幅広く試したい場合に、購入方式を比較するための確認項目をまとめます。",
+    title: "FANZAの単品購入と定額サービスを選ぶ比較ポイント",
+    description: "FANZAで見たい作品が決まっている場合と幅広く試したい場合に、購入方式を比較する確認項目をまとめます。",
     summary: "商品やサービスごとに対象作品と利用条件が異なります。作品の目的、視聴回数、利用期間、対象範囲を公式情報で確認して選びます。",
     sections: [
       { title: "見たい一本が決まっている場合", paragraphs: ["特定作品を目的にしている場合は、その作品の販売形式、視聴期限、画質を確認します。単品で提供されていることと、定額対象であることは別の条件です。"] },
@@ -102,8 +102,8 @@ export const editorialGuides: readonly EditorialGuide[] = [
   {
     slug: "viewing-formats",
     eyebrow: "FORMAT GUIDE",
-    title: "VR・4K・HD・長尺作品を購入前に確認すること",
-    description: "画質や視聴形式、対応機器、収録時間を確認し、購入後の視聴トラブルを避けるための順番を解説します。",
+    title: "FANZAのVR・4K・HD・長尺作品を購入前に確認すること",
+    description: "FANZA作品の画質や視聴形式、対応機器、収録時間を確認し、購入後の視聴トラブルを避ける順番を解説します。",
     summary: "高画質や長尺という表示だけで決めず、商品、再生機器、出力先、通信・保存環境が条件に合うか確認します。",
     sections: [
       { title: "VRは対応機器とアプリを確認", paragraphs: ["VR作品は通常の映像と視聴環境が異なる場合があります。対応機器、利用アプリ、公式のテスト方法を購入前に確認します。"] },
@@ -154,10 +154,10 @@ export const actressEditorialProfiles: Record<string, EntityEditorialProfile> = 
 ) as Record<string, EntityEditorialProfile>;
 
 export const reportDefinitions = [
-  { slug: "price-drops", title: "今週の価格下落・過去最安作品", description: "現在価格と取得済みの過去価格を比較し、値下がりや最安を確認できる作品を掲載します。" },
+  { slug: "price-drops", title: "FANZA作品の今週の価格下落・過去最安", description: "FANZA作品の現在価格と取得済みの過去価格を比較し、値下がりや最安を確認できる作品を掲載します。" },
   { slug: "price-bands", title: "価格帯別に比較しやすいFANZA作品", description: "1,000円未満、1,000〜3,000円、3,000円以上の価格帯に分け、レビューと価格条件を一緒に比較できる作品を掲載します。" },
-  { slug: "ranking-movers", title: "今週のランキング急上昇作品", description: "前回順位と現在順位を比較し、順位を大きく上げた作品を掲載します。" },
-  { slug: "sale-ending", title: "まもなく終了するセール作品", description: "セール終了日時を取得できた作品から、終了が近い高評価作品を掲載します。" },
+  { slug: "ranking-movers", title: "FANZA作品の今週のランキング急上昇", description: "FANZA作品の前回順位と現在順位を比較し、順位を大きく上げた作品を掲載します。" },
+  { slug: "sale-ending", title: "まもなく終了するFANZAセール作品", description: "FANZAのセール終了日時を取得できた作品から、終了が近い高評価作品を掲載します。" },
 ] as const;
 
 export type ReportSlug = (typeof reportDefinitions)[number]["slug"];

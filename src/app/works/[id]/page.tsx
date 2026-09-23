@@ -298,8 +298,8 @@ export async function generateMetadata(
   const reviewText = work.review_count > 0
     ? `レビュー${work.review_average.toFixed(2)}（${work.review_count}件）。`
     : "";
-  const title = `${work.title}｜価格推移・過去最安値・買い時${scoreText} | 発掘LAB`;
-  const description = `${work.title}の現在価格、価格推移、過去最安値、買い時を確認。${priceText}${reviewText}${actressText}同価格帯の作品とも比較できます。`;
+  const title = `${work.title}｜FANZA価格・過去最安値・買い時${scoreText} | 発掘LAB`;
+  const description = `${work.title}のFANZA現在価格、価格推移、過去最安値、買い時を確認。${priceText}${reviewText}${actressText}同価格帯の作品とも比較できます。`;
   const encodedId = encodeURIComponent(id);
   const socialImage = work.image_url || `${SITE_URL}/ogp.png`;
   const metadata = pageMetadata({

@@ -15,11 +15,11 @@ import { buildInsightsForWorks, type HomePriceInsightWork } from "@/lib/getHomeP
 export const revalidate = 86400;
 
 const rankingTypes = {
-  overall: { label: "総合", title: "発掘作品ランキング", description: "作品の魅力を総合評価した「発掘スコア」が高い作品順です。", metric: "発掘スコア" },
-  actress: { label: "女優", title: "発掘女優ランキング", description: "出演作品の発掘スコアと実績を集計し、いま発掘したい女優を紹介します。", entityLabel: "女優" },
-  genre: { label: "ジャンル", title: "発掘ジャンルランキング", description: "所属作品の発掘スコアと実績を集計し、いま発掘したいジャンルを紹介します。", entityLabel: "ジャンル" },
-  maker: { label: "メーカー", title: "発掘メーカーランキング", description: "所属作品の発掘スコアと実績を集計し、いま発掘したいメーカーを紹介します。", entityLabel: "メーカー" },
-  series: { label: "シリーズ", title: "発掘シリーズランキング", description: "所属作品の発掘スコアと実績を集計し、いま発掘したいシリーズを紹介します。", entityLabel: "シリーズ" },
+  overall: { label: "総合", title: "FANZA作品の発掘ランキング", description: "FANZA作品の魅力を総合評価した「発掘スコア」が高い作品順です。", metric: "発掘スコア" },
+  actress: { label: "女優", title: "FANZA作品から見る発掘女優ランキング", description: "FANZA出演作品の発掘スコアと実績を集計し、いま発掘したい女優を紹介します。", entityLabel: "女優" },
+  genre: { label: "ジャンル", title: "FANZA作品の発掘ジャンルランキング", description: "FANZA所属作品の発掘スコアと実績を集計し、いま発掘したいジャンルを紹介します。", entityLabel: "ジャンル" },
+  maker: { label: "メーカー", title: "FANZA作品の発掘メーカーランキング", description: "FANZA所属作品の発掘スコアと実績を集計し、いま発掘したいメーカーを紹介します。", entityLabel: "メーカー" },
+  series: { label: "シリーズ", title: "FANZA作品の発掘シリーズランキング", description: "FANZA所属作品の発掘スコアと実績を集計し、いま発掘したいシリーズを紹介します。", entityLabel: "シリーズ" },
 } as const;
 
 type RankingType = keyof typeof rankingTypes;

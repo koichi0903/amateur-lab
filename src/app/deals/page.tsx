@@ -52,7 +52,7 @@ export default async function DealsPage() {
               <span className="shrink-0 rounded-2xl bg-emerald-50 p-3 text-emerald-600"><BadgeJapaneseYen size={30} /></span>
               <div>
                 <p className="text-xs font-black tracking-[0.18em] text-emerald-600">SMART DEAL FINDER</p>
-                <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">条件からお得な作品を探す</h1>
+                <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">条件からお得なFANZA作品を探す</h1>
                 <p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">安さだけでなく、終了時刻・レビュー・無料サンプルまで比較。いま買う理由が分かる作品だけを探せます。</p>
               </div>
             </div>
