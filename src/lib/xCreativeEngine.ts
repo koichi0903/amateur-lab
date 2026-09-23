@@ -290,8 +290,56 @@ function concreteVisualPhrase(fact: NonNullable<ReturnType<typeof primaryUsableV
   if (fact.kind === "jacket_sample_mismatch" || /ジャケとサンプルで印象/.test(fact.safePhrase ?? "")) return "ジャケとサンプルで見え方が違う。";
   if (/入り方が少し予想と違う/.test(fact.safePhrase ?? "") || fact.value === "opening_change") return "冒頭の展開が予想と少し違う。";
   if (fact.value === "first_seconds_attention") return "開いてすぐ、画面の変化に目が止まる。";
-  if (fact.value === "safe_preview") return "サンプルの冒頭だけでも確認できる。";
+  if (fact.value === "safe_preview") return "サンプルの冒頭だけで、見え方が分かる。";
   return fact.safePhrase ?? "";
+}
+
+function videoReaderActionLine(
+  fact: NonNullable<ReturnType<typeof primaryUsableVisualFact>>,
+  intent: XGrowthIntent,
+  tag: XVideoManualTag | null,
+) {
+  const linesByValue: Record<string, string[]> = {
+    opening_change: [
+      "冒頭だけ見て、続きも気になる。",
+      "この入り方、もう少し見ていたくなる。",
+      "最初の差が、もう少し気になる。",
+      "この入り方、見た人も気になりそう。",
+    ],
+    first_seconds_attention: [
+      "最初の数秒だけでも、続きが気になる。",
+      "開いてすぐの変化を、もう少し見ていたい。",
+      "最初の動きで、もう少し見ていたくなる。",
+      "この始まり方、見た人も気になりそう。",
+    ],
+    safe_preview: [
+      "冒頭だけ見て、続きも気になる。",
+      "まず少し見てから、続きを考えればよさそう。",
+      "短く見て、雰囲気が合うか気になる。",
+      "この見え方、見た人も気になりそう。",
+    ],
+    actress_fit: [
+      "この見え方、もう少し見ていたくなる。",
+      "いつもと違う見え方を、もう少し見ていたい。",
+      "雰囲気が合うか、冒頭だけ見てみたい。",
+      "この違い、見た人も気になりそう。",
+    ],
+    jacket_sample_mismatch: [
+      "サンプルを見てから、続きも気になる。",
+      "ジャケだけで決めず、冒頭も見ていたい。",
+      "この見え方の差を、もう少し見ていたい。",
+      "この差、見た人も気になりそう。",
+    ],
+  };
+  const choices = linesByValue[String(fact.value)] ?? [
+    "冒頭だけ見て、続きも気になる。",
+    "この見え方、もう少し見ていたくなる。",
+    "見てから、もう少し気になる。",
+    "この違い、見た人も気になりそう。",
+  ];
+  const intentIndex: Record<XGrowthIntent, number> = { REACH: 0, FOLLOW: 1, AUTHORITY: 2, MONEY: 3, CONVERSATION: 3 };
+  const tagOffset = tag === "scene_surprise" ? 1 : tag === "visual_mismatch" ? 2 : tag === "actress_fit" ? 3 : 0;
+  return choices[(intentIndex[intent] + tagOffset) % choices.length];
 }
 
 function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPlan: XLinkPlan) {
@@ -299,7 +347,8 @@ function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPl
   const concretePhrase = visualFact ? concreteVisualPhrase(visualFact) : "";
   if (concretePhrase) {
     const link = linkPlan === "body_link" ? input.url : "";
-    return [concretePhrase, intent === "MONEY" ? humanProofLine(input, intent) : "", link].filter(Boolean);
+    const action = visualFact ? videoReaderActionLine(visualFact, intent, primaryVideoTag(input)) : "";
+    return [concretePhrase, action, intent === "MONEY" ? humanProofLine(input, intent) : "", link].filter(Boolean);
   }
   const tag = primaryVideoTag(input);
   if (!tag || tag === "too_explicit_for_reach" || tag === "weak_visual") return null;
@@ -801,12 +850,9 @@ function buildLastMileBodies(input: XCreativeInput, intent: XGrowthIntent, linkP
   const link = linkPlan === "body_link" ? input.url : "";
   const moneyReason = moneyClickReason(input);
   const reachReason = input.imageUrl ? "ジャケだけだと少し流してた。" : "知らなかった人でも、サンプルからなら入りやすい。";
-  const videoLines = input.hasRightsCheckedMovie && input.sampleMovieUrl && intent !== "MONEY" ? videoSpecificLines(input, intent, linkPlan) : null;
+  const videoLines = input.hasRightsCheckedMovie && input.sampleMovieUrl ? videoSpecificLines(input, intent, linkPlan) : null;
   if (videoLines) {
-    return [...new Set([
-      formatText(videoLines, input.title),
-      buildBody(input, intent, variantPlan(intent).structure, linkPlan, direction),
-    ].map(sanitizePublicText))];
+    return [formatText(videoLines, input.title)].map(sanitizePublicText);
   }
   if (input.sourceType === "PRICE_EVENT") {
     return [...new Set([
@@ -885,9 +931,15 @@ export function buildXCreativeVariants(input: XCreativeInput, hookScore = calcul
       // valid bodies. The preferred index is stable, while failed variants still
       // fall back to the strongest passing body.
       const preferred = reviewedCandidates[alternativeIndex % Math.max(1, reviewedCandidates.length)];
-      const reviewed = preferred?.quality.passed
+      const primaryVideoFact = mediaType === "sample_movie" ? primaryUsableVisualFact(input.visualFacts) : null;
+      const factPhrase = primaryVideoFact ? concreteVisualPhrase(primaryVideoFact) : "";
+      const factPreserving = factPhrase
+        ? reviewedCandidates.find((candidate) => candidate.quality.passed && candidate.text.includes(factPhrase))
+        : undefined;
+      const reviewed = factPreserving
+        ?? (preferred?.quality.passed
         ? preferred
-        : reviewedCandidates.sort((a, b) => Number(b.quality.passed) - Number(a.quality.passed) || b.quality.total - a.quality.total)[0];
+        : reviewedCandidates.sort((a, b) => Number(b.quality.passed) - Number(a.quality.passed) || b.quality.total - a.quality.total)[0]);
       const text = reviewed.text;
       const quality = {
         ...reviewed.quality,
