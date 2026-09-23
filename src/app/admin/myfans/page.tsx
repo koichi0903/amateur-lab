@@ -3,7 +3,7 @@ import { ExternalLink } from "lucide-react";
 import { getMyfansAnalytics } from "@/lib/myfansAnalytics";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildMyfansAcquisitionPlanner } from "@/lib/myfansAcquisitionPlanner";
-import { buildCreatorPartnershipCandidates, buildMyfansExecutionBoard, buildQuoteCandidateCollectionTasks, compareByStrategy, summarizeTodayActions } from "@/lib/myfansXExecution";
+import { buildCreatorPartnershipCandidates, buildMyfansExecutionBoard, buildQuoteCandidateCollectionTasks, compareByStrategy } from "@/lib/myfansXExecution";
 import { AffiliatePasteImportForm, DailyPlanReevaluateButton, DiagnosticStatusPanel, QuoteCandidateTasks, QuoteRefreshBatchPanel, XAccountMetricForm, XExecutionBoard } from "./MyfansAdminForms";
 import { permanentRedirect } from "next/navigation";
 
@@ -76,7 +76,6 @@ export default async function MyfansDailyPage({
     evaluatedAt: currentPlan.evaluated_at ?? currentPlan.updated_at ?? null,
     selectedOptions: savedSelection && typeof savedSelection === "object" ? savedSelection as Record<string, string> : {},
   } : null;
-  const todayActions = summarizeTodayActions(analytics);
   const quoteTasks = buildQuoteCandidateCollectionTasks(analytics);
   const creatorsWithX = analytics.creators.filter((creator) => creator.is_active && creator.creator_x_url);
   const creatorKeysWithX = new Set(creatorsWithX.map((creator) => creator.id));
@@ -145,7 +144,51 @@ export default async function MyfansDailyPage({
           </section>
         )}
 
-        <section className="mt-8 rounded-lg border border-amber-800 bg-amber-950/20 p-5">
+        <section className="mt-8 rounded-xl border border-emerald-700 bg-emerald-950/25 p-5" aria-labelledby="myfans-status-title">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-black tracking-[0.16em] text-emerald-300">TODAY AT A GLANCE</p>
+              <h2 id="myfans-status-title" className="mt-2 text-2xl font-black">今日の状態</h2>
+            </div>
+            <p className="text-xs text-zinc-400">{board.planDate} JST / {board.todayStrategy.stageLabel}</p>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            <Card label="候補 options" value={`${board.recovery.candidateOptions}/${board.recovery.candidateOptionsTarget}`} note="4 slot × A/B/C" />
+            <Card label="今日 selected" value={`${board.recovery.passCount}/${board.recovery.selectedMinimum}〜${board.recovery.selectedMaximum}`} note={board.recovery.selectedStatus === "READY" ? "投稿候補あり" : "供給不足"} />
+            <Card label="収集推奨" value={`${quoteTasks.length}件`} note="全クリエイター巡回" />
+            <Card label="投稿候補" value={`${board.candidates.length}本`} note={board.heldCandidates.length ? `保留 ${board.heldCandidates.length}本` : "Quality Gate通過"} />
+            <Card label="投稿後入力" value={analytics.posts.some((post) => post.status === "ready") ? "投稿URL" : "候補保存"} note="URL・24h指標" />
+            <Card label="最新収集" value={dateTime(board.quotePool.funnel.latestCollectedAt)} note="Companion保存時刻" />
+          </div>
+        </section>
+
+        <section className="mt-5 rounded-xl border border-zinc-800 bg-zinc-900 p-5" aria-labelledby="myfans-actions-title">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-black tracking-[0.16em] text-amber-300">NEXT ACTIONS</p>
+              <h2 id="myfans-actions-title" className="mt-2 text-2xl font-black">今日やること</h2>
+            </div>
+            <p className="text-xs text-zinc-500">上から順に、必要なものだけ実行します。</p>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            <a href="#collection" className="rounded-lg border border-emerald-800 bg-zinc-950 p-4 transition hover:border-emerald-500">
+              <p className="text-sm font-black text-emerald-200">1. 供給を確認</p>
+              <p className="mt-2 text-xs leading-5 text-zinc-400">{planner.tasks.length ? `${planner.tasks.length}件の収集タスク` : "収集より投稿・計測を優先"} / cursor・cycleは自動保持</p>
+            </a>
+            <a href="#today-candidates" className="rounded-lg border border-violet-800 bg-zinc-950 p-4 transition hover:border-violet-500">
+              <p className="text-sm font-black text-violet-200">2. 候補を選ぶ</p>
+              <p className="mt-2 text-xs leading-5 text-zinc-400">{board.candidates.length}本の投稿候補からselectedを確認</p>
+            </a>
+            <a href="#post-metrics" className="rounded-lg border border-cyan-800 bg-zinc-950 p-4 transition hover:border-cyan-500">
+              <p className="text-sm font-black text-cyan-200">3. 投稿後を記録</p>
+              <p className="mt-2 text-xs leading-5 text-zinc-400">投稿URLを保存し、24時間後に指標を入力</p>
+            </a>
+          </div>
+        </section>
+
+        <details className="mt-8 rounded-xl border border-amber-800 bg-amber-950/20 p-5">
+          <summary className="cursor-pointer list-none text-sm font-black text-amber-200">商品供給・UUID登録（必要な時だけ開く）</summary>
+          <div className="mt-4">
           <p className="text-xs font-black text-amber-300">PRODUCT SUPPLY / RESOLVER</p>
           <h2 className="mt-2 text-2xl font-black">投稿UUIDから商品DB・送客状態</h2>
           <p className="mt-2 text-sm leading-6 text-amber-50/80">通常Chromeで表示確認した投稿だけを、canonical URL単位で重複防止して登録します。creator_idとaffiliate_urlは画面で厳格に確認できるまで空欄です。</p>
@@ -171,9 +214,10 @@ export default async function MyfansDailyPage({
           </div>
           {(supplyProductsResult.error || supplyEvidenceResult.error) && <p className="mt-3 text-xs text-amber-200">供給状態の一部を読み込めません。migration適用後に再表示してください。</p>}
           <p className="mt-3 text-xs leading-5 text-zinc-500">次の操作: 上の投稿を通常Chromeで開き、最新版のCompanionで登録を押す。affiliate URLはmyfans管理画面で実際に発行・確認した場合だけ別途登録します。</p>
-        </section>
+          </div>
+        </details>
 
-        <section className="mt-8 rounded-lg border border-emerald-700 bg-emerald-950/25 p-5">
+        <section id="collection" className="mt-8 rounded-xl border border-emerald-700 bg-emerald-950/25 p-5">
           <p className="text-xs font-black text-emerald-300">@lumi_reviw Daily Growth Command Center</p>
           <div className="mt-3 grid gap-4 lg:grid-cols-[1.5fr_1fr]">
             <div>
@@ -212,7 +256,7 @@ export default async function MyfansDailyPage({
           <p className="mt-3 text-xs leading-5 text-zinc-500">
             最新候補取得: {dateTime(board.quotePool.funnel.latestCollectedAt)} / Companion selected_for_today は推奨印、Daily Planner採用はsnapshotのselectedとして別記録します。
           </p>
-          <details className="mt-4 rounded-lg border border-cyan-800 bg-zinc-950 p-4" open>
+          <details className="mt-4 rounded-lg border border-cyan-800 bg-zinc-950 p-4">
             <summary className="cursor-pointer text-sm font-black text-cyan-100">myfans連携候補ファネル</summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
               <Card label="myfans creator" value={`${board.linkedCandidateFunnel.myfansCreatorsTotal}件`} note="active creator" />
@@ -231,7 +275,7 @@ export default async function MyfansDailyPage({
               主要落選理由はcreatorごとに1つだけ数え、各条件該当数とは分けています。
             </p>
           </details>
-          <details className="mt-4 rounded-lg border border-fuchsia-800 bg-zinc-950 p-4" open>
+          <details className="mt-4 rounded-lg border border-fuchsia-800 bg-zinc-950 p-4">
             <summary className="cursor-pointer text-sm font-black text-fuchsia-100">Supply Funnel / 空き枠の理由</summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
               {board.supplyAudit.stages.filter((stage) => ["source_discovery", "source_value", "freshness_cooldown", "visual", "topic_value", "quality_last_mile", "selected"].includes(stage.stage)).map((stage) => (
@@ -310,28 +354,7 @@ export default async function MyfansDailyPage({
           </details>
         </section>
 
-        <section className="mt-8 rounded-lg border border-emerald-800 bg-emerald-950/20 p-5">
-          <p className="text-xs font-black text-emerald-300">今日やること</p>
-          <div className="mt-4 grid gap-3 lg:grid-cols-3">
-            <div className="rounded-lg bg-zinc-950 p-4">
-              <p className="text-sm font-black">収集タスク</p>
-              <p className="mt-2 text-2xl font-black">{planner.tasks.length ? `${planner.tasks.length}件` : "なし"}</p>
-              <p className="mt-1 text-xs leading-5 text-zinc-400">{planner.summary} / 引用候補 {quoteTasks.length}件</p>
-            </div>
-            <div className="rounded-lg bg-zinc-950 p-4">
-              <p className="text-sm font-black">投稿タスク</p>
-              <p className="mt-2 text-2xl font-black">{board.candidates.length}本</p>
-              <p className="mt-1 text-xs leading-5 text-zinc-400">{board.strategy.postsPerDay} / {todayActions.join(" / ")}</p>
-            </div>
-            <div className="rounded-lg bg-zinc-950 p-4">
-              <p className="text-sm font-black">必要な手入力</p>
-              <p className="mt-2 text-2xl font-black">{analytics.posts.some((post) => post.status === "ready") ? "投稿URL" : "候補保存"}</p>
-              <p className="mt-1 text-xs leading-5 text-zinc-400">投稿後にURL、表示、いいね、返信、クリックをここで登録します。</p>
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-8 rounded-lg border border-violet-800 bg-violet-950/20 p-5">
+        <section id="today-candidates" className="mt-8 rounded-xl border border-violet-800 bg-violet-950/20 p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-xs font-black text-violet-300">Attention Radar</p>
@@ -363,8 +386,13 @@ export default async function MyfansDailyPage({
             <Card label="全体Top候補" value={topGlobalQuote ? `Score ${topGlobalQuote.globalScore}` : "なし"} note={topGlobalQuote?.candidate.source_x_handle ? `@${topGlobalQuote.candidate.source_x_handle}` : "閾値未満ならcard"} />
             <Card label="今日採用予定quote" value={`${board.candidates.filter((candidate) => candidate.creativeStrategy === "quote_post").length}件`} note="原則1件、強い別creatorなら最大2件" />
           </div>
-          <QuoteRefreshBatchPanel approvedMediaId={analytics.selectedMediaId} />
-          <DiagnosticStatusPanel approvedMediaId={analytics.selectedMediaId} />
+          <details className="mt-5 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+            <summary className="cursor-pointer text-sm font-black text-zinc-200">詳細・診断（Companion / Visual / raw状態）</summary>
+            <div className="mt-4 space-y-4">
+              <QuoteRefreshBatchPanel approvedMediaId={analytics.selectedMediaId} />
+              <DiagnosticStatusPanel approvedMediaId={analytics.selectedMediaId} />
+            </div>
+          </details>
         </section>
 
         <section className="mt-8 rounded-lg border border-cyan-800 bg-cyan-950/20 p-5">
@@ -391,7 +419,7 @@ export default async function MyfansDailyPage({
 
         <QuoteCandidateTasks tasks={quoteTasks} />
 
-        <section className="mt-8 rounded-lg border border-zinc-800 bg-zinc-900 p-5">
+        <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
           <p className="text-xs font-black text-emerald-300">プロフィールと固定ポスト</p>
           <h2 className="mt-2 text-2xl font-black">@lumi_reviwの受け皿</h2>
           <p className="mt-2 text-sm leading-6 text-zinc-400">{board.profileGuide.role}</p>
@@ -411,7 +439,7 @@ export default async function MyfansDailyPage({
           </div>
         </section>
 
-        <section className="mt-8 rounded-lg border border-zinc-800 bg-zinc-900 p-5">
+        <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-black text-emerald-300">Candidate Acquisition Planner</p>
@@ -452,7 +480,7 @@ export default async function MyfansDailyPage({
           <AffiliatePasteImportForm />
         </section>
 
-        <section className="mt-8 rounded-lg border border-zinc-800 bg-zinc-900 p-5">
+        <section id="post-metrics" className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
           <p className="text-xs font-black text-emerald-300">今日のX投稿</p>
           <h2 className="mt-2 text-2xl font-black">Day {board.day} / {board.stage}</h2>
           <p className="mt-2 text-sm leading-6 text-zinc-500">{board.planningReason}</p>
