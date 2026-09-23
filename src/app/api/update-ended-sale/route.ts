@@ -12,6 +12,9 @@ export async function POST() {
 
 return Response.json({
   success: true,
+  completed: true,
+  processedCount: result?.processedCount ?? 0,
+  totalCount: result?.totalCount ?? 0,
   message: "終了セール更新が完了しました。",
 });
   } catch (error) {
