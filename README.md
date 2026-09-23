@@ -2,11 +2,13 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Local admin development
 
-The current myfans admin runs on port 3000. Start it with:
+The current myfans admin runs on port 3000. Start the canonical local server with:
 
-```bash
-npm run dev:myfans
+```powershell
+npm run dev:local
 ```
+
+The launcher resolves its own repository root, verifies `.env.local` without printing its values, and records the PID, checkout, and Git HEAD in `%LOCALAPPDATA%\amateur-lab\local-dev-3000.json`. It reuses only a server previously started by this launcher from the same checkout. An unverified or different checkout is reported and never stopped automatically.
 
 Open [http://localhost:3000/admin](http://localhost:3000/admin) and use the `myfans X運用` card. The canonical myfans command center is [http://localhost:3000/admin/myfans?media=1](http://localhost:3000/admin/myfans?media=1).
 

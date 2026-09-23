@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:myfans": "next dev --webpack -p 3000",
+    "dev:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-dev.ps1",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
