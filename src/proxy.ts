@@ -10,6 +10,7 @@ const PUBLIC_API_PATHS = new Set([
 ]);
 const LOCAL_UPDATE_API_PATHS = new Set([
   "/api/admin/browser-health",
+  "/api/admin/server-health",
   "/api/admin/local-playwright-update",
   "/api/dmm-ranking",
   "/api/fanza-page",
@@ -142,11 +143,12 @@ async function authenticatedAdminResponse(request: NextRequest) {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const isLoopbackRequest = ["localhost", "127.0.0.1"].includes(
+    request.nextUrl.hostname,
+  );
   const isLocalDevelopmentRequest =
     process.env.NODE_ENV === "development" &&
-    ["localhost", "127.0.0.1"].includes(
-      request.nextUrl.hostname,
-    );
+    isLoopbackRequest;
 
   if (WORK_SOCIAL_IMAGE_PATH_PATTERN.test(pathname)) {
     return NextResponse.redirect(new URL("/ogp.png", request.url), {
@@ -170,7 +172,7 @@ export async function proxy(request: NextRequest) {
 
   if (
     LOCAL_UPDATE_API_PATHS.has(pathname) &&
-    isLocalDevelopmentRequest
+    isLoopbackRequest
   ) {
     return NextResponse.next();
   }
