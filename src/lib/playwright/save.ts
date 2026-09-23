@@ -9,6 +9,7 @@ import { saveLowestPriceEvent } from "@/lib/insights/event";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_REQUEST_TIMEOUT_MS = 30_000;
 
 if (!supabaseUrl || !serviceRoleKey) {
   throw new Error(
@@ -16,9 +17,18 @@ if (!supabaseUrl || !serviceRoleKey) {
   );
 }
 
+const fetchWithTimeout: typeof fetch = async (input, init) => {
+  const timeoutSignal = AbortSignal.timeout(SUPABASE_REQUEST_TIMEOUT_MS);
+  const signal = init?.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal;
+  return fetch(input, { ...init, signal });
+};
+
 // saveWork は管理ジョブ専用。anon key では RLS により更新が0件になる場合がある。
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
+  global: { fetch: fetchWithTimeout },
 });
 
 const normalizePriceName = (value: string) =>

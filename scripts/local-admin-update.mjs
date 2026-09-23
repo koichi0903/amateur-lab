@@ -43,6 +43,8 @@ const TASK_GROUPS = {
 };
 
 const LOCAL_UPDATE_DIST_DIR = ".next-local-update-production";
+const DEFAULT_UPDATE_REQUEST_TIMEOUT_MS = 2 * 60 * 60 * 1_000;
+const ENDED_SALE_UPDATE_REQUEST_TIMEOUT_MS = 4 * 60 * 60 * 1_000;
 
 async function revalidateProduction(tasks) {
   if (tasks.length === 0) return;
@@ -142,16 +144,14 @@ async function findAvailablePort() {
   });
 }
 
-function postWithoutTimeout(url) {
+function postUpdate(url, timeoutMs) {
   return new Promise((resolveResponse, reject) => {
     const request = httpRequest(
       url,
       {
         method: "POST",
         headers: { accept: "application/json" },
-        // Playwrightを使う更新は5分以上かかる。Node fetch (undici) の
-        // 既定タイムアウトで接続だけが切れ、サーバー処理が残るのを防ぐ。
-        timeout: 0,
+        timeout: timeoutMs,
       },
       (response) => {
         response.setEncoding("utf8");
@@ -174,9 +174,18 @@ function postWithoutTimeout(url) {
       },
     );
 
+    request.once("timeout", () => {
+      request.destroy(new Error(`更新APIが${Math.round(timeoutMs / 60_000)}分で応答しませんでした。`));
+    });
     request.once("error", reject);
     request.end();
   });
+}
+
+function updateRequestTimeoutMs(task) {
+  return task.jobName === "ended_sale"
+    ? ENDED_SALE_UPDATE_REQUEST_TIMEOUT_MS
+    : DEFAULT_UPDATE_REQUEST_TIMEOUT_MS;
 }
 
 async function pathMtimeMs(path) {
@@ -399,7 +408,10 @@ async function run(taskName) {
       const startedAt = Date.now();
       let response;
       try {
-        response = await postWithoutTimeout(`${baseUrl}${task.path}`);
+        response = await postUpdate(
+          `${baseUrl}${task.path}`,
+          updateRequestTimeoutMs(task),
+        );
       } catch (error) {
         if (isConnectionReset(error) && await recoverDisconnectedTask(task, startedAt)) {
           break;

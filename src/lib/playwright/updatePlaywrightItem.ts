@@ -167,6 +167,9 @@ if (!workUrl) {
     page = await browser.newPage();
   }
 
+  page.setDefaultTimeout(15_000);
+  page.setDefaultNavigationTimeout(60_000);
+
   // Routine updates never need video traffic. Initial registration explicitly
   // opts in so the sample URL can be captured once and then kept unchanged.
   if (process.env.VERCEL || !captureSampleMovie || sampleMovieOnly) {

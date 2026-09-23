@@ -10,6 +10,8 @@ type EndedSaleTarget = {
   sale_end_at: string | null;
 };
 
+const ENDED_SALE_RETRY_LIMIT = 1;
+
 async function updateBatch(batch: EndedSaleTarget[], browser: Browser) {
   return Promise.all(
     batch.map(async (work) => {
@@ -20,8 +22,9 @@ async function updateBatch(batch: EndedSaleTarget[], browser: Browser) {
         console.log(`✓ 更新成功 ${work.product_id}`);
         return { productId: work.product_id, success: true as const, changed };
       } catch (error) {
-        console.error(`✗ 更新失敗 ${work.product_id}`, error);
-        return { productId: work.product_id, success: false as const };
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`✗ 更新失敗 ${work.product_id}: ${message}`);
+        return { productId: work.product_id, success: false as const, message };
       }
     }),
   );
@@ -92,7 +95,9 @@ export async function updateEndedSaleWorks() {
     }
 
     if (failedProductIds.size > 0) {
-      console.log(`失敗した${failedProductIds.size}件を再試行します`);
+      console.log(
+        `失敗した${failedProductIds.size}件を再試行します（追加試行${ENDED_SALE_RETRY_LIMIT}回）`,
+      );
       await closeBrowser(browser);
       browser = await createBrowser();
 

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_FETCH_ATTEMPTS = 3;
+const SUPABASE_REQUEST_TIMEOUT_MS = 30_000;
 
 function getErrorCode(error: unknown): string | undefined {
   let current = error;
@@ -22,7 +23,11 @@ const fetchWithConnectRetry: typeof fetch = async (input, init) => {
   for (let attempt = 1; attempt <= SUPABASE_FETCH_ATTEMPTS; attempt++) {
     try {
       const requestInput = input instanceof Request ? input.clone() : input;
-      return await fetch(requestInput, init);
+      const timeoutSignal = AbortSignal.timeout(SUPABASE_REQUEST_TIMEOUT_MS);
+      const signal = init?.signal
+        ? AbortSignal.any([init.signal, timeoutSignal])
+        : timeoutSignal;
+      return await fetch(requestInput, { ...init, signal });
     } catch (error) {
       const errorCode = getErrorCode(error);
       const shouldRetry =
