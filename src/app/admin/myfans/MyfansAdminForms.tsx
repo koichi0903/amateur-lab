@@ -2030,34 +2030,6 @@ export function RevenueImportForm() {
   );
 }
 
-export function XAccountMetricForm({ media }: { media: MyfansApprovedMedia[] }) {
-  const { pending, message, submit } = useMyfansSubmit("Xアカウント成長の週次記録を保存しました。");
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(new Date());
-  return (
-    <form onSubmit={submit} className="mt-5 grid gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-5 lg:grid-cols-4">
-      <input type="hidden" name="action" value="x_account_metric" />
-      <Field label="週の終了日"><input name="metric_date" type="date" defaultValue={today} required className={inputClass} /></Field>
-      <Field label="承認済みメディア"><select name="approved_media_id" required className={inputClass}><option value="">選択</option>{media.map((item) => <option key={item.id} value={item.id}>{item.media_name}</option>)}</select></Field>
-      <Field label="週末時点フォロワー数"><input name="followers_count" type="number" min="0" required className={inputClass} /></Field>
-      <Field label="週末時点フォロー数"><input name="following_count" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間プロフィール遷移"><input name="profile_visits" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間総表示"><input name="total_impressions" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間投稿数"><input name="posts_count" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間いいね"><input name="likes" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間リポスト"><input name="reposts" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間返信"><input name="replies" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間アフィクリック"><input name="affiliate_clicks" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間CV"><input name="conversions" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間報酬"><input name="reward_amount" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週次メモ"><textarea name="notes" className={`${textareaClass} lg:col-span-4`} /></Field>
-      <div className="flex flex-wrap items-center gap-3 lg:col-span-4">
-        <SubmitButton pending={pending} label="週次記録を保存" />
-        <StatusMessage message={message} />
-      </div>
-    </form>
-  );
-}
-
 export function XMetricsSyncButton() {
   const router = useRouter();
   const [pending, setPending] = useState(false);
