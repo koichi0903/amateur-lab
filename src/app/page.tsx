@@ -1,4 +1,5 @@
 import Header from "@/components/layout/Header";
+import type { Metadata } from "next";
 import Hero from "@/components/home/hero/Hero";
 import InsightFeed from "@/components/home/insight/InsightFeed";
 import RankingSection from "@/components/home/ranking/RankingSection";
@@ -16,6 +17,13 @@ import { getLatestDailyUpdate } from "@/lib/getLatestDailyUpdate";
 import { getHomeRanking } from "@/lib/getHomeRanking";
 import { getAiDiscoveries } from "@/lib/getAiDiscoveries";
 import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
+import { pageMetadata } from "@/lib/seo";
+
+export const metadata: Metadata = pageMetadata({
+  title: "FANZA作品の買い時・過去最安値・レビュー比較 | 発掘LAB",
+  description: "FANZA作品の現在価格、過去最安値、レビュー、セール終了時期を比較して、今買うべきか待つべきか判断できます。",
+  canonical: "/",
+});
 
 export const revalidate = 1800;
 // Home aggregates live catalog, ranking, and price data. Render it at runtime

@@ -58,8 +58,9 @@ const WORK_DETAIL_COLUMNS = [
   "review_score", "review_count_score", "discount_score", "ranking_score",
   "new_release_score", "long_hit_point", "ranking", "price", "sale_price",
   "list_price", "discount_rate", "review_count", "review_average",
+  "daily_rank", "weekly_rank", "monthly_rank",
   "release_date", "image_url", "affiliate_url", "stage", "is_on_sale", "sale_end_at",
-  "duration", "lowest_price", "previous_realtime_rank", "realtime_rank",
+  "duration", "lowest_price", "is_lowest_price", "is_bottom_price", "previous_realtime_rank", "realtime_rank",
   "sample_movie_url", "long_hit_rank", "url",
 ].join(",");
 
@@ -97,7 +98,7 @@ const getWork = cache(
 
         return data as WorkDetail | null;
       },
-      ["work-detail-row", id],
+      ["work-detail-row-v2-purchase-signals", id],
       { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [workDetailCacheTag(id)] },
     )(),
 );

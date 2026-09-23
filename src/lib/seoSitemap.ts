@@ -5,11 +5,7 @@ import {
   type EntityIndexKind,
 } from "@/lib/catalog/entityIndexSummaries";
 import { SITE_URL } from "@/lib/seo";
-import {
-  WORK_INDEX_MIN_REVIEW_COUNT,
-  WORK_INDEX_MIN_PRICE,
-  WORK_INDEX_MIN_SCORE,
-} from "@/lib/seoQuality";
+import { isWorkIndexable } from "@/lib/seoQuality";
 import { supabase } from "@/lib/supabase";
 import { editorialGuides, reportDefinitions } from "@/lib/editorialContent";
 
@@ -24,6 +20,23 @@ type SitemapWork = {
   id: number;
   created_at: string | null;
   updated_at: string | null;
+  stage: string | null;
+  score: number | null;
+  review_count: number | null;
+  review_average: number | null;
+  price: number | null;
+  sale_price: number | null;
+  discount_rate: number | null;
+  is_bottom_price: boolean | null;
+  is_lowest_price: boolean | null;
+  ranking: number | null;
+  realtime_rank: number | null;
+  daily_rank: number | null;
+  weekly_rank: number | null;
+  monthly_rank: number | null;
+  long_hit_rank: number | null;
+  image_url: string | null;
+  affiliate_url: string | null;
 };
 
 const PAGE_SIZE = 1000;
@@ -31,7 +44,7 @@ const CACHE_CONTROL = "public, s-maxage=3600, stale-while-revalidate=86400";
 
 const staticEntries: SitemapEntry[] = [
   { url: SITE_URL, changeFrequency: "daily", priority: 1 },
-  ...["ranking", "new", "sale", "deals", "discover", "price-insights", "vr"].map((path) => ({
+  ...["ranking", "new", "sale", "deals", "discovery", "price-insights", "vr"].map((path) => ({
     url: `${SITE_URL}/${path}`,
     changeFrequency: "daily" as const,
     priority: 0.9,
@@ -86,24 +99,38 @@ const staticEntries: SitemapEntry[] = [
   })),
 ];
 
-const getQualityWorkCount = unstable_cache(
-  async () => {
-    const { count, error } = await supabase
-      .from("works")
-      .select("id", { count: "exact", head: true })
-      .neq("stage", "DISCONTINUED")
-      .gte("score", WORK_INDEX_MIN_SCORE)
-      .gte("review_count", WORK_INDEX_MIN_REVIEW_COUNT)
-      .gte("price", WORK_INDEX_MIN_PRICE)
-      .not("image_url", "is", null)
-      .neq("image_url", "")
-      .not("affiliate_url", "is", null)
-      .neq("affiliate_url", "");
+const QUALITY_WORK_COLUMNS = [
+  "id", "created_at", "updated_at", "stage", "score", "review_count",
+  "review_average", "price", "sale_price", "discount_rate", "is_bottom_price",
+  "is_lowest_price", "ranking", "realtime_rank", "daily_rank", "weekly_rank",
+  "monthly_rank", "long_hit_rank", "image_url", "affiliate_url",
+].join(",");
 
-    if (error) throw error;
-    return count ?? 0;
+const getQualityWorks = unstable_cache(
+  async (): Promise<SitemapWork[]> => {
+    const candidates: SitemapWork[] = [];
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data, error } = await supabase
+        .from("works")
+        .select(QUALITY_WORK_COLUMNS)
+        .neq("stage", "DISCONTINUED")
+        .or("review_count.gte.20,discount_rate.gte.50,is_bottom_price.eq.true,is_lowest_price.eq.true,ranking.lte.100,realtime_rank.lte.100,daily_rank.lte.100,weekly_rank.lte.100,monthly_rank.lte.100,long_hit_rank.lte.100")
+        .not("image_url", "is", null)
+        .neq("image_url", "")
+        .not("affiliate_url", "is", null)
+        .neq("affiliate_url", "")
+        .order("id", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as SitemapWork[];
+      candidates.push(...rows);
+      if (rows.length < PAGE_SIZE) break;
+    }
+
+    return candidates.filter(isWorkIndexable);
   },
-  ["seo-sitemap-quality-work-count-v3"],
+  ["seo-sitemap-quality-works-v5-purchase-signals"],
   { revalidate: 3600 },
 );
 
@@ -112,7 +139,7 @@ export function getStaticSitemapEntries(): SitemapEntry[] {
 }
 
 export async function getWorkSitemapPaths(): Promise<string[]> {
-  const count = await getQualityWorkCount();
+  const count = (await getQualityWorks()).length;
   return Array.from(
     { length: Math.ceil(count / PAGE_SIZE) },
     (_, index) => `/sitemaps/works-${index + 1}.xml`,
@@ -123,29 +150,7 @@ export async function getWorkSitemapEntries(
   chunkNumber: number,
 ): Promise<SitemapEntry[]> {
   const from = (chunkNumber - 1) * PAGE_SIZE;
-  const getChunk = unstable_cache(
-    async () => {
-      const { data, error } = await supabase
-        .from("works")
-        .select("id, created_at, updated_at")
-        .neq("stage", "DISCONTINUED")
-        .gte("score", WORK_INDEX_MIN_SCORE)
-        .gte("review_count", WORK_INDEX_MIN_REVIEW_COUNT)
-        .gte("price", WORK_INDEX_MIN_PRICE)
-        .not("image_url", "is", null)
-        .neq("image_url", "")
-        .not("affiliate_url", "is", null)
-        .neq("affiliate_url", "")
-        .order("id", { ascending: true })
-        .range(from, from + PAGE_SIZE - 1);
-
-      if (error) throw error;
-      return (data ?? []) as SitemapWork[];
-    },
-    ["seo-sitemap-quality-work-chunk-v3", String(chunkNumber)],
-    { revalidate: 3600 },
-  );
-  const works = await getChunk();
+  const works = (await getQualityWorks()).slice(from, from + PAGE_SIZE);
 
   return works.map((work) => ({
     url: `${SITE_URL}/works/${work.id}`,

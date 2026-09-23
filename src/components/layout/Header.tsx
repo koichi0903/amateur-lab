@@ -47,7 +47,7 @@ export default function Header() {
             className="h-auto w-36 object-contain sm:w-40 lg:w-48"
             priority
           />
-          <span className="hidden border-l border-slate-200 pl-3 text-[11px] font-bold text-slate-500 sm:block">AIが毎日、名作を発掘する。</span>
+          <span className="hidden border-l border-slate-200 pl-3 text-[11px] font-bold text-slate-500 sm:block">価格とレビューで、買い時を判断する。</span>
         </Link>
 
         <nav className="ml-auto hidden items-center gap-5 xl:flex">

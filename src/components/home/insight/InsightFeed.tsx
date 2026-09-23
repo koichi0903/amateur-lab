@@ -29,7 +29,7 @@ export default function InsightFeed({ insights, lastUpdatedAt }: { insights: Ins
           <p className="text-sm font-black text-pink-700">最終更新 {updatedLabel}</p>
           <h2 className="mt-2 text-2xl font-black sm:text-3xl">今日のAI発掘</h2>
         </div>
-        <div className="flex items-center gap-4"><span className="hidden text-xs font-bold text-slate-400 sm:block">AIが価格・評価・人気推移を分析</span><Link href="/discover" className="shrink-0 text-xs font-black text-pink-600">もっと見る →</Link></div>
+        <div className="flex items-center gap-4"><span className="hidden text-xs font-bold text-slate-400 sm:block">価格・評価・人気推移を比較</span><Link href="/discovery" className="shrink-0 text-xs font-black text-pink-600">もっと見る →</Link></div>
       </div>
 
       {insights.length ? (
