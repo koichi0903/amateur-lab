@@ -5,7 +5,8 @@ const REALTIME_RANKING_URL =
   "https://video.dmm.co.jp/av/list/?sort=ranking";
 
 const REALTIME_ITEMS_PER_PAGE = RANKING_UPDATE_CONFIG.fanzaItemsPerPage;
-const REALTIME_TARGET_COUNT = RANKING_UPDATE_CONFIG.targetCount;
+const REALTIME_TARGET_COUNT =
+  RANKING_UPDATE_CONFIG.popularRankingTargetCount;
 const REALTIME_MAX_PAGES = Math.ceil(
   REALTIME_TARGET_COUNT / REALTIME_ITEMS_PER_PAGE,
 );

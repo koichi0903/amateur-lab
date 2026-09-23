@@ -28,7 +28,8 @@ export async function updateRanking(
 ) {
   const changedProductIds = new Set<string>();
   const realtime = prefetchedRealtime ?? (await getRealtimeRanking());
-  const realtimeComplete = realtime.length >= RANKING_UPDATE_CONFIG.targetCount;
+  const realtimeComplete =
+    realtime.length >= RANKING_UPDATE_CONFIG.popularRankingTargetCount;
   const daily = await getDailyRanking();
   const weekly = await getWeeklyRanking();
   const monthly = await getMonthlyRanking();

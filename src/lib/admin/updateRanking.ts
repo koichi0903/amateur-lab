@@ -19,7 +19,7 @@ import {
 import { updateTopRankingWorks } from "./updateTopRankingWorks";
 import { RANKING_UPDATE_CONFIG } from "@/config/update";
 
-const RANKING_LIMIT = RANKING_UPDATE_CONFIG.targetCount;
+const RANKING_LIMIT = RANKING_UPDATE_CONFIG.popularRankingTargetCount;
 const API_PAGE_SIZE = RANKING_UPDATE_CONFIG.apiPageSize;
 const API_PAGE_COUNT = Math.ceil(RANKING_LIMIT / API_PAGE_SIZE);
 const API_MAX_PAGE_COUNT = Math.ceil(API_PAGE_COUNT * 1.5);

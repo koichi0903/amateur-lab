@@ -32,7 +32,7 @@ export const UPDATE_CONFIG = {
 };
 
 export const RANKING_UPDATE_CONFIG = {
-  targetCount: 5000,
+  popularRankingTargetCount: 1000,
   apiPageSize: 100,
   fanzaItemsPerPage: 120,
 } as const;

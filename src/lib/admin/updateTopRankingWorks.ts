@@ -56,7 +56,10 @@ export async function updateTopRankingWorks(
   let browser: Browser | null = null;
 
   try {
-    const targets = rankingTargets.slice(0, RANKING_UPDATE_CONFIG.targetCount);
+    const targets = rankingTargets.slice(
+      0,
+      RANKING_UPDATE_CONFIG.popularRankingTargetCount,
+    );
     let processed = 0;
 
     console.log(`[ranking-playwright] 詳細更新対象${targets.length}件`);
