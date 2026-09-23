@@ -172,17 +172,21 @@ export default async function MyfansDailyPage({
           </div>
           <div className="mt-4 grid gap-3 lg:grid-cols-3">
             <a href="#collection" className="rounded-lg border border-emerald-800 bg-zinc-950 p-4 transition hover:border-emerald-500">
-              <p className="text-sm font-black text-emerald-200">1. 供給を確認</p>
-              <p className="mt-2 text-xs leading-5 text-zinc-400">{planner.tasks.length ? `${planner.tasks.length}件の収集タスク` : "収集より投稿・計測を優先"} / cursor・cycleは自動保持</p>
+              <p className="text-sm font-black text-emerald-200">1. {board.recovery.candidateOptions < board.recovery.candidateOptionsTarget ? "候補を補充" : "供給を確認"}</p>
+              <p className="mt-2 text-xs leading-5 text-zinc-400">{planner.tasks.length ? `全クリエイター巡回から次の${Math.min(10, Math.max(5, planner.tasks.length))}件を収集` : "収集より投稿・計測を優先"} / cursor・cycleは自動保持</p>
             </a>
             <a href="#today-candidates" className="rounded-lg border border-violet-800 bg-zinc-950 p-4 transition hover:border-violet-500">
-              <p className="text-sm font-black text-violet-200">2. 候補を選ぶ</p>
-              <p className="mt-2 text-xs leading-5 text-zinc-400">{board.candidates.length}本の投稿候補からselectedを確認</p>
+              <p className="text-sm font-black text-violet-200">2. {board.recovery.passCount < board.recovery.selectedMinimum ? "候補を選ぶ" : "投稿準備"}</p>
+              <p className="mt-2 text-xs leading-5 text-zinc-400">{board.recovery.passCount}/{board.recovery.selectedMinimum}〜{board.recovery.selectedMaximum} selected / A・B・Cから選択</p>
             </a>
             <a href="#post-metrics" className="rounded-lg border border-cyan-800 bg-zinc-950 p-4 transition hover:border-cyan-500">
-              <p className="text-sm font-black text-cyan-200">3. 投稿後を記録</p>
-              <p className="mt-2 text-xs leading-5 text-zinc-400">投稿URLを保存し、24時間後に指標を入力</p>
+              <p className="text-sm font-black text-cyan-200">3. {analytics.posts.some((post) => post.status === "ready") ? "投稿後を記録" : "投稿URLを保存"}</p>
+              <p className="mt-2 text-xs leading-5 text-zinc-400">投稿URLを保存し、24時間後に5指標を入力</p>
             </a>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <DailyPlanReevaluateButton approvedMediaId={selectedMediaId ?? 1} />
+            <p className="text-xs text-zinc-500">供給が足りない時だけ再評価します。外部収集・X投稿はこの画面から自動実行しません。</p>
           </div>
         </section>
 
@@ -217,7 +221,9 @@ export default async function MyfansDailyPage({
           </div>
         </details>
 
-        <section id="collection" className="mt-8 rounded-xl border border-emerald-700 bg-emerald-950/25 p-5">
+        <details className="mt-8 rounded-xl border border-zinc-700 bg-zinc-900/60 p-5">
+          <summary className="cursor-pointer list-none text-sm font-black text-zinc-300">詳細・診断・日次再評価の内部情報（通常は閉じる）</summary>
+          <section id="collection" className="mt-5 rounded-xl border border-emerald-700 bg-emerald-950/25 p-5">
           <p className="text-xs font-black text-emerald-300">@lumi_reviw Daily Growth Command Center</p>
           <div className="mt-3 grid gap-4 lg:grid-cols-[1.5fr_1fr]">
             <div>
@@ -352,9 +358,12 @@ export default async function MyfansDailyPage({
               ))}
             </div>
           </details>
-        </section>
+          </section>
+        </details>
 
-        <section id="today-candidates" className="mt-8 rounded-xl border border-violet-800 bg-violet-950/20 p-5">
+        <details className="mt-8 rounded-xl border border-zinc-700 bg-zinc-900/60 p-5">
+          <summary className="cursor-pointer list-none text-sm font-black text-zinc-300">候補の詳細レーダー・Companion診断（通常は閉じる）</summary>
+          <section id="candidate-radar-details" className="mt-5 rounded-xl border border-violet-800 bg-violet-950/20 p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-xs font-black text-violet-300">Attention Radar</p>
@@ -393,9 +402,12 @@ export default async function MyfansDailyPage({
               <DiagnosticStatusPanel approvedMediaId={analytics.selectedMediaId} />
             </div>
           </details>
-        </section>
+          </section>
+        </details>
 
-        <section className="mt-8 rounded-lg border border-cyan-800 bg-cyan-950/20 p-5">
+        <details className="mt-8 rounded-xl border border-zinc-700 bg-zinc-900/60 p-5">
+          <summary className="cursor-pointer list-none text-sm font-black text-zinc-300">30日戦略・プロフィール設計（通常は閉じる）</summary>
+          <section className="mt-5 rounded-lg border border-cyan-800 bg-cyan-950/20 p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-xs font-black text-cyan-300">30日戦略</p>
@@ -415,11 +427,14 @@ export default async function MyfansDailyPage({
               </div>
             ))}
           </div>
-        </section>
+          </section>
+        </details>
 
         <QuoteCandidateTasks tasks={quoteTasks} />
 
-        <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+        <details className="mt-8 rounded-xl border border-zinc-700 bg-zinc-900/60 p-5">
+          <summary className="cursor-pointer list-none text-sm font-black text-zinc-300">プロフィール・固定ポスト（通常は閉じる）</summary>
+          <section className="mt-5 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
           <p className="text-xs font-black text-emerald-300">プロフィールと固定ポスト</p>
           <h2 className="mt-2 text-2xl font-black">@lumi_reviwの受け皿</h2>
           <p className="mt-2 text-sm leading-6 text-zinc-400">{board.profileGuide.role}</p>
@@ -437,7 +452,8 @@ export default async function MyfansDailyPage({
               <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-200">{board.profileGuide.pinnedPost}</p>
             </div>
           </div>
-        </section>
+          </section>
+        </details>
 
         <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -480,26 +496,15 @@ export default async function MyfansDailyPage({
           <AffiliatePasteImportForm />
         </section>
 
-        <section id="post-metrics" className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
-          <p className="text-xs font-black text-emerald-300">今日のX投稿</p>
-          <h2 className="mt-2 text-2xl font-black">Day {board.day} / {board.stage}</h2>
-          <p className="mt-2 text-sm leading-6 text-zinc-500">{board.planningReason}</p>
-          {board.heldCandidates.length > 0 && (
-            <div className="mt-4 rounded-lg border border-amber-800 bg-amber-950/30 p-4">
-              <p className="text-sm font-black text-amber-200">HOLD {board.heldCandidates.length}本。本数を埋めるための投稿はしません。</p>
-              <div className="mt-3 grid gap-2 md:grid-cols-2">
-                {board.heldCandidates.map((candidate) => (
-                  <p key={`${candidate.postType}-${candidate.plannedSlot}`} className="text-xs leading-5 text-amber-100/80">
-                    {candidate.plannedSlot} / {candidate.postType} / {candidate.quality.total}点: {candidate.quality.reasons.join(" / ")}
-                  </p>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-        <XExecutionBoard candidates={board.candidates} candidateOptions={board.candidateOptions} selectedOptions={snapshot?.selectedOptions ?? {}} planDate={board.planDate} posts={analytics.posts} />
+        <div id="today-candidates" className="mt-8">
+          <div id="post-metrics">
+            <XExecutionBoard candidates={board.candidates} candidateOptions={board.candidateOptions} selectedOptions={snapshot?.selectedOptions ?? {}} planDate={board.planDate} posts={analytics.posts} />
+          </div>
+        </div>
 
-        <section className="mt-8 rounded-lg border border-fuchsia-800 bg-fuchsia-950/20 p-5">
+        <details className="mt-8 rounded-xl border border-zinc-700 bg-zinc-900/60 p-5">
+          <summary className="cursor-pointer list-none text-sm font-black text-zinc-300">成長分析・収益・外部監査・週次設定（通常は閉じる）</summary>
+          <section className="mt-5 rounded-lg border border-fuchsia-800 bg-fuchsia-950/20 p-5">
           <p className="text-xs font-black text-fuchsia-300">Outbound Growth</p>
           <h2 className="mt-2 text-2xl font-black">今日参加する価値がある会話</h2>
           <p className="mt-2 text-sm leading-6 text-fuchsia-50/80">自動送信はしません。quoteや返信は、同文連投ではなく文脈を確認してから使います。</p>
@@ -606,6 +611,7 @@ export default async function MyfansDailyPage({
           <p className="mt-2 text-sm leading-6 text-zinc-500">X API同期は補助扱いです。無料運用では、週1回この入力だけで足ります。</p>
           <XAccountMetricForm media={analytics.media} />
         </section>
+        </details>
       </div>
     </main>
   );
