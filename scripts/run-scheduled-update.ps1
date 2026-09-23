@@ -71,6 +71,8 @@ try {
     Invoke-ScheduleMonitor -Status "running"
 
     $node = (Get-Command node.exe -ErrorAction Stop).Source
+    $env:SCHEDULE_RUN_ID = $runId
+    $env:SCHEDULE_PARENT_PID = $PID
     # Windows PowerShell converts a native process's stderr lines into
     # ErrorRecord objects. With ErrorActionPreference=Stop, a warning written
     # to stderr used to terminate the task before the updater started. Capture
@@ -125,6 +127,8 @@ catch {
     exit 1
 }
 finally {
+    Remove-Item Env:SCHEDULE_RUN_ID -ErrorAction SilentlyContinue
+    Remove-Item Env:SCHEDULE_PARENT_PID -ErrorAction SilentlyContinue
     if ($hasLock) {
         $mutex.ReleaseMutex()
     }

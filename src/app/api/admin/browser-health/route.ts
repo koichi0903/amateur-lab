@@ -29,10 +29,18 @@ export async function GET() {
       stack: error instanceof Error ? error.stack : undefined,
     });
 
+    const message = error instanceof Error ? error.message : String(error);
+    const safeMessage = message.replace(/(token|secret|key|authorization|cookie)=?[^\s,;]+/gi, "$1=[redacted]").slice(0, 240);
     return NextResponse.json(
       {
         success: false,
         message: "Browser failed to start.",
+        diagnostic: {
+          phase: browser ? "page" : "launch",
+          errorType: error instanceof Error ? error.name : "unknown",
+          detail: safeMessage,
+          durationMs: Date.now() - startedAt,
+        },
       },
       { status: 500 },
     );

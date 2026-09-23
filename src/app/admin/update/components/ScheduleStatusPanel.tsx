@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 
 type Run = {
   run_id: string;
-  status: "running" | "completed" | "failed" | "skipped";
+  status: "running" | "completed" | "failed" | "skipped" | "stale";
   started_at: string;
   finished_at: string | null;
   error_message: string | null;
   log_file: string | null;
+  heartbeat_at?: string | null;
 };
 
 type Schedule = {
@@ -30,6 +31,7 @@ const STATUS_LABELS: Record<Run["status"], string> = {
   completed: "成功",
   failed: "失敗",
   skipped: "重複回避",
+  stale: "停止済み（異常終了）",
 };
 
 function formatDate(value: string | null | undefined) {
@@ -98,9 +100,11 @@ export default function ScheduleStatusPanel() {
                 ? "text-emerald-400"
                 : status === "failed"
                   ? "text-red-400"
-                  : status === "running"
+                : status === "running"
                     ? "text-amber-300"
-                    : "text-zinc-400";
+                    : status === "stale"
+                      ? "text-orange-300"
+                      : "text-zinc-400";
 
             return (
               <article key={schedule.group} className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">

@@ -4,6 +4,10 @@ import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import type { Browser } from "playwright-core";
 import { updateWork } from "./updateWork";
+import {
+  ENDED_SALE_MAX_TARGETS_PER_RUN,
+  selectEndedSaleBatch,
+} from "./endedSaleBatch";
 
 type EndedSaleTarget = {
   product_id: string;
@@ -29,29 +33,26 @@ async function updateBatch(batch: EndedSaleTarget[], browser: Browser) {
 
 export async function updateEndedSaleWorks() {
   const now = new Date().toISOString();
-  const allWorks: EndedSaleTarget[] = [];
-  let from = 0;
-  const pageSize = 1000;
+  const { data, error } = await supabase
+    .from("works")
+    .select("product_id, sale_end_at, is_on_sale")
+    .not("sale_end_at", "is", null)
+    .eq("is_on_sale", true)
+    .lte("sale_end_at", now)
+    .order("sale_end_at")
+    .order("product_id")
+    .limit(ENDED_SALE_MAX_TARGETS_PER_RUN + 1);
 
-  while (true) {
-    const { data, error } = await supabase
-      .from("works")
-      .select("product_id, sale_end_at, is_on_sale")
-      .not("sale_end_at", "is", null)
-      .eq("is_on_sale", true)
-      .lte("sale_end_at", now)
-      .order("product_id")
-      .range(from, from + pageSize - 1);
+  if (error) throw error;
 
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    allWorks.push(...data);
-    if (data.length < pageSize) break;
-    from += pageSize;
-  }
-
-  console.log(`終了日時を過ぎたセール作品 ${allWorks.length}件`);
+  const selection = selectEndedSaleBatch((data ?? []) as EndedSaleTarget[]);
+  const allWorks = selection.batch;
+  console.log(
+    `終了日時を過ぎたセール作品 ${allWorks.length}件` +
+      (selection.hasMore
+        ? `（次回へ継続。1回上限${ENDED_SALE_MAX_TARGETS_PER_RUN}件）`
+        : ""),
+  );
   if (allWorks.length === 0) return { workIds: [] as string[] };
 
   // 対象は毎回DBから再抽出する。古いprocessed_countではスキップしない。

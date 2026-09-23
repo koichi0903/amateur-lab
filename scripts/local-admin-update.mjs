@@ -5,6 +5,7 @@ import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
+import { describeReadinessFailure } from "./local-admin-update-helpers.mjs";
 
 loadEnv({ path: resolve(process.cwd(), ".env.local"), quiet: true });
 
@@ -351,8 +352,17 @@ async function run(taskName) {
       stdio: "inherit",
     },
   );
+  const heartbeat = process.env.SCHEDULE_RUN_ID
+    ? spawn(process.execPath, ["scripts/scheduled-update-heartbeat.mjs"], {
+        cwd: process.cwd(),
+        env: process.env,
+        stdio: "ignore",
+        windowsHide: true,
+      })
+    : null;
 
   async function stopServer() {
+    if (heartbeat && heartbeat.exitCode === null) heartbeat.kill();
     if (server.exitCode !== null) return;
     if (process.platform === "win32" && server.pid) {
       await new Promise((resolveStop) => {
@@ -373,21 +383,32 @@ async function run(taskName) {
     void stopServer();
   });
 
-  async function waitForServer() {
-    const deadline = Date.now() + 60_000;
+  async function waitForHttpReady(path, phase, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    let lastFailure = null;
     while (Date.now() < deadline) {
       if (server.exitCode !== null) {
-        throw new Error(`ローカルサーバーが終了しました（exit ${server.exitCode}）。`);
+        throw new Error(
+          `${describeReadinessFailure({ phase, error: `ローカルサーバーが終了しました（exit ${server.exitCode}）`, timeoutMs })}`,
+        );
       }
       try {
-        const response = await fetch(`${baseUrl}/api/admin/browser-health`);
+        const response = await fetch(`${baseUrl}${path}`, {
+          signal: AbortSignal.timeout(Math.min(5_000, timeoutMs)),
+        });
+        const body = await response.text();
         if (response.ok) return;
-      } catch {
-        // Still starting.
+        lastFailure = describeReadinessFailure({ phase, status: response.status, body });
+        console.warn(`[readiness] ${lastFailure}`);
+      } catch (error) {
+        lastFailure = describeReadinessFailure({ phase, error });
       }
+      if (phase === "browser") break;
       await new Promise((resolveWait) => setTimeout(resolveWait, 750));
     }
-    throw new Error("ローカルサーバーを60秒以内に起動できませんでした。");
+    throw new Error(
+      lastFailure ?? describeReadinessFailure({ phase, timeoutMs }),
+    );
   }
 
   async function executeTask(name) {
@@ -427,7 +448,8 @@ async function run(taskName) {
 
   try {
     console.log(`[local-update] localhost:${port} を使用します。`);
-    await waitForServer();
+    await waitForHttpReady("/api/admin/server-health", "server", 60_000);
+    await waitForHttpReady("/api/admin/browser-health", "browser", 60_000);
     const taskNames = taskName === "all"
       ? ALL_TASKS
       : (TASK_GROUPS[taskName] ?? [taskName]);

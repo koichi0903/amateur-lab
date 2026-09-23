@@ -24,7 +24,7 @@ const allowedGroups = new Set([
   "tue-fri-1800",
   "sunday-1800",
 ]);
-const allowedStatuses = new Set(["running", "completed", "failed", "skipped"]);
+const allowedStatuses = new Set(["running", "completed", "failed", "skipped", "heartbeat"]);
 
 if (!runId || !allowedGroups.has(scheduleGroup) || !allowedStatuses.has(status)) {
   console.error("[schedule-monitor] invalid arguments");
@@ -49,11 +49,28 @@ const payload = {
   status,
   log_file: logFile,
   error_message: errorMessage,
-  ...(status === "running" ? { started_at: now, finished_at: null } : { finished_at: now }),
+  ...(status === "running"
+    ? { started_at: now, heartbeat_at: now, finished_at: null }
+    : status === "heartbeat"
+      ? { heartbeat_at: now }
+      : { heartbeat_at: null, finished_at: now }),
 };
-const { error } = await supabase
-  .from("scheduled_update_runs")
-  .upsert(payload, { onConflict: "run_id" });
+const query = status === "heartbeat"
+  ? supabase
+      .from("scheduled_update_runs")
+      .update({ heartbeat_at: now })
+      .eq("run_id", runId)
+      .eq("status", "running")
+  : supabase.from("scheduled_update_runs").upsert(payload, { onConflict: "run_id" });
+let { error } = await query;
+
+if (error && status !== "heartbeat" && ["42703", "PGRST204"].includes(error.code)) {
+  const legacyPayload = { ...payload };
+  delete legacyPayload.heartbeat_at;
+  ({ error } = await supabase
+    .from("scheduled_update_runs")
+    .upsert(legacyPayload, { onConflict: "run_id" }));
+}
 
 if (error) {
   console.error(`[schedule-monitor] failed to save status: ${error.message}`);
