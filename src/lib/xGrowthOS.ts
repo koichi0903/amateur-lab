@@ -1656,16 +1656,16 @@ function selectRankedDailyTopPicks(
   }
   let decisionCoverageAdjustments = 0;
   for (const decisionType of DECISION_TYPES) {
-    if (selected.some((candidate) => decisionTypeForCandidate(candidate.item) === decisionType)) continue;
+    if (selected.some((candidate) => isEligibleForDecisionType(candidate.item, decisionType))) continue;
     const replacement = rankedPool.find((candidate) => {
-      if (decisionTypeForCandidate(candidate.item) !== decisionType || selectedWorkIds.has(candidate.item.workId)) return false;
+      if (!isEligibleForDecisionType(candidate.item, decisionType) || selectedWorkIds.has(candidate.item.workId)) return false;
       const victim = [...selected].reverse().find((entry) => entry.mediaType === candidate.mediaType);
       return Boolean(victim);
     });
     if (!replacement) continue;
     const victimIndex = [...selected].reverse().findIndex((entry) => entry.mediaType === replacement.mediaType
-      && !DECISION_TYPES.some((otherType) => otherType !== decisionType && decisionTypeForCandidate(entry.item) === otherType
-        && selected.filter((selectedItem) => decisionTypeForCandidate(selectedItem.item) === otherType).length <= 1));
+      && !DECISION_TYPES.some((otherType) => otherType !== decisionType && isEligibleForDecisionType(entry.item, otherType)
+        && selected.filter((selectedItem) => isEligibleForDecisionType(selectedItem.item, otherType)).length <= 1));
     const actualIndex = selected.length - 1 - victimIndex;
     const victim = selected[actualIndex];
     const victimMediaKey = candidateMediaDedupeKey(victim.item) ?? `work:${victim.item.workId}`;
@@ -1675,7 +1675,15 @@ function selectRankedDailyTopPicks(
     selectedWorkIds.add(replacement.item.workId);
     selectedMedia.delete(victimMediaKey);
     selectedMedia.add(replacementMediaKey);
-    selected[actualIndex] = replacement;
+    selected[actualIndex] = {
+      ...replacement,
+      item: {
+        ...replacement.item,
+        decisionFacts: replacement.item.decisionFacts
+          ? { ...replacement.item.decisionFacts, decisionType }
+          : replacement.item.decisionFacts,
+      },
+    };
     decisionCoverageAdjustments += 1;
   }
   const slots = [
