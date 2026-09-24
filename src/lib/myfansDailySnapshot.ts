@@ -1,12 +1,10 @@
 import { MYFANS_PUBLIC_COPY_GENERATOR_VERSION, buildMyfansExecutionBoard } from "@/lib/myfansXExecution";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { bestResolverEvidence } from "@/lib/myfansProductResolver";
 
 type MyfansExecutionBoard = ReturnType<typeof buildMyfansExecutionBoard>;
 type MyfansDailyCandidate = MyfansExecutionBoard["candidates"][number];
 type MyfansDailyCandidateOption = MyfansExecutionBoard["candidateOptions"][number]["candidates"][number];
 type MyfansAttentionCandidate = MyfansExecutionBoard["quotePool"]["global"][number]["candidate"];
-type ExistingPlanRow = { id: number; revision?: number | null; strategy_json?: Record<string, unknown> | null };
 
 export type MyfansDailySnapshotResult = {
   id: number | null;
@@ -141,7 +139,7 @@ function dailyPlanPostRecord(dailyPlanId: number, board: MyfansExecutionBoard, c
     option_label: option?.optionLabel ?? "A",
     option_name: option?.optionName ?? "おすすめ",
     option_rank: option?.optionRank ?? 1,
-    is_selected: Boolean(option && board.selectedOptions?.[String(index + 1)] === option.optionLabel),
+    is_selected: option ? Boolean(board.selectedOptions?.[String(index + 1)] === option.optionLabel) : true,
     selected_at: option && board.selectedOptions?.[String(index + 1)] === option.optionLabel ? new Date().toISOString() : null,
     novelty_json: option?.novelty ?? {},
   };
@@ -154,29 +152,6 @@ function dailyPlanOptionRecords(dailyPlanId: number, board: MyfansExecutionBoard
     );
   }
   return board.candidates.map((candidate, index) => dailyPlanPostRecord(dailyPlanId, board, candidate, index));
-}
-
-function dailyPlanSelectedRecords(dailyPlanId: number, board: MyfansExecutionBoard) {
-  return board.candidates.map((candidate, index) => {
-    const record = dailyPlanPostRecord(dailyPlanId, board, candidate, index);
-    return {
-      daily_plan_id: record.daily_plan_id,
-      product_id: record.product_id,
-      quote_candidate_id: record.quote_candidate_id,
-      post_order: record.post_order,
-      post_role: record.post_role,
-      audience_intent: record.audience_intent,
-      hook_type: record.hook_type,
-      creative_strategy: record.creative_strategy,
-      quality_score: record.quality_score,
-      quality_verdict: record.quality_verdict,
-      evidence_json: record.evidence_json,
-      generator_version: record.generator_version,
-      copy_input_hash: record.copy_input_hash,
-      body: record.body,
-      self_reply: record.self_reply,
-    };
-  });
 }
 
 function summarizeCandidateOptions(board: MyfansExecutionBoard) {
@@ -234,31 +209,6 @@ function summarizeCandidateOptions(board: MyfansExecutionBoard) {
   }));
 }
 
-async function insertDailyPlanPosts(dailyPlanId: number, board: MyfansExecutionBoard) {
-  const optionRecords = dailyPlanOptionRecords(dailyPlanId, board);
-  if (optionRecords.length) {
-    const optionResult = await supabaseAdmin.from("myfans_daily_plan_posts").insert(optionRecords);
-    if (!optionResult.error) return null;
-    if (!/option_label|option_name|option_rank|is_selected|selected_at|novelty_json|duplicate key|myfans_daily_plan_posts_daily_plan_id_post_order_key/i.test(optionResult.error.message)) {
-      return optionResult.error;
-    }
-  }
-  const selectedResult = await supabaseAdmin.from("myfans_daily_plan_posts").insert(dailyPlanSelectedRecords(dailyPlanId, board));
-  return selectedResult.error;
-}
-
-async function saveSupplyAudit(dailyPlanId: number, revision: number, board: MyfansExecutionBoard) {
-  const result = await supabaseAdmin.from("myfans_daily_plan_funnel_audit").insert({
-    daily_plan_id: dailyPlanId,
-    plan_date: board.planDate,
-    revision,
-    audit_json: board.supplyAudit,
-  });
-  if (result.error && !/duplicate key|unique constraint/i.test(result.error.message) && !/myfans_daily_plan_funnel_audit|relation|schema cache|does not exist/i.test(result.error.message)) {
-    console.error("myfans supply audit save failed", result.error.message);
-  }
-}
-
 export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard, approvedMediaId: number | null = board.candidates[0]?.approvedMediaId ?? null): Promise<MyfansDailySnapshotResult> {
   const strategyJson = {
     plan_key: board.planKey,
@@ -281,252 +231,43 @@ export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard, app
     daily_option_selection: board.selectedOptions,
   };
   const evaluatedAt = new Date().toISOString();
-
-  const { existing, readError, supportsRevisionColumns } = await readExistingPlan(approvedMediaId, board.planDate);
-
-  if (readError) {
-    return {
-      id: null,
-      status: "unavailable",
-      message: `Daily Snapshotを読めません: ${readError.message}`,
-      postCount: 0,
-      planDate: board.planDate,
-      planKey: board.planKey,
-      revision: null,
-      evaluatedAt: null,
-      selectedOptions: board.selectedOptions,
-    };
-  }
-
-  if (existing?.id) {
-    const selectedOptions = board.selectedOptions as Record<string, string>;
-    const nextRevision = (existing.revision ?? 0) + 1;
-    const updateRecord = {
-      operation_day: board.day,
-      stage: board.stage,
-      plan_key: board.planKey,
-      strategy_json: { ...strategyJson, daily_option_selection: selectedOptions },
-      updated_at: evaluatedAt,
-      ...(supportsRevisionColumns ? {
-        revision: nextRevision,
-        evaluated_at: evaluatedAt,
-        source_counts_json: board.quotePool.funnel,
-      } : {}),
-    };
-    await supabaseAdmin
-      .from("myfans_daily_plans")
-      .update(updateRecord)
-      .eq("id", existing.id);
-    await supabaseAdmin.from("myfans_daily_plan_posts").delete().eq("daily_plan_id", existing.id);
-    await supabaseAdmin
-      .from("myfans_attention_candidates")
-      .delete()
-      .eq("approved_media_id", approvedMediaId)
-      .eq("plan_date", board.planDate);
-    if (board.candidates.length) {
-      await insertDailyPlanPosts(existing.id, board);
-    }
-    await saveSupplyAudit(existing.id, supportsRevisionColumns ? nextRevision : 1, board);
-    await syncProductLinkageEvidence(board);
-    await syncAttentionCandidates(approvedMediaId, board);
-    return {
-      id: existing.id,
-      status: "existing",
-      message: "同日のDaily Snapshotを同じIDのまま再評価しました",
-      postCount: board.candidates.length,
-      planDate: board.planDate,
-      planKey: board.planKey,
-      revision: supportsRevisionColumns ? nextRevision : null,
-      evaluatedAt,
-      selectedOptions,
-    };
-  }
-
-  const insertRecord = {
+  const posts = dailyPlanOptionRecords(0, board).map((record) => Object.fromEntries(Object.entries(record).filter(([key]) => key !== "daily_plan_id")));
+  const attention = board.quotePool.global.slice(0, 10).map((row, index) => ({
+    quote_candidate_id: row.candidate.id,
+    product_id: row.candidate.product_id,
+    attention_score: row.globalScore,
+    score_json: { global_score: row.globalScore, source_score: row.candidate.score, rank: index + 1 },
+    evidence_json: { visual_verified: row.candidate.quote_visual_ready, visual_render_status: visualRenderStatus(row.candidate), media_type: row.candidate.media_type, media_permalink: row.candidate.media_permalink, views: row.candidate.views, likes: row.candidate.likes, reposts: row.candidate.reposts, replies: row.candidate.replies, creator_rank: row.candidate.creator_rank, reason: row.candidate.score_reason },
+  }));
+  const linkage = [...board.candidates, ...(board.candidateOptions ?? []).flatMap((slot) => slot.candidates)]
+    .map((candidate) => candidate.resolverEvidence)
+    .filter((row): row is NonNullable<typeof row> => Boolean(row?.source_status_url && row.discovered_myfans_url && row.diagnostic_mode !== true))
+    .map((row) => ({ approved_media_id: row.approved_media_id ?? null, quote_candidate_id: row.quote_candidate_id ?? null, source_status_url: row.source_status_url, source_author_handle: row.source_author_handle, discovered_myfans_url: row.discovered_myfans_url, final_myfans_url: row.final_myfans_url ?? null, product_id: row.product_id ?? null, resolution_method: row.resolution_method, confidence: row.confidence, evidence_source: row.evidence_source, verified_at: row.verified_at, metadata: row.metadata ?? {} }));
+  const outbound = board.outboundTasks.map((task) => ({ task_type: task.type, target_url: task.targetUrl, reason: task.reason, suggested_text: task.suggestedText }));
+  const plan = {
     approved_media_id: approvedMediaId,
     plan_date: board.planDate,
     operation_day: board.day,
     stage: board.stage,
     plan_key: board.planKey,
-    strategy_json: strategyJson,
-    ...(supportsRevisionColumns ? {
-      revision: 1,
-      evaluated_at: evaluatedAt,
-      source_counts_json: board.quotePool.funnel,
-    } : {}),
+    evaluated_at: evaluatedAt,
+    strategy_json: { ...strategyJson, daily_option_selection: board.selectedOptions },
+    source_counts_json: board.quotePool.funnel,
   };
-  const { data: plan, error: insertError } = await supabaseAdmin
-    .from("myfans_daily_plans")
-    .insert(insertRecord)
-    .select("id")
-    .single();
-
-  if (insertError || !plan) {
-    return {
-      id: null,
-      status: "unavailable",
-      message: `Daily Snapshotを保存できません: ${insertError?.message ?? "unknown error"}`,
-      postCount: 0,
-      planDate: board.planDate,
-      planKey: board.planKey,
-      revision: null,
-      evaluatedAt: null,
-      selectedOptions: board.selectedOptions,
-    };
+  const { data, error } = await supabaseAdmin.rpc("save_myfans_daily_snapshot", {
+    p_plan: plan,
+    p_posts: posts,
+    p_attention: attention,
+    p_linkage: linkage,
+    p_outbound: outbound,
+    p_audit: board.supplyAudit,
+  });
+  if (error || !data?.plan_id) {
+    console.error("myfans daily snapshot RPC failed", error?.message ?? "invalid response");
+    return { id: null, status: "unavailable", message: "Daily Planの保存に失敗しました。時間をおいて再試行してください。", postCount: 0, planDate: board.planDate, planKey: board.planKey, revision: null, evaluatedAt: null, selectedOptions: board.selectedOptions };
   }
-
-  if (board.candidates.length) {
-    const postsError = await insertDailyPlanPosts(plan.id, board);
-    if (postsError) {
-      return {
-        id: plan.id,
-        status: "unavailable",
-        message: `Planは保存済みですが投稿snapshot保存に失敗しました: ${postsError.message}`,
-        postCount: 0,
-        planDate: board.planDate,
-        planKey: board.planKey,
-        revision: 1,
-        evaluatedAt,
-        selectedOptions: board.selectedOptions,
-      };
-    }
-  }
-
-  await saveSupplyAudit(plan.id, 1, board);
-
-  await syncAttentionCandidates(approvedMediaId, board);
-  await syncProductLinkageEvidence(board);
-
-  if (board.outboundTasks.length) {
-    await supabaseAdmin.from("myfans_outbound_tasks").insert(
-      board.outboundTasks.map((task) => ({
-        approved_media_id: approvedMediaId,
-        plan_date: board.planDate,
-        task_type: task.type,
-        target_url: task.targetUrl,
-        reason: task.reason,
-        suggested_text: task.suggestedText,
-      })),
-    );
-  }
-
-  return {
-    id: plan.id,
-    status: "saved",
-    message: "今日のDaily Snapshotを保存しました",
-    postCount: board.candidates.length,
-    planDate: board.planDate,
-    planKey: board.planKey,
-    revision: supportsRevisionColumns ? 1 : null,
-    evaluatedAt,
-    selectedOptions: board.selectedOptions,
-  };
+  const replaced = data.replaced === true;
+  return { id: Number(data.plan_id), status: replaced ? "existing" : "saved", message: replaced ? "同日のDaily Planをatomicに再評価しました" : "今日のDaily Planを保存しました", postCount: board.candidates.length, planDate: board.planDate, planKey: board.planKey, revision: Number(data.revision), evaluatedAt, selectedOptions: board.selectedOptions };
 }
 
 export { MYFANS_PUBLIC_COPY_GENERATOR_VERSION };
-
-async function readExistingPlan(approvedMediaId: number | null, planDate: string): Promise<{
-  existing: ExistingPlanRow | null;
-  readError: { message: string } | null;
-  supportsRevisionColumns: boolean;
-}> {
-  const base = supabaseAdmin
-    .from("myfans_daily_plans")
-    .select("id,revision,strategy_json")
-    .eq("plan_date", planDate)
-    .order("id", { ascending: false })
-    .limit(1);
-  const withMedia = approvedMediaId === null ? base.is("approved_media_id", null) : base.eq("approved_media_id", approvedMediaId);
-  const result = await withMedia.maybeSingle();
-  if (!result.error) return { existing: result.data as ExistingPlanRow | null, readError: null, supportsRevisionColumns: true };
-  if (!/revision/i.test(result.error.message)) return { existing: null, readError: result.error, supportsRevisionColumns: true };
-
-  const fallbackBase = supabaseAdmin
-    .from("myfans_daily_plans")
-    .select("id,strategy_json")
-    .eq("plan_date", planDate)
-    .order("id", { ascending: false })
-    .limit(1);
-  const fallbackWithMedia = approvedMediaId === null ? fallbackBase.is("approved_media_id", null) : fallbackBase.eq("approved_media_id", approvedMediaId);
-  const fallback = await fallbackWithMedia.maybeSingle();
-  return { existing: fallback.data as ExistingPlanRow | null, readError: fallback.error, supportsRevisionColumns: false };
-}
-
-async function syncAttentionCandidates(approvedMediaId: number | null, board: MyfansExecutionBoard) {
-  if (!board.quotePool.global.length) return;
-  const selectedQuoteIds = new Set(
-    board.candidates
-      .filter((candidate) => candidate.creativeStrategy === "quote_post" && candidate.quoteXUrl)
-      .map((candidate) => board.quotePool.global.find((row) => row.candidate.x_post_url === candidate.quoteXUrl || row.candidate.media_permalink === candidate.quoteXUrl)?.candidate.id)
-      .filter((id): id is number => Boolean(id)),
-  );
-  await supabaseAdmin.from("myfans_attention_candidates").upsert(
-    board.quotePool.global.slice(0, 10).map((row, index) => ({
-      approved_media_id: approvedMediaId,
-      quote_candidate_id: row.candidate.id,
-      product_id: row.candidate.product_id,
-      plan_date: board.planDate,
-      attention_score: row.globalScore,
-      score_json: {
-        global_score: row.globalScore,
-        source_score: row.candidate.score,
-        rank: index + 1,
-        selected_by_daily_planner: selectedQuoteIds.has(row.candidate.id),
-      },
-      evidence_json: {
-        selected: selectedQuoteIds.has(row.candidate.id),
-        selected_reason: selectedQuoteIds.has(row.candidate.id) ? "Daily Planner final quote selection" : null,
-        companion_selected_for_today: row.candidate.selected_for_today ?? false,
-        companion_global_rank: row.candidate.global_rank ?? null,
-        visual_verified: row.candidate.quote_visual_ready,
-        visual_render_status: visualRenderStatus(row.candidate),
-        media_type: row.candidate.media_type,
-        media_permalink: row.candidate.media_permalink,
-        views: row.candidate.views,
-        likes: row.candidate.likes,
-        reposts: row.candidate.reposts,
-        replies: row.candidate.replies,
-        creator_rank: row.candidate.creator_rank,
-        reason: row.candidate.score_reason,
-      },
-    })),
-    { onConflict: "approved_media_id,quote_candidate_id,plan_date" },
-  );
-}
-
-async function syncProductLinkageEvidence(board: MyfansExecutionBoard) {
-  const rows = [
-    ...board.candidates,
-    ...(board.candidateOptions ?? []).flatMap((slot) => slot.candidates),
-  ]
-    .map((candidate) => candidate.resolverEvidence)
-    .filter((row): row is NonNullable<typeof row> => Boolean(row?.source_status_url && row.discovered_myfans_url && row.diagnostic_mode !== true));
-  if (!rows.length) return;
-  const uniqueRows = new Map<string, (typeof rows)[number]>();
-  for (const row of rows) {
-    const key = `${row.source_status_url}\u0000${row.discovered_myfans_url}\u0000${row.evidence_source}`;
-    const existing = uniqueRows.get(key);
-    uniqueRows.set(key, existing ? bestResolverEvidence([existing, row]) ?? row : row);
-  }
-  const { error } = await supabaseAdmin
-    .from("myfans_post_product_linkage_evidence")
-    .upsert(
-      [...uniqueRows.values()].map((row) => ({
-        approved_media_id: row.approved_media_id ?? null,
-        quote_candidate_id: row.quote_candidate_id ?? null,
-        source_status_url: row.source_status_url,
-        source_author_handle: row.source_author_handle,
-        discovered_myfans_url: row.discovered_myfans_url,
-        final_myfans_url: row.final_myfans_url ?? null,
-        product_id: row.product_id ?? null,
-        resolution_method: row.resolution_method,
-        confidence: row.confidence,
-        evidence_source: row.evidence_source,
-        verified_at: row.verified_at,
-        metadata: row.metadata ?? {},
-        updated_at: new Date().toISOString(),
-      })),
-      { onConflict: "source_status_url,discovered_myfans_url,evidence_source" },
-    );
-  if (error && !/myfans_post_product_linkage_evidence|schema cache|does not exist/i.test(error.message)) throw error;
-}

@@ -46,21 +46,6 @@ async function audit(entityType: string, entityId: number | null, action: string
   });
 }
 
-async function recordPostedPermanentExclusion(input: { id: number; product_id: number | null; quote_x_url: string; source_x_url: string }) {
-  const target = exclusionTargetForCandidate({
-    productId: input.product_id,
-    quoteXUrl: input.quote_x_url,
-    sourceXUrl: input.source_x_url,
-  });
-  if (!target) return;
-  const { error } = await recordMyfansPermanentExclusion({
-    ...target,
-    reason: "posted",
-    context: { recorded_from: "myfans_x_posts", post_id: input.id },
-  });
-  if (error) throw error;
-}
-
 async function saveCreator(formData: FormData) {
   const id = nullableId(formData, "id");
   const record = {
@@ -375,30 +360,18 @@ async function savePost(formData: FormData) {
     updated_at: new Date().toISOString(),
   };
   if (!record.body) throw new Error("投稿本文を入力してください。");
-
-  const query = id
-    ? supabaseAdmin.from("myfans_x_posts").update(record).eq("id", id).select("id").single()
-    : supabaseAdmin.from("myfans_x_posts").insert(record).select("id").single();
-  const { data, error } = await query;
-  if (error) throw error;
-  if (record.status === "posted") {
-    await recordPostedPermanentExclusion({ id: data.id, product_id: record.product_id, quote_x_url: record.quote_x_url, source_x_url: record.source_x_url });
+  const idempotencyKey = text(formData, "idempotency_key") || (id ? `post:${id}` : record.creative_variant_id ? `variant:${record.creative_variant_id}` : rowKey(record.body, record.quote_x_url, record.planned_slot));
+  const { data, error } = await supabaseAdmin.rpc("save_myfans_post", {
+    p_post: { ...record, id: id ?? null, idempotency_key: idempotencyKey },
+    p_idempotency_key: idempotencyKey,
+    p_quote_x_url: record.creative_strategy === "quote_post" ? record.quote_x_url : "",
+  });
+  if (error || !data?.post_id) {
+    console.error("myfans post save RPC failed", error?.message ?? "invalid response");
+    throw new Error("投稿ログの保存に失敗しました。入力を確認して、時間をおいて再試行してください。");
   }
-  if (record.creative_strategy === "quote_post" && record.quote_x_url) {
-    const cooldown = new Date();
-    cooldown.setDate(cooldown.getDate() + 30);
-    await supabaseAdmin
-      .from("myfans_quote_candidates")
-      .update({
-        selected_for_today: true,
-        last_used_at: new Date().toISOString(),
-        cooldown_until: cooldown.toISOString(),
-        use_count: 1,
-      })
-      .eq("x_post_url", record.quote_x_url);
-  }
-  await audit("x_post", data.id, id ? "update" : "create", record.body.slice(0, 80));
-  return { id: data.id };
+  await audit("x_post", Number(data.post_id), id ? "update" : "create", record.body.slice(0, 80));
+  return { id: Number(data.post_id) };
 }
 
 async function selectDailyPlanCandidate(formData: FormData) {
@@ -489,16 +462,23 @@ async function updatePostExecution(formData: FormData) {
           : null;
   if (!record) throw new Error("未対応の更新です。");
   if (mode === "url" && !text(formData, "x_post_url")) throw new Error("投稿URLを入力してください。");
-  const { error } = await supabaseAdmin.from("myfans_x_posts").update(record).eq("id", id);
-  if (error) throw error;
-  if (mode === "posted" || mode === "url") {
+  if (mode === "metrics") {
+    const { error } = await supabaseAdmin.from("myfans_x_posts").update(record).eq("id", id);
+    if (error) throw error;
+  } else {
+    const postedAt = new Date().toISOString();
     const { data: post, error: postError } = await supabaseAdmin
       .from("myfans_x_posts")
       .select("id,product_id,quote_x_url,source_x_url")
       .eq("id", id)
       .single();
     if (postError) throw postError;
-    await recordPostedPermanentExclusion(post);
+    const finalized = await supabaseAdmin.rpc("save_myfans_post", {
+      p_post: { id, status: "posted", posted_at: postedAt, x_post_url: mode === "url" ? text(formData, "x_post_url") : undefined },
+      p_idempotency_key: `post:${id}`,
+      p_quote_x_url: post.quote_x_url ?? "",
+    });
+    if (finalized.error || !finalized.data?.post_id) throw new Error("投稿完了処理に失敗しました。再度状態を確認してください。");
   }
   await audit("x_post", id, `execution_${mode}`, "投稿実行ボードから更新", record);
   return { id };
@@ -679,8 +659,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     console.error("myfans admin action failed", error);
+    const message = error instanceof Error ? error.message : "";
+    const safeMessage = /^(投稿本文を入力してください|正規myfansアフィリンク|期限日時|商品が見つかりません|投稿IDがありません|未対応の更新|投稿URLを入力|対象日が不正|投稿枠が不正|候補はA\/B\/C|今日のDaily Planが見つかりません|selectedは)/.test(message)
+      ? message
+      : "myfans操作に失敗しました。入力を確認して、時間をおいて再試行してください。";
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "myfans操作に失敗しました。" },
+      { error: safeMessage },
       { status: 500 },
     );
   }

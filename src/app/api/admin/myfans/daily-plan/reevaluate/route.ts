@@ -11,11 +11,12 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({})) as { approvedMediaId?: number; planDate?: string };
     const approvedMediaId = Number.isFinite(body.approvedMediaId) ? Number(body.approvedMediaId) : 1;
     const analytics = await getMyfansAnalytics({ approvedMediaId });
-    if (analytics.error) return NextResponse.json({ error: analytics.error }, { status: 503 });
+    if (analytics.error) return NextResponse.json({ error: "候補データを読み込めません。接続状態を確認して再試行してください。" }, { status: 503 });
     const board = buildMyfansExecutionBoard(analytics, body.planDate ? { planDate: body.planDate } : {});
     const snapshot = await ensureMyfansDailySnapshot(board, approvedMediaId);
     return NextResponse.json(snapshot);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "再評価に失敗しました。" }, { status: 500 });
+    console.error("myfans daily plan reevaluate failed", error);
+    return NextResponse.json({ error: "Daily Planの再評価に失敗しました。保存状態は変更されていません。時間をおいて再試行してください。" }, { status: 500 });
   }
 }

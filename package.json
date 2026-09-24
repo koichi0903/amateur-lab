@@ -12,6 +12,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:myfans-public-copy": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfansPublicCopy.test.ts",
+    "test:myfans-daily-transaction": "node scripts/test-myfans-daily-transaction-contract.mjs",
     "test:myfans-source-text": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfansSourceText.test.ts",
     "test:x-growth-semantic-diversity": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/xGrowthSemanticDiversity.test.ts",
     "test:scheduled-update": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/admin/scheduleRunStatus.test.ts && node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/admin/endedSaleBatch.test.ts && node --test scripts/local-admin-update-helpers.test.mjs",

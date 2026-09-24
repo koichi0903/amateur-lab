@@ -3164,7 +3164,11 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     if (sameRoleCount >= 4) quality = holdQuality(quality, `同じrole ${candidate.dailyRole} は1日4本までです`);
     const projected = [...publishableCandidates.map((item) => item.quality.total), quality.total];
     const projectedAverage = projected.reduce((sum, score) => sum + score, 0) / projected.length;
-    if (quality.verdict === "PASS" && projected.length >= 2 && projectedAverage < MYFANS_DAILY_AVERAGE_QUALITY_MINIMUM) {
+    // Two individually passing candidates are the minimum safe operating day.
+    // Apply the higher daily-average target only when attempting a third post;
+    // otherwise a valid two-post discovery fallback is incorrectly reduced to
+    // one post whenever its fixed discovery quality is below 90.
+    if (quality.verdict === "PASS" && projected.length > MYFANS_DAILY_SELECTED_MIN && projectedAverage < MYFANS_DAILY_AVERAGE_QUALITY_MINIMUM) {
       quality = holdQuality(quality, `日次平均Quality ${MYFANS_DAILY_AVERAGE_QUALITY_MINIMUM}未満になるためHOLD`);
     }
     return { ...candidate, quality };
@@ -3564,13 +3568,19 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
   const usedOptionSourcesAcrossDay = new Set<string>();
   const fullDailyOptions = rotation.map((item, index) => {
     const existing = slotOptions.find((slot) => slot.postOrder === index + 1);
-    const options = [...(existing?.candidates ?? [])].filter((candidate) => {
+    // Reserve at most one already-generated option per slot before filling
+    // alternatives. Without this first pass, slot 1 consumes every eligible
+    // source and the day-level uniqueness guard leaves later slots empty.
+    const existingCandidates = [...(existing?.candidates ?? [])];
+    const options: Array<(typeof existingCandidates)[number]> = [];
+    for (const candidate of existingCandidates) {
+      if (options.length >= 1) break;
       const source = normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl);
-      if (candidate.quality.verdict !== "PASS") return false;
-      if (!source || usedOptionSourcesAcrossDay.has(source)) return false;
+      if (candidate.quality.verdict !== "PASS") continue;
+      if (!source || usedOptionSourcesAcrossDay.has(source)) continue;
       usedOptionSourcesAcrossDay.add(source);
-      return true;
-    });
+      options.push(candidate);
+    }
     const excludedProducts = new Set<number>();
     const fillFrom = (sourceItem: RotationItem, attemptOffset: number) => {
       for (let attempt = 0; attempt < MYFANS_SLOT_RECOVERY_MAX_ATTEMPTS * 2 && options.length < 3; attempt += 1) {
