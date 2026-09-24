@@ -821,13 +821,13 @@ export async function getXPostCandidates(
     .from("x_media_assets")
     .select("work_id")
     .eq("account_handle", "hakkutsu_lab")
-    .eq("review_source", "manual_video_reviewed")
-    .eq("rights_status", "allowed")
-    .eq("x_usage_allowed", true)
-    .in("media_quality", ["strong", "normal"])
-    .not("manual_tags", "cs", "{too_explicit_for_reach}")
+    // User-confirmed operations treat all official sample movies as postable
+    // candidates. rights_status is bookkeeping here, not an eligibility gate.
+    // Technical URL/fetch/quality and explicit posted/exclusion checks happen
+    // later in the X Growth media pipeline.
+    .eq("source_kind", "official_sample")
     .order("reviewed_at", { ascending: false })
-    .limit(3);
+    .limit(120);
   const reviewedVideoWorkIds = [...new Set(((reviewedVideoAssets.data ?? []) as Array<{ work_id: number | null }>).map((asset) => asset.work_id).filter((id): id is number => Number.isSafeInteger(id)))];
   const reviewedVideoWorks = reviewedVideoWorkIds.length
     ? await base().in("id", reviewedVideoWorkIds.filter((id) => !postedWorkIds.has(id)))
