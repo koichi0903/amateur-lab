@@ -346,6 +346,7 @@ function makeCandidate(
   cooldownDays: number,
   funnel: FunnelStat,
   logs: XPostLog[],
+  presentationDecisionType?: Exclude<DecisionType, "UNKNOWN">,
 ): XPostCandidate {
   const price = currentPrice(work);
   const regular = work.list_price && price && work.list_price > price
@@ -372,6 +373,9 @@ function makeCandidate(
     priceSeries: { displayName: chart?.seriesName ?? null, period: chart?.seriesPeriod ?? null },
     newRecordedLowToday: chart?.newRecordedLowToday ?? null,
   });
+  const presentationFacts = presentationDecisionType
+    ? { ...decisionFacts, decisionType: presentationDecisionType }
+    : decisionFacts;
   const url = `${siteUrl()}/works/${work.id}?from=x&x_post=${encodeURIComponent(`${category}-${work.id}`)}`;
   const priceText = price ? `¥${price.toLocaleString("ja-JP")}` : "価格は詳細で確認";
   let label = "AI発掘";
@@ -545,7 +549,7 @@ function makeCandidate(
     discoveryScore: discoveryScoreValue,
     buyTimingScore: buyTimingScoreValue,
     isNinetyDayLow: chart?.isNinetyDayLow ?? false,
-    decisionFacts,
+    decisionFacts: presentationFacts,
     sampleMovieUrl: work.sample_movie_url,
     hasRightsCheckedMovie: false,
     xPageViews: funnel.pageViews,
@@ -574,7 +578,7 @@ function makeCandidate(
     discoveryScore: discoveryScoreValue,
     buyTimingScore: buyTimingScoreValue,
     isNinetyDayLow: chart?.isNinetyDayLow ?? false,
-    decisionFacts,
+    decisionFacts: presentationFacts,
     sampleMovieUrl: work.sample_movie_url,
     hasRightsCheckedMovie: false,
     xPageViews: funnel.pageViews,
@@ -644,7 +648,7 @@ function makeCandidate(
     sampleMovieUrl: work.sample_movie_url,
     imageUrl: work.image_url,
     saleEndAt: work.sale_end_at,
-    decisionFacts,
+    decisionFacts: presentationFacts,
   };
 }
 
@@ -861,7 +865,10 @@ export async function getXPostCandidates(
       let groupCount = 0;
       for (const work of group.selected) {
         if (postedWorkIds.has(work.id)) continue;
-        if (used.has(work.id)) continue;
+        // A work may legitimately belong to multiple Decision Facts lanes.
+        // Keep lane-specific candidates here; final X Growth selection still
+        // enforces work/media/URL uniqueness.
+        if (!group.decisionType && used.has(work.id)) continue;
         const decisionSupplyEntry = group.decisionType
           ? decisionSupply[group.decisionType as Exclude<DecisionType, "UNKNOWN">]
           : null;
@@ -877,6 +884,7 @@ export async function getXPostCandidates(
           group.cooldownDays,
           funnels.get(work.id) ?? { pageViews: 0, fanzaClicks: 0, ctr: 0 },
           logs,
+          group.decisionType ?? undefined,
         );
         if (candidate.weightedLength > 280) {
           if (decisionSupplyEntry) {
@@ -885,14 +893,15 @@ export async function getXPostCandidates(
           }
           continue;
         }
-        if (group.decisionType && candidate.decisionFacts.decisionType !== group.decisionType) {
+        if (group.decisionType && !candidate.decisionFacts.eligibleDecisionTypes.includes(group.decisionType)) {
           decisionSupplyEntry!.firstDropReasonCounts.decision_type_mismatch = (decisionSupplyEntry!.firstDropReasonCounts.decision_type_mismatch ?? 0) + 1;
           decisionSupplyEntry!.firstDropByWorkId[String(work.id)] = "decision_type_mismatch";
           continue;
         }
+        const laneCandidate = candidate;
         used.add(work.id);
-        candidates.push(candidate);
-        if (group.decisionType && candidate.decisionFacts.decisionType === group.decisionType) {
+        candidates.push(laneCandidate);
+        if (group.decisionType && laneCandidate.decisionFacts.eligibleDecisionTypes.includes(group.decisionType)) {
           decisionSupplyEntry!.chartEligible += 1;
           decisionSupplyEntry!.uniqueWorks = new Set(
             candidates

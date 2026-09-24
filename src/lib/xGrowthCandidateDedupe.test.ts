@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { candidateDedupeKey, candidateMediaDedupeKey, cheapCandidatePrefilter, decisionCoverageScore, isDecisionFactEligible, isDistinctCandidate, preserveDecisionLanesBeforeLimit } from "./xGrowthOS";
+import { candidateDedupeKey, candidateMediaDedupeKey, cheapCandidatePrefilter, decisionCoverageScore, decisionTypesForCandidate, isDecisionFactEligible, isDistinctCandidate, preserveDecisionLanesBeforeLimit } from "./xGrowthOS";
 import { buildDecisionFacts } from "./domain/decisionFacts";
 
 const candidate = (overrides: Record<string, unknown> = {}) => ({
@@ -53,6 +53,22 @@ test("Decision Facts eligibility excludes UNKNOWN and preserves all three lanes"
   assert.equal(decisionCoverageScore("HIGH_DISCOUNT_NOT_LOW", { RECORD_LOW: 1 }, supply), 100);
   assert.equal(decisionCoverageScore("HIDDEN_VALUE", { RECORD_LOW: 1, HIGH_DISCOUNT_NOT_LOW: 1 }, supply), 100);
   assert.equal(decisionCoverageScore("RECORD_LOW", { RECORD_LOW: 1, HIGH_DISCOUNT_NOT_LOW: 1, HIDDEN_VALUE: 1 }, supply), 0);
+});
+
+test("multi-label Decision Facts preserve HIDDEN lane eligibility while primary stays presentation-specific", () => {
+  const facts = buildDecisionFacts({
+    currentPrice: 500,
+    recordedLowestPrice: 500,
+    discountRate: 20,
+    isOnSale: true,
+    ranking: null,
+    reviewAverage: 4.5,
+    reviewCount: 10,
+  });
+  assert.equal(facts.decisionType, "RECORD_LOW");
+  assert.deepEqual(decisionTypesForCandidate({ decisionFacts: facts } as never), ["RECORD_LOW", "HIDDEN_VALUE"]);
+  const hiddenPresentation = { ...facts, decisionType: "HIDDEN_VALUE" as const };
+  assert.equal(isDecisionFactEligible({ decisionFacts: hiddenPresentation } as never), true);
 });
 
 test("cheap prefilter reserves every available Decision Facts lane before score fill", () => {

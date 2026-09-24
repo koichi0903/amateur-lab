@@ -117,11 +117,23 @@ const DECISION_TYPES: readonly DecisionType[] = ["RECORD_LOW", "HIGH_DISCOUNT_NO
 
 export function isDecisionFactEligible(candidate: Pick<XGrowthOpportunity, "decisionFacts">) {
   const facts = candidate.decisionFacts;
-  return Boolean(facts && DECISION_TYPES.includes(facts.decisionType) && decisionFactProofLine(facts).trim());
+  return Boolean(facts && decisionTypesForCandidate(candidate).length > 0 && decisionFactProofLine(facts).trim());
 }
 
 export function decisionTypeForCandidate(candidate: Pick<XGrowthOpportunity, "decisionFacts">): DecisionType {
   return candidate.decisionFacts?.decisionType ?? "UNKNOWN";
+}
+
+export function decisionTypesForCandidate(candidate: Pick<XGrowthOpportunity, "decisionFacts">): DecisionType[] {
+  const facts = candidate.decisionFacts;
+  if (!facts) return [];
+  return facts.eligibleDecisionTypes?.length
+    ? facts.eligibleDecisionTypes
+    : DECISION_TYPES.includes(facts.decisionType) ? [facts.decisionType] : [];
+}
+
+function isEligibleForDecisionType(candidate: Pick<XGrowthOpportunity, "decisionFacts">, type: DecisionType) {
+  return decisionTypesForCandidate(candidate).includes(type);
 }
 
 export function decisionCoverageScore(
@@ -914,11 +926,11 @@ export function cheapCandidatePrefilter(items: XGrowthOpportunity[], limit = 300
   // the bounded prefilter. Otherwise a large RECORD_LOW pool can consume all
   // slots and make the later lane-preservation pass a no-op.
   for (const decisionType of DECISION_TYPES) {
-    const lane = ranked.filter((candidate) => decisionTypeForCandidate(candidate) === decisionType);
+    const lane = ranked.filter((candidate) => isEligibleForDecisionType(candidate, decisionType));
     if (lane[0]) add(lane[0]);
   }
   for (const decisionType of DECISION_TYPES) {
-    ranked.filter((candidate) => decisionTypeForCandidate(candidate) === decisionType).slice(1, 30).forEach(add);
+    ranked.filter((candidate) => isEligibleForDecisionType(candidate, decisionType)).slice(1, 30).forEach(add);
   }
   for (const item of ranked.filter((candidate) => candidate.sourceType === "MONEY").slice(0, 30)) add(item);
   for (const role of ["REACH", "FOLLOW", "AUTHORITY", "MONEY"] as const) {
@@ -948,7 +960,7 @@ export function preserveDecisionLanesBeforeLimit(
   };
   for (const item of items) if (mustKeepWorkIds.has(item.workId)) add(item);
   for (const decisionType of DECISION_TYPES) {
-    items.filter((item) => decisionTypeForCandidate(item) === decisionType).slice(0, 30).forEach(add);
+    items.filter((item) => isEligibleForDecisionType(item, decisionType)).slice(0, 30).forEach(add);
   }
   for (const item of items) add(item);
   return [...selected.values()];
@@ -1449,7 +1461,7 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
   const rankLabels = ["A", "B", "C"] as const;
   const workUseCount = new Map<number, number>();
   const eligibleDecisionSupply = DECISION_TYPES.reduce((counts, type) => {
-    counts[type] = pool.filter((item) => decisionTypeForCandidate(item) === type).length;
+    counts[type] = pool.filter((item) => isEligibleForDecisionType(item, type)).length;
     return counts;
   }, {} as Record<DecisionType, number>);
   const semanticVariantCache = new Map<string, ReturnType<typeof selectCandidateVariant>>();
@@ -1491,13 +1503,13 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
             : 0;
           const slotPriorityBonus = semanticCategory ? semanticCategoryForSlot(slot.slotId, role, semanticCategory) * 3 : 0;
           const repetitionPenalty = hasDiversityConflict(item, [...picked, ...slotPicked], logs) ? 10 : 0;
-          const decisionType = decisionTypeForCandidate(item);
+          const eligibleTypes = decisionTypesForCandidate(item);
           const selectedByDecisionType = [...picked, ...slotPicked].reduce((counts, pick) => {
             const type = decisionTypeForCandidate(pick);
             counts[type] = (counts[type] ?? 0) + 1;
             return counts;
           }, {} as Partial<Record<DecisionType, number>>);
-          const decisionCoverageBonus = decisionCoverageScore(decisionType, selectedByDecisionType, eligibleDecisionSupply);
+          const decisionCoverageBonus = Math.max(0, ...eligibleTypes.map((type) => decisionCoverageScore(type, selectedByDecisionType, eligibleDecisionSupply)));
           const score = selected ? roleScore(item, role) + selected.score * 0.2 + sourceBonus + (tier?.score ?? 0) * 0.18 + diversityBonus + slotPriorityBonus + decisionCoverageBonus - repetitionPenalty : -1;
           return { item, selected, tier, score };
         })
@@ -2082,7 +2094,7 @@ function replenishAfterFinalDiversity(
           && selected.variant.quality.dimensions.adSmell <= (role === "MONEY" ? 48 : 30)
           && hasRealMedia(item, selected.variant)
           && (role !== "MONEY" || Boolean(selected.variant.url)))
-        .sort((a, b) => Number(missingTypes.has(decisionTypeForCandidate(b.item))) - Number(missingTypes.has(decisionTypeForCandidate(a.item))) || b.selected.score - a.selected.score);
+        .sort((a, b) => Number(b.item.decisionFacts?.eligibleDecisionTypes?.some((type) => missingTypes.has(type)) ?? false) - Number(a.item.decisionFacts?.eligibleDecisionTypes?.some((type) => missingTypes.has(type)) ?? false) || b.selected.score - a.selected.score);
       let added = false;
       for (const entry of candidates) {
         const audit = diversityConflicts(entry.item, entry.role, entry.selected.variant, next, logs);
@@ -2403,7 +2415,7 @@ function buildSupplyDiagnostics(
     decisionTypeSelected[decisionType] = (decisionTypeSelected[decisionType] ?? 0) + 1;
   }
   const decisionPipelineByType = Object.fromEntries(DECISION_TYPES.map((decisionType) => {
-    const typeItems = opportunities.filter((item) => decisionTypeForCandidate(item) === decisionType);
+    const typeItems = opportunities.filter((item) => isEligibleForDecisionType(item, decisionType));
     const typePicks = picks.filter((pick) => decisionTypeForCandidate(pick) === decisionType);
     const uniqueMedia = new Set(typeItems.map((item) => candidateMediaDedupeKey(item)).filter((key): key is string => Boolean(key)));
     const qualityItems = typeItems.filter((item) => item.creativeVariants.some((variant) => variant.quality.passed));

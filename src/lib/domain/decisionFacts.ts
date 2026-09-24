@@ -2,6 +2,7 @@ export type DecisionType = "RECORD_LOW" | "HIGH_DISCOUNT_NOT_LOW" | "HIDDEN_VALU
 
 export type DecisionFacts = {
   decisionType: DecisionType;
+  eligibleDecisionTypes: Exclude<DecisionType, "UNKNOWN">[];
   currentPrice: number | null;
   recordedLowestPrice: number | null;
   differenceFromLowest: number | null;
@@ -77,13 +78,8 @@ export function decisionFactEligibilityReason(
   if (!isRankingOutsideOrUnknown(input.ranking)) return "ranking_not_outside";
   if ((input.reviewAverage ?? -Infinity) < HIDDEN_VALUE_MIN_REVIEW_AVERAGE) return "review_average_below_threshold";
   if ((input.reviewCount ?? -1) < HIDDEN_VALUE_MIN_REVIEW_COUNT) return "review_count_below_threshold";
-  if ((input.discountRate ?? -1) >= HIGH_DISCOUNT_THRESHOLD
-    && input.recordedLowestPrice != null
-    && input.recordedLowestPrice > 0
-    && input.currentPrice > input.recordedLowestPrice) return "higher_priority_decision_type";
   // HIDDEN_VALUE proves ranking/review/current-price value; it does not need
   // the recorded-low/chart evidence required by the price comparison lanes.
-  if (input.recordedLowestPrice != null && input.recordedLowestPrice > 0 && input.currentPrice === input.recordedLowestPrice) return "current_is_record_low";
   return null;
 }
 
@@ -100,23 +96,29 @@ export function buildDecisionFacts(input: DecisionFactInput): DecisionFacts {
     ? "unknown"
     : currentPrice === recordedLowestPrice ? "yes" : "no";
   const recordLow = recordLowStatus === "yes";
-  const hiddenValue = !recordLow
-    && input.isOnSale
+  const hiddenValue = input.isOnSale
     && isRankingOutsideOrUnknown(input.ranking)
     && (input.reviewAverage ?? -Infinity) >= HIDDEN_VALUE_MIN_REVIEW_AVERAGE
     && (input.reviewCount ?? -1) >= HIDDEN_VALUE_MIN_REVIEW_COUNT
     && (input.discountRate ?? -1) >= HIDDEN_VALUE_MIN_DISCOUNT;
 
+  const eligibleDecisionTypes: Exclude<DecisionType, "UNKNOWN">[] = [];
+  if (recordLow) eligibleDecisionTypes.push("RECORD_LOW");
+  if (input.isOnSale && (input.discountRate ?? -1) >= HIGH_DISCOUNT_THRESHOLD && differenceFromLowest != null && differenceFromLowest > 0) {
+    eligibleDecisionTypes.push("HIGH_DISCOUNT_NOT_LOW");
+  }
+  if (hiddenValue) eligibleDecisionTypes.push("HIDDEN_VALUE");
+
   let decisionType: DecisionType = "UNKNOWN";
   if (recordLow) decisionType = "RECORD_LOW";
-  else if (input.isOnSale && (input.discountRate ?? -1) >= HIGH_DISCOUNT_THRESHOLD && differenceFromLowest != null && differenceFromLowest > 0) {
-    decisionType = "HIGH_DISCOUNT_NOT_LOW";
-  } else if (hiddenValue) {
+  else if (eligibleDecisionTypes.includes("HIGH_DISCOUNT_NOT_LOW")) decisionType = "HIGH_DISCOUNT_NOT_LOW";
+  else if (hiddenValue) {
     decisionType = "HIDDEN_VALUE";
   }
 
   return {
     decisionType,
+    eligibleDecisionTypes,
     currentPrice,
     recordedLowestPrice,
     differenceFromLowest,

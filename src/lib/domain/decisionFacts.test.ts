@@ -62,6 +62,34 @@ test("HIDDEN_VALUE does not require recorded-low or price-history evidence", () 
   assert.match(decisionFactProofLine(facts), /ランキング外/);
 });
 
+test("RECORD_LOW and HIDDEN_VALUE can both be eligible from the same facts", () => {
+  const facts = buildDecisionFacts({
+    currentPrice: 500,
+    recordedLowestPrice: 500,
+    discountRate: 20,
+    isOnSale: true,
+    ranking: null,
+    reviewAverage: 4.5,
+    reviewCount: 10,
+  });
+  assert.deepEqual(facts.eligibleDecisionTypes, ["RECORD_LOW", "HIDDEN_VALUE"]);
+  assert.equal(facts.decisionType, "RECORD_LOW");
+});
+
+test("HIGH_DISCOUNT_NOT_LOW never coexists with RECORD_LOW", () => {
+  const facts = buildDecisionFacts({
+    currentPrice: 500,
+    recordedLowestPrice: 500,
+    discountRate: 50,
+    isOnSale: true,
+    ranking: 10,
+    reviewAverage: 4.5,
+    reviewCount: 10,
+  });
+  assert.deepEqual(facts.eligibleDecisionTypes, ["RECORD_LOW"]);
+  assert.equal(facts.eligibleDecisionTypes.includes("HIGH_DISCOUNT_NOT_LOW"), false);
+});
+
 test("HIGH_DISCOUNT_NOT_LOW requires the recorded-low comparison but not a chart", () => {
   assert.equal(decisionFactEligibilityReason({
     currentPrice: 800,
