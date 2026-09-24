@@ -103,10 +103,17 @@ export async function openFanzaPageWithSelector(
 export async function openFanzaContentListPage(
   page: Page,
   url: string,
-  attempts = 3,
+  attemptsOrOptions:
+    | number
+    | Pick<SelectorWaitOptions, "attempts" | "timeoutMs" | "settleMs"> = 3,
 ): Promise<number> {
+  const options =
+    typeof attemptsOrOptions === "number"
+      ? { attempts: attemptsOrOptions }
+      : attemptsOrOptions;
+
   return openFanzaPageWithSelector(page, url, CONTENT_CARD_SELECTOR, {
-    attempts,
+    ...options,
     label: "list",
   });
 }

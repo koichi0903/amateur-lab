@@ -1,5 +1,6 @@
 import { createBrowser } from "@/lib/playwright/browserManager";
 import { openFanzaContentListPage } from "@/lib/playwright/fanzaAgeGate";
+import { loadFanzaListPageWithRetry } from "@/lib/playwright/fanzaListRetry";
 
 export interface ProductSummary {
   productId: string;
@@ -14,14 +15,48 @@ export interface ProductSummary {
 
 export async function getProductIds(
   baseUrl: string,
-  maxPages?: number
+  maxPages?: number,
+  options: {
+    pageRetry?: {
+      attempts?: number;
+      timeoutMs?: number;
+      backoffMs?: readonly number[];
+    };
+  } = {},
 ) {
   const browser = await createBrowser({ headless: false });
 
-  const page = await browser.newPage();
+  let page = await browser.newPage();
+
+  const pageRetry = options.pageRetry;
+  const loadPage = async (url: string, pageNumber: number) => {
+    if (!pageRetry) {
+      await openFanzaContentListPage(page, url);
+      return;
+    }
+
+    await loadFanzaListPageWithRetry({
+      attempts: pageRetry.attempts ?? 3,
+      backoffMs: pageRetry.backoffMs ?? [2_000, 6_000],
+      pageNumber,
+      url,
+      load: () =>
+        openFanzaContentListPage(page, url, {
+          attempts: 1,
+          timeoutMs: pageRetry.timeoutMs ?? 30_000,
+        }).then(() => undefined),
+      recover: async (attempt) => {
+        console.warn(
+          `[fanza-list] page state recovery page=${pageNumber} after attempt=${attempt}: creating a new page`,
+        );
+        await page.close().catch(() => undefined);
+        page = await browser.newPage();
+      },
+    });
+  };
 
   try {
-    await openFanzaContentListPage(page, baseUrl);
+    await loadPage(baseUrl, 1);
 
     // 総ページ数取得
     const pageText =
@@ -53,10 +88,7 @@ export async function getProductIds(
 )
     {
       if (currentPage > 1) {
-        await openFanzaContentListPage(
-          page,
-          `${baseUrl}&page=${currentPage}`,
-        );
+        await loadPage(`${baseUrl}&page=${currentPage}`, currentPage);
       }
 
 const cards = page.locator(
