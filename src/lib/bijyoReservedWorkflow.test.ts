@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { allocateTodaySlots, bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, filterRecentReleaseWorks, recentReleaseDateRange, todayProgress } from "./bijyoReservedWorkflow.ts";
-import { BIJYO_SECTION_ORDER, UPCOMING_RELEASE_INITIAL_LIMIT, UPCOMING_RELEASE_PAGE_SIZE, visibleUpcomingReleaseCount } from "../app/admin/bijyo-reserved/ui.ts";
+import { BIJYO_SECTION_ORDER, MANUAL_CANDIDATE_INITIAL_LIMIT, MANUAL_CANDIDATE_PAGE_SIZE, UPCOMING_RELEASE_INITIAL_LIMIT, UPCOMING_RELEASE_PAGE_SIZE, visibleManualCandidateCount, visibleUpcomingReleaseCount } from "../app/admin/bijyo-reserved/ui.ts";
 
 test("手動追加のidempotency keyは同じworkで安定する", () => {
   assert.equal(bijyoManualIdempotencyKey(283591), "bijyo1010:manual:283591");
@@ -70,4 +70,8 @@ test("管理画面のセクション順とfuture初期表示件数を固定す�
   assert.equal(visibleUpcomingReleaseCount(222, 24), 24);
   assert.equal(visibleUpcomingReleaseCount(222, 48), 48);
   assert.equal(visibleUpcomingReleaseCount(10, 24), 10);
+  assert.equal(MANUAL_CANDIDATE_INITIAL_LIMIT, 24);
+  assert.equal(MANUAL_CANDIDATE_PAGE_SIZE, 24);
+  assert.equal(visibleManualCandidateCount(200, 24), 24);
+  assert.equal(visibleManualCandidateCount(200, 48), 48);
 });
