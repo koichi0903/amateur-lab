@@ -917,6 +917,7 @@ export function PersistedDailyPlanBoard({ snapshot }: { snapshot: PersistedDaily
                     </div>
                     <div className="mt-3 grid gap-1 text-xs leading-5 text-zinc-300">
                       <p><span className="font-black text-zinc-500">引用元X:</span> {candidate.quoteXUrl || candidate.sourceXUrl || "-"}</p>
+                      <p><span className="font-black text-zinc-500">引用画像/動画:</span> {candidate.mediaPermalink || "なし（status URLを使用）"}</p>
                       <p><span className="font-black text-zinc-500">候補タイプ:</span> {candidate.candidateType || "-"} / {candidate.monetizableStatus || "unlinked"}</p>
                       <p><span className="font-black text-zinc-500">myfans作品:</span> {candidate.productTitle || "なし"}</p>
                       <p><span className="font-black text-zinc-500">送客先:</span> {candidate.myfansTargetUrl || "なし"}</p>
@@ -1045,9 +1046,13 @@ type CandidateOptionSlot = ReturnType<typeof buildMyfansExecutionBoard>["candida
 type CandidateOption = CandidateOptionSlot["candidates"][number];
 
 function publishBody(candidate: ExecutionCandidate) {
-  if (candidate.creativeStrategy !== "quote_post" || !candidate.quoteXUrl) return candidate.body;
-  const lines = candidate.body.split(/\n+/).map((line) => line.trim()).filter((line) => line !== candidate.quoteXUrl);
-  return [...lines, candidate.quoteXUrl].join("\n\n");
+  const sourceLinks = [candidate.quoteXUrl || candidate.sourceXUrl, candidate.mediaPermalink]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  const uniqueSourceLinks = [...new Set(sourceLinks)];
+  if (!uniqueSourceLinks.length) return candidate.body;
+  const lines = candidate.body.split(/\n+/).map((line) => line.trim()).filter((line) => !uniqueSourceLinks.includes(line));
+  return [...lines, ...uniqueSourceLinks].join("\n\n");
 }
 
 function needsFreshAffiliateLink(candidate: ExecutionCandidate) {
@@ -1436,7 +1441,6 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
   }
 
   async function createCandidate(candidate: ExecutionCandidate) {
-    if (!candidate.product) return;
     if (!canUseAffiliateLink(candidate)) {
       setMessage({ text: "リンクが必要な投稿です。先に正規myfansアフィリンクを作成/更新してください。", error: true });
       return;
@@ -1446,7 +1450,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
     try {
       const formData = new FormData();
       formData.set("action", "post");
-      formData.set("product_id", String(candidate.product.id));
+      if (candidate.product) formData.set("product_id", String(candidate.product.id));
       formData.set("post_type", candidate.postType);
       formData.set("status", "ready");
       formData.set("body", publishBody(candidate));
@@ -1693,6 +1697,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
                         <p><span className="font-black text-zinc-500">候補タイプ:</span> {candidate.candidateType}</p>
                         <p><span className="font-black text-zinc-500">引用元X投稿者:</span> {candidate.sourceAuthorLabel}</p>
                         <p><span className="font-black text-zinc-500">引用元X:</span> {candidate.quoteXUrl || candidate.sourceXUrl || "-"}</p>
+                        <p><span className="font-black text-zinc-500">引用画像/動画:</span> {candidate.mediaPermalink || "なし（status URLを使用）"}</p>
                         <p><span className="font-black text-zinc-500">引用メディア:</span> {sourceMediaTypeLabel(candidate)} / quote tweetは元Xを引用、再アップロードなし</p>
                         <p><span className="font-black text-zinc-500">myfansクリエイター:</span> {candidate.myfansCreator?.name || "myfans未紐付け"}</p>
                         <p><span className="font-black text-zinc-500">myfans作品:</span> {candidate.myfansCreator ? candidate.product?.title ?? "なし" : "なし"}</p>
@@ -1852,8 +1857,8 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
             <div className="mt-4 rounded-lg border border-emerald-700 bg-emerald-950/20 p-4">
               <p className="text-xs font-black text-emerald-300">Xに投稿する本文</p>
               <p className="mt-1 text-[11px] font-black text-zinc-500">{candidate.generatorVersion} / {candidate.copyInputHash}</p>
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-200">{candidate.product ? publishBody(candidate) : "商品を登録すると候補を生成します。"}</p>
-              {candidate.product && <p className="mt-2 text-xs font-black text-zinc-500">文字数 {getXWeightedLength(publishBody(candidate))}</p>}
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-200">{publishBody(candidate) || "本文を生成できるeligible sourceがありません。"}</p>
+              {publishBody(candidate) && <p className="mt-2 text-xs font-black text-zinc-500">文字数 {getXWeightedLength(publishBody(candidate))}</p>}
             </div>
             <div className="mt-3 rounded-lg bg-zinc-950 p-4">
               <p className="text-xs font-black text-zinc-500">Xに投稿する自己リプ</p>
@@ -1890,6 +1895,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
                 <p><span className="font-black text-zinc-500">投稿方法:</span> {postModeLabel(candidate)} / {linkStrategyLabel(candidate)}</p>
                 <p><span className="font-black text-zinc-500">引用元X投稿者:</span> {candidate.sourceAuthorLabel}</p>
                 <p><span className="font-black text-zinc-500">引用元X:</span> {candidate.quoteXUrl || candidate.sourceXUrl || "-"}</p>
+                <p><span className="font-black text-zinc-500">引用画像/動画:</span> {candidate.mediaPermalink || "なし（status URLを使用）"}</p>
                 <p><span className="font-black text-zinc-500">引用メディア:</span> {sourceMediaTypeLabel(candidate)} / quote tweetは元Xを引用、再アップロードなし</p>
                 <p><span className="font-black text-zinc-500">myfansクリエイター:</span> {candidate.myfansCreator?.name || "myfans未紐付け"}</p>
                 <p><span className="font-black text-zinc-500">myfans作品:</span> {candidate.myfansCreator ? candidate.product?.title ?? "なし" : "なし"}</p>
@@ -1915,12 +1921,12 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
               <button type="button" disabled={!candidate.quoteXUrl} onClick={() => copy(candidate.quoteXUrl, "引用元X URL")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"><Copy size={15} />引用URLをコピー</button>
               <button type="button" disabled={!candidate.affiliateUrl || candidate.linkStrategy === "no_link" || candidate.linkStrategy === "profile_cta"} onClick={() => copy(candidate.affiliateUrl, "リンク")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"><Copy size={15} />リンクをコピー</button>
               {candidate.ogpCheckRequired && <span className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-cyan-700 px-3 text-xs font-black text-cyan-200"><ImageIcon size={15} />OGPを確認</span>}
-            {candidate.product ? (
+            {(candidate.quoteXUrl || candidate.sourceXUrl) ? (
                 <a href={quoteIntentUrl(candidate)} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white"><ExternalLink size={15} />X投稿画面を開く</a>
               ) : (
                 <button type="button" disabled className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-zinc-500"><ExternalLink size={15} />X投稿画面を開く</button>
               )}
-              <button type="button" disabled={!candidate.product || pendingId === candidate.id || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50"><Save size={15} />投稿ログへ保存</button>
+              <button type="button" disabled={pendingId === candidate.id || !publishBody(candidate) || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50"><Save size={15} />投稿ログへ保存</button>
             </div>
                 </>
               );

@@ -23,6 +23,7 @@ assert.match(migration, /revoke all on function public\.save_myfans_post/);
 assert.match(migration, /grant execute on function public\.save_myfans_post[^;]*service_role/);
 
 assert.match(snapshot, /rpc\("save_myfans_daily_snapshot"/);
+assert.match(snapshot, /media_permalink: candidate\.mediaPermalink/);
 assert.doesNotMatch(snapshot, /\.from\("myfans_daily_plans"\)\s*\.insert/);
 assert.doesNotMatch(snapshot, /\.from\("myfans_daily_plan_posts"\)\s*\.insert/);
 assert.match(postRoute, /rpc\("save_myfans_post"/);

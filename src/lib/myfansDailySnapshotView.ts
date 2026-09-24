@@ -7,6 +7,7 @@ export type PersistedDailyCandidateView = {
   selfReply: string;
   sourceXUrl: string;
   quoteXUrl: string;
+  mediaPermalink: string;
   sourceAuthorHandle: string;
   sourceCreator: string;
   myfansCreator: string;
@@ -91,6 +92,7 @@ function restoreCandidate(raw: unknown, postOrder: number, index: number): Persi
     selfReply: asString(row.self_reply),
     sourceXUrl: asString(row.source_x_url),
     quoteXUrl: asString(row.quote_x_url),
+    mediaPermalink: asString(row.media_permalink),
     sourceAuthorHandle: asString(row.source_author_handle),
     sourceCreator: asString(row.source_creator),
     myfansCreator: asString(row.myfans_creator),
