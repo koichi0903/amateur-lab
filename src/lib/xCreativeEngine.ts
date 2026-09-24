@@ -903,48 +903,49 @@ function buildLastMileBodies(input: XCreativeInput, intent: XGrowthIntent, linkP
   const moneyReason = moneyClickReason(input);
   const reachReason = input.imageUrl ? "ジャケだけだと少し流してた。" : "知らなかった人でも、サンプルからなら入りやすい。";
   const videoLines = input.hasRightsCheckedMovie && input.sampleMovieUrl ? videoSpecificLines(input, intent, linkPlan, direction) : null;
+  const finalizeBodies = (texts: string[]) => texts.map((text) => ensureFactlessReaderAction(input, intent, direction, text));
   if (videoLines) {
-    return [formatText(videoLines, input.title)].map(sanitizePublicText);
+    return finalizeBodies([formatText(videoLines, input.title)].map(sanitizePublicText));
   }
   if (input.sourceType === "PRICE_EVENT") {
-    return [...new Set([
+    return finalizeBodies([...new Set([
       buildBody(input, intent, variantPlan(intent).structure, linkPlan, direction),
       formatText([input.discountRate >= 30 ? "半額だけでなく、評価まで高いのが少し気になります。" : "今日は価格より、サンプルで刺さるかを先に見たいです。", proofSentence || proof, "気になっていた人は、今日はサンプルまで。", link].filter(Boolean), input.title),
       formatText(["安いから即決、までは言いません。", proof, "でもサンプルで刺さるなら、今日は見ておきたい。", link].filter(Boolean), input.title),
-    ].map(sanitizePublicText))];
+    ].map(sanitizePublicText))]);
   }
   if (input.hasRightsCheckedMovie && input.sampleMovieUrl && intent !== "MONEY") {
     const actress = primaryActress(input);
     const topic = actress ? `${actress}のこれ` : safeTitleFragment(input);
-    return [...new Set([
+    return finalizeBodies([...new Set([
       buildBody(input, intent, variantPlan(intent).structure, linkPlan, direction),
       formatText([`${topic}、最初は通りすぎてました。`, proof || "", "動画で見た方が早い。"].filter(Boolean), input.title),
       formatText([actress ? `${actress}でこれ、少し見落としてました。` : `${topic}、少し見落としてました。`, proof || "", "今日は動画だけで止めます。"].filter(Boolean), input.title),
       formatText([`${topic}、派手に煽るよりそのまま見た方が早い。`, proof || "", "今日はこれだけ見ておきたい。"].filter(Boolean), input.title),
-    ].map(sanitizePublicText))];
+    ].map(sanitizePublicText))]);
   }
   if (input.sourceType === "MARKET") {
     const genre = input.genre?.split(/[,、/]/)[0]?.trim();
     const discount = input.discountRate >= 30 ? `${pct(input.discountRate)}OFF` : "セール";
-    return [...new Set([
+    return finalizeBodies([...new Set([
       buildBody(input, intent, variantPlan(intent).structure, linkPlan, direction),
       formatText([genre ? `今日の${discount}、${genre}に当たりが寄っています。` : `今日の${discount}、数より並び方の偏りが気になります。`, "一覧を流す前に、一回止まる理由だけ残せば十分です。"].filter(Boolean), input.title),
       formatText(["ランキングだけ見ていると、今日の当たりを外しそうです。", proof, "全部見るより、引っかかった一本だけでいい日。"].filter(Boolean), input.title),
       formatText([genre ? `今日はランキング順より、${genre}の並び方で止まりました。` : "今日はランキング順より、セール欄の並び方で止まりました。", "数字なしでも、並べると空気の違いは分かります。", "雰囲気が合う一本だけ拾えばいい日です。"].filter(Boolean), input.title),
-    ].map(sanitizePublicText))];
+    ].map(sanitizePublicText))]);
   }
   if (input.sourceType === "COMPARISON") {
-    return [...new Set([
+    return finalizeBodies([...new Set([
       buildBody(input, intent, variantPlan(intent).structure, linkPlan, direction),
       formatText([input.discountRate >= 30 ? `同じ${pct(input.discountRate)}OFFでも、サンプルを見るなら差があります。` : "似た条件でも、最初に気になる一本は変わります。", proof, "迷ったら安さより、雰囲気が合う方から見たいです。"].filter(Boolean), input.title),
       formatText(["3本で迷うなら、今日は最初の1本を決めてからでいいです。", "安さで並べても、最後は見たい空気がある方に寄ります。"].filter(Boolean), input.title),
-    ].map(sanitizePublicText))];
+    ].map(sanitizePublicText))]);
   }
   if (input.sourceType === "JUDGMENT") {
-    return [...new Set([
+    return finalizeBodies([...new Set([
       buildBody(input, intent, variantPlan(intent).structure, linkPlan, direction),
       formatText([input.discountRate >= 30 ? `${pct(input.discountRate)}OFFだけど、これは今日は見送っていいかもしれません。` : "売れてそうに見えても、今日は急がなくてよさそうです。", proof, "安さより、刺さる理由が弱い方が気になります。"].filter(Boolean), input.title),
-    ].map(sanitizePublicText))];
+    ].map(sanitizePublicText))]);
   }
   const bodies = [
     buildBody(input, intent, variantPlan(intent).structure, linkPlan, direction),
@@ -953,7 +954,22 @@ function buildLastMileBodies(input: XCreativeInput, intent: XGrowthIntent, linkP
       formatText([`${topic}、流し見で終わらせるには少し惜しい。`, proof, intent === "MONEY" ? moneyReason : "派手に押さなくても、この違和感だけ残る。", link].filter(Boolean), input.title),
       formatText([`${topic}、まだ知らない人の方が多そう。`, proof, intent === "MONEY" ? moneyReason : "知らないまま流すには、少しもったいない。", link].filter(Boolean), input.title),
   ];
-  return [...new Set(bodies.map(sanitizePublicText))];
+  return finalizeBodies([...new Set(bodies.map(sanitizePublicText))]);
+}
+
+function ensureFactlessReaderAction(input: XCreativeInput, intent: XGrowthIntent, direction: XHookDirection, text: string) {
+  const hasReaderAction = /見る|見て|迷|決め|止ま|流|拾|比べ|買|見送|気にな|刺さ|引っかか|伝わ/.test(text);
+  if (hasReaderAction || primaryUsableVisualFact(input.visualFacts)) return text;
+  const choicesByIntent: Record<XGrowthIntent, string[]> = {
+    REACH: ["もう少し見てから、合うか決めたい。", "流さず、続きまで見て確かめたい。", "気になったら、先まで見ておきたい。"],
+    FOLLOW: ["もう一度見て、次も追うか決めたい。", "このまま流さず、続きも見ておきたい。", "気になるところを、もう少し追ってみたい。"],
+    AUTHORITY: ["急いで決めず、もう少し見てから判断したい。", "数字だけで決めず、続きまで見て確かめたい。", "気になる点を、もう一度見てから考えたい。"],
+    CONVERSATION: ["気になったら、どこが残ったか聞いてみたい。", "もう少し見て、みんなの感想も聞きたい。", "この印象が合うか、見た人に聞いてみたい。"],
+    MONEY: ["急いで決めず、もう少し見てから選びたい。", "価格だけで決めず、続きまで見て確かめたい。", "気になったら、見てから決めるくらいでいい。"],
+  };
+  const choices = choicesByIntent[intent];
+  const key = [input.key, input.title, input.sourceType ?? "WORK", intent, direction].join("|");
+  return `${text}\n${choices[stableChoiceIndex(key, choices.length)]}`;
 }
 
 function chooseFormat(input: XCreativeInput, hook: XHookType): XPostFormat {

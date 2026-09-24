@@ -109,4 +109,22 @@ const imageVariants = buildXCreativeVariants({ ...baseInput, sampleMovieUrl: nul
 assert.ok(imageVariants.length > 0);
 assert.equal(imageVariants.some((variant) => variant.mediaType === "sample_movie"), false);
 
+const factlessInput = {
+  ...baseInput,
+  key: "factless-reader-action-fixture",
+  sampleMovieUrl: null,
+  hasRightsCheckedMovie: false,
+  imageUrl: "https://pics.dmm.co.jp/digital/video/test/testpl.jpg",
+  visualFacts: buildVisualVideoFacts({ imageUrl: "https://pics.dmm.co.jp/digital/video/test/testpl.jpg" }),
+  radarAvailable: true,
+  sourceType: "WORK" as const,
+};
+const factlessVariants = buildXCreativeVariants(factlessInput);
+assert.ok(factlessVariants.length > 0);
+assert.ok(factlessVariants.every((variant) => variant.quality.lastMile.humanVoice.checks.readerAction));
+assert.ok(factlessVariants.every((variant) => variant.weightedLength <= 280));
+assert.deepEqual(buildXCreativeVariants(factlessInput), factlessVariants);
+assert.ok(new Set(factlessVariants.map((variant) => variant.bodyText)).size >= 4);
+assert.ok(factlessVariants.every((variant) => !variant.bodyText.includes("Fact") && !variant.bodyText.includes("score")));
+
 console.log("xCreativeEngine video quality tests passed");
