@@ -266,11 +266,20 @@ async function refreshSingleStatusState() {
   const output = document.getElementById("singleStatusState");
   if (!output || !state?.state) return;
   const current = state.state;
-  output.textContent = current.status === "done"
-    ? `直近結果: 成功 / candidate ${current.candidateId ?? "保存済み"} / 本文保存 ${current.sourceTextSaved ? "あり" : "なし"} / author・status一致 ${current.authorStatusMatch ? "OK" : "NG"} / visual ${current.visualStatus || "-"}`
-    : current.status === "error"
-      ? `直近結果: 失敗 / ${current.error || "理由不明"}`
-      : `直近結果: ${current.status}`;
+  output.textContent = MyfansCompanionState.isSingleTerminalStatus(current.status)
+    ? `run ${current.runId || "-"}: ${current.status === "SUCCEEDED" ? "保存成功" : current.status === "REPLAYED" ? "duplicate/replayed" : "失敗"} / stage ${current.stage || "-"} / server accepted ${current.serverAccepted ? "YES" : "NO"} / save reached ${current.saveReached ? "YES" : "NO"} / ${current.reason || current.error || "-"}`
+    : `run ${current.runId || "-"}: ${current.status || "-"} / stage ${current.stage || "-"} / server accepted ${current.serverAccepted ? "YES" : "NO"}`;
+}
+
+async function ensureSingleStatusReady(tab) {
+  if (!isDailyPageUrl(tab?.url)) throw new Error("canonical localhost:3000 のDaily Pageを開いてください。");
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const ping = await pingDailyPage(tab.id).catch(() => ({ ok: false }));
+    if (ping?.ok) return ping;
+    await sendRuntimeMessage({ type: "myfans_admin_bridge_inject", tabId: tab.id, reason: "single_status_readiness" }).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+  }
+  throw new Error("Daily Page/Companion bridgeのreadinessを確認できませんでした。X収集は開始していません。");
 }
 
 async function connectBridge() {
@@ -410,11 +419,20 @@ function saveSettings() {
 
 function renderBatchState(state, progress) {
   const job = progress?.job || state?.job;
-  if (!state && !job) return;
+  const workerVersion = chrome.runtime.getManifest().version;
+  const current = MyfansCompanionState.isCurrentActiveRun(state, job, workerVersion);
+  if (!current) {
+    document.getElementById("batchStatus").textContent = job?.status && MyfansCompanionState.isTerminalStatus(job.status)
+      ? `履歴 job ${job.id}: ${job.status}（現在実行中の一括jobなし）`
+      : "現在実行中の一括jobなし";
+    return;
+  }
   const summary = progress?.summary;
   const counts = job ? `processed ${summary?.processed ?? job.processed_creators ?? 0}/${job.total_creators ?? 0}, success ${summary?.success ?? job.success_creators ?? 0}, failed ${summary?.failed ?? job.failed_creators ?? 0}, blocked ${summary?.blocked ?? 0}, skipped ${summary?.skipped ?? progress?.skippedCreators ?? 0}` : "";
   document.getElementById("batchStatus").textContent = [
     job ? `job ${job.id}: ${job.status}` : "",
+    job?.collector_version ? `collector ${job.collector_version}` : "",
+    state?.launchMode ? (state.launchMode === "resumed" ? "resumed/current-session" : state.launchMode) : "",
     counts,
     state?.message || "",
     state?.currentCreator ? `現在: ${state.currentCreator}` : "",
@@ -423,7 +441,8 @@ function renderBatchState(state, progress) {
     state?.ownPostCount != null ? `own post: ${state.ownPostCount}` : "",
     state?.candidateCount != null ? `candidate: ${state.candidateCount}` : "",
     state?.videoCandidates != null ? `video: ${state.videoCandidates}` : "",
-    state?.statusThreadsOpened != null ? `status threads: ${state.statusThreadsOpened}` : "",
+    state?.statusThreadsObserved != null ? `status threads observed: ${state.statusThreadsObserved}` : "",
+    state?.fullyObservedThreads != null ? `fully observed: ${state.fullyObservedThreads}` : "",
     state?.authorReplyCount != null ? `author replies: ${state.authorReplyCount}` : "",
     state?.statusThreadMyfansLinkCount != null ? `thread myfans links: ${state.statusThreadMyfansLinkCount}` : "",
     state?.videoValidation ? `video validation: ${state.videoValidation.verified || 0}/${state.videoValidation.checked || 0} ok, fail ${state.videoValidation.failed || 0}${state.videoValidation.failed ? " (partial)" : ""}` : "",
@@ -432,6 +451,7 @@ function renderBatchState(state, progress) {
     state?.finalStatus !== "success" && state?.errorCode ? `reason: ${state.errorCode}` : "",
     state?.sessionProcessed != null ? `この一括job進捗: ${state.sessionProcessed}件` : "",
     state?.lastCandidatesCount != null ? `直近候補: ${state.lastCandidatesCount}件` : "",
+    state?.collectionStatuses?.length ? `thread判定: ${state.collectionStatuses.map((item) => `${item.status}`).join(", ")}` : "",
     state?.attemptDiagnostics?.length ? `attempt diagnostics: ${state.attemptDiagnostics.length}` : "",
     state?.finalStatus !== "success" && state?.failureDiagnostics ? `diagnostics: ${JSON.stringify(state.failureDiagnostics)}` : "",
     state?.finalStatus !== "success" && state?.lastError ? `error: ${state.lastError}` : ""
@@ -469,7 +489,9 @@ async function quoteRefreshRequest(body) {
 }
 
 async function getActiveQuoteJob() {
+  const stateResponse = await sendRuntimeMessage({ type: "myfans_quote_refresh_state" }).catch(() => null);
   const query = new URLSearchParams();
+  if (stateResponse?.state?.jobId) query.set("jobId", String(stateResponse.state.jobId));
   const approvedMediaId = document.getElementById("mediaId").value;
   if (approvedMediaId) query.set("approvedMediaId", approvedMediaId);
   const response = await fetch(`${baseUrl()}/api/admin/myfans/quote-refresh?${query.toString()}`);
@@ -483,7 +505,7 @@ async function runBulkQuoteRefresh() {
   if (!isDailyPageUrl(tab.url)) throw new Error("Daily Page（/admin/myfans）を開いてから実行してください。");
   const probe = await sendRuntimeMessage({ type: "myfans_admin_probe", tabId: tab.id });
   if (!probe?.ok) throw new Error(probe?.error || "Daily PageへのexecuteScript probeに失敗しました。");
-  const batchSize = Math.min(50, Math.max(1, Math.round(Number(document.getElementById("batchSize").value) || 10)));
+  const batchSize = Math.min(10, Math.max(1, Math.round(Number(document.getElementById("batchSize").value) || 10)));
   const cooldownDays = Math.min(30, Math.max(1, Math.round(Number(document.getElementById("cooldownDays").value) || 3)));
   const settings = {
     baseUrl: baseUrl(),
@@ -500,6 +522,33 @@ async function runBulkQuoteRefresh() {
   });
   await saveSettings();
   document.getElementById("batchStatus").textContent = `probe OK。backgroundで${batchSize} creatorの一括更新を開始しました。`;
+  await syncCompanionSettings();
+}
+
+async function runTargetedQuoteRefresh() {
+  const tab = await activeTab();
+  if (!isDailyPageUrl(tab.url)) throw new Error("Daily Page（/admin/myfans）を開いてから実行してください。");
+  const probe = await sendRuntimeMessage({ type: "myfans_admin_probe", tabId: tab.id });
+  if (!probe?.ok) throw new Error(probe?.error || "Daily PageへのexecuteScript probeに失敗しました。");
+  const base = baseUrl();
+  const query = new URLSearchParams({ targeted: "1", approvedMediaId: document.getElementById("mediaId").value });
+  const recommendationResponse = await fetch(`${base}/api/admin/myfans/quote-refresh?${query.toString()}`);
+  const recommendation = await recommendationResponse.json().catch(() => ({}));
+  if (!recommendationResponse.ok) throw new Error(recommendation.error || "targeted候補の取得に失敗しました。");
+  const candidates = Array.isArray(recommendation.candidates) ? recommendation.candidates : [];
+  if (!candidates.length) throw new Error(recommendation.reason || "targeted collection対象がありません。");
+  const settings = {
+    baseUrl: base,
+    approvedMediaName: document.getElementById("mediaName").value.trim(),
+    approvedMediaId: document.getElementById("mediaId").value.trim(),
+    batchSize: candidates.length,
+    queueLimit: candidates.length,
+    cooldownDays: Math.min(30, Math.max(1, Math.round(Number(document.getElementById("cooldownDays").value) || 3))),
+    targetedCreatorIds: candidates.map((candidate) => candidate.creatorId)
+  };
+  await chrome.runtime.sendMessage({ type: "myfans_quote_refresh_start", settings });
+  await saveSettings();
+  document.getElementById("batchStatus").textContent = `画像/動画＋本人myfansリンク付き投稿のcomplete-thread収集を${candidates.length}件開始: ${candidates.map((candidate) => candidate.displayName || candidate.creatorXUrl).join(", ")}`;
   await syncCompanionSettings();
 }
 
@@ -527,9 +576,13 @@ document.getElementById("singleStatusCollect").addEventListener("click", async (
     return;
   }
   try {
-    status.textContent = "Daily対象を1件収集中です。Xタブが開いた後も結果はDaily Page/APIに保存されます。";
-    const response = await chrome.runtime.sendMessage({ type: "myfans_single_status_collect_start", settings: { baseUrl: baseUrl(), approvedMediaId: document.getElementById("mediaId").value, approvedMediaName: document.getElementById("mediaName").value, sourceStatusUrl: value, singleStatusRunId: `single-${Date.now()}` } });
+    const tab = await activeTab();
+    await ensureSingleStatusReady(tab);
+    const singleStatusRunId = `single-${crypto.randomUUID()}`;
+    status.textContent = `run ${singleStatusRunId} を開始しています...`;
+    const response = await chrome.runtime.sendMessage({ type: "myfans_single_status_collect_start", settings: { baseUrl: baseUrl(), approvedMediaId: document.getElementById("mediaId").value, approvedMediaName: document.getElementById("mediaName").value, sourceStatusUrl: value, singleStatusRunId, dailyPageTabId: tab.id } });
     if (!response?.ok) throw new Error(response?.error || "Daily対象収集の開始に失敗しました。");
+    await refreshSingleStatusState();
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : "Daily対象収集の開始に失敗しました。";
   }
@@ -547,7 +600,7 @@ async function legacySendPayload(result) {
   const response = await fetch(`${baseUrl}/api/admin/myfans/companion`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...result, approvedMediaName, approvedMediaId })
+    body: JSON.stringify({ ...result, protocolVersion: "2", approvedMediaName, approvedMediaId })
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || `送信に失敗しました (${response.status})`);
@@ -636,6 +689,7 @@ document.getElementById("cancelBulk").addEventListener("click", async () => {
     document.getElementById("batchStatus").textContent = "中止するジョブがありません。";
     return;
   }
+  await sendRuntimeMessage({ type: "myfans_quote_refresh_cancel_request", jobId: job.id });
   await quoteRefreshRequest({ action: "cancel", jobId: job.id });
   await stopQuoteContinuation();
   document.getElementById("batchStatus").textContent = "中止しました。";
@@ -645,5 +699,16 @@ document.getElementById("connectBridge").addEventListener("click", connectBridge
 refreshDiagnostics().catch((error) => {
   document.getElementById("diagBackground").textContent = "NG";
   document.getElementById("status").textContent = error instanceof Error ? error.message : "診断を取得できませんでした";
+});
+
+document.getElementById("targetedQuoteScan").addEventListener("click", async () => {
+  const status = document.getElementById("status");
+  try {
+    status.textContent = "既存productとの接続を確認し、最大5件のtargeted collectionを準備しています...";
+    await runTargetedQuoteRefresh();
+    status.textContent = "targeted collectionを開始しました。完了後にdry再評価を実行してください。";
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : "targeted collectionの開始に失敗しました。";
+  }
 });
 refreshSingleStatusState().catch(() => {});

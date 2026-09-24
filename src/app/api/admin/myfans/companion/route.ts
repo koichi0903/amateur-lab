@@ -1,15 +1,20 @@
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { scoreMyfansQuoteCandidate, type MyfansQuoteScanCandidate } from "@/lib/myfansQuoteScoring";
-import { normalizeMyfansPostUrl, resolveTextEvidence } from "@/lib/myfansProductResolver";
+import { normalizeMyfansPostUrl, resolveExactMyfansProductByFinalUrl, resolveTextEvidence } from "@/lib/myfansProductResolver";
 import { extractMyfansSourceText } from "@/lib/myfansSourceText";
 import { calculateMyfansSelectionScore, myfansLaunchPriority } from "@/lib/myfansScore";
 import { mergePersistedQuoteMediaEvidence } from "@/lib/myfansQuoteCandidateEvidence";
 import { evaluateMyfansSourceValue } from "@/lib/myfansSourceValue";
+import { isCompleteThreadCandidate } from "@/lib/myfansCompleteThread";
+import { canonicalMyfansXHandle, resolveExactMyfansCreator } from "@/lib/myfansAuthorMatch";
+import { companionPersistenceError, normalizeCompanionError } from "@/lib/myfansCompanionErrors";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const COLLECTOR_METHOD = "complete_thread_first_v2";
+const COMPANION_PROTOCOL_VERSION = "2";
 
 function cleanText(value: unknown) {
   return String(value ?? "").normalize("NFKC").trim();
@@ -96,7 +101,32 @@ type QuoteScanPayload = {
   statusCandidate?: MyfansQuoteScanCandidate & { authorHandle?: unknown };
   singleStatusRunId?: unknown;
   collectionError?: unknown;
+  collectionFailure?: { stage?: unknown; errorCode?: unknown; diagnostics?: Record<string, unknown>; transitions?: Array<Record<string, unknown>> };
+  collectionStatuses?: Array<{ parentStatusUrl?: unknown; status?: unknown }>;
+  stateTransitions?: Array<{ stage?: unknown; at?: unknown; [key: string]: unknown }>;
+  profileCounts?: Record<string, unknown>;
+  profileScan?: Record<string, unknown>;
+  statusCounts?: Record<string, unknown>;
+  collectionSessionId?: unknown;
+  runToken?: unknown;
+  collectorVersion?: unknown;
 };
+
+const THREAD_INCOMPLETE_STATUSES = new Set(["THREAD_NOT_FULLY_OBSERVED", "LINK_FOUND_THREAD_INCOMPLETE", "THREAD_INCOMPLETE_WITHOUT_LINK", "THREAD_OBSERVATION_FAILED", "OBSERVATION_NULL"]);
+
+async function validateRunIdentity(payload: QuoteScanPayload) {
+  const jobId = Number(payload.refreshJobId);
+  const sessionId = cleanText(payload.collectionSessionId);
+  const runToken = cleanText(payload.runToken);
+  const collectorVersion = cleanText(payload.collectorVersion);
+  if (!Number.isSafeInteger(jobId) || jobId <= 0) return { ok: false as const, error: "JOB_IDENTITY_MISMATCH: job_idがありません。" };
+  const { data: job, error } = await supabaseAdmin.from("myfans_quote_refresh_jobs").select("id,collection_session_id,collection_run_token,collector_version,status").eq("id", jobId).maybeSingle();
+  if (error) throw error;
+  if (!job || !sessionId || !runToken || job.collection_session_id !== sessionId || job.collection_run_token !== runToken || job.collector_version !== collectorVersion || !["pending", "running", "paused"].includes(job.status)) {
+    return { ok: false as const, error: "JOB_IDENTITY_MISMATCH: Companion runとDB jobのidentityが一致しません。" };
+  }
+  return { ok: true as const, job };
+}
 
 function xHandleFromUrl(value: string) {
   const match = cleanXProfileUrl(value).match(/^https:\/\/x\.com\/([^/?#]+)/);
@@ -150,20 +180,94 @@ async function updateSensitiveGateStreak(jobId: number, error: string | undefine
   if (updateError) throw updateError;
 }
 
-const NON_RETRYABLE_QUOTE_REFRESH_ERRORS = new Set(["LOGIN_OR_CHALLENGE", "PROFILE_NOT_FOUND/SUSPENDED", "SENSITIVE_CONTENT_GATE"]);
+const NON_RETRYABLE_QUOTE_REFRESH_ERRORS = new Set(["LOGIN_OR_CHALLENGE", "PROFILE_NOT_FOUND/SUSPENDED", "SENSITIVE_CONTENT_GATE", "NO_POSTS", "PRIVATE"]);
 
 function quoteRefreshErrorCode(error: string | undefined) {
   return cleanText(error).match(/^([A-Z_/]+):\s*/)?.[1] || "";
 }
 
-async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "failed", detail: { collectedCount?: number; topScore?: number | null; error?: string }) {
+const DIAGNOSTIC_SECRET_KEY = /cookie|token|authorization|password|secret|session.?id|run.?token|body|html|article.?text|text.?sample/i;
+
+function safeDiagnostics(value: unknown, depth = 0): unknown {
+  if (depth > 3 || value === null || value === undefined) return null;
+  if (typeof value === "string") return value.slice(0, 240);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.slice(0, 20).map((entry) => safeDiagnostics(entry, depth + 1));
+  if (typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).slice(0, 60).map(([key, entry]) => [
+      key,
+      DIAGNOSTIC_SECRET_KEY.test(key) ? "[redacted]" : safeDiagnostics(entry, depth + 1),
+    ]));
+  }
+  return null;
+}
+
+function isFatalSessionAuth(errorCode: string, message: string) {
+  return errorCode === "FATAL_SESSION_AUTH" || /FATAL_SESSION_AUTH|SESSION_AUTH_LOST|AUTH_SESSION_EXPIRED/i.test(`${errorCode} ${message}`);
+}
+
+async function markFatalSessionAuth(payload: QuoteScanPayload, detail: { error: string; diagnostics?: Record<string, unknown> }) {
+  const jobId = Number(payload.refreshJobId);
+  const itemId = Number(payload.refreshJobItemId);
+  const identity = await validateRunIdentity(payload);
+  if (!identity.ok) throw new Error(identity.error);
+  const now = new Date().toISOString();
+  const diagnostics = safeDiagnostics(detail.diagnostics ?? {}) as Record<string, unknown>;
+  const itemPatch = {
+    status: "failed",
+    error: detail.error,
+    request_type: "quote_scan",
+    result_code: "FATAL_SESSION_AUTH",
+    http_status: 401,
+    diagnostics,
+    finished_at: now,
+    processed_at: now,
+  };
+  if (Number.isSafeInteger(itemId) && itemId > 0) {
+    const { error } = await supabaseAdmin.from("myfans_quote_refresh_job_items").update(itemPatch).eq("id", itemId).eq("job_id", jobId);
+    if (error) throw error;
+  }
+  const { error: pendingError } = await supabaseAdmin.from("myfans_quote_refresh_job_items")
+    .update({ status: "skipped", error: "FATAL_SESSION_AUTH: session/auth喪失のため未実行", request_type: "quote_scan", result_code: "FATAL_SESSION_AUTH", http_status: 401, diagnostics: { fatal: true }, finished_at: now, processed_at: now })
+    .eq("job_id", jobId).in("status", ["pending", "running"]).neq("id", itemId);
+  if (pendingError) throw pendingError;
+  const { error: jobError } = await supabaseAdmin.from("myfans_quote_refresh_jobs").update({ status: "failed", completed_at: now, last_error: detail.error }).eq("id", jobId).in("status", ["pending", "running"]);
+  if (jobError) throw jobError;
+}
+
+async function terminalCollectionReport(payload: QuoteScanPayload, errorCode: string, message: string, diagnostics: Record<string, unknown> = {}) {
+  const error = `${errorCode}: ${message}`;
+  if (isFatalSessionAuth(errorCode, message)) {
+    await markFatalSessionAuth(payload, { error, diagnostics });
+  } else {
+    await markRefreshItem(payload, "failed", { error, diagnostics, evidence: { terminalReport: true, diagnostics: safeDiagnostics(diagnostics) } });
+  }
+  return NextResponse.json({ ok: false, terminal: true, retryable: false, skipped: errorCode === "LOGIN_OR_CHALLENGE", errorCode, error, diagnostics: safeDiagnostics(diagnostics) }, { status: isFatalSessionAuth(errorCode, message) ? 401 : 200 });
+}
+
+async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "failed", detail: { collectedCount?: number; topScore?: number | null; error?: string; diagnostics?: Record<string, unknown>; evidence?: Record<string, unknown> }) {
   const jobId = Number(payload.refreshJobId);
   const itemId = Number(payload.refreshJobItemId);
   if (!Number.isFinite(jobId) || jobId <= 0 || !Number.isFinite(itemId) || itemId <= 0) return;
+  const identity = await validateRunIdentity(payload);
+  if (!identity.ok) throw new Error(identity.error);
+  const { data: job } = await supabaseAdmin.from("myfans_quote_refresh_jobs").select("status").eq("id", jobId).maybeSingle();
+  if (job?.status === "cancelled" || job?.status === "failed") return;
+  const { data: currentItem } = await supabaseAdmin
+    .from("myfans_quote_refresh_job_items")
+    .select("attempts")
+    .eq("id", itemId)
+    .eq("job_id", jobId)
+    .maybeSingle();
+  const retryableWithinJob = status === "failed" && quoteRefreshErrorCode(detail.error) !== "" && Number(currentItem?.attempts ?? 0) < 3;
   const finalStatus =
     status === "failed" && NON_RETRYABLE_QUOTE_REFRESH_ERRORS.has(quoteRefreshErrorCode(detail.error))
       ? "skipped"
+      : retryableWithinJob
+        ? "pending"
       : status;
+  const errorCode = quoteRefreshErrorCode(detail.error);
+  const terminal = finalStatus === "success" || finalStatus === "failed" || finalStatus === "skipped";
   const { error } = await supabaseAdmin
     .from("myfans_quote_refresh_job_items")
     .update({
@@ -171,13 +275,79 @@ async function markRefreshItem(payload: QuoteScanPayload, status: "success" | "f
       collected_count: detail.collectedCount ?? 0,
       top_score: detail.topScore ?? null,
       error: detail.error ?? null,
+      request_type: "quote_scan",
+      result_code: errorCode || (finalStatus === "success" ? ((detail.collectedCount ?? 0) > 0 ? "SUCCESS_SAVE" : "NO_CANDIDATES") : "COLLECTION_FAILED"),
+      http_status: finalStatus === "success" ? 200 : finalStatus === "skipped" ? 200 : 200,
+      diagnostics: safeDiagnostics(detail.diagnostics ?? detail.evidence ?? {}),
+      ...(terminal ? { finished_at: new Date().toISOString() } : {}),
+      collection_state: collectionStateForResult(status, detail),
+      collection_evidence: { collectorMethod: COLLECTOR_METHOD, job_id: jobId, collection_session_id: cleanText(payload.collectionSessionId), run_token: cleanText(payload.runToken), collector_version: cleanText(payload.collectorVersion), final_collection_state: collectionStateForResult(status, detail), final_error: detail.error ?? null, error: detail.error ?? null, collectedCount: detail.collectedCount ?? 0, ...(detail.evidence ?? {}) },
       processed_at: new Date().toISOString(),
     })
     .eq("id", itemId)
     .eq("job_id", jobId);
   if (error) throw error;
+  const { data: item } = await supabaseAdmin.from("myfans_quote_refresh_job_items").select("creator_id").eq("id", itemId).eq("job_id", jobId).maybeSingle();
+  const creatorId = Number(payload.creatorId) || Number(item?.creator_id) || 0;
+  if (creatorId > 0) {
+    const state = collectionStateForResult(status, detail);
+    const permanent = state === "NO_POSTS" || state === "PRIVATE";
+    const { data: existingState } = await supabaseAdmin.from("myfans_creator_collection_state").select("rotation_order").eq("creator_id", creatorId).maybeSingle();
+    const { error: stateError } = await supabaseAdmin.from("myfans_creator_collection_state").upsert({
+      creator_id: creatorId,
+      rotation_order: Number(existingState?.rotation_order ?? creatorId),
+      collection_enabled: !permanent,
+      state,
+      exclusion_reason: permanent ? state.toLowerCase() : null,
+      excluded_at: permanent ? new Date().toISOString() : null,
+      last_processed_at: new Date().toISOString(),
+      last_run_id: jobId,
+      evidence: { collectorMethod: COLLECTOR_METHOD, error: detail.error ?? null, collectedCount: detail.collectedCount ?? 0, ...(detail.evidence ?? {}) },
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "creator_id" });
+    if (stateError) throw stateError;
+    if (finalStatus === "success" || finalStatus === "skipped") {
+      const { data: cursor } = await supabaseAdmin.from("myfans_collection_cursors").select("cursor_order,cycle_no").eq("collector_key", "myfans_quote_refresh").maybeSingle();
+      const terminalOrder = Number(existingState?.rotation_order ?? creatorId);
+      const currentCursorOrder = Number(cursor?.cursor_order ?? 0);
+      let cursorAfterOrder = currentCursorOrder;
+      let cycleCompleted = false;
+      let cycleNo = Number(cursor?.cycle_no ?? 1);
+      if (terminalOrder > currentCursorOrder) {
+        const { data: lastEligible } = await supabaseAdmin.from("myfans_creator_collection_state").select("rotation_order").eq("collection_enabled", true).order("rotation_order", { ascending: false }).limit(1).maybeSingle();
+        cycleCompleted = terminalOrder >= Number(lastEligible?.rotation_order ?? terminalOrder);
+        cursorAfterOrder = cycleCompleted ? 0 : terminalOrder;
+        cycleNo += cycleCompleted ? 1 : 0;
+        const { error: cursorError } = await supabaseAdmin.from("myfans_collection_cursors").upsert({
+          collector_key: "myfans_quote_refresh",
+          cursor_order: cursorAfterOrder,
+          cycle_no: cycleNo,
+          last_run_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "collector_key" });
+        if (cursorError) throw cursorError;
+      }
+      const { error: jobCursorError } = await supabaseAdmin.from("myfans_quote_refresh_jobs").update({
+        cursor_after_order: cursorAfterOrder,
+        collection_cycle_no: cycleNo,
+        cycle_completed: cycleCompleted,
+      }).eq("id", jobId);
+      if (jobCursorError) throw jobCursorError;
+    }
+  }
   await updateSensitiveGateStreak(jobId, detail.error);
   await updateRefreshProgress(jobId);
+}
+
+function collectionStateForResult(status: "success" | "failed", detail: { collectedCount?: number; error?: string }) {
+  const code = quoteRefreshErrorCode(detail.error);
+  if (code === "NO_POSTS") return "NO_POSTS";
+  if (code === "PRIVATE") return "PRIVATE";
+  if (THREAD_INCOMPLETE_STATUSES.has(code)) return "THREAD_INCOMPLETE";
+  if (code === "LOGIN_OR_CHALLENGE" || code === "X_TEMPORARY_ERROR" || code === "SENSITIVE_CONTENT_GATE") return "TEMP_ERROR";
+  if (status === "success" && (detail.collectedCount ?? 0) > 0) return "ELIGIBLE";
+  if (status === "success") return "NO_MATCH_THIS_RUN";
+  return "TEMP_ERROR";
 }
 
 async function updateGlobalQuoteRanks(approvedMediaId: number | null) {
@@ -235,10 +405,10 @@ async function updateGlobalQuoteRanks(approvedMediaId: number | null) {
   }
 }
 
-async function saveQuoteCandidate(record: Record<string, unknown>, productId: number | null, creatorId: number) {
+async function saveQuoteCandidate(record: Record<string, unknown>, creatorId: number, existingCandidateId?: number | null) {
   const postUrl = cleanXStatusUrl(record.x_post_url);
-  const query = productId
-    ? supabaseAdmin.from("myfans_quote_candidates").select("id,selected,media_type,media_permalink,media_count,quote_visual_ready,media_permalink_validation_status,media_permalink_verified_at,visual_score,has_image,has_video").eq("product_id", productId).eq("x_post_url", postUrl).order("id", { ascending: true }).limit(1).maybeSingle()
+  const query = existingCandidateId
+    ? supabaseAdmin.from("myfans_quote_candidates").select("id,selected,media_type,media_permalink,media_count,quote_visual_ready,media_permalink_validation_status,media_permalink_verified_at,visual_score,has_image,has_video").eq("id", existingCandidateId).maybeSingle()
     : supabaseAdmin.from("myfans_quote_candidates").select("id,selected,media_type,media_permalink,media_count,quote_visual_ready,media_permalink_validation_status,media_permalink_verified_at,visual_score,has_image,has_video").eq("creator_id", creatorId).eq("x_post_url", postUrl).order("id", { ascending: true }).limit(1).maybeSingle();
   const { data: existing, error: findError } = await query;
   if (findError) throw findError;
@@ -431,7 +601,7 @@ async function importObservedMyfansPost(payload: Record<string, unknown>, approv
   if (existingError) throw existingError;
 
   const record = {
-    ...(existing ? {} : { creator_id: null, affiliate_url: "", source_x_url: "", genre: cleanText(payload.genre), product_type: "single", status: "candidate", price: 0, reward_rate: 0, estimated_reward: 0, plan_signup_reward: 0, recurring_reward_rate: 0, likes_count: 0, saves_count: 0, is_new: false, selection_reason: "通常Chromeで表示確認したmyfans投稿の最小商品レコード。creator/affiliateは未推測。", selection_score: 0, launch_priority: "hold" }),
+    ...(existing ? {} : { creator_id: null, affiliate_url: "", source_x_url: "", genre: cleanText(payload.genre), product_type: "single", status: "candidate", price: 0, reward_rate: 0, estimated_reward: 0, plan_signup_reward: 0, recurring_reward_rate: 0, likes_count: 0, saves_count: 0, is_new: false, selection_reason: "通常Chromeで表示確認したmyfans投稿の最小商品レコード。creator/affiliateは未推測。", selection_score: 0, launch_priority: "low" }),
     ...(approvedMediaId ? { approved_media_id: approvedMediaId } : {}),
     title,
     product_url: productUrl,
@@ -453,7 +623,7 @@ async function importObservedMyfansPost(payload: Record<string, unknown>, approv
       : supabaseAdmin.from("myfans_products").insert(legacyRecord).select("id").single();
     ({ data: saved, error: saveError } = await legacyQuery);
   }
-  if (saveError) throw saveError;
+  if (saveError) throw companionPersistenceError(saveError, "myfans_product_import");
   if (!saved) throw new Error("myfans商品の保存結果を取得できませんでした。");
   const productId = Number(saved.id);
 
@@ -471,7 +641,7 @@ async function importObservedMyfansPost(payload: Record<string, unknown>, approv
     evidenceRows = (fallbackEvidence.data ?? []) as SupplyEvidenceRow[];
     evidenceSelectError = fallbackEvidence.error;
   }
-  if (evidenceSelectError) throw evidenceSelectError;
+  if (evidenceSelectError) throw companionPersistenceError(evidenceSelectError, "myfans_evidence_lookup");
   let promotedEvidence = 0;
   for (const evidence of evidenceRows ?? []) {
     if (evidence.confidence === "exact" && evidence.product_id === productId) continue;
@@ -498,7 +668,7 @@ async function importObservedMyfansPost(payload: Record<string, unknown>, approv
       const legacyPromotion = Object.fromEntries(Object.entries(promotion).filter(([key]) => key !== "resolution_history"));
       ({ error: promoteError } = await supabaseAdmin.from("myfans_post_product_linkage_evidence").update(legacyPromotion).eq("id", evidence.id));
     }
-    if (promoteError) throw promoteError;
+    if (promoteError) throw companionPersistenceError(promoteError, "myfans_evidence_promotion");
     promotedEvidence += 1;
     await supabaseAdmin.from("myfans_audit_logs").insert({
       entity_type: "evidence",
@@ -518,6 +688,77 @@ async function importObservedMyfansPost(payload: Record<string, unknown>, approv
   return NextResponse.json({ ok: true, importedType: "post_product", id: productId, productUrl, promotedEvidence, affiliateReady: Boolean(existing?.affiliate_url) });
 }
 
+type ExactProductResolution = {
+  product: Record<string, unknown> | null;
+  status: "exact" | "not_registered" | "ambiguous" | "blocked";
+  method: string;
+  missing: string[];
+};
+
+function extractFinalMyfansUrl(candidate: QuoteScanPayload["statusCandidate"]) {
+  const direct = Array.isArray(candidate?.myfansUrls) ? candidate.myfansUrls : [];
+  const evidence = Array.isArray(candidate?.resolvedProductEvidence) ? candidate.resolvedProductEvidence : [];
+  return [...direct, ...evidence.map((item) => item && typeof item === "object" ? (item as Record<string, unknown>).finalMyfansUrl : "")]
+    .map((url) => normalizeMyfansPostUrl(cleanMyfansUrl(url)))
+    .find(Boolean) || "";
+}
+
+function htmlMeta(html: string, names: string[]) {
+  for (const name of names) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']*)["']`, "i"))
+      || html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${escaped}["']`, "i"));
+    if (match?.[1]) return cleanText(match[1]);
+  }
+  return "";
+}
+
+async function observeMyfansPostForImport(finalMyfansUrl: string) {
+  try {
+    const response = await fetch(finalMyfansUrl, { signal: AbortSignal.timeout(12000), headers: { "user-agent": "Mozilla/5.0" }, cache: "no-store" });
+    if (!response.ok) return { title: "", price: 0, reason: `MYFANS_PAGE_HTTP_${response.status}` };
+    const html = await response.text();
+    const title = htmlMeta(html, ["og:title", "twitter:title"]) || cleanText(html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]);
+    const price = htmlMeta(html, ["product:price:amount", "og:price:amount"]);
+    return { title, price: price ? parseObservedPrice(price) : 0, reason: title ? "og_metadata" : "TITLE_NOT_OBSERVED" };
+  } catch (error) {
+    return { title: "", price: 0, reason: error instanceof Error ? error.message.slice(0, 180) : "MYFANS_PAGE_FETCH_FAILED" };
+  }
+}
+
+async function ensureExactProductForCreator(finalMyfansUrl: string, creatorId: number, approvedMediaId: number | null): Promise<ExactProductResolution> {
+  const canonicalUrl = normalizeMyfansPostUrl(finalMyfansUrl);
+  if (!canonicalUrl) return { product: null, status: "blocked", method: "invalid_final_myfans_url", missing: ["canonical MyFans post URL"] };
+  const { data: matches, error: findError } = await supabaseAdmin
+    .from("myfans_products")
+    .select("id,creator_id,approved_media_id,title,product_url,creator_x_url,affiliate_url,price")
+    .eq("product_url", canonicalUrl);
+  if (findError) throw findError;
+  if ((matches ?? []).length > 1) return { product: null, status: "ambiguous", method: "exact_canonical_url_duplicate", missing: [] };
+  if ((matches ?? []).length === 1) {
+    const existing = matches[0] as Record<string, unknown>;
+    if (existing.creator_id != null && Number(existing.creator_id) !== creatorId) {
+      return { product: null, status: "ambiguous", method: "exact_url_creator_conflict", missing: [] };
+    }
+    const { data: updated, error } = await supabaseAdmin.from("myfans_products")
+      .update({ creator_id: creatorId, ...(approvedMediaId ? { approved_media_id: approvedMediaId } : {}), updated_at: new Date().toISOString() })
+      .eq("id", existing.id).select("id,creator_id,approved_media_id,title,product_url,creator_x_url,affiliate_url,price").single();
+    if (error) throw error;
+    return { product: updated as Record<string, unknown>, status: "exact", method: "existing_canonical_url_then_creator_exact", missing: [] };
+  }
+
+  const observed = await observeMyfansPostForImport(canonicalUrl);
+  if (!observed.title) return { product: null, status: "blocked", method: "canonical_url_observed_title_missing", missing: ["MyFans表示タイトル", observed.reason] };
+  const imported = await importObservedMyfansPost({ productUrl: canonicalUrl, productTitle: observed.title, price: observed.price, pageUrl: canonicalUrl }, approvedMediaId);
+  const importedBody = await imported.json().catch(() => ({}));
+  if (!imported.ok || !importedBody?.id) throw new Error(`MYFANS_PRODUCT_IMPORT_FAILED: ${String(importedBody?.error || imported.status)}`);
+  const { data: linked, error: linkError } = await supabaseAdmin.from("myfans_products")
+    .update({ creator_id: creatorId, updated_at: new Date().toISOString() }).eq("id", Number(importedBody.id))
+    .select("id,creator_id,approved_media_id,title,product_url,creator_x_url,affiliate_url,price").single();
+  if (linkError) throw linkError;
+  return { product: linked as Record<string, unknown>, status: "exact", method: "canonical_url_observed_import_then_creator_exact", missing: [] };
+}
+
 async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number | null) {
   const parsedProductId = Number(payload.productId);
   const parsedCreatorId = Number(payload.creatorId);
@@ -527,10 +768,67 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
   const sourceXHandle = cleanText(payload.sourceXHandle).replace(/^@/, "");
   const failureReason = cleanText(payload.failureReason);
   const candidates = Array.isArray(payload.quoteCandidates) ? payload.quoteCandidates.slice(0, 20) : [];
-  if (!creatorXUrl || !sourceXHandle || candidates.length === 0) {
-    const message = failureReason || "Xプロフィール上の投稿候補を取得できませんでした。";
-    await markRefreshItem(payload, "failed", { error: message });
-    return NextResponse.json({ error: message }, { status: 400 });
+  const collectionEvidence = {
+    job_id: Number(payload.refreshJobId) || null,
+    collection_session_id: cleanText(payload.collectionSessionId) || null,
+    run_token: cleanText(payload.runToken) || null,
+    collector_version: cleanText(payload.collectorVersion) || null,
+    stateTransitions: Array.isArray(payload.stateTransitions) ? payload.stateTransitions.slice(-80) : [],
+    profileCounts: payload.profileCounts && typeof payload.profileCounts === "object" ? payload.profileCounts : {},
+    profileScan: payload.profileScan && typeof payload.profileScan === "object" ? payload.profileScan : {},
+    statusCounts: payload.statusCounts && typeof payload.statusCounts === "object" ? payload.statusCounts : {},
+    collectionStatuses: Array.isArray(payload.collectionStatuses) ? payload.collectionStatuses : [],
+    final_collection_state: null,
+    final_error: null,
+  };
+  if (Number.isFinite(Number(payload.refreshJobId)) && Number(payload.refreshJobId) > 0 && Number.isFinite(Number(payload.refreshJobItemId)) && Number(payload.refreshJobItemId) > 0) {
+    const { data: existingItem } = await supabaseAdmin
+      .from("myfans_quote_refresh_job_items")
+      .select("status,collection_state,collected_count")
+      .eq("id", Number(payload.refreshJobItemId))
+      .eq("job_id", Number(payload.refreshJobId))
+      .maybeSingle();
+    if (existingItem && ["success", "failed", "skipped"].includes(existingItem.status)) {
+      await supabaseAdmin.from("myfans_audit_logs").insert({
+        entity_type: "quote_refresh_job_item",
+        entity_id: Number(payload.refreshJobItemId),
+        action: "duplicate_batch_save_ignored",
+        summary: "既にterminalのbatch itemへの重複保存を無視",
+        metadata: { jobId: Number(payload.refreshJobId), status: existingItem.status, collectionState: existingItem.collection_state ?? null },
+      });
+      return NextResponse.json({ ok: true, replayed: true, candidatesCount: Number(existingItem.collected_count ?? 0), collectionState: existingItem.collection_state ?? null });
+    }
+  }
+  if (failureReason) {
+    const errorCode = quoteRefreshErrorCode(failureReason) || "COLLECTION_FAILED";
+    return terminalCollectionReport(payload, errorCode, failureReason.replace(/^[A-Z_/]+:\s*/, ""), {
+      collectionFailure: payload.collectionFailure ?? null,
+      collectionStatuses: payload.collectionStatuses ?? [],
+      stateTransitions: payload.stateTransitions ?? [],
+    });
+  }
+  if (candidates.length === 0 && Array.isArray(payload.collectionStatuses) && payload.collectionStatuses.length > 0 && cleanXProfileUrl(payload.creatorXUrl)) {
+    const creatorIdForAudit = Number(payload.creatorId);
+    if (Number.isSafeInteger(creatorIdForAudit) && creatorIdForAudit > 0) {
+      await supabaseAdmin.from("myfans_audit_logs").insert({
+        entity_type: "creator",
+        entity_id: creatorIdForAudit,
+        action: "complete_thread_collection_status",
+        summary: `${COLLECTOR_METHOD}: no eligible parent`,
+        metadata: { collectorMethod: COLLECTOR_METHOD, statuses: payload.collectionStatuses, ...collectionEvidence },
+      });
+    }
+    const incomplete = payload.collectionStatuses.some((item) => THREAD_INCOMPLETE_STATUSES.has(cleanText(item.status)));
+    const reason = payload.collectionStatuses.find((item) => THREAD_INCOMPLETE_STATUSES.has(cleanText(item.status)))?.status || "THREAD_INCOMPLETE_WITHOUT_LINK";
+    const error = incomplete ? `${reason}: status threadを十分に観測できませんでした。` : undefined;
+    await markRefreshItem(payload, incomplete ? "failed" : "success", { collectedCount: 0, topScore: null, error, evidence: collectionEvidence });
+    return NextResponse.json({ ok: !incomplete, retryable: incomplete, errorCode: incomplete ? reason : null, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses, profileCounts: payload.profileCounts ?? {}, statusCounts: payload.statusCounts ?? {}, stateTransitions: payload.stateTransitions ?? [], ...(error ? { error } : {}) }, { status: incomplete ? 202 : 200 });
+  }
+  if (!creatorXUrl || !sourceXHandle) {
+    return NextResponse.json({ error: "creatorXUrlとsourceXHandleが必要です。", errorCode: "INVALID_PAYLOAD" }, { status: 400 });
+  }
+  if (candidates.length === 0) {
+    return terminalCollectionReport(payload, "NO_CANDIDATES", "Xプロフィール上に保存可能な投稿候補がありません。", collectionEvidence);
   }
 
   const productQuery = productId
@@ -543,8 +841,7 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
 
   const resolvedCreatorId = creatorId ?? product?.creator_id;
   if (!resolvedCreatorId) {
-    await markRefreshItem(payload, "failed", { error: "Daily Pageの対象creatorを取得できませんでした。" });
-    return NextResponse.json({ error: "Daily Pageの対象creatorを取得できませんでした。" }, { status: 400 });
+    return terminalCollectionReport(payload, "CREATOR_NOT_FOUND", "Daily Pageの対象creatorを取得できませんでした。", collectionEvidence);
   }
 
   const normalized = candidates
@@ -553,6 +850,14 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
       return {
         ...candidate,
         xPostUrl: cleanXStatusUrl(candidate.xPostUrl),
+        parentStatusUrl: cleanXStatusUrl(candidate.parentStatusUrl || candidate.xPostUrl),
+        parentStatusId: cleanText(candidate.parentStatusId) || null,
+        ownReplyStatusUrl: cleanXStatusUrl(candidate.ownReplyStatusUrl),
+        ownReplyStatusId: cleanText(candidate.ownReplyStatusId) || null,
+        myfansLinkSource: candidate.myfansLinkSource === "own_reply" ? "own_reply" : candidate.myfansLinkSource === "parent" ? "parent" : null,
+        threadCollectionStatus: cleanText(candidate.threadCollectionStatus) || "LEGACY",
+        collectorMethod: cleanText(candidate.collectorMethod) || "legacy_profile_scan",
+        resolvedProductEvidence: candidate.resolvedProductEvidence && typeof candidate.resolvedProductEvidence === "object" ? candidate.resolvedProductEvidence : null,
         mediaPermalink: cleanXMediaPermalink(candidate.mediaPermalink),
         verifiedVideoPermalink: cleanXMediaPermalink(candidate.verifiedVideoPermalink),
         generatedVideoPermalink: cleanXMediaPermalink(candidate.generatedVideoPermalink),
@@ -562,7 +867,7 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
         sourceXHandle: cleanText(candidate.sourceXHandle).replace(/^@/, ""),
         text: extractMyfansSourceText(candidate.text, candidate.articleText),
         myfansUrls: Array.isArray(candidate.myfansUrls) ? candidate.myfansUrls.map(cleanMyfansUrl).filter(Boolean).slice(0, 5) : [],
-      };
+      } as MyfansQuoteScanCandidate;
     })
     .filter((candidate) => {
       const statusHandle = candidate.xPostUrl.match(/^https:\/\/x\.com\/([^/?#]+)\/status\//i)?.[1] ?? "";
@@ -572,16 +877,26 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
     });
 
   if (normalized.length === 0) {
-    await markRefreshItem(payload, "failed", { error: "creator本人の表示中投稿が見つかりませんでした。" });
-    return NextResponse.json({ error: "creator本人の表示中投稿が見つかりませんでした。" }, { status: 400 });
+    return terminalCollectionReport(payload, "CREATOR_MISMATCH", "creator本人の表示中投稿が見つかりませんでした。", { ...collectionEvidence, candidateCount: candidates.length });
   }
 
   const sourceTextMissingCount = normalized.filter((candidate) => !candidate.text).length;
-  const sourceReady = normalized.filter((candidate) => Boolean(candidate.text));
+  const sourceReady = normalized.filter((candidate) => {
+    if (!candidate.text) return false;
+    if (candidate.collectorMethod === "complete_thread_first_v2") {
+      return isCompleteThreadCandidate(candidate);
+    }
+    return true;
+  });
   if (sourceReady.length === 0) {
-    const message = "SOURCE_TEXT_MISSING: 表示中投稿に安全に紐付けられる本文がありません。空本文は保存しません。";
-    await markRefreshItem(payload, "failed", { collectedCount: 0, error: message });
-    return NextResponse.json({ error: message, diagnostics: { candidateCount: normalized.length, sourceTextMissingCount } }, { status: 400 });
+    if (normalized.some((candidate) => candidate.collectorMethod === COLLECTOR_METHOD) && Array.isArray(payload.collectionStatuses)) {
+      const incomplete = payload.collectionStatuses.some((item) => THREAD_INCOMPLETE_STATUSES.has(cleanText(item.status)));
+      const reason = payload.collectionStatuses.find((item) => THREAD_INCOMPLETE_STATUSES.has(cleanText(item.status)))?.status || "THREAD_INCOMPLETE_WITHOUT_LINK";
+      const error = incomplete ? `${reason}: status threadを十分に観測できませんでした。` : undefined;
+      await markRefreshItem(payload, incomplete ? "failed" : "success", { collectedCount: 0, topScore: null, error, evidence: collectionEvidence });
+      return NextResponse.json({ ok: !incomplete, retryable: incomplete, errorCode: incomplete ? reason : null, importedType: "quote_candidates", candidatesCount: 0, collectionStatuses: payload.collectionStatuses, profileCounts: payload.profileCounts ?? {}, statusCounts: payload.statusCounts ?? {}, stateTransitions: payload.stateTransitions ?? [], ...(error ? { error } : {}) }, { status: incomplete ? 202 : 200 });
+    }
+    return terminalCollectionReport(payload, "NO_BODY", "表示中投稿に安全に紐付けられる本文がありません。空本文は保存しません。", { ...collectionEvidence, candidateCount: normalized.length, sourceTextMissingCount });
   }
 
   const scored = sourceReady
@@ -590,20 +905,57 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
   const ranked = scored.map((item, index) => ({ ...item, creatorRank: index + 1 }));
   const top = ranked.filter((item) => item.result.eligible && item.creatorRank <= 3);
   const best = top[0] ?? null;
+  const resolverProducts = await fetchResolverProducts();
 
-  if (best && product?.id) {
+  const bestFinalUrl = best ? (Array.isArray(best.candidate.myfansUrls) ? best.candidate.myfansUrls : []).map((url) => normalizeMyfansPostUrl(cleanMyfansUrl(url))).find(Boolean) || "" : "";
+  const productResolutions = new Map<string, ExactProductResolution>();
+  const resolveBatchProduct = async (finalMyfansUrl: string) => {
+    if (!finalMyfansUrl) return { product: null, status: "blocked", method: "no_final_myfans_url", missing: ["final MyFans post URL"] } as ExactProductResolution;
+    const cached = productResolutions.get(finalMyfansUrl);
+    if (cached) return cached;
+    let resolution: ExactProductResolution;
+    try {
+      const dbResolution = resolveExactMyfansProductByFinalUrl(finalMyfansUrl, resolverProducts, resolvedCreatorId);
+      resolution = dbResolution.product?.id
+        ? { product: dbResolution.product as Record<string, unknown>, status: "exact" as const, method: "existing_canonical_url", missing: [] }
+        : dbResolution.status === "ambiguous"
+          ? { product: null, status: "ambiguous" as const, method: "exact_canonical_url_duplicate", missing: [] }
+          : await ensureExactProductForCreator(finalMyfansUrl, resolvedCreatorId, approvedMediaId);
+    } catch (error) {
+      const normalizedError = normalizeCompanionError(error, "batch_product_resolution");
+      const { error: auditError } = await supabaseAdmin.from("myfans_audit_logs").insert({
+        entity_type: "creator",
+        entity_id: resolvedCreatorId,
+        action: "batch_product_resolution_failed",
+        summary: finalMyfansUrl,
+        metadata: { collectorMethod: COLLECTOR_METHOD, finalMyfansUrl, error: normalizedError },
+      });
+      if (auditError) console.error("batch product resolution audit failed", auditError);
+      throw companionPersistenceError(normalizedError, normalizedError.errorStage, "batch_product_resolution_failed");
+    }
+    productResolutions.set(finalMyfansUrl, resolution);
+    return resolution;
+  };
+
+  const bestProductResolution = await resolveBatchProduct(bestFinalUrl);
+  if (best && bestProductResolution.product?.id) {
     const { error } = await supabaseAdmin.from("myfans_quote_candidates").update({ selected: false }).eq("creator_id", resolvedCreatorId);
     if (error) throw error;
   }
 
   for (const item of ranked) {
+    const finalMyfansUrl = (Array.isArray(item.candidate.myfansUrls) ? item.candidate.myfansUrls : []).map((url) => normalizeMyfansPostUrl(cleanMyfansUrl(url))).find(Boolean) || "";
+    const itemProductResolution = await resolveBatchProduct(finalMyfansUrl);
+    const itemProduct = itemProductResolution.product;
+    const itemProductId = itemProduct?.id ? Number(itemProduct.id) : null;
+    const resolverEvidence = Array.isArray(item.candidate.resolvedProductEvidence) ? item.candidate.resolvedProductEvidence : [];
     const isVerifiedVideo = item.candidate.mediaType === "video" && item.candidate.validationStatus === "verified_video_permalink" && item.candidate.verifiedVideoPermalink === item.candidate.mediaPermalink;
     const isVerifiedImage = item.candidate.mediaType === "image" && Boolean(item.candidate.mediaPermalink && item.candidate.quoteVisualReady);
     const quoteVisualReady = Boolean(item.candidate.mediaPermalink && (isVerifiedVideo || isVerifiedImage));
     const record = {
       approved_media_id: approvedMediaId ?? product?.approved_media_id ?? null,
       creator_id: resolvedCreatorId,
-      product_id: product?.id ?? null,
+      product_id: itemProductId,
       creator_x_url: creatorXUrl,
       source_x_handle: sourceXHandle,
       x_post_url: item.candidate.xPostUrl,
@@ -653,21 +1005,49 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
       creator_rank: item.creatorRank <= 3 && item.result.eligible ? item.creatorRank : null,
       global_score: item.result.score,
       collected_at: new Date().toISOString(),
+      parent_status_url: item.candidate.parentStatusUrl || item.candidate.xPostUrl,
+      parent_status_id: item.candidate.parentStatusId || item.candidate.xPostUrl.match(/\/status\/(\d+)/)?.[1] || null,
+      own_reply_status_url: item.candidate.ownReplyStatusUrl || null,
+      own_reply_status_id: item.candidate.ownReplyStatusId || null,
+      myfans_link_source: item.candidate.myfansLinkSource || null,
+      thread_collection_status: item.candidate.threadCollectionStatus || "LEGACY",
+      collector_method: item.candidate.collectorMethod || "legacy_profile_scan",
+      resolved_product_evidence: item.candidate.resolvedProductEvidence || {},
     };
-    await saveQuoteCandidate(record, product?.id ?? null, resolvedCreatorId);
+    const savedCandidateId = await saveQuoteCandidate(record, resolvedCreatorId);
     const evidenceText = [item.candidate.text, ...(item.candidate.myfansUrls ?? [])].filter(Boolean).join(" ");
-    const evidence = resolveTextEvidence({
-      sourceStatusUrl: item.candidate.xPostUrl,
-      sourceAuthorHandle: sourceXHandle,
-      text: evidenceText,
-      products: await fetchResolverProducts(),
-      evidenceSource: item.candidate.isReply ? "author_reply" : "author_post",
-      approvedMediaId: approvedMediaId ?? product?.approved_media_id ?? null,
-    });
+    const resolver = resolverEvidence.find((entry) => entry && typeof entry === "object" && normalizeMyfansPostUrl(cleanMyfansUrl(entry.finalMyfansUrl)) === finalMyfansUrl) || {};
+    const rawDiscoveredUrl = cleanText(resolver.observedMfcoUrl || resolver.sourceUrl || finalMyfansUrl).replace(/[?#].*$/, "");
+    const discoveredUrl = /^(?:https:\/\/(?:www\.)?(?:mfco\.link|t\.co|myfans\.jp)\/)/i.test(rawDiscoveredUrl) ? rawDiscoveredUrl : finalMyfansUrl;
+    const evidence = finalMyfansUrl && itemProductResolution.status === "exact"
+      ? {
+        approved_media_id: approvedMediaId ?? (itemProduct?.approved_media_id as number | null | undefined) ?? null,
+        quote_candidate_id: savedCandidateId,
+        source_status_url: item.candidate.ownReplyStatusUrl || item.candidate.xPostUrl,
+        source_author_handle: sourceXHandle,
+        discovered_myfans_url: discoveredUrl,
+        final_myfans_url: finalMyfansUrl,
+        product_id: itemProductId,
+        resolution_method: itemProductResolution.status === "exact" ? itemProductResolution.method === "existing_canonical_url" ? "exact_product_url" : "safe_redirect_product_url" : "myfans_url_resolved_product_not_registered",
+        confidence: "exact",
+        evidence_source: item.candidate.myfansLinkSource === "own_reply" ? "author_reply" : "author_post",
+        verified_at: new Date().toISOString(),
+        metadata: { link_source: item.candidate.myfansLinkSource === "own_reply" ? "author_reply" : "parent", myfans_post_uuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null, matched_creator_id: resolvedCreatorId, matched_product_id: itemProductId, product_resolution: itemProductResolution.status, product_resolution_method: itemProductResolution.method, resolver_evidence: resolverEvidence },
+      }
+      : !finalMyfansUrl
+        ? resolveTextEvidence({
+        sourceStatusUrl: item.candidate.ownReplyStatusUrl || item.candidate.xPostUrl,
+        sourceAuthorHandle: sourceXHandle,
+        text: evidenceText,
+        products: resolverProducts,
+        evidenceSource: item.candidate.myfansLinkSource === "own_reply" ? "author_reply" : "author_post",
+        approvedMediaId: approvedMediaId ?? product?.approved_media_id ?? null,
+        })
+        : null;
     if (evidence) {
       const { error: evidenceError } = await supabaseAdmin.from("myfans_post_product_linkage_evidence").upsert({
         approved_media_id: evidence.approved_media_id,
-        quote_candidate_id: null,
+        quote_candidate_id: savedCandidateId,
         source_status_url: evidence.source_status_url,
         source_author_handle: evidence.source_author_handle,
         discovered_myfans_url: evidence.discovered_myfans_url,
@@ -681,32 +1061,54 @@ async function saveQuoteScan(payload: QuoteScanPayload, approvedMediaId: number 
         updated_at: new Date().toISOString(),
       }, { onConflict: "source_status_url,discovered_myfans_url,evidence_source" });
       if (evidenceError && !/myfans_post_product_linkage_evidence|schema cache|does not exist/i.test(evidenceError.message)) throw evidenceError;
+      if (!evidenceError && savedCandidateId) {
+        const { error: evidenceUpdateError } = await supabaseAdmin
+          .from("myfans_quote_candidates")
+          .update({ resolved_product_evidence: { productId: evidence.product_id, discoveredMyfansUrl: evidence.discovered_myfans_url, finalMyfansUrl: evidence.final_myfans_url, resolutionMethod: evidence.resolution_method, confidence: evidence.confidence, evidenceSource: evidence.evidence_source } })
+          .eq("id", savedCandidateId);
+        if (evidenceUpdateError && !/resolved_product_evidence|schema cache|does not exist/i.test(evidenceUpdateError.message)) throw evidenceUpdateError;
+      }
     }
   }
 
-  if (best && product?.id) {
+  if (best && bestProductResolution.product?.id) {
     const { error: updateError } = await supabaseAdmin
       .from("myfans_products")
       .update({ quote_candidate_x_url: best.candidate.mediaPermalink || best.candidate.xPostUrl, updated_at: new Date().toISOString() })
-      .eq("creator_id", resolvedCreatorId);
+      .eq("id", bestProductResolution.product.id);
     if (updateError) throw updateError;
     await supabaseAdmin.from("myfans_audit_logs").insert({
       entity_type: "creator",
       entity_id: resolvedCreatorId,
       action: "quote_candidate_auto_select",
-      summary: product.title,
+      summary: bestProductResolution.product.title,
       metadata: { quoteUrl: best.candidate.mediaPermalink || best.candidate.xPostUrl, statusUrl: best.candidate.xPostUrl, mediaPermalink: best.candidate.mediaPermalink || null, mediaType: best.candidate.mediaType || "none", quoteVisualReady: Boolean(best.candidate.quoteVisualReady), validationStatus: best.candidate.validationStatus || null, score: best.result.score, creatorRank: best.creatorRank, reason: best.result.reason },
     });
   }
 
   await updateGlobalQuoteRanks(approvedMediaId ?? product?.approved_media_id ?? null);
-  await markRefreshItem(payload, "success", { collectedCount: scored.length, topScore: best?.result.score ?? null });
+  if (Array.isArray(payload.collectionStatuses) && payload.collectionStatuses.length > 0) {
+    const { error: statusAuditError } = await supabaseAdmin.from("myfans_audit_logs").insert({
+      entity_type: "creator",
+      entity_id: resolvedCreatorId,
+      action: "complete_thread_collection_status",
+      summary: `${COLLECTOR_METHOD}: ${payload.collectionStatuses.length} parent statuses`,
+      metadata: { collectorMethod: COLLECTOR_METHOD, statuses: payload.collectionStatuses, ...collectionEvidence },
+    });
+    if (statusAuditError) console.error("complete thread status audit failed", statusAuditError);
+  }
+  await markRefreshItem(payload, "success", {
+    collectedCount: scored.length,
+    topScore: best?.result.score ?? null,
+    evidence: { ...collectionEvidence, completeThreadsFound: scored.length, candidatesSaved: scored.length },
+  });
 
   return NextResponse.json({
     ok: true,
     importedType: "quote_candidates",
     candidatesCount: scored.length,
     sourceTextMissingCount,
+    collectionStatuses: payload.collectionStatuses ?? [],
     selected: best ? { xPostUrl: best.candidate.xPostUrl, mediaPermalink: best.candidate.mediaPermalink || null, mediaType: best.candidate.mediaType || "none", quoteVisualReady: Boolean(best.candidate.quoteVisualReady), validationStatus: best.candidate.validationStatus || null, score: best.result.score, creatorRank: best.creatorRank, reason: best.result.reason } : null,
   });
 }
@@ -784,6 +1186,7 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
   const sourceStatusUrl = cleanDiagnosticStatusUrl(payload.sourceStatusUrl);
   const sourceXHandle = cleanText(payload.sourceXHandle).replace(/^@/, "");
   const candidate = payload.statusCandidate;
+  let auditContext: Record<string, unknown> = { sourceStatusUrl, sourceXHandle, singleStatusRunId: cleanText(payload.singleStatusRunId) || null, candidateId: null, matchedCreatorId: null, observedMfcoUrl: null, finalMyfansUrl: null, myfansPostUuid: null, matchedOrCreatedProductId: null, productResolutionMethod: null, resultReason: null };
   const candidateUrl = cleanXStatusUrl(candidate?.xPostUrl);
   const candidateAuthor = cleanText(candidate?.authorHandle).replace(/^@/, "");
   const sourceHandleFromStatus = sourceStatusUrl.match(/^https:\/\/x\.com\/([^/]+)\/status\//i)?.[1] || "";
@@ -793,7 +1196,7 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
       entity_id: null,
       action: "single_status_collect",
       summary,
-      metadata,
+      metadata: { phase: "saved", ...auditContext, ...metadata },
     });
     if (error) throw error;
   };
@@ -807,34 +1210,78 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
       singleStatusRunId: cleanText(payload.singleStatusRunId),
       reason: "x_collection_failed",
       error: collectionError.slice(0, 500),
+      failure: payload.collectionFailure ? {
+        stage: cleanText(payload.collectionFailure.stage),
+        errorCode: cleanText(payload.collectionFailure.errorCode),
+        diagnostics: payload.collectionFailure.diagnostics ?? {},
+        transitions: (payload.collectionFailure.transitions ?? []).slice(-12),
+      } : null,
     }, sourceStatusUrl || "single status収集失敗");
-    return NextResponse.json({ error: collectionError }, { status: 400 });
+    const errorCode = cleanText(payload.collectionFailure?.errorCode) || quoteRefreshErrorCode(collectionError) || "COLLECTION_FAILED";
+    return NextResponse.json({ ok: false, terminal: true, retryable: false, skipped: errorCode === "LOGIN_OR_CHALLENGE", errorCode, error: collectionError }, { status: 200 });
   }
 
   if (!sourceStatusUrl || !sourceXHandle || sourceHandleFromStatus.toLowerCase() !== sourceXHandle.toLowerCase()) {
     await audit({ ok: false, sourceStatusUrl, reason: "source_handle_mismatch" }, sourceStatusUrl || "single status収集失敗");
-    return NextResponse.json({ error: "指定status URLとsource handleが一致しません。" }, { status: 400 });
+    return NextResponse.json({ ok: false, terminal: true, retryable: false, errorCode: "CREATOR_MISMATCH", error: "指定status URLとsource handleが一致しません。" }, { status: 200 });
   }
   if (candidateUrl !== sourceStatusUrl || candidateAuthor.toLowerCase() !== sourceXHandle.toLowerCase()) {
     await audit({ ok: false, sourceStatusUrl, candidateUrl, candidateAuthor, reason: "author_or_status_mismatch" }, sourceStatusUrl);
-    return NextResponse.json({ error: "取得したX投稿のauthor/statusが指定URLと一致しません。保存しませんでした。" }, { status: 400 });
+    return NextResponse.json({ ok: false, terminal: true, retryable: false, errorCode: "CREATOR_MISMATCH", error: "取得したX投稿のauthor/statusが指定URLと一致しません。保存しませんでした。" }, { status: 200 });
   }
   const text = extractMyfansSourceText(candidate?.text, candidate?.articleText);
   if (!text) {
     await audit({ ok: false, sourceStatusUrl, authorStatusMatch: true, sourceTextSaved: false, reason: "source_text_missing" }, sourceStatusUrl);
-    return NextResponse.json({ error: "指定statusの具体的な本文を取得できませんでした。保存しませんでした。" }, { status: 400 });
+    return NextResponse.json({ ok: false, terminal: true, retryable: false, errorCode: "NO_BODY", error: "指定statusの具体的な本文を取得できませんでした。保存しませんでした。" }, { status: 200 });
   }
 
-  const products = await fetchResolverProducts();
-  const exactHandle = `https://x.com/${sourceXHandle}`.toLowerCase();
-  const product = products
-    .filter((item) => cleanXProfileUrl(item.creator_x_url).toLowerCase() === exactHandle)
-    .filter((item) => !approvedMediaId || item.approved_media_id === approvedMediaId)
-    .sort((a, b) => (b.selection_score ?? 0) - (a.selection_score ?? 0))[0];
-  if (!product?.id || !product.creator_id) {
-    await audit({ ok: false, sourceStatusUrl, authorStatusMatch: true, sourceTextSaved: true, reason: "no_exact_existing_product_creator" }, sourceStatusUrl);
-    return NextResponse.json({ error: "既存DBでX authorと完全一致するcreator/productが見つかりません。誤紐付け防止のため保存しませんでした。" }, { status: 400 });
+  const { data: creators, error: creatorError } = await supabaseAdmin
+    .from("myfans_creators")
+    .select("id,creator_x_url,source_x_handle");
+  if (creatorError) throw creatorError;
+  const creatorMatch = resolveExactMyfansCreator(creators ?? [], sourceXHandle);
+  auditContext = { ...auditContext, matchedCreatorId: creatorMatch.creatorId, resultReason: creatorMatch.status === "exact" ? null : creatorMatch.status === "ambiguous" ? "ambiguous_creator_author" : "creator_not_found" };
+  if (!creatorMatch.creatorId) {
+    const reason = creatorMatch.status === "ambiguous" ? "ambiguous_creator_author" : "creator_not_found";
+    await audit({ ok: false, sourceStatusUrl, sourceXHandle: canonicalMyfansXHandle(sourceXHandle), authorStatusMatch: true, sourceTextSaved: true, reason }, sourceStatusUrl);
+    return NextResponse.json({ ok: false, terminal: true, retryable: false, errorCode: creatorMatch.status === "ambiguous" ? "CREATOR_MISMATCH" : "CREATOR_NOT_FOUND", error: creatorMatch.status === "ambiguous" ? "X authorに一致するcreatorが複数あるため保存しませんでした。" : "既存DBにX authorと完全一致するcreatorが見つかりません。productの有無とは無関係に保存しませんでした。", creatorMatch: creatorMatch.status, productMatch: "unresolved", resultReason: reason, singleStatusRunId: cleanText(payload.singleStatusRunId) || null }, { status: 200 });
   }
+
+  const { data: existingCandidate, error: existingCandidateError } = await supabaseAdmin
+    .from("myfans_quote_candidates")
+    .select("id,creator_id,product_id,approved_media_id,creator_x_url,source_x_handle,resolved_product_evidence")
+    .eq("creator_id", creatorMatch.creatorId)
+    .eq("x_post_url", sourceStatusUrl)
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (existingCandidateError) throw existingCandidateError;
+
+  const products = await fetchResolverProducts();
+  const resolvedEvidence = Array.isArray(candidate?.resolvedProductEvidence) ? candidate.resolvedProductEvidence : [];
+  const observedLinkCount = Array.isArray(candidate?.myfansUrls) ? candidate.myfansUrls.length : 0;
+  const finalMyfansUrl = extractFinalMyfansUrl(candidate);
+  const observedMfcoUrl = resolvedEvidence.find((item) => item && typeof item === "object" && cleanText((item as Record<string, unknown>).observedMfcoUrl)) as Record<string, unknown> | undefined;
+  auditContext = { ...auditContext, observedMfcoUrl: cleanText(observedMfcoUrl?.observedMfcoUrl || (Array.isArray(candidate?.myfansUrls) ? candidate.myfansUrls.find((url) => /^https:\/\/(?:www\.)?(?:mfco\.link|t\.co)\//i.test(String(url))) : null) || null), finalMyfansUrl: finalMyfansUrl || null, myfansPostUuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null };
+  const dbProductResolution = resolveExactMyfansProductByFinalUrl(finalMyfansUrl, products, creatorMatch.creatorId);
+  let product: Record<string, unknown> | null = dbProductResolution.product as Record<string, unknown> | null;
+  const productResolution: ExactProductResolution = await (async () => {
+    try {
+      return product
+        ? { product, status: "exact", method: "existing_canonical_url", missing: [] as string[] }
+        : finalMyfansUrl
+          ? await ensureExactProductForCreator(finalMyfansUrl, creatorMatch.creatorId, approvedMediaId)
+          : { product: null, status: "blocked" as const, method: "no_final_myfans_url", missing: observedLinkCount > 0 ? ["final MyFans post URL"] : [] };
+    } catch (error) {
+      const normalizedError = normalizeCompanionError(error, "product_resolution");
+      await audit({ ...auditContext, ok: false, reason: "product_resolution_failed", ...normalizedError }, sourceStatusUrl);
+      throw companionPersistenceError(normalizedError, normalizedError.errorStage, "product_resolution_failed");
+    }
+  })();
+  product = productResolution.product;
+  const productId = product?.id ? Number(product.id) : null;
+  const productMatch = productResolution.status === "exact" ? "exact" : productResolution.status === "blocked" ? "product_registration_blocked" : "unresolved";
+  auditContext = { ...auditContext, matchedOrCreatedProductId: productId, productResolutionMethod: productResolution.method, resultReason: productResolution.status === "exact" ? null : productResolution.status === "ambiguous" ? "ambiguous_product_identity" : productResolution.missing.join("|") || "product_not_registered" };
 
   const normalized = {
     ...candidate,
@@ -847,7 +1294,9 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
     validationStatus: cleanValidationStatus(candidate?.validationStatus),
     mediaType: ["image", "video"].includes(cleanText(candidate?.mediaType)) ? cleanText(candidate?.mediaType) : "none",
     mediaCount: Math.max(0, Math.round(Number(candidate?.mediaCount ?? 0) || 0)),
-    myfansUrls: [],
+    myfansUrls: finalMyfansUrl ? [finalMyfansUrl] : [],
+    myfansLinkSource: candidate?.myfansLinkSource === "own_reply" ? "own_reply" : candidate?.myfansLinkSource === "parent" ? "parent" : null,
+    resolvedProductEvidence: resolvedEvidence.length > 0 ? resolvedEvidence : (finalMyfansUrl ? [{ finalMyfansUrl, myfansPostUuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null, resolverMethod: productResolution.method, confidence: "exact" }] : null),
     isReply: false,
   } as MyfansQuoteScanCandidate;
   const scored = scoreMyfansQuoteCandidate(normalized);
@@ -856,10 +1305,10 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
     || (normalized.mediaType === "image" && normalized.quoteVisualReady)
   ));
   const record = {
-    approved_media_id: approvedMediaId ?? product.approved_media_id ?? null,
-    creator_id: product.creator_id,
-    product_id: product.id,
-    creator_x_url: product.creator_x_url,
+    approved_media_id: approvedMediaId ?? existingCandidate?.approved_media_id ?? product?.approved_media_id ?? null,
+    creator_id: creatorMatch.creatorId,
+    product_id: productId,
+    creator_x_url: product?.creator_x_url || existingCandidate?.creator_x_url || `https://x.com/${canonicalMyfansXHandle(sourceXHandle)}`,
     source_x_handle: sourceXHandle,
     x_post_url: normalized.xPostUrl,
     media_permalink: normalized.mediaPermalink || null,
@@ -907,16 +1356,42 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
     global_score: scored.score,
     collected_at: new Date().toISOString(),
   };
-  const candidateId = await saveQuoteCandidate(record, product.id, product.creator_id);
+  const candidateId = await saveQuoteCandidate(record, creatorMatch.creatorId, existingCandidate?.id);
+  auditContext = { ...auditContext, candidateId };
+  const isExistingCandidate = Boolean(existingCandidate?.id);
   const partialFailures: string[] = [];
-  const { error: productUpdateError } = await supabaseAdmin.from("myfans_products").update({ quote_candidate_x_url: normalized.mediaPermalink || normalized.xPostUrl, updated_at: new Date().toISOString() }).eq("id", product.id);
-  if (productUpdateError) partialFailures.push(`product pointer update: ${productUpdateError.message}`);
+  if (productId) {
+    const { error: productUpdateError } = await supabaseAdmin.from("myfans_products").update({ quote_candidate_x_url: normalized.mediaPermalink || normalized.xPostUrl, updated_at: new Date().toISOString() }).eq("id", productId);
+    if (productUpdateError) partialFailures.push(`product pointer update: ${productUpdateError.message}`);
+  }
+  if (finalMyfansUrl) {
+    const resolver = resolvedEvidence.find((item) => item && typeof item === "object" && normalizeMyfansPostUrl(cleanMyfansUrl(item.finalMyfansUrl)) === finalMyfansUrl) || {};
+    const rawDiscoveredUrl = cleanText(resolver.observedMfcoUrl || resolver.sourceUrl || finalMyfansUrl).replace(/[?#].*$/, "");
+    const discoveredUrl = /^(?:https:\/\/(?:www\.)?(?:mfco\.link|t\.co|myfans\.jp)\/)/i.test(rawDiscoveredUrl) ? rawDiscoveredUrl : finalMyfansUrl;
+    const { error: evidenceError } = await supabaseAdmin.from("myfans_post_product_linkage_evidence").upsert({
+      approved_media_id: approvedMediaId ?? existingCandidate?.approved_media_id ?? product?.approved_media_id ?? null,
+      quote_candidate_id: candidateId,
+      source_status_url: sourceStatusUrl,
+      source_author_handle: canonicalMyfansXHandle(sourceXHandle),
+      discovered_myfans_url: discoveredUrl,
+      final_myfans_url: finalMyfansUrl,
+      product_id: productId,
+       resolution_method: productResolution.status === "exact" ? productResolution.method === "existing_canonical_url" ? "exact_product_url" : "safe_redirect_product_url" : "myfans_url_resolved_product_not_registered",
+      confidence: "exact",
+      evidence_source: candidate?.myfansLinkSource === "own_reply" ? "author_reply" : "author_post",
+      verified_at: new Date().toISOString(),
+       metadata: { link_source: candidate?.myfansLinkSource === "own_reply" ? "author_reply" : "parent", myfans_post_uuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null, matched_creator_id: creatorMatch.creatorId, matched_product_id: productId, product_resolution: productResolution.status, product_resolution_method: productResolution.method, missing_product_fields: productResolution.missing, resolver_evidence: resolvedEvidence },
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "source_status_url,discovered_myfans_url,evidence_source" });
+    if (evidenceError && !/myfans_post_product_linkage_evidence|schema cache|does not exist/i.test(evidenceError.message)) throw evidenceError;
+  }
   try {
-    await updateGlobalQuoteRanks(approvedMediaId ?? product.approved_media_id ?? null);
+    await updateGlobalQuoteRanks(approvedMediaId ?? existingCandidate?.approved_media_id ?? product?.approved_media_id ?? null);
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith("JOB_IDENTITY_MISMATCH:")) return NextResponse.json({ ok: false, retryable: false, errorCode: "JOB_IDENTITY_MISMATCH", error: error.message }, { status: 409 });
     partialFailures.push(`global rank update: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const metadata = { ok: true, sourceStatusUrl, candidateId, productId: product.id, creatorId: product.creator_id, sourceTextSaved: true, authorStatusMatch: true, visualStatus: quoteVisualReady ? "verified" : normalized.mediaType === "none" ? "unavailable" : "metadata_only", score: scored.score, eligible: scored.eligible };
+  const metadata = { ok: true, sourceStatusUrl, candidateId, creatorId: creatorMatch.creatorId, matchedCreatorId: creatorMatch.creatorId, creatorMatch: "exact", productId, matchedOrCreatedProductId: productId, productMatch, productResolution: productResolution.status, productResolutionMethod: productResolution.method, resultReason: productResolution.status === "exact" ? (isExistingCandidate ? "NO_NEW_CANDIDATE" : "candidate_saved") : productResolution.missing.join("|") || "product_not_registered", linkDetected: observedLinkCount > 0, linkResolution: finalMyfansUrl ? "mfco_resolved" : observedLinkCount > 0 ? "unresolved" : "no_link", observedMfcoUrl: auditContext.observedMfcoUrl, finalMyfansUrl: finalMyfansUrl || null, myfansPostUuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null, linkSource: normalized.myfansLinkSource, existingCandidate: isExistingCandidate, sourceTextSaved: true, authorStatusMatch: true, visualStatus: quoteVisualReady ? "verified" : normalized.mediaType === "none" ? "unavailable" : "metadata_only", score: scored.score, eligible: scored.eligible };
   try {
     await audit(metadata, sourceStatusUrl);
   } catch (error) {
@@ -926,41 +1401,56 @@ async function saveSingleStatusCollectionCore(payload: QuoteScanPayload, approve
   if (partialFailures.length > 0) {
     return NextResponse.json({ importedType: "single_status_quote_candidate", ...metadata, status: "partial", partialFailure: true, failures: partialFailures }, { status: 200 });
   }
-  return NextResponse.json({ importedType: "single_status_quote_candidate", ...metadata, status: "done" });
+  return NextResponse.json({ importedType: "single_status_quote_candidate", ...metadata, status: isExistingCandidate ? "no_new_candidate" : "done", resultCode: isExistingCandidate ? "NO_NEW_CANDIDATE" : "NEW_CANDIDATE" });
 }
 
 async function saveSingleStatusCollection(payload: QuoteScanPayload, approvedMediaId: number | null) {
+  const singleStatusRunId = cleanText(payload.singleStatusRunId);
+  if (!singleStatusRunId) return NextResponse.json({ ok: false, serverAccepted: false, saveReached: false, reason: "missing_run_id" }, { status: 400 });
+  const { data: replay } = await supabaseAdmin.from("myfans_audit_logs").select("id").eq("action", "single_status_collect").contains("metadata", { singleStatusRunId, phase: "saved" }).limit(1).maybeSingle();
+  if (replay) return NextResponse.json({ ok: false, serverAccepted: true, saveReached: false, replayed: true, reason: "duplicate/replayed", singleStatusRunId }, { status: 200 });
+  const { error: receivedError } = await supabaseAdmin.from("myfans_audit_logs").insert({ entity_type: "import", entity_id: null, action: "single_status_collect", summary: cleanDiagnosticStatusUrl(payload.sourceStatusUrl) || "single status received", metadata: { phase: "received", ok: true, serverAccepted: true, saveReached: false, singleStatusRunId, sourceStatusUrl: cleanDiagnosticStatusUrl(payload.sourceStatusUrl), receivedAt: new Date().toISOString() } });
+  if (receivedError) return NextResponse.json({ ok: false, serverAccepted: false, saveReached: false, reason: "received_audit_failed", error: receivedError.message, singleStatusRunId }, { status: 500 });
   try {
-    return await saveSingleStatusCollectionCore(payload, approvedMediaId);
+    const response = await saveSingleStatusCollectionCore(payload, approvedMediaId);
+    if (response.status >= 400) return response;
+    const body = await response.json();
+    return NextResponse.json({ ...body, ok: true, serverAccepted: true, saveReached: true, singleStatusRunId }, { status: 200 });
   } catch (error) {
     const sourceStatusUrl = cleanDiagnosticStatusUrl(payload.sourceStatusUrl);
-    const detail = error instanceof Error ? error.message : String(error);
+    const normalizedError = normalizeCompanionError(error, "single_status_persistence");
+    const reason = normalizedError.reason || "server_persistence_failed";
     const { error: auditError } = await supabaseAdmin.from("myfans_audit_logs").insert({
       entity_type: "import",
       entity_id: null,
       action: "single_status_collect",
       summary: sourceStatusUrl || "single status収集失敗",
       metadata: {
+        phase: "saved",
         ok: false,
         sourceStatusUrl,
         sourceXHandle: cleanText(payload.sourceXHandle).replace(/^@/, ""),
         singleStatusRunId: cleanText(payload.singleStatusRunId),
-        reason: "server_persistence_failed",
-        error: detail.slice(0, 500),
+        reason,
+        errorCode: normalizedError.errorCode,
+        errorMessage: normalizedError.errorMessage.slice(0, 500),
+        errorStage: normalizedError.errorStage,
       },
     });
     if (auditError) console.error("single_status_collect audit failed", auditError);
-    return NextResponse.json({ error: detail }, { status: 500 });
+    return NextResponse.json({ ok: false, serverAccepted: true, saveReached: false, reason, singleStatusRunId, errorCode: normalizedError.errorCode, errorMessage: normalizedError.errorMessage, errorStage: normalizedError.errorStage, error: normalizedError.errorMessage }, { status: 500 });
   }
 }
 
 export async function GET(request: Request) {
   const query = new URL(request.url).searchParams;
   if (query.get("action") === "single_status_latest") {
+    const runId = cleanText(query.get("runId"));
     const { data, error } = await supabaseAdmin
       .from("myfans_audit_logs")
       .select("id,summary,metadata,created_at")
       .eq("action", "single_status_collect")
+      .contains("metadata", runId ? { singleStatusRunId: runId, phase: "saved" } : { phase: "saved" })
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -982,6 +1472,9 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const payload = await request.json();
+    if (cleanText(payload.protocolVersion) !== COMPANION_PROTOCOL_VERSION) {
+      return NextResponse.json({ errorCode: "VERSION_MISMATCH", error: "Companion/API protocol version mismatch", expectedProtocolVersion: COMPANION_PROTOCOL_VERSION, receivedProtocolVersion: cleanText(payload.protocolVersion) || null }, { status: 409 });
+    }
     const approvedMediaName = cleanText(payload.approvedMediaName) || "@lumi_reviw";
     let approvedMediaId = Number.isFinite(Number(payload.approvedMediaId)) ? Number(payload.approvedMediaId) : null;
     if (!approvedMediaId) {

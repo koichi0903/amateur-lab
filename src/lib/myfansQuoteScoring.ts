@@ -1,5 +1,13 @@
 export type MyfansQuoteScanCandidate = {
   xPostUrl: string;
+  parentStatusUrl?: string | null;
+  parentStatusId?: string | null;
+  ownReplyStatusUrl?: string | null;
+  ownReplyStatusId?: string | null;
+  myfansLinkSource?: "parent" | "own_reply" | null;
+  threadCollectionStatus?: string | null;
+  collectorMethod?: string | null;
+  resolvedProductEvidence?: Record<string, unknown> | null;
   mediaPermalink?: string | null;
   verifiedVideoPermalink?: string | null;
   generatedVideoPermalink?: string | null;

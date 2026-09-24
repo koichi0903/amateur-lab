@@ -1,7 +1,7 @@
 import type { MyfansProduct } from "@/lib/myfansAnalytics";
 
 export type MyfansResolutionConfidence = "exact" | "strong" | "unresolved";
-export type MyfansResolutionMethod = "exact_product_url" | "safe_redirect_product_url" | "mfco_link_observed" | "db_existing" | "unresolved";
+export type MyfansResolutionMethod = "exact_product_url" | "safe_redirect_product_url" | "myfans_url_resolved_product_not_registered" | "mfco_link_observed" | "db_existing" | "unresolved";
 export type MyfansEvidenceSource = "author_post" | "author_reply" | "db_existing";
 
 export type MyfansPostProductLinkageEvidence = {
@@ -63,6 +63,17 @@ export function resolveMyfansUrlToProduct(url: string, products: MyfansProduct[]
     const affiliateUrl = normalizeUrl(product.affiliate_url);
     return Boolean(productUrl && productUrl === normalized) || Boolean(affiliateUrl && affiliateUrl === normalized);
   }) ?? null;
+}
+
+export function resolveExactMyfansProductByFinalUrl(finalUrl: string, products: MyfansProduct[], creatorId?: number | null) {
+  const canonicalUrl = normalizeMyfansPostUrl(finalUrl);
+  if (!canonicalUrl) return { product: null, status: "invalid" as const, canonicalUrl: "" };
+  const matches = products.filter((product) => {
+    if (creatorId != null && product.creator_id !== creatorId) return false;
+    return normalizeMyfansPostUrl(product.product_url) === canonicalUrl;
+  });
+  if (matches.length === 1) return { product: matches[0], status: "exact" as const, canonicalUrl };
+  return { product: null, status: matches.length > 1 ? "ambiguous" as const : "not_registered" as const, canonicalUrl };
 }
 
 export function buildDbExistingEvidence(input: {

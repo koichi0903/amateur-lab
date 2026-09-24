@@ -17,6 +17,8 @@
 /.next/
 /.next-local-playwright-*/
 /.next-local-update-*/
+/.next-*/
+/.tmp/
 /out/
 
 # production

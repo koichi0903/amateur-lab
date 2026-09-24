@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, Download, ExternalLink, FileUp, Image as ImageIcon, LoaderCircle, MousePointerClick, Plus, RefreshCw, Save } from "lucide-react";
+import { Check, Copy, Download, ExternalLink, FileUp, Image as ImageIcon, LoaderCircle, MousePointerClick, Plus, RefreshCw, Save, XCircle } from "lucide-react";
 import type { buildMyfansExecutionBoard, MyfansQuoteCollectionTask } from "@/lib/myfansXExecution";
 import type { MyfansApprovedMedia, MyfansCreator, MyfansProduct, MyfansXPost } from "@/lib/myfansAnalytics";
 import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummary";
@@ -20,10 +20,30 @@ type QuoteRefreshProgress = {
     success_creators: number;
     failed_creators: number;
     batch_size: number;
+    collection_cycle_no?: number;
+    cursor_before_order?: number;
+    cursor_after_order?: number | null;
+    cycle_completed?: boolean;
+    accounts_processed?: number;
+    complete_threads_found?: number;
+    candidates_saved?: number;
+    no_match?: number;
+    excluded_no_posts?: number;
+    excluded_private?: number;
+    retryable_errors?: number;
+    collection_session_id?: string | null;
+    collection_run_token?: string | null;
+    launch_mode?: string | null;
+    collector_version?: string | null;
     last_error: string | null;
   } | null;
   skippedCreators?: number;
-  summary?: { processed: number; success: number; failed: number; blocked: number; skipped: number };
+  summary?: {
+    processed: number; success: number; failed: number; blocked: number; skipped: number;
+    accounts_processed?: number; profile_scan_ok?: number; status_navigation_attempted?: number;
+    status_threads_observed?: number; fully_observed?: number; complete_threads_found?: number; candidates_saved?: number;
+    no_match?: number; retryable?: number; excluded?: number;
+  };
   items: Array<{
     id: number;
     creator_x_url: string;
@@ -33,6 +53,7 @@ type QuoteRefreshProgress = {
     top_score: number | null;
     error: string | null;
     processed_at?: string | null;
+    collection_state?: string | null;
     myfans_creators?: { display_name?: string } | { display_name?: string }[] | null;
   }>;
   error?: string;
@@ -45,6 +66,7 @@ type CompanionBridgeStatus = {
   workerVersion: string | null;
   lastAckAt: string | null;
   message: string;
+  identity?: { job_id?: number; collection_session_id?: string; run_token?: string; collector_version?: string } | null;
 };
 type VisualVerificationProgress = {
   checked: number;
@@ -77,6 +99,8 @@ const DIAGNOSTIC_REQUEST_EVENT = "amateur-lab:myfans-diagnostic:start";
 const DIAGNOSTIC_RESPONSE_EVENT = "amateur-lab:myfans-diagnostic:ack";
 const DIAGNOSTIC_STATE_REQUEST_EVENT = "amateur-lab:myfans-diagnostic:state";
 const DIAGNOSTIC_STATE_RESPONSE_EVENT = "amateur-lab:myfans-diagnostic:state:ack";
+const SINGLE_STATUS_STATE_REQUEST_EVENT = "amateur-lab:myfans-single-status:state";
+const SINGLE_STATUS_STATE_RESPONSE_EVENT = "amateur-lab:myfans-single-status:state:ack";
 const DEFAULT_DIAGNOSTIC_STATUS_URL = "https://x.com/lumi_reviw/status/2099793163909202032";
 
 type DiagnosticEvidence = {
@@ -105,12 +129,22 @@ type DiagnosticState = {
   savedEvidence?: DiagnosticEvidence[];
   evidence?: DiagnosticEvidence[];
   error?: string;
+  errorCode?: string | null;
+  stage?: string | null;
+  workerRetryCount?: number;
+  observationDiagnostics?: Record<string, unknown> | null;
+  threadResultDiagnostics?: Record<string, unknown> | null;
+  transitions?: Array<Record<string, unknown>>;
 };
 type SingleStatusResult = {
   id?: number;
   summary?: string;
   created_at?: string;
   metadata?: {
+    singleStatusRunId?: string | null;
+    serverAccepted?: boolean;
+    saveReached?: boolean;
+    resultReason?: string | null;
     ok?: boolean;
     candidateId?: number | null;
     sourceStatusUrl?: string;
@@ -118,9 +152,19 @@ type SingleStatusResult = {
     authorStatusMatch?: boolean;
     visualStatus?: string;
     productId?: number | null;
+    productMatch?: string;
+    productResolution?: string;
+    linkResolution?: string;
+    linkDetected?: boolean;
+    finalMyfansUrl?: string | null;
+    myfansPostUuid?: string | null;
+    linkSource?: string | null;
     reason?: string;
+    error?: string;
+    failure?: Record<string, unknown> | null;
   };
 };
+type SingleStatusWorkerState = { status?: string; runId?: string | null; stage?: string | null; serverAccepted?: boolean; saveReached?: boolean; reason?: string | null; error?: string | null };
 
 function workerStatusFromDetail(detail: unknown) {
   if (!detail || typeof detail !== "object") return "idle";
@@ -134,6 +178,13 @@ function workerStatusFromDetail(detail: unknown) {
   if (typeof status === "string" && status) return status;
   const running = "running" in state ? (state as { running?: unknown }).running : false;
   return running ? "running" : "idle";
+}
+
+function workerIdentityFromDetail(detail: unknown) {
+  const worker = detail && typeof detail === "object" && "worker" in detail ? (detail as { worker?: unknown }).worker : null;
+  const state = worker && typeof worker === "object" && "state" in worker ? (worker as { state?: unknown }).state : null;
+  const identity = state && typeof state === "object" && "identity" in state ? (state as { identity?: unknown }).identity : null;
+  return identity && typeof identity === "object" ? identity as CompanionBridgeStatus["identity"] : null;
 }
 
 function useMyfansSubmit(successText: string) {
@@ -241,10 +292,25 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
   useEffect(() => {
     let disposed = false;
     const refresh = async () => {
-      const singleResponse = await fetch("/api/admin/myfans/companion?action=single_status_latest", { cache: "no-store" });
-      const singlePayload = (await singleResponse.json()) as { result?: SingleStatusResult | null };
-      if (!disposed) setSingleResult(singlePayload.result ?? null);
       const next = await readWorkerState();
+      const singleState = await new Promise<SingleStatusWorkerState | null>((resolve) => {
+        const requestId = `single-state-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const timeout = window.setTimeout(() => { window.removeEventListener(SINGLE_STATUS_STATE_RESPONSE_EVENT, onResponse); resolve(null); }, 2500);
+        const onResponse = (event: Event) => {
+          const detail = event instanceof CustomEvent ? event.detail : null;
+          if (detail?.requestId !== requestId) return;
+          window.clearTimeout(timeout);
+          window.removeEventListener(SINGLE_STATUS_STATE_RESPONSE_EVENT, onResponse);
+          resolve(detail?.state ?? null);
+        };
+        window.addEventListener(SINGLE_STATUS_STATE_RESPONSE_EVENT, onResponse);
+        window.dispatchEvent(new CustomEvent(SINGLE_STATUS_STATE_REQUEST_EVENT, { detail: { requestId } }));
+      });
+      if (singleState?.runId) {
+        const singleResponse = await fetch(`/api/admin/myfans/companion?action=single_status_latest&runId=${encodeURIComponent(singleState.runId)}`, { cache: "no-store" });
+        const singlePayload = (await singleResponse.json()) as { result?: SingleStatusResult | null };
+        if (!disposed) setSingleResult(singlePayload.result ?? null);
+      } else if (!disposed) setSingleResult(null);
       if (disposed || !next) return;
       setState(next);
       if (next.status === "done" && next.diagnosticRunId) {
@@ -260,8 +326,15 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
   }, [readWorkerState]);
 
   async function startDiagnostic() {
-    const normalized = statusUrl.trim().replace(/^https:\/\/twitter\.com\//i, "https://x.com/");
-    if (!/^https:\/\/x\.com\/[A-Za-z0-9_]{1,15}\/status\/\d+$/i.test(normalized)) {
+    let normalized = "";
+    try {
+      const parsed = new URL(statusUrl.trim().replace(/^https:\/\/twitter\.com\//i, "https://x.com/"));
+      const match = parsed.pathname.match(/^\/([A-Za-z0-9_]{1,15})\/status\/(\d+)\/?$/i);
+      if (parsed.protocol === "https:" && parsed.hostname.toLowerCase() === "x.com" && match) normalized = `https://x.com/${match[1]}/status/${match[2]}`;
+    } catch {
+      normalized = "";
+    }
+    if (!normalized) {
       setError("診断対象は https://x.com/<handle>/status/<数字> の形式だけ指定できます。");
       return;
     }
@@ -316,12 +389,17 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
         <p>本人reply検出数: <span className="font-black text-white">{state?.replyCount ?? "-"}</span></p>
         <p>myfans/mfco link: <span className="font-black text-white">{state?.myfansLinkCount ?? "-"}</span></p>
       </div>
+      {(state?.stage || state?.errorCode) && <p className="mt-2 text-xs text-amber-200">stage: {state.stage ?? "-"} / error code: {state.errorCode ?? "-"} / worker retry: {state.workerRetryCount ?? 0}</p>}
+      {state?.status === "error" && (state.observationDiagnostics || state.threadResultDiagnostics) && <pre className="mt-2 max-h-40 overflow-auto rounded bg-zinc-950 p-2 text-[10px] leading-4 text-zinc-300">{JSON.stringify({ observation: state.observationDiagnostics, thread: state.threadResultDiagnostics }, null, 2)}</pre>}
       <div className="mt-3 rounded-md border border-emerald-800 bg-emerald-950/20 p-3 text-xs leading-5">
         <p className="font-black text-emerald-200">直近のDaily対象1件収集</p>
         {singleResult ? (
-          <p className={singleResult.metadata?.ok ? "text-emerald-100" : "text-amber-200"}>
-            {singleResult.metadata?.ok ? "成功" : "失敗"} / {singleResult.metadata?.sourceStatusUrl ?? singleResult.summary ?? "-"} / candidate {singleResult.metadata?.candidateId ?? "-"} / 本文保存 {singleResult.metadata?.sourceTextSaved ? "あり" : "なし"} / author・status一致 {singleResult.metadata?.authorStatusMatch ? "OK" : "NG"} / visual {singleResult.metadata?.visualStatus ?? "-"}
-          </p>
+          <>
+            <p className={singleResult.metadata?.ok ? "text-emerald-100" : "text-amber-200"}>
+              run {singleResult.metadata?.singleStatusRunId ?? "-"} / {singleResult.metadata?.ok ? "保存成功" : "失敗"} / {singleResult.metadata?.sourceStatusUrl ?? singleResult.summary ?? "-"} / candidate {singleResult.metadata?.candidateId ?? "-"} / link {singleResult.metadata?.linkSource ?? "-"}/{singleResult.metadata?.linkResolution ?? "-"} / final myfans {singleResult.metadata?.finalMyfansUrl ?? "-"} / product {singleResult.metadata?.productMatch ?? "unresolved"} / 本文保存 {singleResult.metadata?.sourceTextSaved ? "あり" : "なし"} / author・status一致 {singleResult.metadata?.authorStatusMatch ? "OK" : "NG"} / visual {singleResult.metadata?.visualStatus ?? "-"}
+            </p>
+            {!singleResult.metadata?.ok && <pre className="mt-2 max-h-40 overflow-auto rounded bg-zinc-950 p-2 text-[10px] leading-4 text-zinc-300">{JSON.stringify({ reason: singleResult.metadata?.reason, error: singleResult.metadata?.error, failure: singleResult.metadata?.failure }, null, 2)}</pre>}
+          </>
         ) : <p className="text-zinc-400">まだ結果はありません。</p>}
       </div>
       {state?.replyStatuses?.map((reply, index) => <p key={`${reply.statusUrl}-${index}`} className="mt-2 text-xs text-zinc-300">reply {index + 1}: {reply.statusUrl ?? "-"} / author {reply.authorHandle ? `@${reply.authorHandle.replace(/^@/, "")}` : "-"} / exact reply={String(reply.isReply)} / link {reply.myfansUrls?.join(", ") || "-"}</p>)}
@@ -345,7 +423,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState<QuoteRefreshProgress | null>(null);
   const [message, setMessage] = useState<Message>(null);
-  const [batchSize, setBatchSize] = useState(25);
+  const [batchSize, setBatchSize] = useState(10);
   const [visualBatchSize, setVisualBatchSize] = useState(10);
   const [visualProgress, setVisualProgress] = useState<VisualVerificationProgress | null>(null);
   const [visualQueue, setVisualQueue] = useState<VisualQueueState | null>(null);
@@ -357,6 +435,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
     workerVersion: null,
     lastAckAt: null,
     message: "not injected",
+    identity: null,
   });
 
   const loadProgress = useCallback(async (jobId?: number) => {
@@ -412,6 +491,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
           workerVersion,
           lastAckAt: new Date().toLocaleTimeString("ja-JP", { hour12: false }),
           message: detail?.connected && worker?.ok ? "connected" : worker?.error || "not connected",
+          identity: workerIdentityFromDetail(detail),
         });
         if (detail?.connected && worker?.ok) resolve();
         else reject(new Error(worker?.error || "Companion bridgeの確認に失敗しました。"));
@@ -535,9 +615,16 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
   }
 
   const job = progress?.job ?? null;
-  const current = progress?.items.find((item) => item.status === "running") ?? null;
-  const recent = progress?.items.filter((item) => ["success", "failed", "skipped"].includes(item.status)).slice(-5).reverse() ?? [];
-  const summary = progress?.summary ?? summarizeMyfansQuoteRefreshItems(progress?.items ?? []);
+  const workerIdentity = bridgeStatus.identity;
+  const identityMatches = Boolean(job?.id && job.collection_session_id && job.collection_run_token && workerIdentity?.job_id === job.id && workerIdentity.collection_session_id === job.collection_session_id && workerIdentity.run_token === job.collection_run_token && workerIdentity.collector_version === (job.collector_version ?? bridgeStatus.workerVersion));
+  const displayJob = job && job.collection_session_id && job.collection_run_token && identityMatches ? job : null;
+  const current = displayJob && ["pending", "running", "paused"].includes(displayJob.status)
+    ? progress?.items.find((item) => item.status === "running") ?? null
+    : null;
+  const recent = displayJob
+    ? progress?.items.filter((item) => ["success", "failed", "skipped"].includes(item.status)).slice(-5).reverse() ?? []
+    : [];
+  const summary: NonNullable<QuoteRefreshProgress["summary"]> = progress?.summary ?? summarizeMyfansQuoteRefreshItems(progress?.items ?? []);
   const successRateBase = summary.success + summary.failed;
   const successRate = successRateBase > 0 ? Math.round((summary.success / successRateBase) * 100) : null;
   const failedItems = progress?.items.filter((item) => item.status === "failed" && !isBlockedQuoteRefreshItem(item)) ?? [];
@@ -638,10 +725,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <select value={batchSize} onChange={(event) => setBatchSize(Number(event.target.value))} className={inputClass}>
-            <option value={5}>5 creator</option>
-            <option value={20}>20 creator</option>
-            <option value={25}>25 creator</option>
-            <option value={30}>30 creator</option>
+            <option value={10}>次の10アカウント</option>
           </select>
           <button type="button" onClick={refreshProgressOnly} disabled={pending} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-violet-700 px-4 text-sm font-black text-white disabled:cursor-wait disabled:opacity-60">
             {pending ? <LoaderCircle size={17} className="animate-spin" /> : <Save size={17} />}
@@ -698,25 +782,33 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
           Myfans Companionのbridgeとworkerのversionが一致しません。bridge {bridgeStatus.bridgeVersion} / worker {bridgeStatus.workerVersion}。Chrome拡張をreloadしてからDaily Pageをreloadしてください。
         </p>
       )}
-      {job && (
+      {job && !displayJob && <p className="mt-3 rounded-md bg-amber-950 p-2 text-xs font-bold text-amber-200">DB jobと現在のCompanion run identityが一致しないため、過去runの進捗は表示していません。{job.collection_session_id ? "CompanionをReloadしてcurrent-sessionを確認してください。" : "legacy jobはcurrent-sessionとして扱いません。"}</p>}
+      {displayJob && (
         <div className="mt-4 grid gap-3 lg:grid-cols-4">
-          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">状態</p><p className="mt-1 font-black text-white">{job.status}</p></div>
-          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">進捗</p><p className="mt-1 font-black text-white">{job.processed_creators} / {job.total_creators}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">job / session / collector</p><p className="mt-1 font-black text-white">#{displayJob.id} / {displayJob.collection_session_id} / {displayJob.collector_version}</p><p className="mt-1 text-zinc-400">{displayJob.launch_mode ?? "new"} / identity一致</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">状態</p><p className="mt-1 font-black text-white">{displayJob.status}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">進捗</p><p className="mt-1 font-black text-white">{displayJob.processed_creators} / {displayJob.total_creators}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">成功/要修正/blocked/skipped</p><p className="mt-1 font-black text-white">{summary.success} / {summary.failed} / {summary.blocked} / {summary.skipped}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">collector / complete-thread</p><p className="mt-1 font-black text-white">{summary.success} / {summary.complete_threads_found ?? displayJob.complete_threads_found ?? 0}</p></div>
           <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">システム成功率</p><p className={`mt-1 font-black ${successRate !== null && successRate >= 80 ? "text-emerald-300" : "text-amber-300"}`}>{successRate === null ? "-" : `${successRate}%`}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">巡回cursor / cycle</p><p className="mt-1 font-black text-white">{displayJob.cursor_after_order ?? 0} / {displayJob.collection_cycle_no ?? 1}{displayJob.cycle_completed ? " (完了)" : ""}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">complete thread / candidates</p><p className="mt-1 font-black text-white">{displayJob.complete_threads_found ?? 0} / {displayJob.candidates_saved ?? 0}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">NO_MATCH / NO_POSTS / PRIVATE</p><p className="mt-1 font-black text-white">{displayJob.no_match ?? 0} / {displayJob.excluded_no_posts ?? 0} / {displayJob.excluded_private ?? 0}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">retryable errors</p><p className="mt-1 font-black text-white">{displayJob.retryable_errors ?? 0}</p></div>
+          <div className="rounded-lg bg-zinc-900 p-3 text-xs"><p className="text-zinc-500">profile scan / navigation / observed / fully observed</p><p className="mt-1 font-black text-white">{summary.profile_scan_ok ?? 0} / {summary.status_navigation_attempted ?? 0} / {summary.status_threads_observed ?? 0} / {summary.fully_observed ?? 0}</p></div>
         </div>
       )}
-      {job?.status === "completed" && (
+      {displayJob?.status === "completed" && (
         <p className={`mt-3 rounded-md p-2 text-xs font-bold ${successRate !== null && successRate >= 80 ? "bg-emerald-950 text-emerald-200" : "bg-amber-950 text-amber-200"}`}>
           completed: 成功{summary.success} / 要修正{summary.failed} / blocked{summary.blocked} / skipped{summary.skipped} / システム成功率{successRate === null ? "判定対象なし" : `${successRate}%`}
         </p>
       )}
       {current && <p className="mt-3 text-xs text-violet-200">現在処理中: {creatorNameFromItem(current)}</p>}
-      {job && (
+      {displayJob && (
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" onClick={() => control("pause")} disabled={pending || job.status === "paused"} className="h-10 rounded-lg bg-amber-700 px-3 text-xs font-black text-white disabled:opacity-50">pause</button>
-          <button type="button" onClick={() => control("resume")} disabled={pending || job.status !== "paused"} className="h-10 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50">resume</button>
-          <button type="button" onClick={() => control("cancel")} disabled={pending || ["completed", "cancelled"].includes(job.status)} className="h-10 rounded-lg bg-red-700 px-3 text-xs font-black text-white disabled:opacity-50">cancel</button>
+          <button type="button" onClick={() => control("pause")} disabled={pending || displayJob.status === "paused"} className="h-10 rounded-lg bg-amber-700 px-3 text-xs font-black text-white disabled:opacity-50">pause</button>
+          <button type="button" onClick={() => control("resume")} disabled={pending || displayJob.status !== "paused"} className="h-10 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50">resume</button>
+          <button type="button" onClick={() => control("cancel")} disabled={pending || ["completed", "cancelled"].includes(displayJob.status)} className="h-10 rounded-lg bg-red-700 px-3 text-xs font-black text-white disabled:opacity-50">cancel</button>
         </div>
       )}
       {recent.length > 0 && (
@@ -1262,6 +1354,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
   const router = useRouter();
   const [message, setMessage] = useState<Message>(null);
   const [pendingId, setPendingId] = useState<string | number | null>(null);
+  const [hiddenCandidateIds, setHiddenCandidateIds] = useState<Set<string>>(() => new Set());
   const [selectedBySlot, setSelectedBySlot] = useState<Record<number, string>>(() =>
     Object.fromEntries((candidateOptions ?? []).map((slot) => {
       const selectedLabel = selectedOptions?.[String(slot.postOrder)] ?? "";
@@ -1343,6 +1436,31 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
     }
   }
 
+  async function skipCandidate(candidate: CandidateOption) {
+    const targetLabel = candidate.product ? "この作品を今後表示しない" : "この元投稿を今後表示しない";
+    if (!window.confirm(`${targetLabel}設定にします。日付が変わっても3×4候補へ戻りません。実行しますか？`)) return;
+    setPendingId(`skip-${candidate.id}`);
+    setMessage(null);
+    try {
+      const formData = new FormData();
+      formData.set("action", "permanent_candidate_skip");
+      formData.set("candidate_id", candidate.id);
+      formData.set("plan_date", planDate);
+      if (candidate.product?.id) formData.set("product_id", String(candidate.product.id));
+      if (candidate.quoteCandidateId) formData.set("quote_candidate_id", String(candidate.quoteCandidateId));
+      formData.set("quote_x_url", candidate.quoteXUrl);
+      formData.set("source_x_url", candidate.sourceXUrl);
+      await postFormData(formData);
+      setHiddenCandidateIds((current) => new Set(current).add(candidate.id));
+      setMessage({ text: `${targetLabel}にしました。`, error: false });
+      router.refresh();
+    } catch (error) {
+      setMessage({ text: error instanceof Error ? error.message : "候補を恒久除外できませんでした。", error: true });
+    } finally {
+      setPendingId(null);
+    }
+  }
+
   async function saveAffiliateLink(candidate: ExecutionCandidate, form: HTMLFormElement) {
     if (!candidate.product) return;
     setPendingId(`affiliate-${candidate.product.id}`);
@@ -1367,7 +1485,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
   }
 
   const selectedCandidates = (candidateOptions ?? [])
-    .map((slot) => slot.candidates.find((candidate) => selectedBySlot[slot.postOrder] === candidate.id))
+    .map((slot) => slot.candidates.find((candidate) => !hiddenCandidateIds.has(candidate.id) && selectedBySlot[slot.postOrder] === candidate.id))
     .filter((candidate): candidate is CandidateOption => Boolean(candidate));
   const executionCandidates = selectedCandidates.length ? selectedCandidates : candidates;
 
@@ -1483,7 +1601,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
                 <p className="text-xs font-black text-zinc-400">システム推奨: 候補A（おすすめ）</p>
               </div>
               <div className="mt-4 grid gap-4 lg:grid-cols-3">
-                {slot.candidates.map((candidate) => {
+                {slot.candidates.filter((candidate) => !hiddenCandidateIds.has(candidate.id)).map((candidate) => {
                   const selected = selectedBySlot[slot.postOrder] === candidate.id;
                   const linkRequired = needsFreshAffiliateLink(candidate);
                   const linkReady = canUseAffiliateLink(candidate);
@@ -1545,6 +1663,10 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
                         <button type="button" onClick={() => selectCandidate(slot, candidate)} disabled={pendingId === `select-${slot.postOrder}-${candidate.optionLabel}`} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:cursor-wait disabled:opacity-60">
                           {pendingId === `select-${slot.postOrder}-${candidate.optionLabel}` ? <LoaderCircle size={15} className="animate-spin" /> : <Check size={15} />}
                           {selected ? "選択済み" : "この候補を選ぶ"}
+                        </button>
+                        <button type="button" onClick={() => skipCandidate(candidate)} disabled={pendingId === `skip-${candidate.id}`} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-rose-800 bg-rose-950/40 px-3 text-xs font-black text-rose-200 disabled:cursor-wait disabled:opacity-60">
+                          {pendingId === `skip-${candidate.id}` ? <LoaderCircle size={15} className="animate-spin" /> : <XCircle size={15} />}
+                          {candidate.product ? "この作品を今後表示しない" : "この元投稿を今後表示しない"}
                         </button>
                         <button type="button" disabled={!selected || !candidate.product || pendingId === candidate.id || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
                           <Save size={15} /> 選択候補を投稿ログへ保存
@@ -1904,34 +2026,6 @@ export function RevenueImportForm() {
         CSV取込
       </button>
       <div className="lg:col-span-3"><StatusMessage message={message} /></div>
-    </form>
-  );
-}
-
-export function XAccountMetricForm({ media }: { media: MyfansApprovedMedia[] }) {
-  const { pending, message, submit } = useMyfansSubmit("Xアカウント成長の週次記録を保存しました。");
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(new Date());
-  return (
-    <form onSubmit={submit} className="mt-5 grid gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-5 lg:grid-cols-4">
-      <input type="hidden" name="action" value="x_account_metric" />
-      <Field label="週の終了日"><input name="metric_date" type="date" defaultValue={today} required className={inputClass} /></Field>
-      <Field label="承認済みメディア"><select name="approved_media_id" required className={inputClass}><option value="">選択</option>{media.map((item) => <option key={item.id} value={item.id}>{item.media_name}</option>)}</select></Field>
-      <Field label="週末時点フォロワー数"><input name="followers_count" type="number" min="0" required className={inputClass} /></Field>
-      <Field label="週末時点フォロー数"><input name="following_count" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間プロフィール遷移"><input name="profile_visits" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間総表示"><input name="total_impressions" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間投稿数"><input name="posts_count" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間いいね"><input name="likes" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間リポスト"><input name="reposts" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間返信"><input name="replies" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間アフィクリック"><input name="affiliate_clicks" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間CV"><input name="conversions" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週間報酬"><input name="reward_amount" type="number" min="0" className={inputClass} /></Field>
-      <Field label="週次メモ"><textarea name="notes" className={`${textareaClass} lg:col-span-4`} /></Field>
-      <div className="flex flex-wrap items-center gap-3 lg:col-span-4">
-        <SubmitButton pending={pending} label="週次記録を保存" />
-        <StatusMessage message={message} />
-      </div>
     </form>
   );
 }

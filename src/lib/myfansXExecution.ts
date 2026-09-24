@@ -3,6 +3,7 @@ import { bestResolverEvidence, buildDbExistingEvidence, resolveTextEvidence } fr
 import { calculateMyfansOpportunityScores } from "@/lib/myfansScore";
 import { getXWeightedLength } from "@/lib/xText";
 import { evaluateMyfansSourceValue, type MyfansSourceValue } from "@/lib/myfansSourceValue";
+import { buildPermanentExclusionSets, isPermanentlyExcluded } from "@/lib/myfansPermanentExclusions";
 
 export type MyfansLinkStrategy = "body_link" | "reply_link" | "profile_cta" | "no_link";
 export type MyfansGrowthStage = "day_1_7" | "day_8_14" | "day_15_30";
@@ -898,7 +899,11 @@ function qualityScoreFor(input: {
   const bodyCompact = input.body.replace(/[^\p{L}\p{N}]+/gu, "");
   const cueInBody = Boolean(groundingText && allCueTokens.some((token) => bodyCompact.includes(token.replace(/\s+/g, ""))));
   const sourceTextSnippet = compactSourceText(input.quote?.text_excerpt ?? "", 28).replace(/[^\p{L}\p{N}]+/gu, "");
-  const sourceTextGrounded = Boolean(isQuote && sourceTextSnippet.length >= 6 && bodyCompact.includes(sourceTextSnippet.slice(0, Math.min(12, sourceTextSnippet.length))));
+  const sourceTextGrounded = Boolean(
+    sourceTextSnippet.length >= 6
+      && bodyCompact.includes(sourceTextSnippet.slice(0, Math.min(12, sourceTextSnippet.length)))
+      && (isQuote || (input.quote && sourceValueForQuote(input.quote).verdict === "PASS")),
+  );
   const firstTwoLines = input.body.split(/\n+/).slice(0, 2).join(" ");
   const cueEarly = cueInBody && allCueTokens.some((token) => firstTwoLines.replace(/[^\p{L}\p{N}]+/gu, "").includes(token.replace(/\s+/g, "")));
   const concreteVisualSpecificity = isQuote
@@ -936,6 +941,7 @@ function qualityScoreFor(input: {
   const discoveryFactMissing = input.postType === "ranking_note" && !topicInsight && !input.product.popularity_rank && input.product.likes_count <= 0 && input.product.saves_count <= 0 && !input.product.is_new && !input.quote;
   const discoveryConcrete = isDiscovery && (
     (Boolean(discoveryInsight) && input.body.includes(discoveryInsight?.line.split("。")[0] ?? ""))
+    || sourceTextGrounded
     || /(新着なのに|新着で|人気[0-9０-９]+位|全体上位|中央値|同価格帯|いいね[0-9０-９,，]+に対して保存|X側で[0-9０-９]+万表示|X表示[0-9０-９,，]+|[0-9０-９]+万表示|[0-9０-９]+千表示|[0-9０-９]+いいね|反応が残っている|見た人の温度|元投稿の空気|¥[0-9０-９,，]+)/.test(input.body)
     || Boolean(topicInsight && input.body.includes(topicInsight.line.split("。")[0] ?? ""))
   );
@@ -1306,10 +1312,12 @@ function topicThresholdFor(role: DailyRole) {
   return MYFANS_TOPIC_VALUE_THRESHOLDS[role];
 }
 
-function hasConcreteSourceContext(quote: MyfansQuoteCandidate | null) {
+export function hasConcreteSourceContext(quote: MyfansQuoteCandidate | null) {
   const text = quote?.text_excerpt?.replace(/\s+/g, " ").trim() ?? "";
   if (!text) return false;
   if (/^[\d\s.,、。!?！？%％¥￥円+-]+$/.test(text)) return false;
+  const sourceValue = quote ? sourceValueForQuote(quote) : null;
+  if (sourceValue?.verdict === "PASS" && sourceValue.breakdown.selfContainedContext >= 8 && sourceValue.reactionAngles.length > 0) return true;
   return /(新着|新作|更新|公開|発売|解禁|追加|再販|固定|本人|投稿|返信|リプ|変化|急上昇|ランキング|価格|続編|表情|衣装|シーン)/.test(text)
     && (/(変わ|違|出|上が|下が|伸び|残|見え|始ま|終わ|気にな|分かれ)/.test(text) || /[。！？!?]/.test(text));
 }
@@ -1614,6 +1622,8 @@ function quotePublicDiscoveryLine(quote: MyfansQuoteCandidate | null, topicValue
   const media = quote.has_video ? "動画" : quote.has_image ? "画像" : "投稿";
   const excerpt = completeSourcePhrase(quote.text_excerpt ?? "", 34);
   const subject = media === "動画" ? "この動画" : media === "画像" ? "この画像" : "この投稿";
+  const groundedSource = sourceValueForQuote(quote).verdict === "PASS" ? (excerpt || compactSourceText(quote.text_excerpt ?? "", 34)) : "";
+  if (groundedSource) return `「${groundedSource}」の出し方が気になってしまう。`;
   const lines = [
     `${subject}、最初の置き方がうまい。`,
     `${subject}、タイムラインで見たら一回開く。`,
@@ -1630,7 +1640,7 @@ function buildDiscoveryCopy(product: MyfansProduct, quote: MyfansQuoteCandidate 
   const safeQuoteLine = quotePublicDiscoveryLine(quote, topicValue, variant);
   const firstLine = safeQuoteLine || insight.line;
   const closers = safeQuoteLine
-    ? ["この入り方ずるい。", "一回開いてしまうタイプ。", "こういうの、気づいたら最後まで見てる。", "言葉より先に見せ方で持っていく。", "この人、他の投稿も少し気になる。"]
+    ? [insight.line, "この入り方ずるい。", "一回開いてしまうタイプ。", "こういうの、気づいたら最後まで見てる。", "言葉より先に見せ方で持っていく。", "この人、他の投稿も少し気になる。"]
     : [insight.value, "ぱっと見で気になる場所がある。", "説明より先に、引用元で一回引っかかる。", "この出し方ならタイムラインでも目が戻る。"];
   const second = closers[(variant + stableHash(firstLine)) % closers.length];
   return [firstLine, second === firstLine ? closers[(variant + 1) % closers.length] : second];
@@ -2424,6 +2434,17 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
   const planDate = options.planDate ?? currentPlanDate();
   const stage = getGrowthStage(day);
   const generationVersion = options.generationVersion ?? MYFANS_PUBLIC_COPY_GENERATOR_VERSION;
+  const permanentExclusionSets = buildPermanentExclusionSets(analytics.permanentExclusions ?? []);
+  analytics = {
+    ...analytics,
+    products: analytics.products.filter((product) => !permanentExclusionSets.productIds.has(product.id)),
+    quoteCandidates: analytics.quoteCandidates.filter((quote) => !isPermanentlyExcluded({
+      productId: quote.product_id,
+      quoteXUrl: quote.x_post_url,
+      sourceXUrl: quote.x_post_url,
+      sets: permanentExclusionSets,
+    })),
+  };
   const planKey = `${analytics.selectedMediaId ?? "all"}:${planDate}:day-${day}:${stage}:${generationVersion}`;
   const learning = buildMyfansLearning(analytics);
   const rotation = adjustRotationByLearning(ROTATION[stage], stage, learning);
@@ -2967,6 +2988,12 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     const bodyUsage = pastUsage.latestBody(candidate.body);
     const bodyAge = bodyUsage ? daysBetweenDates(planDate, bodyUsage.date) : null;
     const leak = detectPublicCopyLeak(publicText);
+    if (isPermanentlyExcluded({
+      productId: candidate.product?.id,
+      quoteXUrl: candidate.quoteXUrl,
+      sourceXUrl: candidate.sourceXUrl,
+      sets: permanentExclusionSets,
+    })) quality = holdQuality(quality, "恒久除外済みのproduct/sourceです");
     if (leak.hasLeak) quality = holdQuality(quality, `Public Copy leak: ${leak.matches.join(" / ")}`);
     if (sourceUsage?.actualPosted && sourceAge !== null && sourceAge < POSTED_SOURCE_COOLDOWN_DAYS) quality = holdQuality(quality, `実投稿済みsourceは${POSTED_SOURCE_COOLDOWN_DAYS}日cooldown: last ${sourceUsage.date}`);
     if (sourceUsage && sourceAge !== null && sourceAge < SELECTED_SOURCE_SOFT_COOLDOWN_DAYS) quality = holdQuality(quality, `前日までに選択済みsourceはsoft cooldown: last ${sourceUsage.date}`);

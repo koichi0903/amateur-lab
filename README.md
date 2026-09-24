@@ -2,7 +2,7 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Local admin development
 
-The current myfans admin runs on port 3000. Start the canonical local server with:
+The current Myfans integration server runs on port 3000. Start the canonical local server with:
 
 ```powershell
 npm run dev:local
@@ -10,9 +10,21 @@ npm run dev:local
 
 The launcher resolves its own repository root, verifies `.env.local` without printing its values, and records the PID, checkout, and Git HEAD in `%LOCALAPPDATA%\amateur-lab\local-dev-3000.json`. It reuses only a server previously started by this launcher from the same checkout. An unverified or different checkout is reported and never stopped automatically.
 
-Open [http://localhost:3000/admin](http://localhost:3000/admin) and use the `myfans X運用` card. The canonical myfans command center is [http://localhost:3000/admin/myfans?media=1](http://localhost:3000/admin/myfans?media=1).
+Open [http://localhost:3000/admin](http://localhost:3000/admin) and use the `myfans X運用` card. The canonical Myfans command center in this integration is [http://localhost:3000/admin/myfans?media=1](http://localhost:3000/admin/myfans?media=1).
+
+Port ownership is intentional: `localhost:3000` is this `amateur-lab-myfans-0.1.38-integration` worktree; `localhost:3001` is the separate canonical application used for FANZA acceptance. Do not point the 0.1.38 Companion at 3001. The Companion performs a read-only database preflight before creating a new collection job.
+
+For a secret-free startup fingerprint, run:
+
+```bash
+node scripts/myfans-runtime-fingerprint.mjs
+```
+
+It prints only the role, port, worktree, HEAD, and whether the local HTTP endpoint responds; it never prints environment values.
 
 The old `/admin/myfans/x-growth` path is retained only as a permanent server redirect to the canonical command center; it does not render the former UI.
+
+The Companion create endpoint fails fast with `DB_PREFLIGHT_FAILED` before any job write when the read-only Supabase probe cannot connect. The formal audit constraint and atomic job/items RPC are defined in `supabase/migrations/20260924143000_formalize_myfans_quote_refresh_atomic_create.sql`; this migration must be reviewed and applied to Production before real collection is enabled. Until then, the compatibility path compensates any job/items write failure by terminalizing the job and its pending items.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
