@@ -361,10 +361,20 @@ function videoReaderActionLine(
 function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPlan: XLinkPlan, direction: XHookDirection) {
   const visualFact = primaryUsableVisualFact(input.visualFacts);
   const concretePhrase = visualFact ? concreteVisualPhrase(visualFact) : "";
-  if (concretePhrase) {
+  if (visualFact && concretePhrase) {
     const link = linkPlan === "body_link" ? input.url : "";
     const action = visualFact ? videoReaderActionLine(input, visualFact, intent, primaryVideoTag(input), direction) : "";
-    return [concretePhrase, action, intent === "MONEY" ? humanProofLine(input, intent) : "", link].filter(Boolean);
+    const subject = primaryActress(input) ?? safeTitleFragment(input);
+    const layout = stableChoiceIndex([input.key, input.title, String(visualFact.value), intent, direction].join("|"), 4);
+    const subjectLead = primaryActress(input) ? `${subject}、${action}` : `${subject}で、${action}`;
+    const lines = layout === 0
+      ? [concretePhrase, action]
+      : layout === 1
+        ? [action, concretePhrase]
+        : layout === 2
+          ? [subjectLead, concretePhrase]
+          : [concretePhrase, subjectLead];
+    return [...lines, intent === "MONEY" ? humanProofLine(input, intent) : "", link].filter(Boolean);
   }
   const tag = primaryVideoTag(input);
   if (!tag || tag === "too_explicit_for_reach" || tag === "weak_visual") return null;
@@ -608,7 +618,7 @@ const NATIVE_X_FORBIDDEN_PHRASES = [
   "気になっていたなら今日は",
 ];
 
-function finalNativeXVoiceGate(input: XCreativeInput, variant: { intent: XGrowthIntent; mediaType: XCreativeMedia; text: string }) {
+export function finalNativeXVoiceGate(input: XCreativeInput, variant: { intent: XGrowthIntent; mediaType: XCreativeMedia; text: string }) {
   const lines = variant.text.split("\n").map((line) => line.trim()).filter(Boolean);
   const first = lines[0] ?? "";
   const joined = variant.text;

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { buildVisualVideoFacts } from "./xVisualVideoFacts";
-import { buildXCreativeVariants, validateXCopyGrammar } from "./xCreativeEngine";
+import { buildXCreativeVariants, finalNativeXVoiceGate, validateXCopyGrammar } from "./xCreativeEngine";
+import type { XPostLog } from "./xPostLogs";
 
 const movieUrl = "https://cc3001.dmm.co.jp/litevideo/freepv/test/test_dmb_w.mp4";
 const baseInput = {
@@ -44,6 +45,28 @@ assert.ok(videoVariants.some((variant) => variant.quality.lastMile.humanVoice.ch
 assert.ok(videoVariants.some((variant) => variant.quality.lastMile.humanVoice.checks.concreteVisualFact));
 assert.ok(videoVariants.some((variant) => variant.quality.lastMile.nativeXVoice.checks.noTemplateReuse));
 assert.ok(new Set(videoVariants.map((variant) => variant.bodyText.split("\n")[1])).size >= 2);
+
+const videoBodies = [...new Set(videoVariants.map((variant) => variant.bodyText))];
+const recentLogs = videoBodies.map((postText, index) => ({
+  id: index + 1,
+  post_text: postText,
+  posted_at: new Date().toISOString(),
+  creative_genome: {},
+})) as XPostLog[];
+const reuseChecked = buildXCreativeVariants({ ...baseInput, recentLogs });
+assert.ok(reuseChecked.some((variant) => !variant.quality.lastMile.nativeXVoice.checks.noTemplateReuse));
+
+const protectedText = "この入り方、少し気になって続きを見てしまう。\n冒頭の展開が予想と少し違う。";
+const sameStructureLogs = [0, 1].map((index) => ({
+  id: index + 100,
+  post_text: "前の投稿です。\n次も見ておきたい。",
+  posted_at: new Date().toISOString(),
+  creative_genome: {},
+})) as XPostLog[];
+const protectedInput = { ...baseInput, recentLogs: sameStructureLogs };
+assert.equal(finalNativeXVoiceGate(protectedInput, { intent: "REACH", mediaType: "sample_movie", text: protectedText }).checks.noTemplateReuse, false);
+assert.equal(finalNativeXVoiceGate(baseInput, { intent: "REACH", mediaType: "sample_movie", text: `${protectedText}\n確認する価値` }).checks.noTemplateReuse, false);
+assert.equal(finalNativeXVoiceGate(baseInput, { intent: "REACH", mediaType: "sample_movie", text: `${protectedText}\n刺さるなら\nタイプです` }).checks.noTemplateReuse, false);
 
 const workBodies = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"].map((suffix) => {
   const input = { ...baseInput, key: `fixed-video-quality-fixture-${suffix}`, title: `固定fixture作品${suffix}` };
