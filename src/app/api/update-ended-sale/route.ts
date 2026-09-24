@@ -15,7 +15,11 @@ return Response.json({
   completed: true,
   processedCount: result?.processedCount ?? 0,
   totalCount: result?.totalCount ?? 0,
-  message: "終了セール更新が完了しました。",
+  deferredCount: result?.deferredCount ?? 0,
+  deferredProductIds: result?.deferredProductIds ?? [],
+  message: result?.deferredCount
+    ? `終了セール更新が完了しました（要再確認${result.deferredCount}件）。`
+    : "終了セール更新が完了しました。",
 });
   } catch (error) {
     console.error("update-ended-sale error:", error);

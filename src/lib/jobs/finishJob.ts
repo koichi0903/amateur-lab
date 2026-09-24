@@ -3,12 +3,14 @@ import { JobName } from "./constants";
 import { JobStoppedError } from "./JobStoppedError";
 
 export async function finishJob(
-  jobName: JobName
+  jobName: JobName,
+  message: string | null = null,
 ) {
   const { data, error } = await supabase
     .from("jobs")
     .update({
       status: "completed",
+      error_message: message,
       finished_at: new Date().toISOString(),
     })
     .eq("job_name", jobName)

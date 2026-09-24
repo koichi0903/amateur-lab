@@ -5,6 +5,10 @@ import {
   processEndedSaleBatches,
   selectEndedSaleBatch,
 } from "./endedSaleBatch.ts";
+import {
+  classifyEndedSaleRemaining,
+  isDeferredUnavailableStatus,
+} from "./endedSaleOutcome.ts";
 
 test("partitions a large ended-sale backlog instead of exceeding the scheduler limit", () => {
   const targets = Array.from({ length: ENDED_SALE_MAX_TARGETS_PER_RUN + 25 }, (_, index) => index);
@@ -27,7 +31,9 @@ async function collectPages(allTargets: ReturnType<typeof targets>) {
       allTargets
         .filter((target) => afterProductId === null || target.product_id > afterProductId)
         .slice(0, ENDED_SALE_MAX_TARGETS_PER_RUN),
-    async (page) => seen.push(...page.map((target) => target.product_id)),
+    async (page) => {
+      seen.push(...page.map((target) => target.product_id));
+    },
   );
   return { seen, result };
 }
@@ -86,4 +92,35 @@ test("stops on the run time budget and handles an empty target set", async () =>
     ),
     /実行時間上限/,
   );
+});
+
+test("classifies only processed UNAVAILABLE_1/2 rows as non-fatal deferred work", () => {
+  assert.equal(isDeferredUnavailableStatus("UNAVAILABLE_1_20260924_OLD"), true);
+  assert.equal(isDeferredUnavailableStatus("UNAVAILABLE_2_20260924_NEW"), true);
+  assert.equal(isDeferredUnavailableStatus("UNAVAILABLE_3_20260924_OLD"), false);
+  assert.equal(isDeferredUnavailableStatus("SALE"), false);
+
+  const result = classifyEndedSaleRemaining(
+    [
+      { product_id: "deferred-1", playwright_status: "UNAVAILABLE_1_20260924_OLD" },
+      { product_id: "deferred-2", playwright_status: "UNAVAILABLE_2_20260924_NEW" },
+      { product_id: "unprocessed", playwright_status: "UNAVAILABLE_1_20260924_OLD" },
+      { product_id: "failed", playwright_status: "SALE" },
+    ],
+    new Set(["deferred-1", "deferred-2", "failed"]),
+  );
+
+  assert.deepEqual(result.deferred.map((target) => target.product_id), ["deferred-1", "deferred-2"]);
+  assert.deepEqual(result.fatal.map((target) => target.product_id), ["unprocessed", "failed"]);
+});
+
+test("keeps deferred classification safe for a paged backlog larger than 1,000", () => {
+  const processed = new Set(Array.from({ length: 1001 }, (_, index) => `p-${index}`));
+  const remaining = Array.from({ length: 1001 }, (_, index) => ({
+    product_id: `p-${index}`,
+    playwright_status: "UNAVAILABLE_1_20260924_OLD",
+  }));
+  const result = classifyEndedSaleRemaining(remaining, processed);
+  assert.equal(result.deferred.length, 1001);
+  assert.equal(result.fatal.length, 0);
 });

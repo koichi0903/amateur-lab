@@ -9,10 +9,12 @@ import {
   ENDED_SALE_MAX_TARGETS_PER_RUN,
   processEndedSaleBatches,
 } from "./endedSaleBatch";
+import { classifyEndedSaleRemaining } from "./endedSaleOutcome";
 
 type EndedSaleTarget = {
   product_id: string;
   sale_end_at: string | null;
+  playwright_status: string | null;
 };
 
 async function updateBatch(batch: EndedSaleTarget[], browser: Browser) {
@@ -63,13 +65,14 @@ export async function updateEndedSaleWorks() {
   let succeeded = 0;
   const failedProductIds = new Set<string>();
   const failedTargets = new Map<string, EndedSaleTarget>();
+  const processedProductIds = new Set<string>();
   const updatedWorkIds = new Set<string>();
   const runStartedAt = Date.now();
 
   const loadPage = async (afterProductId: string | null) => {
     let query = supabase
       .from("works")
-      .select("product_id, sale_end_at, is_on_sale")
+      .select("product_id, sale_end_at, is_on_sale, playwright_status")
       .not("sale_end_at", "is", null)
       .eq("is_on_sale", true)
       .lte("sale_end_at", now)
@@ -92,6 +95,7 @@ export async function updateEndedSaleWorks() {
       }
 
       const batch = page.slice(index, index + UPDATE_CONFIG.parallel);
+      for (const work of batch) processedProductIds.add(work.product_id);
       const results = await updateBatch(batch, browser);
 
       for (const result of results) {
@@ -153,23 +157,64 @@ export async function updateEndedSaleWorks() {
       );
     }
 
-    const { count: remainingCount, error: remainingCountError } = await supabase
-      .from("works")
-      .select("product_id", { count: "exact", head: true })
-      .not("sale_end_at", "is", null)
-      .eq("is_on_sale", true)
-      .lte("sale_end_at", now);
+    const remainingTargets: EndedSaleTarget[] = [];
+    let remainingAfterProductId: string | null = null;
+    while (true) {
+      let remainingQuery = supabase
+        .from("works")
+        .select("product_id, sale_end_at, is_on_sale, playwright_status")
+        .not("sale_end_at", "is", null)
+        .eq("is_on_sale", true)
+        .lte("sale_end_at", now)
+        .order("product_id")
+        .limit(ENDED_SALE_MAX_TARGETS_PER_RUN);
 
-    if (remainingCountError) throw remainingCountError;
-    if ((remainingCount ?? 0) > 0) {
+      if (remainingAfterProductId !== null) {
+        remainingQuery = remainingQuery.gt("product_id", remainingAfterProductId);
+      }
+
+      const { data, error } = await remainingQuery;
+      if (error) throw error;
+      const page = (data ?? []) as EndedSaleTarget[];
+      if (page.length === 0) break;
+
+      const nextProductId = page.at(-1)?.product_id;
+      if (!nextProductId || nextProductId === remainingAfterProductId) {
+        throw new Error("終了セール更新の残件ページングカーソルが進みませんでした");
+      }
+      remainingTargets.push(...page);
+      remainingAfterProductId = nextProductId;
+    }
+
+    const { deferred, fatal } = classifyEndedSaleRemaining(
+      remainingTargets,
+      processedProductIds,
+    );
+    if (fatal.length > 0) {
       throw new Error(
-        `終了セール更新が一部未処理です（残り${remainingCount}件）。次回実行で再開してください`,
+        `終了セール更新が一部未処理です（未処理または要確認分類外${fatal.length}件）。次回実行で再開してください` +
+          `: ${fatal.slice(0, 20).map((target) => target.product_id).join(", ")}`,
       );
     }
 
-    await finishJob(JOBS.ENDED_SALE);
-    console.log(`終了セール更新完了: ${processed}件（開始時点対象${totalCount}件）`);
-    return { workIds: [...updatedWorkIds], processedCount: processed, totalCount };
+    const warningMessage = deferred.length > 0
+      ? `終了セール更新完了（要再確認${deferred.length}件）。利用不可確認待ち: ${deferred
+          .slice(0, 20)
+          .map((target) => target.product_id)
+          .join(", ")}${deferred.length > 20 ? " …" : ""}`
+      : null;
+    await finishJob(JOBS.ENDED_SALE, warningMessage);
+    console.log(
+      `終了セール更新完了: ${processed}件（開始時点対象${totalCount}件）` +
+        (warningMessage ? ` / 要再確認${deferred.length}件` : ""),
+    );
+    return {
+      workIds: [...updatedWorkIds],
+      processedCount: processed,
+      totalCount,
+      deferredCount: deferred.length,
+      deferredProductIds: deferred.slice(0, 20).map((target) => target.product_id),
+    };
   } catch (error) {
     await failJob(
       JOBS.ENDED_SALE,

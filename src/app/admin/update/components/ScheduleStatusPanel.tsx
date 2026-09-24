@@ -124,8 +124,12 @@ export default function ScheduleStatusPanel() {
                     <dd className="text-zinc-200">{formatDate(schedule.latest?.started_at)}</dd>
                   </div>
                 </dl>
-                {schedule.latest?.status === "failed" && schedule.latest.error_message ? (
-                  <p className="mt-3 line-clamp-3 rounded-lg bg-red-500/10 p-2 text-xs text-red-300">
+                {schedule.latest?.error_message ? (
+                  <p className={`mt-3 line-clamp-3 rounded-lg p-2 text-xs ${
+                    schedule.latest.status === "failed"
+                      ? "bg-red-500/10 text-red-300"
+                      : "bg-amber-500/10 text-amber-300"
+                  }`}>
                     {schedule.latest.error_message}
                   </p>
                 ) : null}

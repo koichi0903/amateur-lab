@@ -12,3 +12,7 @@ export function describeReadinessFailure({ phase, status, body, error, timeoutMs
   if (timeoutMs != null) details.push(`timeout=${timeoutMs}ms`);
   return details.join(" ");
 }
+
+export function isSuccessfulTaskResponse(responseOk, result) {
+  return responseOk && result?.success !== false;
+}

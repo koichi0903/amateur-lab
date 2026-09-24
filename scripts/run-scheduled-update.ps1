@@ -110,7 +110,10 @@ try {
 
     "[$(Get-Date -Format o)] Completed scheduled update: $Group" |
         Tee-Object -FilePath $logPath -Append
-    Invoke-ScheduleMonitor -Status "completed"
+    $warningDetail = $updateOutput |
+        Where-Object { $_ -match '^\[警告\]' } |
+        Select-Object -Last 1
+    Invoke-ScheduleMonitor -Status "completed" -Message $warningDetail
 }
 catch {
     $failureMessage = $_.Exception.Message

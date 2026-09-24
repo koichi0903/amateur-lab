@@ -124,8 +124,12 @@ const eta =
       </div>
     )}
 
-    {status === "failed" && readableErrorMessage && (
-      <div className="mt-3 whitespace-pre-wrap break-words rounded-lg border border-red-900 bg-red-950/60 px-3 py-2 text-sm text-red-200">
+    {readableErrorMessage && (
+      <div className={`mt-3 whitespace-pre-wrap break-words rounded-lg border px-3 py-2 text-sm ${
+        status === "failed"
+          ? "border-red-900 bg-red-950/60 text-red-200"
+          : "border-amber-900 bg-amber-950/40 text-amber-200"
+      }`}>
         {readableErrorMessage}
       </div>
     )}

@@ -5,7 +5,10 @@ import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
-import { describeReadinessFailure } from "./local-admin-update-helpers.mjs";
+import {
+  describeReadinessFailure,
+  isSuccessfulTaskResponse,
+} from "./local-admin-update-helpers.mjs";
 
 loadEnv({ path: resolve(process.cwd(), ".env.local"), quiet: true });
 
@@ -434,8 +437,14 @@ async function run(taskName) {
       } catch {
         result = { message: text };
       }
-      if (!response.ok || result.success === false) {
+      if (!isSuccessfulTaskResponse(response.ok, result)) {
         throw new Error(result.message || `${task.label}に失敗しました（HTTP ${response.status}）。`);
+      }
+      if (name === "ended-sale" && Number(result.deferredCount ?? 0) > 0) {
+        console.warn(
+          `[警告] 終了セール更新は完了しました（要再確認${result.deferredCount}件）。` +
+            "後続のランキング・スコア更新を継続します。",
+        );
       }
       const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
       console.log(`[完了] ${task.label} ${seconds}秒`);
