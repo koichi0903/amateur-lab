@@ -294,6 +294,29 @@ function concreteVisualPhrase(fact: NonNullable<ReturnType<typeof primaryUsableV
   return fact.safePhrase ?? "";
 }
 
+function nativeVisualOpening(
+  input: XCreativeInput,
+  fact: NonNullable<ReturnType<typeof primaryUsableVisualFact>>,
+  concretePhrase: string,
+  intent: XGrowthIntent,
+  direction: XHookDirection,
+) {
+  const core = concretePhrase.replace(/[。．]+$/, "");
+  const key = [input.key, input.title, String(fact.kind), String(fact.value), intent, direction].join("|");
+  const endings = [
+    "のに、少し気になる。",
+    "から、続きまで見たくなった。",
+    "のが、少し引っかかる。",
+    "のに、ここで目が止まった。",
+  ];
+  return `${core}${endings[stableChoiceIndex(key, endings.length)]}`;
+}
+
+function ensureNativeFirstLine(line: string) {
+  if (/気になる|止ま|好き|違う|ズレ|迷う|見落|空気|こっち|正直|なんか|意外|早い|もったいない|外しそう|引っか|流して|弱い|強い|合う|寄って|印象|ジャケ|表紙|中身|決めない|半額だけ|数字より|選び方|差が|差あり/.test(line)) return line;
+  return `${line.replace(/[。．]+$/, "")}。それでも少し気になる。`;
+}
+
 function stableChoiceIndex(value: string, length: number) {
   let hash = 2166136261;
   for (const character of value) {
@@ -366,15 +389,18 @@ function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPl
     const action = visualFact ? videoReaderActionLine(input, visualFact, intent, primaryVideoTag(input), direction) : "";
     const subject = primaryActress(input) ?? safeTitleFragment(input);
     const layout = stableChoiceIndex([input.key, input.title, String(visualFact.value), intent, direction].join("|"), 4);
+    const visualOpening = /気になる|止ま|好き|違う|ズレ|迷う|見落|空気|こっち|正直|なんか|意外|早い|もったいない|外しそう|引っか|流して|弱い|強い|合う|寄って|印象|ジャケ|表紙|中身|決めない|半額だけ|数字より|選び方|差が|差あり/.test(concretePhrase)
+      ? concretePhrase
+      : nativeVisualOpening(input, visualFact, concretePhrase, intent, direction);
     const subjectLead = primaryActress(input) ? `${subject}、${action}` : `${subject}で、${action}`;
     const lines = layout === 0
-      ? [concretePhrase, action]
+      ? [visualOpening, action]
       : layout === 1
         ? [action, concretePhrase]
         : layout === 2
           ? [subjectLead, concretePhrase]
-          : [concretePhrase, subjectLead];
-    return [...lines, intent === "MONEY" ? humanProofLine(input, intent) : "", link].filter(Boolean);
+        : [visualOpening, subjectLead];
+    return [ensureNativeFirstLine(lines[0]), ...lines.slice(1), intent === "MONEY" ? humanProofLine(input, intent) : "", link].filter(Boolean);
   }
   const tag = primaryVideoTag(input);
   if (!tag || tag === "too_explicit_for_reach" || tag === "weak_visual") return null;

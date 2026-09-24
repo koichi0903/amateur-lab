@@ -46,6 +46,25 @@ assert.ok(videoVariants.some((variant) => variant.quality.lastMile.humanVoice.ch
 assert.ok(videoVariants.some((variant) => variant.quality.lastMile.nativeXVoice.checks.noTemplateReuse));
 assert.ok(new Set(videoVariants.map((variant) => variant.bodyText.split("\n")[1])).size >= 2);
 
+const genericVisualFact = {
+  kind: "brightness" as const,
+  value: "brighter" as const,
+  source: "sample_video" as const,
+  confidence: 0.9,
+  safePhrase: "最初より途中の方が明るく見える。",
+};
+const genericFactInput = {
+  ...baseInput,
+  key: "fixed-video-generic-fact-fixture",
+  mediaManualTags: ["safe_preview" as const],
+  visualFacts: { version: "visual-video-facts-v1" as const, generatedAt: "2026-01-01T00:00:00.000Z", diagnostics: [], facts: [genericVisualFact], usableFacts: [genericVisualFact] },
+};
+const genericFactVariants = buildXCreativeVariants(genericFactInput).filter((variant) => variant.mediaType === "sample_movie");
+assert.ok(genericFactVariants.length > 0);
+assert.ok(genericFactVariants.every((variant) => variant.quality.lastMile.nativeXVoice.checks.emotionalFirstLine));
+assert.ok(genericFactVariants.some((variant) => variant.bodyText.split("\n")[0]?.includes("明るく見える")));
+assert.deepEqual(buildXCreativeVariants(genericFactInput), buildXCreativeVariants(genericFactInput));
+
 const videoBodies = [...new Set(videoVariants.map((variant) => variant.bodyText))];
 const recentLogs = videoBodies.map((postText, index) => ({
   id: index + 1,
