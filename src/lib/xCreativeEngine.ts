@@ -409,10 +409,14 @@ function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPl
     return [ensureNativeFirstLine(lines[0]), ...lines.slice(1), intent === "MONEY" ? humanProofLine(input, intent) : "", link].filter(Boolean);
   }
   const tag = primaryVideoTag(input);
-  if (!tag || tag === "too_explicit_for_reach" || tag === "weak_visual") return null;
   const actress = primaryActress(input);
   const title = safeTitleFragment(input);
   const subject = actress ?? title;
+  if (!tag || tag === "too_explicit_for_reach" || tag === "weak_visual") {
+    // An official sample may be rights-safe before visual facts/manual tags
+    // exist. Keep the copy native and factual without inventing a scene.
+    return [`${subject}、サンプルが少し気になる。`, "先に見ておきたい。"].filter(Boolean);
+  }
   const decisionProof = input.decisionFacts ? decisionFactProofLine(input.decisionFacts) : "";
   const proof = input.decisionFacts
     ? strongestFacts(input).find((fact) => fact !== decisionProof) ?? ""

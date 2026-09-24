@@ -89,6 +89,16 @@ assert.ok(decisionFactVideoVariants.length > 0);
 assert.ok(decisionFactVideoVariants.some((variant) => variant.quality.passed || variant.quality.recommendation === "revise"));
 assert.ok(decisionFactVideoVariants.every((variant) => !variant.bodyText.includes("発掘LABの記録上の最安値。発掘LABの記録上の最安値")));
 
+const untaggedVideoVariants = buildXCreativeVariants({
+  ...baseInput,
+  key: "fixed-video-untagged-fixture",
+  mediaManualTags: [],
+  visualFacts: buildVisualVideoFacts({ sampleMovieUrl: movieUrl }),
+}).filter((variant) => variant.mediaType === "sample_movie");
+assert.ok(untaggedVideoVariants.length > 0);
+assert.ok(untaggedVideoVariants.some((variant) => variant.quality.lastMile.nativeXVoice.checks.timelineNative));
+assert.ok(untaggedVideoVariants.some((variant) => variant.quality.passed || variant.quality.recommendation === "revise"));
+
 const videoBodies = [...new Set(videoVariants.map((variant) => variant.bodyText))];
 const recentLogs = videoBodies.map((postText, index) => ({
   id: index + 1,
