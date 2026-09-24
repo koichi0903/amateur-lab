@@ -377,6 +377,7 @@ export async function persistOpportunities(items: XGrowthOpportunity[]) {
     creative_genome: {
       ...item.creativeGenome,
       source_type: item.sourceType,
+      decision_facts: item.decisionFacts,
       recommended_variant_id: item.creativeVariantId,
       variants: item.creativeVariants?.map((variant) => ({
         id: variant.id,

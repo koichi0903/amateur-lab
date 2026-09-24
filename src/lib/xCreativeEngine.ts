@@ -1,6 +1,7 @@
 import type { XPostLog } from "@/lib/xPostLogs";
 import { getXWeightedLength } from "@/lib/xText";
 import { primaryUsableVisualFact, type XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
+import { decisionFactProofLine, type DecisionFacts } from "@/lib/domain/decisionFacts";
 
 export type XGrowthIntent = "REACH" | "AUTHORITY" | "FOLLOW" | "CONVERSATION" | "MONEY";
 export type XHookType = "price_anomaly" | "rating_anomaly" | "ranking_anomaly" | "review_proof" | "discovery_anomaly" | "buy_timing";
@@ -151,6 +152,7 @@ export type XCreativeInput = {
   recommendedSlot?: string;
   sourceType?: XSourceType;
   visualFacts?: XVisualVideoFacts | null;
+  decisionFacts?: DecisionFacts;
 };
 
 const HOOK_ORDER: XHookType[] = ["ranking_anomaly", "price_anomaly", "buy_timing", "discovery_anomaly", "rating_anomaly", "review_proof"];
@@ -208,7 +210,9 @@ export function calculateHookScore(input: XCreativeInput): XHookScore {
 }
 
 function evidenceLines(input: XCreativeInput) {
+  const decisionProof = input.decisionFacts ? decisionFactProofLine(input.decisionFacts) : "";
   return [
+    decisionProof,
     input.ranking ? `ランキング${input.ranking}位` : "",
     input.reviewAverage ? `評価${input.reviewAverage.toFixed(1)} / レビュー${input.reviewCount}件` : "",
     input.isNinetyDayLow ? `過去90日最安級 / ${pct(input.discountRate)}OFF` : input.discountRate >= 15 ? `${pct(input.discountRate)}OFF` : "",
@@ -217,8 +221,10 @@ function evidenceLines(input: XCreativeInput) {
 }
 
 function strongestFacts(input: XCreativeInput) {
+  const decisionProof = input.decisionFacts ? decisionFactProofLine(input.decisionFacts) : "";
   const trend = rankingTrendLine(input);
   const facts = [
+    decisionProof,
     trend ? `${trend}` : "",
     input.reviewAverage && input.reviewAverage >= 4.7 ? `評価${input.reviewAverage.toFixed(1)}` : "",
     input.ranking && !trend && input.ranking <= 80 ? `ランキング${input.ranking}位` : "",
@@ -450,7 +456,11 @@ function hookOpenings(input: XCreativeInput, intent: XGrowthIntent): Array<{ dir
   const genre = input.genre?.split(/[,、/]/)[0]?.trim();
   const discount = input.discountRate >= 30 ? `${pct(input.discountRate)}OFF` : "セール";
   const videoLines = input.hasRightsCheckedMovie && input.sampleMovieUrl ? videoSpecificLines(input, intent, "no_link", "curiosity") : null;
+  const decisionProof = input.decisionFacts ? decisionFactProofLine(input.decisionFacts) : "";
   const openings: Array<{ direction: XHookDirection; opening: string; score: number }> = [
+    ...(input.decisionFacts?.decisionType === "RECORD_LOW" ? [{ direction: "curiosity" as const, opening: "発掘LABの記録上の最安値。価格履歴を先に見たいです。", score: 112 }] : []),
+    ...(input.decisionFacts?.decisionType === "HIGH_DISCOUNT_NOT_LOW" ? [{ direction: "contrast" as const, opening: `${input.decisionFacts.discountRate ?? 0}%OFFでも、発掘LABの記録上の最安値ではありません。`, score: 112 }] : []),
+    ...(input.decisionFacts?.decisionType === "HIDDEN_VALUE" ? [{ direction: "comparison" as const, opening: decisionProof ? `${decisionProof}。ランキングだけでは見落としやすいです。` : "ランキング外ですが、レビューと価格を先に見たいです。", score: 112 }] : []),
     ...(videoLines ? [{ direction: primaryVideoTag(input) === "visual_mismatch" ? "contrast" as const : primaryVideoTag(input) === "scene_surprise" ? "surprise" as const : "curiosity" as const, opening: videoLines[0], score: 104 }] : []),
     ...(input.sourceType === "MARKET" ? [
       { direction: "surprising_concentration" as const, opening: genre ? `今日の${discount}、${genre}に当たりが寄っています。` : `今日の${discount}、数より並び方の偏りが気になります。`, score: 97 },
@@ -536,6 +546,9 @@ function voiceArchetype(direction: XHookDirection, index: number): XHumanVoiceAr
 }
 
 function judgmentLine(input: XCreativeInput, intent: XGrowthIntent) {
+  if (input.decisionFacts?.decisionType === "HIGH_DISCOUNT_NOT_LOW") return "割引率だけで急がず、記録最安との差を見て決めたいです。";
+  if (input.decisionFacts?.decisionType === "HIDDEN_VALUE") return "ランキングだけで決めず、評価と価格を見てから判断したいです。";
+  if (input.decisionFacts?.decisionType === "RECORD_LOW") return "最安値の記録は確認できますが、合うかはサンプルまで見て決めたいです。";
   if (input.sourceType === "JUDGMENT") {
     if (input.reviewAverage && input.reviewAverage < 4.2) return "値引きより、評価の低さが先に引っかかります。";
     if (!input.isNinetyDayLow && input.discountRate >= 30) return "値引きはありますが、価格優位だけで押すには少し弱いです。";
@@ -565,6 +578,8 @@ function judgmentLine(input: XCreativeInput, intent: XGrowthIntent) {
 }
 
 function humanProofLine(input: XCreativeInput, intent: XGrowthIntent) {
+  const decisionProof = input.decisionFacts ? decisionFactProofLine(input.decisionFacts) : "";
+  if (decisionProof) return decisionProof;
   const facts = strongestFacts(input);
   if (!facts.length) return "";
   if (intent === "MONEY") {

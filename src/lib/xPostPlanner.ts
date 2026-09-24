@@ -2,6 +2,7 @@ import type { AffiliatePerformanceRow } from "@/lib/affiliateSalesAnalytics";
 import { calculateAdjustedCtr, calculateBuyTimingScore } from "@/lib/buyTiming";
 import { normalizeDisplayName } from "@/lib/createChartData";
 import { parseDatabaseDate } from "@/lib/dateTime";
+import { buildDecisionFacts, type DecisionFacts } from "@/lib/domain/decisionFacts";
 import { calculateDiscoveryScore } from "@/lib/discoveryScore";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
@@ -68,6 +69,7 @@ export type XPostCandidate = {
   seriesMaximumPrice: number | null;
   seriesObservationCount: number;
   seriesStartedAt: string | null;
+  seriesLowestAt: string | null;
   isNinetyDayLow: boolean;
   cooldownDays: number;
   creativeKind: "price-chart" | "discovery" | "comparison";
@@ -86,6 +88,7 @@ export type XPostCandidate = {
   sampleMovieUrl: string | null;
   imageUrl: string | null;
   saleEndAt: string | null;
+  decisionFacts: DecisionFacts;
 };
 
 const SELECT_COLUMNS = [
@@ -206,6 +209,7 @@ function chartForWork(work: CandidateWork, rows: PriceHistoryRow[]) {
   const seriesPrices = series.map((row) => row.value);
   const seriesMinimumPrice = Math.min(...seriesPrices);
   const seriesMaximumPrice = Math.max(...seriesPrices);
+  const seriesLowestAt = series.find((row) => row.value === seriesMinimumPrice)?.changed_at ?? null;
   // Keep the same observations as the work-detail chart. Collapsing equal prices
   // changes the horizontal proportions and can make the mini chart tell a
   // different story even when both charts use the same price series.
@@ -223,6 +227,7 @@ function chartForWork(work: CandidateWork, rows: PriceHistoryRow[]) {
     seriesMaximumPrice,
     seriesObservationCount: series.length,
     seriesStartedAt: series.at(0)?.changed_at ?? null,
+    seriesLowestAt,
     isNinetyDayLow: seriesMinimumPrice === livePrice && series.some((row) => row.value > livePrice),
     checkedAt,
   };
@@ -273,6 +278,19 @@ function makeCandidate(
     ? work.list_price
     : chart?.previousPrice && price && chart.previousPrice > price ? chart.previousPrice : null;
   const discountRate = regular && price ? Math.round((1 - price / regular) * 100) : 0;
+  const decisionFacts = buildDecisionFacts({
+    currentPrice: price,
+    recordedLowestPrice: chart?.seriesMinimumPrice ?? null,
+    discountRate,
+    isOnSale: activeSale(work),
+    ranking: work.ranking,
+    reviewAverage: work.review_average,
+    reviewCount: work.review_count,
+    recordedLowestAt: chart?.seriesLowestAt ?? null,
+    coverageStart: chart?.seriesStartedAt ?? null,
+    coverageEnd: chart?.checkedAt ?? null,
+    priceSeries: { displayName: chart?.seriesName ?? null, period: chart?.seriesPeriod ?? null },
+  });
   const url = `${siteUrl()}/works/${work.id}?from=x&x_post=${encodeURIComponent(`${category}-${work.id}`)}`;
   const priceText = price ? `¥${price.toLocaleString("ja-JP")}` : "価格は詳細で確認";
   let label = "AI発掘";
@@ -446,6 +464,7 @@ function makeCandidate(
     discoveryScore: discoveryScoreValue,
     buyTimingScore: buyTimingScoreValue,
     isNinetyDayLow: chart?.isNinetyDayLow ?? false,
+    decisionFacts,
     sampleMovieUrl: work.sample_movie_url,
     hasRightsCheckedMovie: false,
     xPageViews: funnel.pageViews,
@@ -474,6 +493,7 @@ function makeCandidate(
     discoveryScore: discoveryScoreValue,
     buyTimingScore: buyTimingScoreValue,
     isNinetyDayLow: chart?.isNinetyDayLow ?? false,
+    decisionFacts,
     sampleMovieUrl: work.sample_movie_url,
     hasRightsCheckedMovie: false,
     xPageViews: funnel.pageViews,
@@ -523,6 +543,7 @@ function makeCandidate(
     seriesMaximumPrice: chart?.seriesMaximumPrice ?? null,
     seriesObservationCount: chart?.seriesObservationCount ?? 0,
     seriesStartedAt: chart?.seriesStartedAt ?? null,
+    seriesLowestAt: chart?.seriesLowestAt ?? null,
     isNinetyDayLow: chart?.isNinetyDayLow ?? false,
     cooldownDays,
     creativeKind,
@@ -541,6 +562,7 @@ function makeCandidate(
     sampleMovieUrl: work.sample_movie_url,
     imageUrl: work.image_url,
     saleEndAt: work.sale_end_at,
+    decisionFacts,
   };
 }
 
@@ -610,7 +632,6 @@ async function fetchXWorkFunnels(workIds: number[]) {
 }
 
 async function fetchHistory(productIds: string[]) {
-  const since = new Date(Date.now() - 90 * DAY_MS).toISOString();
   const rows: PriceHistoryRow[] = [];
   for (let start = 0; start < productIds.length; start += HISTORY_BATCH_SIZE) {
     const ids = productIds.slice(start, start + HISTORY_BATCH_SIZE);
@@ -619,7 +640,6 @@ async function fetchHistory(productIds: string[]) {
         .from("price_history")
         .select("product_id,changed_at,display_name,period,normal_price,sale_price")
         .in("product_id", ids)
-        .gte("changed_at", since)
         .order("product_id", { ascending: true })
         .order("changed_at", { ascending: false })
         .range(offset, offset + HISTORY_PAGE_SIZE - 1);

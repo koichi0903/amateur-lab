@@ -28,6 +28,7 @@ import { getXMediaSupplyStatus, getRightsReviewQueue, isPostableOfficialSampleMo
 import { isVideoCandidate } from "@/lib/xVideoCandidate";
 import { buildVisualVideoFacts, primaryUsableVisualFact, type XVisualVideoFacts, visualFactScores } from "@/lib/xVisualVideoFacts";
 import { assignSemanticHook, SEMANTIC_CATEGORY_QUOTA } from "./xGrowthSemantic";
+import { decisionFactProofLine } from "@/lib/domain/decisionFacts";
 
 export type XGrowthIntent = "REACH" | "AUTHORITY" | "FOLLOW" | "CONVERSATION" | "MONEY";
 export type XMoneyGateReason = "missing_affiliate_url" | "price_truth_unavailable" | "last_mile_ng" | "native_x_voice_ng" | "unsafe_or_too_explicit" | "duplicate_or_posted" | "stale_or_expired" | "media_mismatch" | "other";
@@ -453,6 +454,8 @@ function buildFreshness(item: XPostCandidate, eventType: XOpportunityEvent) {
 }
 
 function inferEvent(candidate: XPostCandidate): XOpportunityEvent {
+  if (candidate.decisionFacts?.decisionType === "RECORD_LOW" || candidate.decisionFacts?.decisionType === "HIGH_DISCOUNT_NOT_LOW") return "price_anomaly";
+  if (candidate.decisionFacts?.decisionType === "HIDDEN_VALUE") return "hidden_gem";
   if (candidate.category === "today_buy" || candidate.category === "deal") return "price_anomaly";
   if (candidate.category === "today_discovery" || candidate.category === "hidden_gem") return "hidden_gem";
   if (candidate.category === "actress_best" || candidate.category === "maker_best") return "creator_trend";
@@ -545,7 +548,7 @@ function expandCreativeSupply(candidates: XPostCandidate[]): XPostCandidate[] {
 function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity {
   const eventType = inferEvent(candidate);
   const hasVideo = candidate.creativeKind !== "comparison";
-  const priceSignal = candidate.isNinetyDayLow ? 24 : candidate.previousPrice ? 16 : candidate.discountRate >= 30 ? 10 : 0;
+  const priceSignal = candidate.decisionFacts?.decisionType === "RECORD_LOW" ? 24 : candidate.isNinetyDayLow ? 24 : candidate.previousPrice ? 16 : candidate.discountRate >= 30 ? 10 : 0;
   const reviewSignal = (candidate.reviewAverage ?? 0) >= 4.5 ? 16 : (candidate.reviewAverage ?? 0) >= 4 ? 9 : 0;
   const rankSignal = candidate.ranking ? Math.max(0, 26 - Math.min(candidate.ranking, 100) / 4) : 4;
   const trafficSignal = Math.min(candidate.xPageViews * 2 + candidate.xFanzaClicks * 10, 28);
@@ -574,6 +577,7 @@ function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity {
       candidate.genre ? `genre:${candidate.genre.split(/[,、/]/)[0]?.trim()}` : "",
       candidate.discountRate ? `discount:${candidate.discountRate}%` : "",
       candidate.reviewAverage ? `review:${candidate.reviewAverage.toFixed(1)}` : "",
+      decisionFactProofLine(candidate.decisionFacts),
     ].filter(Boolean),
     eventType,
     sourceType: candidate.sourceType,
@@ -599,6 +603,7 @@ function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity {
     freshness,
     evidence: [
       candidate.selectionReason,
+      decisionFactProofLine(candidate.decisionFacts),
       candidate.previousPrice && candidate.currentPrice ? `価格: ${candidate.previousPrice}円から${candidate.currentPrice}円` : "",
       candidate.ranking ? `ランキング: ${candidate.ranking}位` : "",
       candidate.reviewAverage ? `評価: ${candidate.reviewAverage.toFixed(1)} / レビュー${candidate.reviewCount}件` : "",
@@ -645,6 +650,7 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
     discoveryScore: item.discoveryScore,
     buyTimingScore: item.buyTimingScore,
     isNinetyDayLow: item.isNinetyDayLow,
+    decisionFacts: item.decisionFacts,
     sampleMovieUrl: item.sampleMovieUrl,
     imageUrl: item.imageUrl,
     saleEndAt: item.saleEndAt,
@@ -681,6 +687,7 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
     discoveryScore: item.discoveryScore,
     buyTimingScore: item.buyTimingScore,
     isNinetyDayLow: item.isNinetyDayLow,
+    decisionFacts: item.decisionFacts,
     sampleMovieUrl: item.sampleMovieUrl,
     imageUrl: item.imageUrl,
     saleEndAt: item.saleEndAt,
@@ -2136,10 +2143,14 @@ function buildSupplyDiagnostics(
   const mediaTypeCounts: Record<string, number> = {};
   const sourceTypeCounts: Record<string, number> = {};
   const creativeAngleCounts: Record<string, number> = {};
+  const decisionTypeCounts: Record<string, number> = {};
+  const decisionTypeSelected: Record<string, number> = {};
   for (const item of opportunities) {
     mediaTypeCounts[item.mediaType] = (mediaTypeCounts[item.mediaType] ?? 0) + 1;
     sourceTypeCounts[item.sourceType] = (sourceTypeCounts[item.sourceType] ?? 0) + 1;
     creativeAngleCounts[item.creativeAngle] = (creativeAngleCounts[item.creativeAngle] ?? 0) + 1;
+    const decisionType = item.decisionFacts?.decisionType ?? "UNKNOWN";
+    decisionTypeCounts[decisionType] = (decisionTypeCounts[decisionType] ?? 0) + 1;
     for (const role of ["REACH", "FOLLOW", "AUTHORITY", "MONEY"] as const) {
       if (passesLinklessQualityGate(item, role) && hasRealConversationSource(item, role)) eligibleByIntent[role] += 1;
     }
@@ -2175,6 +2186,10 @@ function buildSupplyDiagnostics(
     counts[slot] = (counts[slot] ?? 0) + 1;
     return counts;
   }, {} as Record<string, number>);
+  for (const pick of picks) {
+    const decisionType = pick.decisionFacts?.decisionType ?? "UNKNOWN";
+    decisionTypeSelected[decisionType] = (decisionTypeSelected[decisionType] ?? 0) + 1;
+  }
   const postedOverlap = picks.filter((pick) => postedWorkIds.has(pick.workId)).length;
   const moneyGenerated = opportunities.filter((item) => item.sourceType === "MONEY").length;
   const moneyHardGatePassed = opportunities.filter((item) => item.sourceType === "MONEY" && item.creativeVariants.some((variant) => variant.intent === "MONEY" && variant.quality.passed)).length;
@@ -2234,6 +2249,8 @@ function buildSupplyDiagnostics(
     mediaTypeCounts,
     sourceTypeCounts,
     creativeAngleCounts,
+    decisionTypeCounts,
+    decisionTypeSelected,
     slotAllocation,
     gateOkBySource,
     generatedBySource,
