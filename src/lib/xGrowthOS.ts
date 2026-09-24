@@ -120,8 +120,10 @@ export function isDecisionFactEligible(candidate: Pick<XGrowthOpportunity, "deci
   return Boolean(facts && decisionTypesForCandidate(candidate).length > 0 && decisionFactProofLine(facts).trim());
 }
 
-export function decisionTypeForCandidate(candidate: Pick<XGrowthOpportunity, "decisionFacts">): DecisionType {
-  return candidate.decisionFacts?.decisionType ?? "UNKNOWN";
+export function decisionTypeForCandidate(candidate: Pick<XGrowthOpportunity, "decisionFacts"> & { category?: string }): DecisionType {
+  const facts = candidate.decisionFacts;
+  if (candidate.category === "hidden_gem" && facts?.eligibleDecisionTypes?.includes("HIDDEN_VALUE")) return "HIDDEN_VALUE";
+  return facts?.decisionType ?? "UNKNOWN";
 }
 
 export function decisionTypesForCandidate(candidate: Pick<XGrowthOpportunity, "decisionFacts">): DecisionType[] {
