@@ -145,6 +145,23 @@ export default async function MyfansDailyPage({
           </div>
         </section>
 
+        {board.recovery.candidateOptions < board.recovery.candidateOptionsTarget && (
+          <section className="mt-5 rounded-xl border border-amber-800 bg-amber-950/20 p-5" aria-labelledby="myfans-funnel-diagnostics-title">
+            <p className="text-xs font-black tracking-[0.16em] text-amber-300">FUNNEL DIAGNOSTICS</p>
+            <h2 id="myfans-funnel-diagnostics-title" className="mt-2 text-xl font-black">候補が足りない理由</h2>
+            <p className="mt-2 text-sm leading-6 text-amber-50/80">収集件数ではなく、Dailyへ渡せる候補の件数です。商品未紐付けでもeligibleなquote sourceは発見候補として表示しますが、収益導線は作りません。</p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">quote DB</p><p className="mt-1 text-lg font-black">{board.quotePool.funnel.dbTotal}件</p></div>
+              <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">Daily eligible</p><p className="mt-1 text-lg font-black">{board.quotePool.funnel.qualified}件</p></div>
+              <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">候補上限</p><p className="mt-1 text-lg font-black">{board.quotePool.funnel.candidatePoolLimit}件</p></div>
+              <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">今回のslot候補</p><p className="mt-1 text-lg font-black">{board.recovery.candidateOptions}件</p></div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {board.quotePool.funnel.rejectionReasons.slice(0, 8).map((reason) => <span key={reason.reason} className="rounded-full bg-zinc-950 px-3 py-1.5 text-xs font-bold text-zinc-300">{reason.reason}: {reason.count}</span>)}
+            </div>
+          </section>
+        )}
+
         <details className="mt-8 rounded-xl border border-amber-800 bg-amber-950/20 p-5">
           <summary className="cursor-pointer list-none text-sm font-black text-amber-200">商品供給・UUID登録（必要な時だけ開く）</summary>
           <div className="mt-4">

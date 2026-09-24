@@ -768,8 +768,8 @@ function angleVariantSeed(slotIndex: number, attempt: number) {
   return slotIndex * 17 + topicRound * 11 + angleIndex;
 }
 
-function currentPlanDate() {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" });
+export function currentPlanDate(now = new Date()) {
+  return now.toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" });
 }
 
 function stableHash(value: string) {
@@ -1774,6 +1774,46 @@ function visualPriority(candidate: MyfansQuoteCandidate) {
   return 0;
 }
 
+function quoteOpportunityTopicValue(candidate: MyfansQuoteCandidate, role: DailyRole): MyfansTopicValue | null {
+  const sourceValue = sourceValueForQuote(candidate);
+  const visual = visualPriority(candidate);
+  if (sourceValue.verdict !== "PASS") return null;
+  if (visual < 1 && (candidate.views ?? 0) < 10_000) return null;
+  if (candidate.score < QUOTE_MIN_SCORE) return null;
+  const score = Math.min(100, Math.max(85, candidate.score + (visual >= 3 ? 8 : 0)));
+  const sourceText = compactSourceText(candidate.text_excerpt ?? "", 42);
+  const evidence = [
+    visual >= 2 ? `visual ${candidate.media_type ?? (candidate.has_video ? "video" : "image")}` : "公開反応シグナルあり",
+    sourceText,
+    candidate.views && candidate.views > 0 ? `X表示${candidate.views.toLocaleString("ja-JP")}` : "",
+  ].filter(Boolean);
+  return {
+    score,
+    verdict: "PASS",
+    reasonToCare: visual >= 2 ? "rare_visual_moment" : "conversation_worthy",
+    evidence,
+    baseline: ["商品未紐付けのため収益候補にはしない", "元投稿の引用・発見候補として扱う"],
+    whyRejected: [],
+    breakdown: {
+      surprise: visual >= 2 ? 18 : 12,
+      concreteDifference: sourceText ? 18 : 10,
+      humanCuriosity: 18,
+      socialProofMomentum: candidate.views && candidate.views >= 50_000 ? 20 : 12,
+      visualStoryValue: visual >= 2 ? 24 : 12,
+      explainability: 16,
+    },
+  };
+}
+
+function quoteOpportunityBody(candidate: MyfansQuoteCandidate, variant: number) {
+  const source = compactSourceText(candidate.text_excerpt ?? "", 34);
+  const media = candidate.media_type === "video" || candidate.has_video ? "動画" : candidate.media_type === "image" || candidate.has_image ? "画像" : "投稿";
+  const lines = source
+    ? [`「${source}」の出し方が気になってしまう。`, `${media}の入り方で一回止まる。`, `この${media}、流れてきたら一度開く。`]
+    : [`この${media}、最初の置き方がうまい。`, `タイムラインで見たら一回戻る。`, `説明より先に${media}で引っかかる。`];
+  return lines[variant % lines.length];
+}
+
 function recentUsedCreatorKeys(analytics: MyfansAnalytics) {
   const cutoff = cutoffIso(QUOTE_CREATOR_COOLDOWN_DAYS);
   const keys = new Set<string>();
@@ -1891,6 +1931,19 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = curr
     if (selected.length >= 2) break;
   }
   const attentionShortlistCount = global.filter((row) => row.globalScore >= QUOTE_MIN_SCORE).slice(0, 10).length;
+  const rejectionCounts = new Map<string, number>();
+  const addRejection = (reason: string) => rejectionCounts.set(reason, (rejectionCounts.get(reason) ?? 0) + 1);
+  for (const candidate of analytics.quoteCandidates) {
+    const age = daysSinceIso(candidate.collected_at);
+    const sourceValue = sourceValueForQuote(candidate);
+    if (age !== null && age > QUOTE_FRESH_DAYS) addRejection("期限切れ(7日超)");
+    if (candidate.is_repost) addRejection("repost");
+    if (candidate.last_used_at || (candidate.cooldown_until && candidate.cooldown_until > now)) addRejection("再利用cooldown");
+    if (sourceValue.verdict !== "PASS") addRejection("source value不通過");
+    if (visualPriority(candidate) < 1 && (candidate.views ?? 0) < 10_000) addRejection("media/公開反応不足");
+    if (candidate.score < QUOTE_MIN_SCORE) addRejection("score不足(<55)");
+    if (!candidate.product_id && !analytics.products.some((product) => creatorKeyFromProduct(product) === creatorKeyFromQuote(candidate))) addRejection("商品/creator未紐付け");
+  }
   return {
     global,
     selected,
@@ -1906,6 +1959,8 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = curr
       loadedAll: analytics.quoteCandidateSource.loadedAll,
       latestCollectedAt: analytics.quoteCandidateSource.latestCollectedAt,
       pageSize: analytics.quoteCandidateSource.pageSize,
+      rejectionReasons: [...rejectionCounts.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
+      candidatePoolLimit: 12,
     },
   };
 }
@@ -2719,7 +2774,11 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
         growthQuotePool[(index + attempt) % Math.max(1, growthQuotePool.length)]?.candidate ?? null
       : null;
     const linkedQuoteProduct = directGrowthQuote ? productForQuote(directGrowthQuote) : null;
-    const scored = linkedQuoteProduct ?? pickProduct(needsAffiliateUrl, index + attempt, requestedPostType, excludedProducts);
+    // Keep an eligible but not-yet-linked quote as a discovery opportunity.
+    // Do not silently attach it to an unrelated product.
+    const scored = linkedQuoteProduct ?? (directGrowthQuote && !needsAffiliateUrl
+      ? null
+      : pickProduct(needsAffiliateUrl, index + attempt, requestedPostType, excludedProducts));
     const product = scored?.product ?? null;
     const quoteProductMatched = Boolean(directGrowthQuote && linkedQuoteProduct);
     const hasRevenueTarget = Boolean(product && isRevenueTargetProduct(product));
@@ -2756,9 +2815,15 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     const visualUnderstanding = publicCopyFacts ? visualUnderstandingFor(publicCopyFacts) : null;
     const reactionType = publicCopyFacts ? reactionTypeFor(publicCopyFacts, angleVariant) : null;
     const copyInputHash = publicCopyFacts ? publicCopyInputHash(publicCopyFacts) : "";
-    const rawTopicValue = product ? evaluateMyfansTopicValue({ product, quote: evidenceQuote, role: dailyRole, baselines: topicBaselines }) : null;
+    const rawTopicValue = product
+      ? evaluateMyfansTopicValue({ product, quote: evidenceQuote, role: dailyRole, baselines: topicBaselines })
+      : quoteForSlot
+        ? quoteOpportunityTopicValue(quoteForSlot, dailyRole)
+        : null;
     const visualStatus = visualUnderstanding?.visualAnalysisStatus ?? "unavailable";
-    const topicEvidencePresent = Boolean(evidenceQuote && (visualStatus === "verified" || hasConcreteSourceContext(evidenceQuote)));
+    const topicEvidencePresent = !product && quoteForSlot
+      ? true
+      : Boolean(evidenceQuote && (visualStatus === "verified" || hasConcreteSourceContext(evidenceQuote)));
     const guardedTopicValue = rawTopicValue && !topicEvidencePresent
       ? {
         ...rawTopicValue,
@@ -2788,11 +2853,23 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
         },
       }
       : guardedTopicValue;
-    const topicIdentity = product ? topicIdentityFor(product, evidenceQuote, topicValue?.reasonToCare) : "";
-    const topicSemanticKey = product ? topicSemanticKeyFor(product, evidenceQuote, topicValue) : "";
+    const topicIdentity = product
+      ? topicIdentityFor(product, evidenceQuote, topicValue?.reasonToCare)
+      : quoteForSlot
+        ? `quote:${quoteForSlot.id}`
+        : "";
+    const topicSemanticKey = product
+      ? topicSemanticKeyFor(product, evidenceQuote, topicValue)
+      : quoteForSlot
+        ? `quote-event:${normalizeSourceUrl(quoteForSlot.x_post_url)}`
+        : "";
     const copyAngle = copySearchAngleFor(topicValue?.reasonToCare, angleVariant);
     const topicCopyFitFailed = topicValue?.verdict === "PASS" && !roleFitsReasonToCare(dailyRole, topicValue.reasonToCare);
-    const body = product && topicValue?.verdict === "PASS" && !topicCopyFitFailed ? bodyFor(product, postType, linkStrategy, creative?.strategy ?? "text_only", evidenceQuote, topicValue, angleVariant) : "";
+    const body = product && topicValue?.verdict === "PASS" && !topicCopyFitFailed
+      ? bodyFor(product, postType, linkStrategy, creative?.strategy ?? "text_only", evidenceQuote, topicValue, angleVariant)
+      : !product && quoteForSlot && topicValue?.verdict === "PASS"
+        ? quoteOpportunityBody(quoteForSlot, angleVariant)
+        : "";
     const sourceSpecificity = sourceSpecificityScore(body, evidenceQuote, visualUnderstanding);
     const lowTopicQuality = guardedTopicValue?.verdict === "LOW_TOPIC_VALUE" && topicValue?.verdict !== "PASS"
       ? {
@@ -2810,7 +2887,14 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
         reasons: [`Topic-to-Copy Fit不一致: ${topicValue?.reasonToCare ?? "unknown"}は${dailyRole}向きではありません`],
       }
       : null;
-    const quality = lowTopicQuality ?? fitQuality ?? (product && creative && hook && attention
+    const quality = lowTopicQuality ?? fitQuality ?? (!product && quoteForSlot && topicValue?.verdict === "PASS"
+      ? {
+        total: 86,
+        verdict: "PASS",
+        breakdown: { stopPower: 18, firstLineStop: 18, visualLeverage: 16, visual: 16, specificity: sourceSpecificity, proof: 10, broadCuriosity: 16, audience: 12, followReason: 12, attentionValue: 86, naturalUserReaction: 18, analystCommentaryRisk: 0, sourceSpecificity, roleDifferentiation: 12, spamSalesSmell: 0, repetitionPenalty: 0 },
+        reasons: ["eligible quote sourceを発見候補として採用", "商品未紐付けのため収益導線なし"],
+      }
+      : product && creative && hook && attention
       ? qualityScoreFor({ body, product, postType, linkStrategy, creativeStrategy: creative.strategy, quote: quoteForSlot ?? null, hook: hook.hook, attentionScore: attention.score, topicValue })
       : { total: 0, verdict: "HOLD", breakdown: { stopPower: 0, firstLineStop: 0, visualLeverage: 0, visual: 0, specificity: 0, proof: 0, broadCuriosity: 0, audience: 0, followReason: 0, attentionValue: 0, naturalUserReaction: 0, analystCommentaryRisk: 100, sourceSpecificity: 0, roleDifferentiation: 0, spamSalesSmell: 0, repetitionPenalty: 0 }, reasons: ["商品候補がありません"] });
     const topicThreshold = topicThresholdFor(dailyRole);
@@ -2927,7 +3011,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       planningReason: planningReasonFor(stage, learning),
       opportunity: scored?.scores ?? null,
       productReason: candidateProduct
-        ? `${product.selection_reason || scored?.scores.reason || reasonFor(stage, linkStrategy, objective)}${needsAffiliateUrl && hasRevenueTarget && !product.affiliate_url ? " 正規アフィURLなし。linked_no_affiliateとして候補に残します。" : ""}`
+        ? `${candidateProduct.selection_reason || scored?.scores.reason || reasonFor(stage, linkStrategy, objective)}${needsAffiliateUrl && hasRevenueTarget && !candidateProduct.affiliate_url ? " 正規アフィURLなし。linked_no_affiliateとして候補に残します。" : ""}`
         : "",
       mediaPlan,
       mediaPolicy: quoteForSlot
