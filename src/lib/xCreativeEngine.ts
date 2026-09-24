@@ -413,7 +413,10 @@ function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPl
   const actress = primaryActress(input);
   const title = safeTitleFragment(input);
   const subject = actress ?? title;
-  const proof = humanProofLine(input, intent);
+  const decisionProof = input.decisionFacts ? decisionFactProofLine(input.decisionFacts) : "";
+  const proof = input.decisionFacts
+    ? strongestFacts(input).find((fact) => fact !== decisionProof) ?? ""
+    : humanProofLine(input, intent);
   const link = linkPlan === "body_link" ? input.url : "";
   const second = proof && (tag === "first_seconds_strong" || tag === "visual_mismatch") ? proof : "";
   const lineByTag: Record<Exclude<XVideoManualTag, "too_explicit_for_reach" | "weak_visual">, string> = {
@@ -992,7 +995,14 @@ function ensureFactlessReaderAction(input: XCreativeInput, intent: XGrowthIntent
 
 function diversifyNativeStructure(input: XCreativeInput, intent: XGrowthIntent, direction: XHookDirection, text: string, index: number) {
   const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-  const proof = humanProofLine(input, intent);
+  // Decision Facts are attached once at the final top-pick boundary. Keeping
+  // the full numeric proof in this fallback video body as well makes the
+  // quality/Native-X gates judge duplicated evidence instead of the video
+  // hook. Use a non-Decision-Facts evidence line for the variant itself.
+  const decisionProof = input.decisionFacts ? decisionFactProofLine(input.decisionFacts) : "";
+  const proof = input.decisionFacts
+    ? strongestFacts(input).find((fact) => fact !== decisionProof) ?? ""
+    : humanProofLine(input, intent);
   if (!proof || lines.length !== 2 || lines.some((line) => line.includes(proof))) return text;
   const key = [input.key, input.title, input.sourceType ?? "WORK", intent, direction, index, proof].join("|");
   if (stableChoiceIndex(key, 3) !== 0) return text;

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { buildVisualVideoFacts } from "./xVisualVideoFacts";
 import { buildXCreativeVariants, finalNativeXVoiceGate, validateXCopyGrammar } from "./xCreativeEngine";
+import { buildDecisionFacts } from "./domain/decisionFacts";
 import type { XPostLog } from "./xPostLogs";
 
 const movieUrl = "https://cc3001.dmm.co.jp/litevideo/freepv/test/test_dmb_w.mp4";
@@ -66,6 +67,27 @@ assert.ok(genericFactVariants.length > 0);
 assert.ok(genericFactVariants.every((variant) => variant.quality.lastMile.nativeXVoice.checks.emotionalFirstLine));
 assert.ok(genericFactVariants.some((variant) => variant.bodyText.split("\n")[0]?.includes("明るく見える")));
 assert.deepEqual(buildXCreativeVariants(genericFactInput), buildXCreativeVariants(genericFactInput));
+
+const decisionFactVideoVariants = buildXCreativeVariants({
+  ...baseInput,
+  key: "fixed-video-decision-facts-fixture",
+  decisionFacts: buildDecisionFacts({
+    currentPrice: 500,
+    recordedLowestPrice: 500,
+    discountRate: 50,
+    isOnSale: true,
+    ranking: 9999,
+    reviewAverage: 4.7,
+    reviewCount: 120,
+    recordedLowestAt: "2026-09-23T12:00:00.000Z",
+    coverageStart: "2026-07-08T00:00:00.000Z",
+    coverageEnd: "2026-09-24T00:00:00.000Z",
+    priceSeries: { displayName: "7日間", period: "7日間" },
+  }),
+}).filter((variant) => variant.mediaType === "sample_movie");
+assert.ok(decisionFactVideoVariants.length > 0);
+assert.ok(decisionFactVideoVariants.some((variant) => variant.quality.passed || variant.quality.recommendation === "revise"));
+assert.ok(decisionFactVideoVariants.every((variant) => !variant.bodyText.includes("発掘LABの記録上の最安値。発掘LABの記録上の最安値")));
 
 const videoBodies = [...new Set(videoVariants.map((variant) => variant.bodyText))];
 const recentLogs = videoBodies.map((postText, index) => ({

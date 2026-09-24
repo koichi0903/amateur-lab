@@ -431,7 +431,7 @@ export type XGrowthOS = {
       }>;
     };
     pipeline: Record<string, number>;
-    mediaMix: {
+      mediaMix: {
       totalVideoCandidates: number;
       videoRaw: number;
       videoEligible: number;
@@ -446,9 +446,16 @@ export type XGrowthOS = {
       selectedVideosBySlot: Record<string, number>;
       rejectionReasons: Record<string, number>;
       uniqueAudit: ReturnType<typeof auditCandidateUniqueness>;
-      targetVideos: number;
-      unmetReason: string | null;
-    };
+        targetVideos: number;
+        unmetReason: string | null;
+        generatedVideoVariants: number;
+        hardQualityVideoVariants: number;
+        semanticSafeVideoUniqueWorks: number;
+        availableToFinalVideoUniqueWorks: number;
+        selectedVideosBeforeReplenishment: number;
+        selectedVideosAfterReplenishment: number;
+        videoFirstDropReasonCounts: Record<string, number>;
+      };
   };
   nativeXLearning: {
     overusedPatterns: string[];
@@ -1821,6 +1828,22 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
   }
   const uniqueAudit = auditCandidateUniqueness(picked, postedWorkIds);
   const selectedVideos = picked.filter(isVideoPick).length;
+  const videoVariants = videoRawItems.flatMap((item) => item.creativeVariants.filter((variant) => variant.mediaType === "sample_movie"));
+  const hardQualityVideoVariants = videoVariants.filter((variant) => variant.quality.passed).length;
+  const videoFirstDropReasonCounts: Record<string, number> = {};
+  for (const item of videoRawItems) {
+    const variants = item.creativeVariants.filter((variant) => variant.mediaType === "sample_movie");
+    const reason = !isOfficialEligibleVideoCandidate(item)
+      ? "official_rights_or_fetch_gate"
+      : !variants.some((variant) => variant.quality.passed)
+        ? "hard_quality_gate"
+        : !variants.some((variant) => isSoftQualityEligible(variant))
+          ? "soft_quality_or_last_mile_gate"
+          : !variants.some((variant) => variant.quality.dimensions.adSmell <= 30)
+            ? "ad_smell_gate"
+            : "available_to_final";
+    videoFirstDropReasonCounts[reason] = (videoFirstDropReasonCounts[reason] ?? 0) + 1;
+  }
   const selectedBySlot = picked.reduce((counts, pick) => {
     if (isVideoPick(pick)) counts[pick.slotId ?? "unassigned"] = (counts[pick.slotId ?? "unassigned"] ?? 0) + 1;
     return counts;
@@ -1854,6 +1877,13 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
       : strongVideoSupply.size < 3 ? "strong/safe動画供給が3件未満"
         : null,
     mediaMixMs: Date.now() - mediaMixStarted,
+    generatedVideoVariants: videoVariants.length,
+    hardQualityVideoVariants,
+    semanticSafeVideoUniqueWorks: strongVideoSupply.size,
+    availableToFinalVideoUniqueWorks: officialVideoSupply.size,
+    selectedVideosBeforeReplenishment: selectedVideos,
+    selectedVideosAfterReplenishment: selectedVideos,
+    videoFirstDropReasonCounts,
   };
   const selectedByDecisionType = DECISION_TYPES.reduce((counts, type) => {
     counts[type] = picked.filter((pick) => decisionTypeForCandidate(pick) === type).length;
@@ -2378,6 +2408,13 @@ function buildSupplyDiagnostics(
     uniqueAudit: ReturnType<typeof auditCandidateUniqueness>;
     targetVideos: number;
     unmetReason: string | null;
+    generatedVideoVariants: number;
+    hardQualityVideoVariants: number;
+    semanticSafeVideoUniqueWorks: number;
+    availableToFinalVideoUniqueWorks: number;
+    selectedVideosBeforeReplenishment: number;
+    selectedVideosAfterReplenishment: number;
+    videoFirstDropReasonCounts: Record<string, number>;
   },
 ) {
   const gateOkBySource: Record<string, number> = {};
@@ -2568,7 +2605,7 @@ function buildSupplyDiagnostics(
       slotEligible: picks.length,
       finalSelected: picks.length,
     },
-    mediaMix: mediaMix ?? {
+      mediaMix: mediaMix ?? {
       totalVideoCandidates: 0,
       videoRaw: 0,
       videoEligible: 0,
@@ -2583,9 +2620,16 @@ function buildSupplyDiagnostics(
       selectedVideosBySlot: {},
       rejectionReasons: {},
       uniqueAudit: auditCandidateUniqueness(picks),
-      targetVideos: 0,
-      unmetReason: null,
-    },
+        targetVideos: 0,
+        unmetReason: null,
+        generatedVideoVariants: 0,
+        hardQualityVideoVariants: 0,
+        semanticSafeVideoUniqueWorks: 0,
+        availableToFinalVideoUniqueWorks: 0,
+        selectedVideosBeforeReplenishment: picks.filter((pick) => pick.mediaType === "sample_movie").length,
+        selectedVideosAfterReplenishment: picks.filter((pick) => pick.mediaType === "sample_movie").length,
+        videoFirstDropReasonCounts: {},
+      },
   };
 }
 
@@ -2734,7 +2778,8 @@ export async function buildXGrowthOS({
         counts[slot] = (counts[slot] ?? 0) + 1;
       }
       return counts;
-    }, {} as Record<string, number>),
+      }, {} as Record<string, number>),
+    selectedVideosAfterReplenishment: diversityResult.picks.filter((pick) => isVideoCandidate(pick)).length,
   };
   finalMediaMix.unmetReason = finalMediaMix.targetVideos > finalMediaMix.selectedVideos
     ? finalMediaMix.unmetReason ?? "最終Diversity Gate後に目標未達。安全性・semantic・重複制約を優先"
