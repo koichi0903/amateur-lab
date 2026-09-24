@@ -1503,7 +1503,9 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
             : 0;
           const slotPriorityBonus = semanticCategory ? semanticCategoryForSlot(slot.slotId, role, semanticCategory) * 3 : 0;
           const repetitionPenalty = hasDiversityConflict(item, [...picked, ...slotPicked], logs) ? 10 : 0;
-          const eligibleTypes = decisionTypesForCandidate(item);
+          // Multi-label eligibility supplies a lane, but only the lane's
+          // presentation primary type satisfies primary-type coverage.
+          const eligibleTypes = [decisionTypeForCandidate(item)];
           const selectedByDecisionType = [...picked, ...slotPicked].reduce((counts, pick) => {
             const type = decisionTypeForCandidate(pick);
             counts[type] = (counts[type] ?? 0) + 1;
@@ -2094,7 +2096,7 @@ function replenishAfterFinalDiversity(
           && selected.variant.quality.dimensions.adSmell <= (role === "MONEY" ? 48 : 30)
           && hasRealMedia(item, selected.variant)
           && (role !== "MONEY" || Boolean(selected.variant.url)))
-        .sort((a, b) => Number(b.item.decisionFacts?.eligibleDecisionTypes?.some((type) => missingTypes.has(type)) ?? false) - Number(a.item.decisionFacts?.eligibleDecisionTypes?.some((type) => missingTypes.has(type)) ?? false) || b.selected.score - a.selected.score);
+        .sort((a, b) => Number(missingTypes.has(decisionTypeForCandidate(b.item))) - Number(missingTypes.has(decisionTypeForCandidate(a.item))) || b.selected.score - a.selected.score);
       let added = false;
       for (const entry of candidates) {
         const audit = diversityConflicts(entry.item, entry.role, entry.selected.variant, next, logs);
