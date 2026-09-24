@@ -107,6 +107,16 @@ test("eligible unlinked quote sources fill slot options without creating a monet
   assert.ok(board.candidateOptions.flatMap((slot) => slot.candidates).every((candidate) => candidate.product === null));
 });
 
+test("execution diagnostics are read-only and identify qualified quote ids without source text", () => {
+  const board = buildMyfansExecutionBoard(analytics([quote(588), quote(600)]), { planDate: "2026-09-24", operationDay: 1 });
+  assert.deepEqual(board.diagnostics.qualifiedDiscoveryIds, [588, 600]);
+  assert.equal(board.diagnostics.rawQuoteCount, 2);
+  assert.equal(board.diagnostics.productLinkedCount, 0);
+  assert.ok(board.diagnostics.finalOptionCount > 0);
+  assert.equal(JSON.stringify(board.diagnostics).includes("この動画"), false);
+  assert.equal(JSON.stringify(board.diagnostics).includes("affiliate"), false);
+});
+
 test("creator match alone does not turn productless discovery into a product candidate", () => {
   const board = buildMyfansExecutionBoard(
     analytics([quote(1)], [product(17, 101)]),

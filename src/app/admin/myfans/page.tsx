@@ -162,6 +162,26 @@ export default async function MyfansDailyPage({
           </section>
         )}
 
+        <details className="mt-5 rounded-xl border border-cyan-900 bg-cyan-950/15 p-5">
+          <summary className="cursor-pointer list-none text-sm font-black text-cyan-200">Daily候補診断（read-only）</summary>
+          <p className="mt-3 text-xs leading-5 text-zinc-500">ページ生成時の件数と理由コードだけを表示します。本文、リンク値、affiliate値は記録しません。</p>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">JST日付</p><p className="mt-1 font-black text-white">{board.diagnostics.planDateJst}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">raw / media scope</p><p className="mt-1 font-black text-white">{board.diagnostics.rawQuoteCount} / {board.diagnostics.mediaScopeCount}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">fresh+cooldown</p><p className="mt-1 font-black text-white">{board.diagnostics.freshnessCooldownCount}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">source value PASS</p><p className="mt-1 font-black text-white">{board.diagnostics.sourceValuePassCount}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">qualified / IDs</p><p className="mt-1 font-black text-white">{board.diagnostics.qualifiedDiscoveryCount} / {board.diagnostics.qualifiedDiscoveryIds.join(", ") || "-"}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">product / creator map</p><p className="mt-1 font-black text-white">{board.diagnostics.productLinkedCount} / {board.diagnostics.creatorMapHitCount}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">growth / dedupe後</p><p className="mt-1 font-black text-white">{board.diagnostics.growthQuotePoolCount} / {board.diagnostics.postDedupeCount}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">quality pass / hold</p><p className="mt-1 font-black text-white">{board.diagnostics.qualityGatePassCount} / {board.diagnostics.qualityGateHoldCount}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">final options / selected</p><p className="mt-1 font-black text-white">{board.diagnostics.finalOptionCount} / {board.diagnostics.selectedCount}</p></div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {board.diagnostics.qualityGateHoldReasons.map((reason) => <span key={reason.reason} className="rounded-full bg-zinc-950 px-3 py-1.5 text-xs font-bold text-zinc-300">{reason.reason}: {reason.count}</span>)}
+            {!board.diagnostics.qualityGateHoldReasons.length && <span className="text-xs text-zinc-500">Quality Gate holdなし</span>}
+          </div>
+        </details>
+
         <details className="mt-8 rounded-xl border border-amber-800 bg-amber-950/20 p-5">
           <summary className="cursor-pointer list-none text-sm font-black text-amber-200">商品供給・UUID登録（必要な時だけ開く）</summary>
           <div className="mt-4">
