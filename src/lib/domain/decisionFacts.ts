@@ -13,6 +13,8 @@ export type DecisionFacts = {
     coverageEnd: string | null;
     scope: "observed_price_history" | "unknown";
   };
+  currentRecordedLow: "yes" | "no" | "unknown";
+  newRecordedLowToday: "yes" | "no" | "unknown";
   ranking: { status: "ranked" | "outside_or_unknown" | "unknown"; rank: number | null };
   review: { average: number | null; count: number | null };
   evidence: {
@@ -42,6 +44,7 @@ type DecisionFactInput = {
   coverageStart?: string | null;
   coverageEnd?: string | null;
   priceSeries?: { displayName?: string | null; period?: string | null };
+  newRecordedLowToday?: boolean | null;
 };
 
 export function buildDecisionFacts(input: DecisionFactInput): DecisionFacts {
@@ -83,6 +86,8 @@ export function buildDecisionFacts(input: DecisionFactInput): DecisionFacts {
       coverageEnd: input.coverageEnd ?? null,
       scope: comparable ? "observed_price_history" : "unknown",
     },
+    currentRecordedLow: recordLowStatus,
+    newRecordedLowToday: input.newRecordedLowToday == null ? "unknown" : input.newRecordedLowToday ? "yes" : "no",
     ranking: {
       status: input.ranking == null ? "unknown" : isRankingOutsideOrUnknown(input.ranking) ? "outside_or_unknown" : "ranked",
       rank: input.ranking ?? null,

@@ -70,6 +70,7 @@ export type XPostCandidate = {
   seriesObservationCount: number;
   seriesStartedAt: string | null;
   seriesLowestAt: string | null;
+  newRecordedLowToday: boolean | null;
   isNinetyDayLow: boolean;
   cooldownDays: number;
   creativeKind: "price-chart" | "discovery" | "comparison";
@@ -120,6 +121,17 @@ function todayKey() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date());
+}
+
+function newRecordedLowToday(series: Array<PriceHistoryRow & { value: number }>, livePrice: number) {
+  if (series.length < 2 || series.at(-1)?.value !== livePrice) return null;
+  const latest = series.at(-1)!;
+  const latestJst = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date(latest.changed_at));
+  if (latestJst !== todayKey()) return false;
+  const previous = series.slice(0, -1).map((row) => row.value);
+  return previous.length ? livePrice < Math.min(...previous) : null;
 }
 
 function plannedAtFor(category: XPostCandidate["category"]) {
@@ -228,6 +240,7 @@ function chartForWork(work: CandidateWork, rows: PriceHistoryRow[]) {
     seriesObservationCount: series.length,
     seriesStartedAt: series.at(0)?.changed_at ?? null,
     seriesLowestAt,
+    newRecordedLowToday: newRecordedLowToday(series, livePrice),
     isNinetyDayLow: seriesMinimumPrice === livePrice && series.some((row) => row.value > livePrice),
     checkedAt,
   };
@@ -290,6 +303,7 @@ function makeCandidate(
     coverageStart: chart?.seriesStartedAt ?? null,
     coverageEnd: chart?.checkedAt ?? null,
     priceSeries: { displayName: chart?.seriesName ?? null, period: chart?.seriesPeriod ?? null },
+    newRecordedLowToday: chart?.newRecordedLowToday ?? null,
   });
   const url = `${siteUrl()}/works/${work.id}?from=x&x_post=${encodeURIComponent(`${category}-${work.id}`)}`;
   const priceText = price ? `¥${price.toLocaleString("ja-JP")}` : "価格は詳細で確認";
@@ -544,6 +558,7 @@ function makeCandidate(
     seriesObservationCount: chart?.seriesObservationCount ?? 0,
     seriesStartedAt: chart?.seriesStartedAt ?? null,
     seriesLowestAt: chart?.seriesLowestAt ?? null,
+    newRecordedLowToday: chart?.newRecordedLowToday ?? null,
     isNinetyDayLow: chart?.isNinetyDayLow ?? false,
     cooldownDays,
     creativeKind,

@@ -19,6 +19,8 @@ const base = {
 test("builds a record-low fact without claiming FANZA all-time coverage", () => {
   const facts = buildDecisionFacts(base);
   assert.equal(facts.decisionType, "RECORD_LOW");
+  assert.equal(facts.currentRecordedLow, "yes");
+  assert.equal(facts.newRecordedLowToday, "unknown");
   assert.equal(facts.recordLow.scope, "observed_price_history");
   assert.match(decisionFactProofLine(facts), /発掘LABの記録上の最安値/);
   assert.doesNotMatch(decisionFactProofLine(facts), /FANZA全期間|過去最安/);
@@ -42,4 +44,16 @@ test("does not fabricate a numeric claim when a source value is missing", () => 
   assert.equal(facts.decisionType, "UNKNOWN");
   assert.equal(facts.differenceFromLowest, null);
   assert.equal(decisionFactProofLine(facts), "");
+});
+
+test("keeps current recorded low separate from today's new low", () => {
+  const facts = buildDecisionFacts({ ...base, newRecordedLowToday: false });
+  assert.equal(facts.currentRecordedLow, "yes");
+  assert.equal(facts.newRecordedLowToday, "no");
+});
+
+test("accepts today's new low only from an explicit deterministic fact", () => {
+  const facts = buildDecisionFacts({ ...base, newRecordedLowToday: true });
+  assert.equal(facts.currentRecordedLow, "yes");
+  assert.equal(facts.newRecordedLowToday, "yes");
 });
