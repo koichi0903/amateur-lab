@@ -2,7 +2,15 @@ import type { AffiliatePerformanceRow } from "@/lib/affiliateSalesAnalytics";
 import { calculateAdjustedCtr, calculateBuyTimingScore } from "@/lib/buyTiming";
 import { normalizeDisplayName } from "@/lib/createChartData";
 import { parseDatabaseDate } from "@/lib/dateTime";
-import { buildDecisionFacts, type DecisionFacts } from "@/lib/domain/decisionFacts";
+import {
+  buildDecisionFacts,
+  HIGH_DISCOUNT_THRESHOLD,
+  HIDDEN_VALUE_MIN_DISCOUNT,
+  HIDDEN_VALUE_MIN_REVIEW_AVERAGE,
+  HIDDEN_VALUE_MIN_REVIEW_COUNT,
+  type DecisionFacts,
+  type DecisionType,
+} from "@/lib/domain/decisionFacts";
 import { calculateDiscoveryScore } from "@/lib/discoveryScore";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
@@ -22,7 +30,7 @@ type CandidateWork = {
   id: number; product_id: string; title: string; actress: string | null; genre: string | null; maker: string | null; series: string | null;
   score: number | null; price: number | null; sale_price: number | null; list_price: number | null;
   discount_rate: number | null; review_average: number | null; review_count: number | null;
-  ranking: number | null; lowest_price: number | null; release_date: string | null; image_url: string | null;
+  ranking: number | null; lowest_price: number | null; is_bottom_price: boolean | null; release_date: string | null; image_url: string | null;
   stage: string | null; is_on_sale: boolean | null; sale_end_at: string | null; sample_movie_url: string | null;
 };
 
@@ -95,7 +103,7 @@ export type XPostCandidate = {
 const SELECT_COLUMNS = [
   "id", "product_id", "title", "actress", "maker", "score", "price", "sale_price",
   "genre", "series", "list_price", "discount_rate", "review_average", "review_count", "release_date", "stage",
-  "ranking", "lowest_price", "is_on_sale", "sale_end_at", "sample_movie_url", "image_url",
+  "ranking", "lowest_price", "is_bottom_price", "is_on_sale", "sale_end_at", "sample_movie_url", "image_url",
 ].join(",");
 const DAY_MS = 86_400_000;
 const HISTORY_BATCH_SIZE = 20;
@@ -293,7 +301,13 @@ function makeCandidate(
   const discountRate = regular && price ? Math.round((1 - price / regular) * 100) : 0;
   const decisionFacts = buildDecisionFacts({
     currentPrice: price,
-    recordedLowestPrice: chart?.seriesMinimumPrice ?? null,
+    // `works.lowest_price` is the persisted observed low used by the catalog
+    // decision lanes. The chart remains the evidence/coverage view, but using
+    // only the latest fetched chart window made every sale look like a record
+    // low when that window contained only the current sale price.
+    recordedLowestPrice: work.lowest_price && work.lowest_price > 0
+      ? work.lowest_price
+      : chart?.seriesMinimumPrice ?? null,
     discountRate,
     isOnSale: activeSale(work),
     ranking: work.ranking,
@@ -673,7 +687,7 @@ export async function getXPostCandidates(
 ) {
   const salesIds = performance.filter((row) => row.salesCount > 0).slice(0, 30).map((row) => row.workId);
   const base = () => supabaseAdmin.from("works").select(SELECT_COLUMNS).not("product_id", "is", null).neq("product_id", "");
-  const [dealResult, scoreResult, newResult, salesResult, hiddenGemResult, actressResult, genreResult, makerResult, seriesResult, judgmentResult, reviewGapResult] = await Promise.all([
+  const [dealResult, scoreResult, newResult, salesResult, hiddenGemResult, actressResult, genreResult, makerResult, seriesResult, judgmentResult, reviewGapResult, recordLowSupplyResult, highDiscountSupplyResult, hiddenValueSupplyResult] = await Promise.all([
     base().eq("is_on_sale", true).gt("sale_price", 0).order("score", { ascending: false, nullsFirst: false }).limit(60),
     base().gt("score", 0).order("score", { ascending: false, nullsFirst: false }).order("review_count", { ascending: false, nullsFirst: false }).limit(80),
     base().eq("stage", "NEW").order("score", { ascending: false, nullsFirst: false }).limit(60),
@@ -685,8 +699,20 @@ export async function getXPostCandidates(
     base().not("series", "is", null).gt("score", 0).order("score", { ascending: false, nullsFirst: false }).limit(50),
     base().eq("is_on_sale", true).gt("discount_rate", 0).lt("review_average", 4.2).order("discount_rate", { ascending: false, nullsFirst: false }).limit(40),
     base().gt("review_average", 4.6).lt("review_count", 20).order("ranking", { ascending: false, nullsFirst: false }).limit(40),
+    // These are supply lanes, not classification shortcuts. The exact
+    // Decision Facts are still built from the same price-series chart below.
+    base().eq("is_bottom_price", true).order("score", { ascending: false, nullsFirst: false }).limit(300),
+    base().eq("is_on_sale", true).gte("discount_rate", HIGH_DISCOUNT_THRESHOLD).order("discount_rate", { ascending: false, nullsFirst: false }).limit(2000),
+    base()
+      .eq("is_on_sale", true)
+      .gte("discount_rate", HIDDEN_VALUE_MIN_DISCOUNT)
+      .gte("review_average", HIDDEN_VALUE_MIN_REVIEW_AVERAGE)
+      .gte("review_count", HIDDEN_VALUE_MIN_REVIEW_COUNT)
+      .or("ranking.is.null,ranking.gte.9999")
+      .order("score", { ascending: false, nullsFirst: false })
+      .limit(2000),
   ]);
-  const errors = [dealResult.error, scoreResult.error, newResult.error, salesResult.error, hiddenGemResult.error, actressResult.error, genreResult.error, makerResult.error, seriesResult.error, judgmentResult.error, reviewGapResult.error]
+  const errors = [dealResult.error, scoreResult.error, newResult.error, salesResult.error, hiddenGemResult.error, actressResult.error, genreResult.error, makerResult.error, seriesResult.error, judgmentResult.error, reviewGapResult.error, recordLowSupplyResult.error, highDiscountSupplyResult.error, hiddenValueSupplyResult.error]
     .filter(Boolean).map((error) => error?.message ?? "候補取得エラー");
   const pools: Array<[XPostCandidate["category"], CandidateWork[]]> = [
     ["market_scan", (dealResult.data ?? []) as unknown as CandidateWork[]],
@@ -711,10 +737,33 @@ export async function getXPostCandidates(
   const postedExcluded = pools.reduce((sum, [, works]) => sum + works.filter((work) => postedWorkIds.has(work.id)).length, 0);
   const sourcePoolAfterPosted = new Set(pools.flatMap(([, works]) => works.filter((work) => !postedWorkIds.has(work.id)).map((work) => work.id))).size;
   const eligibleWorks = (works: CandidateWork[]) => works.filter((work) => !postedWorkIds.has(work.id));
-  const selectedGroups = pools.map(([category, works]) => ({
-    category,
-    ...selectWithDiversity(eligibleWorks(works), logs, category === "deal" || category === "hidden_gem" || category === "today_buy" || category === "today_discovery" ? 120 : 48, `${todayKey()}:${category}`),
+  const decisionPoolWorks = (rows: unknown) => (rows as CandidateWork[]).filter((work) => {
+    const livePrice = currentPrice(work);
+    return livePrice != null && work.lowest_price != null && work.lowest_price > 0 && livePrice > work.lowest_price;
+  });
+  const decisionPools: Array<{ decisionType: Exclude<DecisionType, "UNKNOWN">; works: CandidateWork[]; category: XPostCandidate["category"] }> = [
+    { decisionType: "RECORD_LOW", works: (recordLowSupplyResult.data ?? []) as unknown as CandidateWork[], category: "comparison_pick" },
+    { decisionType: "HIGH_DISCOUNT_NOT_LOW", works: decisionPoolWorks(highDiscountSupplyResult.data ?? []), category: "deal" },
+    { decisionType: "HIDDEN_VALUE", works: decisionPoolWorks(hiddenValueSupplyResult.data ?? []), category: "hidden_gem" },
+  ];
+  const decisionSelectedGroups = decisionPools.map((pool) => ({
+    category: pool.category,
+    decisionType: pool.decisionType,
+    ...selectWithDiversity(eligibleWorks(pool.works), logs, 120, `${todayKey()}:decision:${pool.decisionType}`),
   }));
+  const selectedGroups = [
+    ...decisionSelectedGroups,
+    ...pools.map(([category, works]) => ({
+    category,
+    decisionType: null,
+    ...selectWithDiversity(eligibleWorks(works), logs, category === "deal" || category === "hidden_gem" || category === "today_buy" || category === "today_discovery" ? 120 : 48, `${todayKey()}:${category}`),
+    })),
+  ];
+  const decisionSupply = {
+    RECORD_LOW: { dbFetchedWorks: (recordLowSupplyResult.data ?? []).length, dbRawWorks: decisionPools[0].works.length, afterPostedCooldown: decisionSelectedGroups[0].selected.length, chartEligible: 0, uniqueWorks: 0, creativeVariants: 0, qualityEligible: 0, selected: 0, persisted: 0 },
+    HIGH_DISCOUNT_NOT_LOW: { dbFetchedWorks: (highDiscountSupplyResult.data ?? []).length, dbRawWorks: decisionPools[1].works.length, afterPostedCooldown: decisionSelectedGroups[1].selected.length, chartEligible: 0, uniqueWorks: 0, creativeVariants: 0, qualityEligible: 0, selected: 0, persisted: 0 },
+    HIDDEN_VALUE: { dbFetchedWorks: (hiddenValueSupplyResult.data ?? []).length, dbRawWorks: decisionPools[2].works.length, afterPostedCooldown: decisionSelectedGroups[2].selected.length, chartEligible: 0, uniqueWorks: 0, creativeVariants: 0, qualityEligible: 0, selected: 0, persisted: 0 },
+  } satisfies Record<Exclude<DecisionType, "UNKNOWN">, { dbFetchedWorks: number; dbRawWorks: number; afterPostedCooldown: number; chartEligible: number; uniqueWorks: number; creativeVariants: number; qualityEligible: number; selected: number; persisted: number }>;
   const reviewedVideoAssets = await supabaseAdmin
     .from("x_media_assets")
     .select("work_id")
@@ -777,6 +826,14 @@ export async function getXPostCandidates(
         if (candidate.weightedLength > 280) continue;
         used.add(work.id);
         candidates.push(candidate);
+        if (group.decisionType && candidate.decisionFacts.decisionType === group.decisionType) {
+          decisionSupply[group.decisionType].chartEligible += 1;
+          decisionSupply[group.decisionType].uniqueWorks = new Set(
+            candidates
+              .filter((item) => item.decisionFacts.decisionType === group.decisionType)
+              .map((item) => item.workId),
+          ).size;
+        }
         groupCount += 1;
         if (groupCount >= 24 || candidates.length >= CANDIDATE_WORK_LIMIT) break;
       }
@@ -785,13 +842,13 @@ export async function getXPostCandidates(
     return {
       candidates: candidates.sort((a, b) => b.funnelScore - a.funnelScore),
       error: errors.length ? errors.join(" / ") : null,
-      diagnostics: { sourcePoolTotal, sourcePoolByCategory, postedExcluded, sourcePoolAfterPosted, selectedWorkCount: allSelected.length },
+      diagnostics: { sourcePoolTotal, sourcePoolByCategory, postedExcluded, sourcePoolAfterPosted, selectedWorkCount: allSelected.length, decisionSupply },
     };
   } catch (error) {
     return {
       candidates: [],
       error: error instanceof Error ? error.message : "価格履歴を取得できませんでした",
-      diagnostics: { sourcePoolTotal, sourcePoolByCategory, postedExcluded, sourcePoolAfterPosted, selectedWorkCount: allSelected.length },
+      diagnostics: { sourcePoolTotal, sourcePoolByCategory, postedExcluded, sourcePoolAfterPosted, selectedWorkCount: allSelected.length, decisionSupply },
     };
   }
 }

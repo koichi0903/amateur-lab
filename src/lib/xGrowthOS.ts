@@ -2175,7 +2175,16 @@ export function buildXGrowthVariantDiagnostic(
 function buildSupplyDiagnostics(
   opportunities: XGrowthOpportunity[],
   picks: XDailyTopPick[],
-  candidateDiagnostics: { sourcePoolTotal?: number; sourcePoolAfterPosted?: number; postedExcluded?: number; prefilterCount?: number; humanVoiceTargetCount?: number; diversityTargetCount?: number; pipeline?: Record<string, number> } | undefined,
+  candidateDiagnostics: {
+    sourcePoolTotal?: number;
+    sourcePoolAfterPosted?: number;
+    postedExcluded?: number;
+    prefilterCount?: number;
+    humanVoiceTargetCount?: number;
+    diversityTargetCount?: number;
+    pipeline?: Record<string, number>;
+    decisionSupply?: Record<string, { dbFetchedWorks?: number; dbRawWorks?: number; afterPostedCooldown?: number; chartEligible?: number; uniqueWorks?: number }>;
+  } | undefined,
   decisionSelection: {
     eligibleSupply: Record<DecisionType, number>;
     dedupedEligibleSupply: number;
@@ -2259,6 +2268,28 @@ function buildSupplyDiagnostics(
     const decisionType = pick.decisionFacts?.decisionType ?? "UNKNOWN";
     decisionTypeSelected[decisionType] = (decisionTypeSelected[decisionType] ?? 0) + 1;
   }
+  const decisionPipelineByType = Object.fromEntries(DECISION_TYPES.map((decisionType) => {
+    const typeItems = opportunities.filter((item) => decisionTypeForCandidate(item) === decisionType);
+    const typePicks = picks.filter((pick) => decisionTypeForCandidate(pick) === decisionType);
+    const uniqueMedia = new Set(typeItems.map((item) => candidateMediaDedupeKey(item)).filter((key): key is string => Boolean(key)));
+    const qualityItems = typeItems.filter((item) => item.creativeVariants.some((variant) => variant.quality.passed));
+    const supply = candidateDiagnostics?.decisionSupply?.[decisionType] ?? {};
+    return [decisionType, {
+      dbFetchedWorks: supply.dbFetchedWorks ?? supply.dbRawWorks ?? 0,
+      dbRawWorks: supply.dbRawWorks ?? 0,
+      baseXFilters: supply.afterPostedCooldown ?? 0,
+      postedCooldown: supply.afterPostedCooldown ?? 0,
+      mediaEligible: typeItems.filter((item) => item.mediaUsage !== "not_available" && Boolean(item.sampleMovieUrl || item.imageUrl)).length,
+      uniqueWorks: new Set(typeItems.map((item) => item.workId)).size,
+      uniqueMedia: uniqueMedia.size,
+      uniqueUrls: new Set(typeItems.map((item) => item.sampleMovieUrl || item.imageUrl).filter(Boolean)).size,
+      chartEligible: supply.chartEligible ?? typeItems.length,
+      creativeVariants: typeItems.reduce((sum, item) => sum + item.creativeVariants.length, 0),
+      qualityEligible: qualityItems.length,
+      selected: typePicks.length,
+      persisted: typePicks.length,
+    }];
+  }));
   const postedOverlap = picks.filter((pick) => postedWorkIds.has(pick.workId)).length;
   const moneyGenerated = opportunities.filter((item) => item.sourceType === "MONEY").length;
   const moneyHardGatePassed = opportunities.filter((item) => item.sourceType === "MONEY" && item.creativeVariants.some((variant) => variant.intent === "MONEY" && variant.quality.passed)).length;
@@ -2331,6 +2362,7 @@ function buildSupplyDiagnostics(
       persisted: picks.length,
       eligibleByType: decisionSelection?.eligibleSupply ?? { RECORD_LOW: 0, HIGH_DISCOUNT_NOT_LOW: 0, HIDDEN_VALUE: 0 },
       selectedByType: decisionSelection?.selectedByType ?? { RECORD_LOW: 0, HIGH_DISCOUNT_NOT_LOW: 0, HIDDEN_VALUE: 0 },
+      byType: decisionPipelineByType,
     },
     slotAllocation,
     gateOkBySource,
