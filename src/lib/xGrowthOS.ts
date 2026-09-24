@@ -2037,6 +2037,80 @@ function finalDiversityGate(picks: XDailyTopPick[], logs: XPostLog[]) {
   return { picks: hardened, audit: auditDailyDiversity(hardened) };
 }
 
+function replenishAfterFinalDiversity(
+  picks: XDailyTopPick[],
+  opportunities: XGrowthOpportunity[],
+  mission: XDailyMission,
+  logs: XPostLog[],
+  postedWorkIds: ReadonlySet<number>,
+) {
+  const next = [...picks];
+  const slots = [
+    { id: "slot_1" as const, role: "REACH" as const, label: "投稿枠1: REACH中心" },
+    { id: "slot_2" as const, role: mission.bottleneck === "Follow不足" ? "FOLLOW" as const : "AUTHORITY" as const, label: "投稿枠2: FOLLOW / AUTHORITY中心" },
+    { id: "slot_3" as const, role: "MONEY" as const, label: "投稿枠3: MONEY または別REACH中心" },
+  ];
+  const roleFallbacks: Record<typeof slots[number]["id"], XGrowthIntent[]> = {
+    slot_1: ["REACH", "FOLLOW", "AUTHORITY"],
+    slot_2: [slots[1].role, "FOLLOW", "AUTHORITY", "REACH"],
+    slot_3: ["MONEY", "REACH", "FOLLOW", "AUTHORITY"],
+  };
+  const hasRealMedia = (item: XGrowthOpportunity, variant: XCreativeVariant) => {
+    if (variant.mediaType === "existing_link_image") return Boolean(item.imageUrl);
+    if (variant.mediaType !== "sample_movie") return false;
+    const tags = item.mediaAsset?.manual_tags ?? [];
+    return Boolean(item.sampleMovieUrl)
+      && item.canNativeVideo
+      && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable
+      && !tags.includes("too_explicit_for_reach")
+      && item.mediaAsset?.media_quality !== "weak";
+  };
+  const slotCount = (slotId: NonNullable<XDailyTopPick["slotId"]>) => next.filter((pick) => pick.slotId === slotId).length;
+  for (const slot of slots) {
+    while (slotCount(slot.id) < 3) {
+      const missingTypes = new Set(DECISION_TYPES.filter((type) => !next.some((pick) => decisionTypeForCandidate(pick) === type)));
+      const candidates = roleFallbacks[slot.id]
+        .flatMap((role) => opportunities.map((item) => ({ item, role, selected: selectCandidateVariant(item, role, next, logs) })))
+        .filter((entry): entry is { item: XGrowthOpportunity; role: XGrowthIntent; selected: NonNullable<ReturnType<typeof selectCandidateVariant>> } => Boolean(entry.selected))
+        .filter(({ item, role, selected }) => isDecisionFactEligible(item)
+          && item.freshness.status !== "expired"
+          && !postedWorkIds.has(item.workId)
+          && !next.some((pick) => pick.workId === item.workId || pick.productId === item.productId)
+          && isDistinctCandidate(item, next)
+          && (role === "MONEY" || item.sourceType !== "MONEY")
+          && selected.variant.quality.passed
+          && selected.variant.quality.dimensions.adSmell <= (role === "MONEY" ? 48 : 30)
+          && hasRealMedia(item, selected.variant)
+          && (role !== "MONEY" || Boolean(selected.variant.url)))
+        .sort((a, b) => Number(missingTypes.has(decisionTypeForCandidate(b.item))) - Number(missingTypes.has(decisionTypeForCandidate(a.item))) || b.selected.score - a.selected.score);
+      let added = false;
+      for (const entry of candidates) {
+        const audit = diversityConflicts(entry.item, entry.role, entry.selected.variant, next, logs);
+        const candidate = buildTopPickCandidate({
+          item: entry.item,
+          role: entry.role,
+          variant: entry.selected.variant,
+          audit,
+          score: clamp(entry.selected.score),
+          pickOrder: slots.findIndex((value) => value.id === slot.id) + 1,
+          slotId: slot.id,
+          slotRole: slot.id === "slot_1" ? "REACH" : slot.id === "slot_2" ? "FOLLOW_OR_AUTHORITY" : "MONEY_OR_REACH",
+          slotLabel: slot.label,
+          candidateRank: "C",
+          reason: "最終Diversity Gate後の補充。Hard Gate・別work・別素材を維持",
+        });
+        const checked = finalDiversityGate([...next, candidate], logs).picks;
+        if (checked.length !== next.length + 1) continue;
+        next.push({ ...candidate, setDiversity: { ...candidate.setDiversity, status: "OK", reasons: [] } });
+        added = true;
+        break;
+      }
+      if (!added) break;
+    }
+  }
+  return next;
+}
+
 function stripUrls(text: string) {
   return text
     .split("\n")
@@ -2611,7 +2685,9 @@ export async function buildXGrowthOS({
   timings.fallback_allocator_ms = timings.bucket_allocation_ms;
   timings.media_mix_ms = dailySelection.mediaMix.mediaMixMs;
   const diversityStarted = Date.now();
-  const diversityResult = finalDiversityGate(dailySelection.picks, logs);
+  const gatedDiversity = finalDiversityGate(dailySelection.picks, logs);
+  const replenishedPicks = replenishAfterFinalDiversity(gatedDiversity.picks, opportunities, mission, logs, postedWorkIds);
+  const diversityResult = { picks: replenishedPicks, audit: auditDailyDiversity(replenishedPicks) };
   timings.final_diversity_check_ms = Date.now() - diversityStarted;
   timings.diversity_pass_ms = timings.final_diversity_check_ms;
   timings.diversity_target_count = dailySelection.picks.length;

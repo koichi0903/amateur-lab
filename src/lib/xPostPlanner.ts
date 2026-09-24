@@ -49,6 +49,7 @@ export type DecisionSupplyRejectReason =
   | "ranking_not_outside"
   | "review_average_below_threshold"
   | "review_count_below_threshold"
+  | "higher_priority_decision_type"
   | "decision_type_mismatch"
   | "duplicate_work"
   | "weighted_length_exceeded";

@@ -55,7 +55,8 @@ export type DecisionFactEligibilityReason =
   | "discount_below_threshold"
   | "ranking_not_outside"
   | "review_average_below_threshold"
-  | "review_count_below_threshold";
+  | "review_count_below_threshold"
+  | "higher_priority_decision_type";
 
 export function decisionFactEligibilityReason(
   input: Pick<DecisionFactInput, "currentPrice" | "recordedLowestPrice" | "isOnSale" | "discountRate" | "ranking" | "reviewAverage" | "reviewCount">,
@@ -76,6 +77,10 @@ export function decisionFactEligibilityReason(
   if (!isRankingOutsideOrUnknown(input.ranking)) return "ranking_not_outside";
   if ((input.reviewAverage ?? -Infinity) < HIDDEN_VALUE_MIN_REVIEW_AVERAGE) return "review_average_below_threshold";
   if ((input.reviewCount ?? -1) < HIDDEN_VALUE_MIN_REVIEW_COUNT) return "review_count_below_threshold";
+  if ((input.discountRate ?? -1) >= HIGH_DISCOUNT_THRESHOLD
+    && input.recordedLowestPrice != null
+    && input.recordedLowestPrice > 0
+    && input.currentPrice > input.recordedLowestPrice) return "higher_priority_decision_type";
   // HIDDEN_VALUE proves ranking/review/current-price value; it does not need
   // the recorded-low/chart evidence required by the price comparison lanes.
   if (input.recordedLowestPrice != null && input.recordedLowestPrice > 0 && input.currentPrice === input.recordedLowestPrice) return "current_is_record_low";
