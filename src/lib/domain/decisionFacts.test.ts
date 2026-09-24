@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildDecisionFacts, decisionFactProofLine } from "./decisionFacts.ts";
+import { buildDecisionFacts, decisionFactEligibilityReason, decisionFactProofLine } from "./decisionFacts.ts";
 
 const base = {
   currentPrice: 500,
@@ -37,6 +37,50 @@ test("classifies an outside-ranking review and price signal", () => {
   const facts = buildDecisionFacts({ ...base, currentPrice: 700, recordedLowestPrice: 500, discountRate: 20 });
   assert.equal(facts.decisionType, "HIDDEN_VALUE");
   assert.match(decisionFactProofLine(facts), /ランキング外。評価4\.5 \/ レビュー12件/);
+});
+
+test("HIDDEN_VALUE does not require recorded-low or price-history evidence", () => {
+  assert.equal(decisionFactEligibilityReason({
+    currentPrice: 800,
+    recordedLowestPrice: null,
+    isOnSale: true,
+    discountRate: 20,
+    ranking: null,
+    reviewAverage: 4.4,
+    reviewCount: 8,
+  }, "HIDDEN_VALUE"), null);
+  const facts = buildDecisionFacts({
+    currentPrice: 800,
+    recordedLowestPrice: null,
+    isOnSale: true,
+    discountRate: 20,
+    ranking: null,
+    reviewAverage: 4.4,
+    reviewCount: 8,
+  });
+  assert.equal(facts.decisionType, "HIDDEN_VALUE");
+  assert.match(decisionFactProofLine(facts), /ランキング外/);
+});
+
+test("HIGH_DISCOUNT_NOT_LOW requires the recorded-low comparison but not a chart", () => {
+  assert.equal(decisionFactEligibilityReason({
+    currentPrice: 800,
+    recordedLowestPrice: 500,
+    isOnSale: true,
+    discountRate: 30,
+    ranking: 20,
+    reviewAverage: 4,
+    reviewCount: 5,
+  }, "HIGH_DISCOUNT_NOT_LOW"), null);
+  assert.equal(decisionFactEligibilityReason({
+    currentPrice: 800,
+    recordedLowestPrice: null,
+    isOnSale: true,
+    discountRate: 30,
+    ranking: 20,
+    reviewAverage: 4,
+    reviewCount: 5,
+  }, "HIGH_DISCOUNT_NOT_LOW"), "missing_recorded_low");
 });
 
 test("does not fabricate a numeric claim when a source value is missing", () => {

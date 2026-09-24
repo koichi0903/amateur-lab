@@ -4,6 +4,7 @@ import { normalizeDisplayName } from "@/lib/createChartData";
 import { parseDatabaseDate } from "@/lib/dateTime";
 import {
   buildDecisionFacts,
+  decisionFactEligibilityReason,
   HIGH_DISCOUNT_THRESHOLD,
   HIDDEN_VALUE_MIN_DISCOUNT,
   HIDDEN_VALUE_MIN_REVIEW_AVERAGE,
@@ -37,6 +38,33 @@ type CandidateWork = {
 type PriceHistoryRow = {
   product_id: string; changed_at: string; display_name: string; period: string | null;
   normal_price: number | null; sale_price: number | null;
+};
+
+export type DecisionSupplyRejectReason =
+  | "missing_current_price"
+  | "missing_recorded_low"
+  | "current_is_record_low"
+  | "not_on_sale"
+  | "discount_below_threshold"
+  | "ranking_not_outside"
+  | "review_average_below_threshold"
+  | "review_count_below_threshold"
+  | "decision_type_mismatch"
+  | "duplicate_work"
+  | "weighted_length_exceeded";
+
+type DecisionSupplyDiagnostics = {
+  dbFetchedWorks: number;
+  dbRawWorks: number;
+  afterPostedCooldown: number;
+  chartEligible: number;
+  uniqueWorks: number;
+  creativeVariants: number;
+  qualityEligible: number;
+  selected: number;
+  persisted: number;
+  firstDropReasonCounts: Record<string, number>;
+  firstDropByWorkId: Record<string, DecisionSupplyRejectReason>;
 };
 
 export type XChartPoint = { changedAt: string; price: number };
@@ -200,6 +228,30 @@ function activeSale(work: CandidateWork) {
 function currentPrice(work: CandidateWork) {
   if (activeSale(work)) return work.sale_price;
   return work.price && work.price > 0 ? work.price : null;
+}
+
+function decisionPoolRejectReason(work: CandidateWork, decisionType: Exclude<DecisionType, "UNKNOWN">): DecisionSupplyRejectReason | null {
+  return decisionFactEligibilityReason({
+    currentPrice: currentPrice(work),
+    recordedLowestPrice: work.lowest_price,
+    isOnSale: activeSale(work),
+    discountRate: work.discount_rate,
+    ranking: work.ranking,
+    reviewAverage: work.review_average,
+    reviewCount: work.review_count,
+  }, decisionType);
+}
+
+export function classifyDecisionPoolWork(input: {
+  currentPrice: number | null;
+  lowestPrice: number | null;
+  isOnSale: boolean | null;
+  discountRate: number | null;
+  ranking: number | null;
+  reviewAverage: number | null;
+  reviewCount: number | null;
+}, decisionType: Exclude<DecisionType, "UNKNOWN">): DecisionSupplyRejectReason | null {
+  return decisionFactEligibilityReason({ ...input, recordedLowestPrice: input.lowestPrice, isOnSale: input.isOnSale ?? false }, decisionType);
 }
 
 function effectivePrice(row: PriceHistoryRow) {
@@ -737,14 +789,10 @@ export async function getXPostCandidates(
   const postedExcluded = pools.reduce((sum, [, works]) => sum + works.filter((work) => postedWorkIds.has(work.id)).length, 0);
   const sourcePoolAfterPosted = new Set(pools.flatMap(([, works]) => works.filter((work) => !postedWorkIds.has(work.id)).map((work) => work.id))).size;
   const eligibleWorks = (works: CandidateWork[]) => works.filter((work) => !postedWorkIds.has(work.id));
-  const decisionPoolWorks = (rows: unknown) => (rows as CandidateWork[]).filter((work) => {
-    const livePrice = currentPrice(work);
-    return livePrice != null && work.lowest_price != null && work.lowest_price > 0 && livePrice > work.lowest_price;
-  });
   const decisionPools: Array<{ decisionType: Exclude<DecisionType, "UNKNOWN">; works: CandidateWork[]; category: XPostCandidate["category"] }> = [
-    { decisionType: "RECORD_LOW", works: (recordLowSupplyResult.data ?? []) as unknown as CandidateWork[], category: "comparison_pick" },
-    { decisionType: "HIGH_DISCOUNT_NOT_LOW", works: decisionPoolWorks(highDiscountSupplyResult.data ?? []), category: "deal" },
-    { decisionType: "HIDDEN_VALUE", works: decisionPoolWorks(hiddenValueSupplyResult.data ?? []), category: "hidden_gem" },
+    { decisionType: "RECORD_LOW", works: (recordLowSupplyResult.data ?? []).filter((work) => !decisionPoolRejectReason(work as unknown as CandidateWork, "RECORD_LOW")) as unknown as CandidateWork[], category: "comparison_pick" },
+    { decisionType: "HIGH_DISCOUNT_NOT_LOW", works: (highDiscountSupplyResult.data ?? []).filter((work) => !decisionPoolRejectReason(work as unknown as CandidateWork, "HIGH_DISCOUNT_NOT_LOW")) as unknown as CandidateWork[], category: "deal" },
+    { decisionType: "HIDDEN_VALUE", works: (hiddenValueSupplyResult.data ?? []).filter((work) => !decisionPoolRejectReason(work as unknown as CandidateWork, "HIDDEN_VALUE")) as unknown as CandidateWork[], category: "hidden_gem" },
   ];
   const decisionSelectedGroups = decisionPools.map((pool) => ({
     category: pool.category,
@@ -759,11 +807,11 @@ export async function getXPostCandidates(
     ...selectWithDiversity(eligibleWorks(works), logs, category === "deal" || category === "hidden_gem" || category === "today_buy" || category === "today_discovery" ? 120 : 48, `${todayKey()}:${category}`),
     })),
   ];
-  const decisionSupply = {
-    RECORD_LOW: { dbFetchedWorks: (recordLowSupplyResult.data ?? []).length, dbRawWorks: decisionPools[0].works.length, afterPostedCooldown: decisionSelectedGroups[0].selected.length, chartEligible: 0, uniqueWorks: 0, creativeVariants: 0, qualityEligible: 0, selected: 0, persisted: 0 },
-    HIGH_DISCOUNT_NOT_LOW: { dbFetchedWorks: (highDiscountSupplyResult.data ?? []).length, dbRawWorks: decisionPools[1].works.length, afterPostedCooldown: decisionSelectedGroups[1].selected.length, chartEligible: 0, uniqueWorks: 0, creativeVariants: 0, qualityEligible: 0, selected: 0, persisted: 0 },
-    HIDDEN_VALUE: { dbFetchedWorks: (hiddenValueSupplyResult.data ?? []).length, dbRawWorks: decisionPools[2].works.length, afterPostedCooldown: decisionSelectedGroups[2].selected.length, chartEligible: 0, uniqueWorks: 0, creativeVariants: 0, qualityEligible: 0, selected: 0, persisted: 0 },
-  } satisfies Record<Exclude<DecisionType, "UNKNOWN">, { dbFetchedWorks: number; dbRawWorks: number; afterPostedCooldown: number; chartEligible: number; uniqueWorks: number; creativeVariants: number; qualityEligible: number; selected: number; persisted: number }>;
+  const decisionSupply: Record<Exclude<DecisionType, "UNKNOWN">, DecisionSupplyDiagnostics> = {
+    RECORD_LOW: { dbFetchedWorks: (recordLowSupplyResult.data ?? []).length, dbRawWorks: decisionPools[0].works.length, afterPostedCooldown: decisionSelectedGroups[0].selected.length, chartEligible: 0, uniqueWorks: 0, creativeVariants: 0, qualityEligible: 0, selected: 0, persisted: 0, firstDropReasonCounts: {}, firstDropByWorkId: {} },
+    HIGH_DISCOUNT_NOT_LOW: { dbFetchedWorks: (highDiscountSupplyResult.data ?? []).length, dbRawWorks: decisionPools[1].works.length, afterPostedCooldown: decisionSelectedGroups[1].selected.length, chartEligible: 0, uniqueWorks: 0, creativeVariants: 0, qualityEligible: 0, selected: 0, persisted: 0, firstDropReasonCounts: {}, firstDropByWorkId: {} },
+    HIDDEN_VALUE: { dbFetchedWorks: (hiddenValueSupplyResult.data ?? []).length, dbRawWorks: decisionPools[2].works.length, afterPostedCooldown: decisionSelectedGroups[2].selected.length, chartEligible: 0, uniqueWorks: 0, creativeVariants: 0, qualityEligible: 0, selected: 0, persisted: 0, firstDropReasonCounts: {}, firstDropByWorkId: {} },
+  };
   const reviewedVideoAssets = await supabaseAdmin
     .from("x_media_assets")
     .select("work_id")
@@ -813,8 +861,14 @@ export async function getXPostCandidates(
       for (const work of group.selected) {
         if (postedWorkIds.has(work.id)) continue;
         if (used.has(work.id)) continue;
+        const decisionSupplyEntry = group.decisionType
+          ? decisionSupply[group.decisionType as Exclude<DecisionType, "UNKNOWN">]
+          : null;
         const chart = chartForWork(work, rowsByProduct.get(work.product_id) ?? []);
-        if ((group.category === "deal" || group.category === "today_buy") && !chart?.hadPriceDrop) continue;
+        // Decision Facts lanes use their own proof fields. A chart/price-drop
+        // view is required for generic deal copy, not for HIGH_DISCOUNT or
+        // HIDDEN_VALUE claims whose evidence is already in the Facts payload.
+        if (!group.decisionType && (group.category === "deal" || group.category === "today_buy") && !chart?.hadPriceDrop) continue;
         const candidate = makeCandidate(
           work,
           group.category,
@@ -823,12 +877,23 @@ export async function getXPostCandidates(
           funnels.get(work.id) ?? { pageViews: 0, fanzaClicks: 0, ctr: 0 },
           logs,
         );
-        if (candidate.weightedLength > 280) continue;
+        if (candidate.weightedLength > 280) {
+          if (decisionSupplyEntry) {
+            decisionSupplyEntry.firstDropReasonCounts.weighted_length_exceeded = (decisionSupplyEntry.firstDropReasonCounts.weighted_length_exceeded ?? 0) + 1;
+            decisionSupplyEntry.firstDropByWorkId[String(work.id)] = "weighted_length_exceeded";
+          }
+          continue;
+        }
+        if (group.decisionType && candidate.decisionFacts.decisionType !== group.decisionType) {
+          decisionSupplyEntry!.firstDropReasonCounts.decision_type_mismatch = (decisionSupplyEntry!.firstDropReasonCounts.decision_type_mismatch ?? 0) + 1;
+          decisionSupplyEntry!.firstDropByWorkId[String(work.id)] = "decision_type_mismatch";
+          continue;
+        }
         used.add(work.id);
         candidates.push(candidate);
         if (group.decisionType && candidate.decisionFacts.decisionType === group.decisionType) {
-          decisionSupply[group.decisionType].chartEligible += 1;
-          decisionSupply[group.decisionType].uniqueWorks = new Set(
+          decisionSupplyEntry!.chartEligible += 1;
+          decisionSupplyEntry!.uniqueWorks = new Set(
             candidates
               .filter((item) => item.decisionFacts.decisionType === group.decisionType)
               .map((item) => item.workId),

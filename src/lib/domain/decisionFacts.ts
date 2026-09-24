@@ -47,10 +47,47 @@ type DecisionFactInput = {
   newRecordedLowToday?: boolean | null;
 };
 
+export type DecisionFactEligibilityReason =
+  | "missing_current_price"
+  | "missing_recorded_low"
+  | "current_is_record_low"
+  | "not_on_sale"
+  | "discount_below_threshold"
+  | "ranking_not_outside"
+  | "review_average_below_threshold"
+  | "review_count_below_threshold";
+
+export function decisionFactEligibilityReason(
+  input: Pick<DecisionFactInput, "currentPrice" | "recordedLowestPrice" | "isOnSale" | "discountRate" | "ranking" | "reviewAverage" | "reviewCount">,
+  decisionType: Exclude<DecisionType, "UNKNOWN">,
+): DecisionFactEligibilityReason | null {
+  if (input.currentPrice == null) return "missing_current_price";
+  if (decisionType === "RECORD_LOW") {
+    if (input.recordedLowestPrice == null || input.recordedLowestPrice <= 0) return "missing_recorded_low";
+    return input.currentPrice === input.recordedLowestPrice ? null : "current_is_record_low";
+  }
+  if (!input.isOnSale) return "not_on_sale";
+  if (decisionType === "HIGH_DISCOUNT_NOT_LOW") {
+    if ((input.discountRate ?? -1) < HIGH_DISCOUNT_THRESHOLD) return "discount_below_threshold";
+    if (input.recordedLowestPrice == null || input.recordedLowestPrice <= 0) return "missing_recorded_low";
+    return input.currentPrice > input.recordedLowestPrice ? null : "current_is_record_low";
+  }
+  if ((input.discountRate ?? -1) < HIDDEN_VALUE_MIN_DISCOUNT) return "discount_below_threshold";
+  if (!isRankingOutsideOrUnknown(input.ranking)) return "ranking_not_outside";
+  if ((input.reviewAverage ?? -Infinity) < HIDDEN_VALUE_MIN_REVIEW_AVERAGE) return "review_average_below_threshold";
+  if ((input.reviewCount ?? -1) < HIDDEN_VALUE_MIN_REVIEW_COUNT) return "review_count_below_threshold";
+  // HIDDEN_VALUE proves ranking/review/current-price value; it does not need
+  // the recorded-low/chart evidence required by the price comparison lanes.
+  if (input.recordedLowestPrice != null && input.recordedLowestPrice > 0 && input.currentPrice === input.recordedLowestPrice) return "current_is_record_low";
+  return null;
+}
+
 export function buildDecisionFacts(input: DecisionFactInput): DecisionFacts {
   const comparable = Number.isFinite(input.currentPrice) && Number.isFinite(input.recordedLowestPrice);
-  const currentPrice = comparable ? input.currentPrice : null;
-  const recordedLowestPrice = comparable ? input.recordedLowestPrice : null;
+  // A hidden-value claim still needs the live price even when no recorded-low
+  // series exists. Only the comparison fields become unknown in that case.
+  const currentPrice = Number.isFinite(input.currentPrice) ? input.currentPrice : null;
+  const recordedLowestPrice = Number.isFinite(input.recordedLowestPrice) ? input.recordedLowestPrice : null;
   const differenceFromLowest = currentPrice != null && recordedLowestPrice != null
     ? currentPrice - recordedLowestPrice
     : null;

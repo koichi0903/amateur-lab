@@ -371,6 +371,35 @@ export type XGrowthOS = {
     semanticQuota: Record<XSemanticHookCategory, number>;
     semanticQuotaOverflowReasons: string[];
     semanticMappingReasons: Record<string, number>;
+    decisionPipeline: {
+      rawSupply: number;
+      classified: number;
+      eligible: number;
+      dedupedEligible: number;
+      selectedBeforeReplenishment: number;
+      replenished: number;
+      selected: number;
+      persisted: number;
+      eligibleByType: Record<string, number>;
+      selectedByType: Record<string, number>;
+      byType: Record<string, {
+        dbFetchedWorks: number;
+        dbRawWorks: number;
+        baseXFilters: number;
+        postedCooldown: number;
+        mediaEligible: number;
+        uniqueWorks: number;
+        uniqueMedia: number;
+        uniqueUrls: number;
+        chartEligible: number;
+        creativeVariants: number;
+        qualityEligible: number;
+        firstDropReasonCounts: Record<string, number>;
+        firstDropByWorkId: Record<string, string>;
+        selected: number;
+        persisted: number;
+      }>;
+    };
     pipeline: Record<string, number>;
     mediaMix: {
       totalVideoCandidates: number;
@@ -2206,7 +2235,15 @@ function buildSupplyDiagnostics(
     humanVoiceTargetCount?: number;
     diversityTargetCount?: number;
     pipeline?: Record<string, number>;
-    decisionSupply?: Record<string, { dbFetchedWorks?: number; dbRawWorks?: number; afterPostedCooldown?: number; chartEligible?: number; uniqueWorks?: number }>;
+    decisionSupply?: Record<string, {
+      dbFetchedWorks?: number;
+      dbRawWorks?: number;
+      afterPostedCooldown?: number;
+      chartEligible?: number;
+      uniqueWorks?: number;
+      firstDropReasonCounts?: Record<string, number>;
+      firstDropByWorkId?: Record<string, string>;
+    }>;
   } | undefined,
   decisionSelection: {
     eligibleSupply: Record<DecisionType, number>;
@@ -2309,6 +2346,8 @@ function buildSupplyDiagnostics(
       chartEligible: supply.chartEligible ?? typeItems.length,
       creativeVariants: typeItems.reduce((sum, item) => sum + item.creativeVariants.length, 0),
       qualityEligible: qualityItems.length,
+      firstDropReasonCounts: supply.firstDropReasonCounts ?? {},
+      firstDropByWorkId: supply.firstDropByWorkId ?? {},
       selected: typePicks.length,
       persisted: typePicks.length,
     }];
