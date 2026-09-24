@@ -28,7 +28,7 @@ import { getXMediaSupplyStatus, getRightsReviewQueue, isPostableOfficialSampleMo
 import { isVideoCandidate } from "@/lib/xVideoCandidate";
 import { buildVisualVideoFacts, primaryUsableVisualFact, type XVisualVideoFacts, visualFactScores } from "@/lib/xVisualVideoFacts";
 import { assignSemanticHook, SEMANTIC_CATEGORY_QUOTA } from "./xGrowthSemantic";
-import { decisionFactProofLine } from "@/lib/domain/decisionFacts";
+import { decisionFactProofLine, type DecisionType } from "@/lib/domain/decisionFacts";
 
 export type XGrowthIntent = "REACH" | "AUTHORITY" | "FOLLOW" | "CONVERSATION" | "MONEY";
 export type XMoneyGateReason = "missing_affiliate_url" | "price_truth_unavailable" | "last_mile_ng" | "native_x_voice_ng" | "unsafe_or_too_explicit" | "duplicate_or_posted" | "stale_or_expired" | "media_mismatch" | "other";
@@ -112,6 +112,26 @@ export type XGrowthOpportunity = XPostCandidate & {
     postingSlot: string;
   };
 };
+
+const DECISION_TYPES: readonly DecisionType[] = ["RECORD_LOW", "HIGH_DISCOUNT_NOT_LOW", "HIDDEN_VALUE"];
+
+export function isDecisionFactEligible(candidate: Pick<XGrowthOpportunity, "decisionFacts">) {
+  const facts = candidate.decisionFacts;
+  return Boolean(facts && DECISION_TYPES.includes(facts.decisionType) && decisionFactProofLine(facts).trim());
+}
+
+export function decisionTypeForCandidate(candidate: Pick<XGrowthOpportunity, "decisionFacts">): DecisionType {
+  return candidate.decisionFacts?.decisionType ?? "UNKNOWN";
+}
+
+export function decisionCoverageScore(
+  decisionType: DecisionType,
+  selectedByType: Partial<Record<DecisionType, number>>,
+  eligibleByType: Partial<Record<DecisionType, number>>,
+) {
+  const missing = DECISION_TYPES.some((type) => (eligibleByType[type] ?? 0) > 0 && (selectedByType[type] ?? 0) === 0);
+  return missing && (eligibleByType[decisionType] ?? 0) > 0 && (selectedByType[decisionType] ?? 0) === 0 ? 100 : 0;
+}
 
 export type XDailyTopPick = XGrowthOpportunity & {
   pickOrder: number;
@@ -867,6 +887,12 @@ export function cheapCandidatePrefilter(items: XGrowthOpportunity[], limit = 300
       return score(b) - score(a);
     }).slice(0, 30).forEach(add);
   }
+  // Preserve each Decision Facts lane before the expensive quality matrix.
+  // Score-only narrowing otherwise lets RECORD_LOW crowd out the comparison
+  // lanes even when their database supply is healthy.
+  for (const decisionType of DECISION_TYPES) {
+    ranked.filter((candidate) => decisionTypeForCandidate(candidate) === decisionType).slice(0, 30).forEach(add);
+  }
   const perSource = new Map<string, number>();
   for (const item of ranked) {
     if ((perSource.get(item.sourceType) ?? 0) >= 3) continue;
@@ -1256,6 +1282,10 @@ function buildTopPickCandidate(input: {
   candidateRank: NonNullable<XDailyTopPick["candidateRank"]>;
   reason: string;
 }): XDailyTopPick {
+  const decisionProof = input.item.decisionFacts ? decisionFactProofLine(input.item.decisionFacts) : "";
+  const decisionPostText = decisionProof && !input.variant.bodyText.includes(decisionProof)
+    ? `${decisionProof}\n${input.variant.bodyText}`
+    : input.variant.bodyText;
   const pickMediaType = input.variant.mediaType === "data_card" && input.item.imageUrl
     ? "existing_link_image" as const
     : input.variant.mediaType === "sample_movie" && !isPostableOfficialSampleMovie(input.item.mediaAsset, input.item.sampleMovieUrl).usable
@@ -1269,7 +1299,7 @@ function buildTopPickCandidate(input: {
   return applyTopPickLinkPolicy({
     ...input.item,
     intent: input.role,
-    postText: input.variant.bodyText,
+    postText: decisionPostText,
     replyText: input.variant.replyText,
     creativeVariantId: input.variant.id,
     mediaType: pickMediaType,
@@ -1340,7 +1370,8 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
     return isAllowedXGrowthMediaType(mediaType) && mediaType === "existing_link_image" && Boolean(item.imageUrl);
   };
   const pool = opportunities.filter((item) => (
-    item.freshness.status !== "expired"
+    isDecisionFactEligible(item)
+    && item.freshness.status !== "expired"
     && item.mediaUsage !== "not_available"
     && hasRealMedia(item)
     && !postedWorkIds.has(item.workId)
@@ -1365,6 +1396,10 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
   ];
   const rankLabels = ["A", "B", "C"] as const;
   const workUseCount = new Map<number, number>();
+  const eligibleDecisionSupply = DECISION_TYPES.reduce((counts, type) => {
+    counts[type] = pool.filter((item) => decisionTypeForCandidate(item) === type).length;
+    return counts;
+  }, {} as Record<DecisionType, number>);
   const semanticVariantCache = new Map<string, ReturnType<typeof selectCandidateVariant>>();
   const getCachedVariant = (item: XGrowthOpportunity, role: XGrowthIntent) => {
     const key = `${item.key}:${role}`;
@@ -1404,7 +1439,14 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
             : 0;
           const slotPriorityBonus = semanticCategory ? semanticCategoryForSlot(slot.slotId, role, semanticCategory) * 3 : 0;
           const repetitionPenalty = hasDiversityConflict(item, [...picked, ...slotPicked], logs) ? 10 : 0;
-          const score = selected ? roleScore(item, role) + selected.score * 0.2 + sourceBonus + (tier?.score ?? 0) * 0.18 + diversityBonus + slotPriorityBonus - repetitionPenalty : -1;
+          const decisionType = decisionTypeForCandidate(item);
+          const selectedByDecisionType = [...picked, ...slotPicked].reduce((counts, pick) => {
+            const type = decisionTypeForCandidate(pick);
+            counts[type] = (counts[type] ?? 0) + 1;
+            return counts;
+          }, {} as Partial<Record<DecisionType, number>>);
+          const decisionCoverageBonus = decisionCoverageScore(decisionType, selectedByDecisionType, eligibleDecisionSupply);
+          const score = selected ? roleScore(item, role) + selected.score * 0.2 + sourceBonus + (tier?.score ?? 0) * 0.18 + diversityBonus + slotPriorityBonus + decisionCoverageBonus - repetitionPenalty : -1;
           return { item, selected, tier, score };
         })
         .filter((entry): entry is typeof entry & { selected: NonNullable<typeof entry.selected> } => Boolean(entry.selected))
@@ -1461,6 +1503,7 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
       usedWorkIds.add(pick.workId);
     }
   }
+  const selectedBeforeReplenishment = picked.length;
   // Last-mile allocator: fill only genuinely missing candidates after the
   // normal role/source pass. Hard gates and identity uniqueness remain strict;
   // only soft diversity preferences are relaxed in this pass.
@@ -1727,8 +1770,24 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
         : null,
     mediaMixMs: Date.now() - mediaMixStarted,
   };
+  const selectedByDecisionType = DECISION_TYPES.reduce((counts, type) => {
+    counts[type] = picked.filter((pick) => decisionTypeForCandidate(pick) === type).length;
+    return counts;
+  }, {} as Record<DecisionType, number>);
   const reason = picked.length ? null : "今日の候補は鮮度、Creative Gate、素材可否、直近投稿との重複のいずれかで基準未達です。投稿しない判断が安全です。";
-  return { picks: picked, reason, mediaMix };
+  return {
+    picks: picked,
+    reason,
+    mediaMix,
+    decisionSelection: {
+      eligibleSupply: eligibleDecisionSupply,
+      dedupedEligibleSupply: new Set(pool.map((item) => candidateDedupeKey(item))).size,
+      selectedBeforeReplenishment,
+      replenished: Math.max(0, picked.length - selectedBeforeReplenishment),
+      selected: picked.length,
+      selectedByType: selectedByDecisionType,
+    },
+  };
 }
 
 type DiversityAudit = {
@@ -1776,7 +1835,8 @@ function finalDiversityGate(picks: XDailyTopPick[], logs: XPostLog[]) {
     const prior = accepted.map((item) => dailyDiversityKey(item.postText));
     const semantic = pick.setDiversity.signature;
     const priorSignatures = accepted.map((item) => item.setDiversity.signature);
-    return priorSignatures.filter((key) => key.semanticHookCategory === semantic.semanticHookCategory).length >= 2
+    return !isDistinctCandidate(pick, accepted)
+      || priorSignatures.filter((key) => key.semanticHookCategory === semantic.semanticHookCategory).length >= 2
       || (semantic.semanticHookCategory === "generic_reaction" && priorSignatures.some((key) => key.semanticHookCategory === "generic_reaction"))
       || (semantic.abstractFallback && priorSignatures.some((key) => key.abstractFallback))
       || priorSignatures.filter((key) => key.reactionType === semantic.reactionType).length >= 2
@@ -1859,7 +1919,7 @@ function finalDiversityGate(picks: XDailyTopPick[], logs: XPostLog[]) {
       const visualPhrase = concreteFactPhrase(primaryUsableVisualFact(current.visualFacts)?.safePhrase ?? "");
       const oldLines = current.postText.split("\n").map((line) => line.trim()).filter(Boolean).filter((line) => !/^https?:\/\//.test(line));
       const middle = visualPhrase && !oldLines.includes(visualPhrase) ? visualPhrase : oldLines[1] ?? "";
-      const rewrittenBody = [openings[accepted.length % openings.length], middle, endings[accepted.length % endings.length]].filter(Boolean).join("\n");
+      const rewrittenBody = [decisionFactProofLine(current.decisionFacts), openings[accepted.length % openings.length], middle, endings[accepted.length % endings.length]].filter(Boolean).join("\n");
       const rewritten = applyTopPickLinkPolicy({ ...current, postText: rewrittenBody });
       rewritten.setDiversity.signature = diversitySignature(rewritten, rewritten.role, rewritten.creativeVariants.find((variant) => variant.id === rewritten.creativeVariantId) ?? rewritten.creativeVariants[0]);
       if (!conflict(rewritten)) {
@@ -1869,7 +1929,7 @@ function finalDiversityGate(picks: XDailyTopPick[], logs: XPostLog[]) {
           creativeVariants: rewritten.creativeVariants.map((variant) => variant.id === selectedId ? { ...variant, bodyText: rewritten.postText } : variant),
           setDiversity: { ...rewritten.setDiversity, status: "OK", reasons: ["最終Diversity Gateでopening・文型・語尾を構造変更"] },
         });
-      } else {
+      } else if (isDistinctCandidate(current, accepted)) {
         accepted.push({
           ...current,
           setDiversity: { ...current.setDiversity, status: "NG", reasons: [...current.setDiversity.reasons, "最終Diversity Gateを通過する代替文が不足"] },
@@ -1889,6 +1949,7 @@ function finalDiversityGate(picks: XDailyTopPick[], logs: XPostLog[]) {
       const semantic = next.setDiversity.signature;
       const priorSignatures = hardened.map((item) => item.setDiversity.signature);
       const conflict = priorSignatures.filter((item) => item.semanticHookCategory === semantic.semanticHookCategory).length >= 2
+        || !isDistinctCandidate(next, hardened)
         || (semantic.semanticHookCategory === "generic_reaction" && priorSignatures.some((item) => item.semanticHookCategory === "generic_reaction"))
         || (semantic.abstractFallback && priorSignatures.some((item) => item.abstractFallback))
         || priorSignatures.filter((item) => item.reactionType === semantic.reactionType).length >= 2
@@ -1913,7 +1974,7 @@ function finalDiversityGate(picks: XDailyTopPick[], logs: XPostLog[]) {
             : shape === 3
               ? [openings[(index + attempt) % openings.length], `${subject}の印象だけ残った。`, endings[(index + attempt) % endings.length]]
               : [openings[(index + attempt) % openings.length], middle, endings[(index + attempt) % endings.length]];
-      const body = bodyLines.filter(Boolean).join("\n");
+      const body = [decisionFactProofLine(current.decisionFacts), ...bodyLines].filter(Boolean).join("\n");
       next = applyTopPickLinkPolicy({ ...current, postText: body });
       next.setDiversity.signature = diversitySignature(next, next.role, next.creativeVariants.find((variant) => variant.id === next.creativeVariantId) ?? next.creativeVariants[0]);
       next = { ...next, creativeVariants: next.creativeVariants.map((variant) => variant.id === next.creativeVariantId ? { ...variant, bodyText: next.postText } : variant) };
@@ -2115,6 +2176,14 @@ function buildSupplyDiagnostics(
   opportunities: XGrowthOpportunity[],
   picks: XDailyTopPick[],
   candidateDiagnostics: { sourcePoolTotal?: number; sourcePoolAfterPosted?: number; postedExcluded?: number; prefilterCount?: number; humanVoiceTargetCount?: number; diversityTargetCount?: number; pipeline?: Record<string, number> } | undefined,
+  decisionSelection: {
+    eligibleSupply: Record<DecisionType, number>;
+    dedupedEligibleSupply: number;
+    selectedBeforeReplenishment: number;
+    replenished: number;
+    selected: number;
+    selectedByType: Record<DecisionType, number>;
+  } | undefined,
   postedWorkIds: ReadonlySet<number>,
   mediaMix?: {
     totalVideoCandidates: number;
@@ -2251,6 +2320,18 @@ function buildSupplyDiagnostics(
     creativeAngleCounts,
     decisionTypeCounts,
     decisionTypeSelected,
+    decisionPipeline: {
+      rawSupply: opportunities.length,
+      classified: opportunities.filter((item) => decisionTypeForCandidate(item) !== "UNKNOWN").length,
+      eligible: Object.values(decisionSelection?.eligibleSupply ?? {}).reduce((sum, count) => sum + count, 0),
+      dedupedEligible: decisionSelection?.dedupedEligibleSupply ?? 0,
+      selectedBeforeReplenishment: decisionSelection?.selectedBeforeReplenishment ?? picks.length,
+      replenished: decisionSelection?.replenished ?? 0,
+      selected: decisionSelection?.selected ?? picks.length,
+      persisted: picks.length,
+      eligibleByType: decisionSelection?.eligibleSupply ?? { RECORD_LOW: 0, HIGH_DISCOUNT_NOT_LOW: 0, HIDDEN_VALUE: 0 },
+      selectedByType: decisionSelection?.selectedByType ?? { RECORD_LOW: 0, HIGH_DISCOUNT_NOT_LOW: 0, HIDDEN_VALUE: 0 },
+    },
     slotAllocation,
     gateOkBySource,
     generatedBySource,
@@ -2472,7 +2553,7 @@ export async function buildXGrowthOS({
     slotEligible: dailySelection.picks.length,
     finalSelected: diversityResult.picks.length,
   };
-  const supplyDiagnostics = buildSupplyDiagnostics(opportunities, diversityResult.picks, { ...candidateResult.diagnostics, prefilterCount: narrowedOpportunities.length, humanVoiceTargetCount: opportunities.length, diversityTargetCount: dailySelection.picks.length, pipeline }, postedWorkIds, finalMediaMix);
+  const supplyDiagnostics = buildSupplyDiagnostics(opportunities, diversityResult.picks, { ...candidateResult.diagnostics, prefilterCount: narrowedOpportunities.length, humanVoiceTargetCount: opportunities.length, diversityTargetCount: dailySelection.picks.length, pipeline }, dailySelection.decisionSelection, postedWorkIds, finalMediaMix);
   const nativeXLearning = buildNativeXLearning(logs, outcomes);
   const persistedTopPicks = await mark("persisted_top_picks_ms", persistDailyTopPicks({
     mission,

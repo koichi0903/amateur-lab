@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { candidateDedupeKey, candidateMediaDedupeKey, isDistinctCandidate } from "./xGrowthOS";
+import { candidateDedupeKey, candidateMediaDedupeKey, decisionCoverageScore, isDecisionFactEligible, isDistinctCandidate } from "./xGrowthOS";
+import { buildDecisionFacts } from "./domain/decisionFacts";
 
 const candidate = (overrides: Record<string, unknown> = {}) => ({
   workId: 1,
@@ -28,4 +29,28 @@ test("different media can reuse a work only when caller explicitly allows cross-
   const second = candidate({ mediaAsset: { id: 2 }, sampleMovieUrl: "https://b" });
   assert.equal(candidateMediaDedupeKey(first) === candidateMediaDedupeKey(second), false);
   assert.equal(isDistinctCandidate(second, [first]), false);
+});
+
+test("Decision Facts eligibility excludes UNKNOWN and preserves all three lanes", () => {
+  const facts = (decisionType: "RECORD_LOW" | "HIGH_DISCOUNT_NOT_LOW" | "HIDDEN_VALUE") => ({
+    ...buildDecisionFacts({
+      currentPrice: 500,
+      recordedLowestPrice: decisionType === "RECORD_LOW" ? 500 : 400,
+      discountRate: decisionType === "HIDDEN_VALUE" ? 20 : 50,
+      isOnSale: true,
+      ranking: decisionType === "HIDDEN_VALUE" ? null : 10,
+      reviewAverage: 4.5,
+      reviewCount: 10,
+    }),
+    decisionType,
+  });
+  assert.equal(isDecisionFactEligible({ decisionFacts: { decisionType: "UNKNOWN" } } as never), false);
+  assert.equal(isDecisionFactEligible({ decisionFacts: facts("RECORD_LOW") } as never), true);
+  assert.equal(isDecisionFactEligible({ decisionFacts: facts("HIGH_DISCOUNT_NOT_LOW") } as never), true);
+  assert.equal(isDecisionFactEligible({ decisionFacts: facts("HIDDEN_VALUE") } as never), true);
+  const supply = { RECORD_LOW: 10, HIGH_DISCOUNT_NOT_LOW: 10, HIDDEN_VALUE: 10, UNKNOWN: 0 } as const;
+  assert.equal(decisionCoverageScore("RECORD_LOW", {}, supply), 100);
+  assert.equal(decisionCoverageScore("HIGH_DISCOUNT_NOT_LOW", { RECORD_LOW: 1 }, supply), 100);
+  assert.equal(decisionCoverageScore("HIDDEN_VALUE", { RECORD_LOW: 1, HIGH_DISCOUNT_NOT_LOW: 1 }, supply), 100);
+  assert.equal(decisionCoverageScore("RECORD_LOW", { RECORD_LOW: 1, HIGH_DISCOUNT_NOT_LOW: 1, HIDDEN_VALUE: 1 }, supply), 0);
 });

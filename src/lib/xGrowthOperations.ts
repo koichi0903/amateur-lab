@@ -9,6 +9,7 @@ import { normalizeTopPickCandidates } from "@/lib/xGrowthTopPicks";
 import type { XDailyMission, XDailyTopPick, XGrowthIntent, XGrowthOpportunity } from "@/lib/xGrowthOS";
 import { buildVisualVideoFacts, type XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
 import { analyzeSampleMovie, videoSourceFingerprint, VIDEO_ANALYSIS_VERSION } from "@/lib/xVideoAnalysis";
+import type { DecisionFacts } from "@/lib/domain/decisionFacts";
 
 export type XDailyPlanStatus = "draft" | "confirmed" | "completed" | "regenerated";
 export type XOpportunityStatus = "candidate" | "adopted" | "rejected" | "posted" | "expired";
@@ -491,6 +492,7 @@ export type SerializedTopPick = {
   alternativeReason: string | null;
   dailyScore: number;
   sourceEvidence: string[];
+  decisionFacts: DecisionFacts | null;
   visualFacts?: XVisualVideoFacts | null;
   setDiversity: XDailyTopPick["setDiversity"];
   mediaAsset: {
@@ -554,6 +556,7 @@ function serializeTopPick(item: XDailyTopPick): SerializedTopPick {
     alternativeReason: item.alternativeReason,
     dailyScore: item.dailyScore,
     sourceEvidence: item.sourceEvidence,
+    decisionFacts: item.decisionFacts ?? null,
     visualFacts: item.visualFacts,
     setDiversity: item.setDiversity,
     mediaAsset: item.mediaAsset ? {
@@ -876,6 +879,7 @@ async function getPersistedTodayTopPicksFallback(staleReason: string) {
       alternativeReason: pick.alternativeReason ?? null,
       dailyScore: pick.dailyScore ?? 0,
       sourceEvidence: pick.sourceEvidence ?? [],
+      decisionFacts: pick.decisionFacts ?? null,
       setDiversity: pick.setDiversity ?? {
         status: "OK",
         roleLabel: "",
