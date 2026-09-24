@@ -45,6 +45,8 @@ assert.ok(videoVariants.some((variant) => variant.quality.lastMile.humanVoice.ch
 assert.ok(videoVariants.some((variant) => variant.quality.lastMile.humanVoice.checks.concreteVisualFact));
 assert.ok(videoVariants.some((variant) => variant.quality.lastMile.nativeXVoice.checks.noTemplateReuse));
 assert.ok(new Set(videoVariants.map((variant) => variant.bodyText.split("\n")[1])).size >= 2);
+assert.ok(videoVariants.some((variant) => variant.bodyText.split("\n").some((line) => line.includes("評価4.7") && line.includes("気になる"))));
+assert.deepEqual(buildXCreativeVariants(baseInput), buildXCreativeVariants(baseInput));
 
 const genericVisualFact = {
   kind: "brightness" as const,

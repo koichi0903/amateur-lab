@@ -903,7 +903,10 @@ function buildLastMileBodies(input: XCreativeInput, intent: XGrowthIntent, linkP
   const moneyReason = moneyClickReason(input);
   const reachReason = input.imageUrl ? "ジャケだけだと少し流してた。" : "知らなかった人でも、サンプルからなら入りやすい。";
   const videoLines = input.hasRightsCheckedMovie && input.sampleMovieUrl ? videoSpecificLines(input, intent, linkPlan, direction) : null;
-  const finalizeBodies = (texts: string[]) => texts.map((text) => ensureFactlessReaderAction(input, intent, direction, text));
+  const finalizeBodies = (texts: string[]) => texts.map((text, index) => {
+    const withFactlessAction = ensureFactlessReaderAction(input, intent, direction, text);
+    return diversifyNativeStructure(input, intent, direction, withFactlessAction, index);
+  });
   if (videoLines) {
     return finalizeBodies([formatText(videoLines, input.title)].map(sanitizePublicText));
   }
@@ -970,6 +973,16 @@ function ensureFactlessReaderAction(input: XCreativeInput, intent: XGrowthIntent
   const choices = choicesByIntent[intent];
   const key = [input.key, input.title, input.sourceType ?? "WORK", intent, direction].join("|");
   return `${text}\n${choices[stableChoiceIndex(key, choices.length)]}`;
+}
+
+function diversifyNativeStructure(input: XCreativeInput, intent: XGrowthIntent, direction: XHookDirection, text: string, index: number) {
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const proof = humanProofLine(input, intent);
+  if (!proof || lines.length !== 2 || lines.some((line) => line.includes(proof))) return text;
+  const key = [input.key, input.title, input.sourceType ?? "WORK", intent, direction, index, proof].join("|");
+  if (stableChoiceIndex(key, 3) !== 0) return text;
+  const proofReaction = `${proof}なのも、少し気になる。`;
+  return formatText([lines[0], proofReaction, lines[1]], input.title);
 }
 
 function chooseFormat(input: XCreativeInput, hook: XHookType): XPostFormat {
