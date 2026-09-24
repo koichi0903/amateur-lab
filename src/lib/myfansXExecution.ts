@@ -180,6 +180,26 @@ export type MyfansSupplyAudit = {
   rows: MyfansSupplyAuditRow[];
 };
 
+export type MyfansExecutionDiagnostics = {
+  planDateJst: string;
+  rawQuoteCount: number;
+  mediaScopeCount: number;
+  freshnessCooldownCount: number;
+  sourceValuePassCount: number;
+  qualifiedDiscoveryCount: number;
+  qualifiedDiscoveryIds: Array<number | string>;
+  productLinkedCount: number;
+  creatorMapHitCount: number;
+  growthQuotePoolCount: number;
+  postDedupeCount: number;
+  qualityGatePassCount: number;
+  qualityGateHoldCount: number;
+  qualityGateHoldReasons: Array<{ reason: string; count: number }>;
+  finalCandidateCount: number;
+  finalOptionCount: number;
+  selectedCount: number;
+};
+
 export type PublicCopyFacts = {
   sourceText: string;
   creatorName: string;
@@ -1931,6 +1951,16 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = curr
     if (selected.length >= 2) break;
   }
   const attentionShortlistCount = global.filter((row) => row.globalScore >= QUOTE_MIN_SCORE).slice(0, 10).length;
+  const freshnessCooldownCount = analytics.quoteCandidates.filter((candidate) => {
+    const age = daysSinceIso(candidate.collected_at);
+    return (age === null || age <= QUOTE_FRESH_DAYS) &&
+      !candidate.is_repost &&
+      !candidate.last_used_at &&
+      (!candidate.cooldown_until || candidate.cooldown_until <= now);
+  }).length;
+  const qualifiedDiscoveryIds = qualified.map((candidate) => candidate.id);
+  const productLinkedCount = qualified.filter((candidate) => Boolean(candidate.product_id && analytics.products.some((product) => product.id === candidate.product_id))).length;
+  const creatorMapHitCount = qualified.filter((candidate) => analytics.products.some((product) => creatorKeyFromProduct(product) === creatorKeyFromQuote(candidate))).length;
   const rejectionCounts = new Map<string, number>();
   const addRejection = (reason: string) => rejectionCounts.set(reason, (rejectionCounts.get(reason) ?? 0) + 1);
   for (const candidate of analytics.quoteCandidates) {
@@ -1961,6 +1991,10 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = curr
       pageSize: analytics.quoteCandidateSource.pageSize,
       rejectionReasons: [...rejectionCounts.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
       candidatePoolLimit: 12,
+      freshnessCooldownCount,
+      qualifiedDiscoveryIds,
+      productLinkedCount,
+      creatorMapHitCount,
     },
   };
 }
@@ -3694,6 +3728,31 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
   const finalLinkedCount = finalPublishableCandidates.filter((candidate) => candidate.linkStrategy === "body_link" || candidate.linkStrategy === "reply_link").length;
   const finalNoDirectLinkCount = finalPublishableCandidates.length - finalLinkedCount;
   const allDailyOptions = fullDailyOptions.flatMap((slot) => slot.candidates);
+  const qualityGateHoldReasons = [...recoveryHistory
+    .filter((attempt) => attempt.verdict !== "PASS")
+    .reduce((counts, attempt) => counts.set(attempt.holdReason || "QUALITY_GATE_HOLD", (counts.get(attempt.holdReason || "QUALITY_GATE_HOLD") ?? 0) + 1), new Map<string, number>())]
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+  const diagnostics: MyfansExecutionDiagnostics = {
+    planDateJst: planDate,
+    rawQuoteCount: analytics.quoteCandidateSource.dbCount,
+    mediaScopeCount: quotePool.funnel.mediaScoped,
+    freshnessCooldownCount: quotePool.funnel.freshnessCooldownCount,
+    sourceValuePassCount: quotePool.funnel.sourceValuePass,
+    qualifiedDiscoveryCount: quotePool.funnel.qualified,
+    qualifiedDiscoveryIds: quotePool.funnel.qualifiedDiscoveryIds,
+    productLinkedCount: quotePool.funnel.productLinkedCount,
+    creatorMapHitCount: quotePool.funnel.creatorMapHitCount,
+    growthQuotePoolCount: growthQuotePool.length,
+    postDedupeCount: quotePool.global.length,
+    qualityGatePassCount: recoveryHistory.filter((attempt) => attempt.verdict === "PASS").length,
+    qualityGateHoldCount: recoveryHistory.filter((attempt) => attempt.verdict !== "PASS").length,
+    qualityGateHoldReasons,
+    finalCandidateCount: finalPublishableCandidates.length,
+    finalOptionCount: allDailyOptions.length,
+    selectedCount: finalPublishableCandidates.length,
+  };
   const productsByCreatorKey = new Map<string, MyfansProduct[]>();
   for (const product of analytics.products) {
     const key = creatorKeyFromProduct(product);
@@ -3848,6 +3907,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     noDirectLinkCount: finalNoDirectLinkCount,
     learning,
     quotePool,
+    diagnostics,
     topicValue: {
       funnel: { ...candidateFunnel, final: finalPublishableCandidates.length },
       top10: topicRows.slice(0, 10),
