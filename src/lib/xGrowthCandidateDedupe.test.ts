@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { candidateDedupeKey, candidateMediaDedupeKey, decisionCoverageScore, isDecisionFactEligible, isDistinctCandidate } from "./xGrowthOS";
+import { candidateDedupeKey, candidateMediaDedupeKey, cheapCandidatePrefilter, decisionCoverageScore, isDecisionFactEligible, isDistinctCandidate } from "./xGrowthOS";
 import { buildDecisionFacts } from "./domain/decisionFacts";
 
 const candidate = (overrides: Record<string, unknown> = {}) => ({
@@ -53,4 +53,54 @@ test("Decision Facts eligibility excludes UNKNOWN and preserves all three lanes"
   assert.equal(decisionCoverageScore("HIGH_DISCOUNT_NOT_LOW", { RECORD_LOW: 1 }, supply), 100);
   assert.equal(decisionCoverageScore("HIDDEN_VALUE", { RECORD_LOW: 1, HIGH_DISCOUNT_NOT_LOW: 1 }, supply), 100);
   assert.equal(decisionCoverageScore("RECORD_LOW", { RECORD_LOW: 1, HIGH_DISCOUNT_NOT_LOW: 1, HIDDEN_VALUE: 1 }, supply), 0);
+});
+
+test("cheap prefilter reserves every available Decision Facts lane before score fill", () => {
+  const facts = (decisionType: "RECORD_LOW" | "HIGH_DISCOUNT_NOT_LOW" | "HIDDEN_VALUE") => ({
+    ...buildDecisionFacts({
+      currentPrice: 500,
+      recordedLowestPrice: decisionType === "RECORD_LOW" ? 500 : 400,
+      discountRate: decisionType === "HIDDEN_VALUE" ? 20 : 50,
+      isOnSale: true,
+      ranking: decisionType === "HIDDEN_VALUE" ? null : 10,
+      reviewAverage: 4.5,
+      reviewCount: 10,
+    }),
+    decisionType,
+  });
+  const visualScoring = { videoHookStrength: 0, visualSpecificity: 0 } as never;
+  const recordLow = Array.from({ length: 120 }, (_, index) => ({
+    key: `record-${index}`,
+    sourceType: "COMPARISON",
+    decisionFacts: facts("RECORD_LOW"),
+    visualScoring,
+    reachScore: 100,
+    followScore: 100,
+    authorityScore: 100,
+    revenueScore: 100,
+  }));
+  const highDiscount = {
+    key: "high-discount",
+    sourceType: "PRICE_EVENT",
+    decisionFacts: facts("HIGH_DISCOUNT_NOT_LOW"),
+    visualScoring,
+    reachScore: 1,
+    followScore: 1,
+    authorityScore: 1,
+    revenueScore: 1,
+  };
+  const hiddenValue = {
+    key: "hidden-value",
+    sourceType: "HIDDEN_GEM",
+    decisionFacts: facts("HIDDEN_VALUE"),
+    visualScoring,
+    reachScore: 1,
+    followScore: 1,
+    authorityScore: 1,
+    revenueScore: 1,
+  };
+  const result = cheapCandidatePrefilter([...recordLow, highDiscount, hiddenValue] as never, 30);
+  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "RECORD_LOW"), true);
+  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIGH_DISCOUNT_NOT_LOW"), true);
+  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIDDEN_VALUE"), true);
 });

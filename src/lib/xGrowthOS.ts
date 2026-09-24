@@ -880,18 +880,23 @@ export function cheapCandidatePrefilter(items: XGrowthOpportunity[], limit = 300
   });
   const selected = new Map<string, XGrowthOpportunity>();
   const add = (item: XGrowthOpportunity) => { if (selected.size < limit) selected.set(item.key, item); };
+  // Decision Facts lanes are a hard supply requirement, not a score-only
+  // preference. Reserve each available lane before role/source ranking fills
+  // the bounded prefilter. Otherwise a large RECORD_LOW pool can consume all
+  // slots and make the later lane-preservation pass a no-op.
+  for (const decisionType of DECISION_TYPES) {
+    const lane = ranked.filter((candidate) => decisionTypeForCandidate(candidate) === decisionType);
+    if (lane[0]) add(lane[0]);
+  }
+  for (const decisionType of DECISION_TYPES) {
+    ranked.filter((candidate) => decisionTypeForCandidate(candidate) === decisionType).slice(1, 30).forEach(add);
+  }
   for (const item of ranked.filter((candidate) => candidate.sourceType === "MONEY").slice(0, 30)) add(item);
   for (const role of ["REACH", "FOLLOW", "AUTHORITY", "MONEY"] as const) {
     [...ranked].sort((a, b) => {
       const score = (item: XGrowthOpportunity) => role === "REACH" ? item.reachScore : role === "FOLLOW" ? item.followScore : role === "AUTHORITY" ? item.authorityScore : item.revenueScore;
       return score(b) - score(a);
     }).slice(0, 30).forEach(add);
-  }
-  // Preserve each Decision Facts lane before the expensive quality matrix.
-  // Score-only narrowing otherwise lets RECORD_LOW crowd out the comparison
-  // lanes even when their database supply is healthy.
-  for (const decisionType of DECISION_TYPES) {
-    ranked.filter((candidate) => decisionTypeForCandidate(candidate) === decisionType).slice(0, 30).forEach(add);
   }
   const perSource = new Map<string, number>();
   for (const item of ranked) {
