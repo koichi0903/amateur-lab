@@ -50,11 +50,11 @@ function quote(id: number, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function analytics(quotes: Array<Record<string, unknown>>) {
+function analytics(quotes: Array<Record<string, unknown>>, products: Array<Record<string, unknown>> = []) {
   return {
     selectedMediaId: 1,
     selectedMedia: { id: 1, media_name: "@lumi_reviw", media_url: "", affiliate_media_id: "", status: "active", notes: "", created_at: "" },
-    products: [],
+    products,
     quoteCandidates: quotes,
     quoteCandidateSource: { dbCount: quotes.length, loadedCount: quotes.length, pageSize: 1000, loadedAll: true, latestCollectedAt: quotes[0]?.collected_at ?? null },
     posts: [],
@@ -68,12 +68,54 @@ function analytics(quotes: Array<Record<string, unknown>>) {
   } as never;
 }
 
+function product(id: number, creatorId: number) {
+  return {
+    id,
+    creator_id: creatorId,
+    approved_media_id: 1,
+    title: `作品${id}`,
+    product_url: `https://myfans.jp/products/${id}`,
+    genre: "素人",
+    product_type: "video",
+    status: "active",
+    price: 1_980,
+    reward_rate: 0.3,
+    estimated_reward: 594,
+    plan_signup_reward: 0,
+    recurring_reward_rate: 0,
+    popularity_rank: 1,
+    likes_count: 100,
+    saves_count: 20,
+    is_new: true,
+    source_x_url: `https://x.com/creator-${creatorId}`,
+    creator_x_url: `https://x.com/creator-${creatorId}`,
+    quote_candidate_x_url: "",
+    affiliate_url: "",
+    selection_reason: "fixture",
+    approved_media_name: "@lumi_reviw",
+    approved_media_url: "",
+    affiliate_media_id: "",
+    created_at: new Date().toISOString(),
+  };
+}
+
 test("eligible unlinked quote sources fill slot options without creating a monetizable product", () => {
   const board = buildMyfansExecutionBoard(analytics(Array.from({ length: 12 }, (_, index) => quote(index + 1))), { planDate: "2026-09-24", operationDay: 1 });
   assert.equal(board.candidateOptions.length, 4);
   assert.ok(board.recovery.candidateOptions <= 12);
   assert.ok(board.recovery.candidateOptions > 0);
   assert.ok(board.candidateOptions.flatMap((slot) => slot.candidates).every((candidate) => candidate.product === null));
+});
+
+test("creator match alone does not turn productless discovery into a product candidate", () => {
+  const board = buildMyfansExecutionBoard(
+    analytics([quote(1)], [product(17, 101)]),
+    { planDate: "2026-09-24", operationDay: 1 },
+  );
+  const options = board.candidateOptions.flatMap((slot) => slot.candidates);
+  assert.ok(options.length > 0);
+  assert.ok(options.every((candidate) => candidate.product === null));
+  assert.ok(options.every((candidate) => candidate.affiliateUrl === ""));
 });
 
 test("NO_CANDIDATES is not converted into a Daily option", () => {

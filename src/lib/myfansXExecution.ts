@@ -2505,8 +2505,11 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
   const rotation = adjustRotationByLearning(ROTATION[stage], stage, learning);
   const pastUsage = buildPastUsageIndex(analytics, planDate);
   const quotePool = buildMyfansQuotePool(analytics, planDate);
+  // quotePool.global already contains the source-value, freshness, media/
+  // public-signal, score, and cooldown gates. Do not apply a second
+  // browser_visible-only gate here: eligible video/image quotes can still
+  // have a render status of unknown while carrying usable media evidence.
   const growthQuotePool = quotePool.global
-    .filter((row) => hasBrowserVisibleVisual(row.candidate))
     .sort((a, b) =>
       Number(hasVerifiedVisualAnalysis(b.candidate)) - Number(hasVerifiedVisualAnalysis(a.candidate)) ||
       b.globalScore - a.globalScore ||
@@ -2773,7 +2776,18 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
         (attempt === 0 ? quoteBySlot.get(`${requestedPostType}:${index}`) : null) ??
         growthQuotePool[(index + attempt) % Math.max(1, growthQuotePool.length)]?.candidate ?? null
       : null;
-    const linkedQuoteProduct = directGrowthQuote ? productForQuote(directGrowthQuote) : null;
+    const hasExactQuoteProductLink = Boolean(directGrowthQuote && (
+      directGrowthQuote.product_id ||
+      productionLinkageEvidence.some((evidence) =>
+        evidence.confidence === "exact" &&
+        Boolean(evidence.product_id) &&
+        normalizeSourceUrl(evidence.source_status_url) === normalizeSourceUrl(directGrowthQuote.x_post_url),
+      )
+    ));
+    // A creator/account match is not a product linkage. Keep a quote with
+    // product_id=null as a productless discovery candidate unless an exact
+    // product relation is already recorded in DB or resolver evidence.
+    const linkedQuoteProduct = directGrowthQuote && hasExactQuoteProductLink ? productForQuote(directGrowthQuote) : null;
     // Keep an eligible but not-yet-linked quote as a discovery opportunity.
     // Do not silently attach it to an unrelated product.
     const scored = linkedQuoteProduct ?? (directGrowthQuote && !needsAffiliateUrl
