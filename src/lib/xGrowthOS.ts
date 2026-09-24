@@ -38,6 +38,10 @@ export { assignSemanticHook, SEMANTIC_CATEGORY_QUOTA, semanticHookCategory } fro
 export function isAllowedXGrowthMediaType(mediaType: XGrowthOpportunity["mediaType"]) {
   return mediaType === "sample_movie" || mediaType === "existing_link_image";
 }
+
+function officialSampleVideoAllowed(item: Pick<XGrowthOpportunity, "mediaAsset" | "sampleMovieUrl">) {
+  return Boolean(item.sampleMovieUrl) && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable;
+}
 export type XOpportunityEvent =
   | "price_anomaly"
   | "ranking_velocity"
@@ -741,7 +745,7 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
     sampleMovieUrl: item.sampleMovieUrl,
     imageUrl: item.imageUrl,
     saleEndAt: item.saleEndAt,
-    hasRightsCheckedMovie: item.canNativeVideo,
+    hasRightsCheckedMovie: item.canNativeVideo || officialSampleVideoAllowed(item),
     mediaManualTags: item.mediaAsset?.manual_tags ?? [],
     mediaQuality: item.mediaAsset?.media_quality ?? "unreviewed",
     xPageViews: item.xPageViews,
@@ -778,7 +782,7 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
     sampleMovieUrl: item.sampleMovieUrl,
     imageUrl: item.imageUrl,
     saleEndAt: item.saleEndAt,
-    hasRightsCheckedMovie: item.canNativeVideo,
+    hasRightsCheckedMovie: item.canNativeVideo || officialSampleVideoAllowed(item),
     mediaManualTags: item.mediaAsset?.manual_tags ?? [],
     mediaQuality: item.mediaAsset?.media_quality ?? "unreviewed",
     xPageViews: item.xPageViews,
@@ -801,7 +805,7 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
     ?? realMediaVariants.find((variant) => variant.quality.passed)
     ?? realMediaVariants[0];
   const mediaType = recommended?.mediaType ?? item.mediaType;
-  const nativeVideoAllowed = mediaType === "sample_movie" && item.canNativeVideo && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable;
+  const nativeVideoAllowed = mediaType === "sample_movie" && officialSampleVideoAllowed(item);
   const resolvedMediaType = mediaType === "sample_movie" && !nativeVideoAllowed
     ? item.imageUrl ? "existing_link_image" as const : "text" as const
     : mediaType;
@@ -853,8 +857,7 @@ export function isOfficialEligibleVideoCandidate(
   item: Pick<XGrowthOpportunity, "canNativeVideo" | "mediaAsset" | "sampleMovieUrl" | "mediaType" | "recommendedMediaUrl">,
 ) {
   return isVideoCandidate({ ...item, mediaType: "sample_movie" })
-    && item.canNativeVideo
-    && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable;
+    && officialSampleVideoAllowed(item);
 }
 
 export function auditCandidateUniqueness(candidates: readonly CandidateIdentity[], postedWorkIds: ReadonlySet<number> = new Set()) {
@@ -920,8 +923,8 @@ export function videoEligibilityReasons(
   const candidate = { ...item, mediaType: variant?.mediaType ?? item.mediaType };
   if (!isVideoCandidate(candidate)) reasons.push("video media/sample_movie_urlなし");
   if (variant?.mediaType !== "sample_movie") reasons.push("creative variantが動画ではない");
-  if (!item.canNativeVideo) reasons.push("rightsまたはX使用可否未確認");
-  if (!isPostableOfficialSampleMovie(asset, item.sampleMovieUrl).usable) reasons.push("official sample / fetch / safety gate NG");
+  if (!officialSampleVideoAllowed(item)) reasons.push("rightsまたはX使用可否未確認");
+  if (!officialSampleVideoAllowed(item)) reasons.push("official sample / fetch / safety gate NG");
   if (asset?.media_quality === "weak") reasons.push("media_quality=weak");
   // null/undefined and unreviewed are intentionally not weak.
   if (tags.includes("too_explicit_for_reach")) reasons.push("too_explicit_for_reach");
@@ -1024,7 +1027,7 @@ function roleScore(item: XGrowthOpportunity, intent: XGrowthIntent) {
   const adPenalty = creative ? Math.min(18, creative.quality.dimensions.adSmell / 4) : 0;
   const roleDiversityBonus = intent === "REACH" && ["MARKET", "COMPARISON", "JUDGMENT"].includes(item.sourceType) ? 8 : 0;
   const mediaType = creative?.mediaType ?? item.mediaType;
-  const mediaPriority = mediaType === "sample_movie" && item.canNativeVideo ? 18
+  const mediaPriority = mediaType === "sample_movie" && officialSampleVideoAllowed(item) ? 18
     : mediaType === "existing_link_image" && item.imageUrl ? 12
       : item.imageUrl ? 8
         : mediaType === "data_card" && ["MARKET", "COMPARISON", "JUDGMENT"].includes(item.sourceType) ? 4
@@ -1051,7 +1054,7 @@ function hasDiversityConflict(item: XGrowthOpportunity, picked: XDailyTopPick[],
 
 function whyToday(item: XGrowthOpportunity, role: XGrowthIntent) {
   return [
-    item.canNativeVideo ? "動画で止まりやすい" : "",
+    officialSampleVideoAllowed(item) ? "動画で止まりやすい" : "",
     item.rankingHistory.status === "ready" && item.rankingHistory.rankingDelta && item.rankingHistory.rankingDelta >= 10 ? "昨日との差分で続報にできる" : "",
     item.imageUrl ? "画像で作品の雰囲気が一目で伝わる" : "",
     item.isNinetyDayLow || item.discountRate >= 30 ? "今日見る理由が価格で説明できる" : "",
@@ -1067,7 +1070,7 @@ function buzzReason(item: XGrowthOpportunity, role: XGrowthIntent) {
     ?? item.creativeVariants.find((creative) => creative.intent === role)
     ?? item.creativeVariants[0];
   if (!variant) return "伸びる理由はまだ弱いため、採用は慎重に判断します。";
-  if (item.canNativeVideo && variant.mediaType === "sample_movie") {
+  if (officialSampleVideoAllowed(item) && variant.mediaType === "sample_movie") {
     const tags = item.mediaAsset?.manual_tags ?? [];
     return tags.includes("first_seconds_strong")
       ? "権利OK動画の最初の数秒をHookにでき、本文は1〜3行の違和感だけに絞れる。"
@@ -1087,7 +1090,7 @@ function buzzReason(item: XGrowthOpportunity, role: XGrowthIntent) {
 function interestAssets(item: XGrowthOpportunity, role: XGrowthIntent) {
   const strongTitleHook = item.title.length >= 18 && (item.reviewAverage ?? 0) >= 4.6 && item.reviewCount >= 20;
   return [
-    item.canNativeVideo ? "権利OK動画" : "",
+    officialSampleVideoAllowed(item) ? "公式sample動画" : "",
     item.imageUrl ? "使用可能画像" : "",
     item.ranking && item.ranking <= 30 ? "明確なランキング上位シグナル" : "",
     item.rankingHistory.status === "ready" && item.rankingHistory.rankingDelta && item.rankingHistory.rankingDelta >= 10 ? "実ランキング差分" : "",
@@ -1258,7 +1261,7 @@ function diversitySignature(item: XGrowthOpportunity, role: XGrowthIntent, varia
     sourceType: item.sourceType,
     hookType: variant.hookType,
     emotionalAngle: variant.hookDirection,
-    mediaType: variant.mediaType === "sample_movie" && !item.canNativeVideo ? item.imageUrl ? "data_card" as const : "text" as const : variant.mediaType,
+    mediaType: variant.mediaType === "sample_movie" && !officialSampleVideoAllowed(item) ? item.imageUrl ? "data_card" as const : "text" as const : variant.mediaType,
     ctaStrategy: variant.ctaStrategy,
     linkStrategy: variant.linkPlan,
     endingPhrase: endingPhrase(variant.bodyText),
@@ -1378,7 +1381,7 @@ function buildTopPickCandidate(input: {
     : input.variant.bodyText;
   const pickMediaType = input.variant.mediaType === "data_card" && input.item.imageUrl
     ? "existing_link_image" as const
-    : input.variant.mediaType === "sample_movie" && !isPostableOfficialSampleMovie(input.item.mediaAsset, input.item.sampleMovieUrl).usable
+    : input.variant.mediaType === "sample_movie" && !officialSampleVideoAllowed(input.item)
     ? input.item.imageUrl ? "existing_link_image" as const : "text" as const
     : input.variant.mediaType;
   const pickMediaUrl = pickMediaType === "sample_movie"
@@ -1456,7 +1459,7 @@ async function fetchRecentDailyPickWorkIds(days = DAILY_PICK_COOLDOWN_DAYS) {
 function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDailyMission, logs: XPostLog[], recentDailyPickWorkIds = new Set<number>(), postedWorkIds = recentPostedWorkIds(logs)) {
   const hasRealMedia = (item: XGrowthOpportunity, variant?: XCreativeVariant | null) => {
     const mediaType = variant?.mediaType ?? item.mediaType;
-    if (mediaType === "sample_movie") return Boolean(item.sampleMovieUrl) && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable;
+    if (mediaType === "sample_movie") return officialSampleVideoAllowed(item);
     return isAllowedXGrowthMediaType(mediaType) && mediaType === "existing_link_image" && Boolean(item.imageUrl);
   };
   const pool = opportunities.filter((item) => (
@@ -1472,7 +1475,7 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
   const reachVideoTier = (item: XGrowthOpportunity) => {
     const asset = item.mediaAsset;
     const tags = asset?.manual_tags ?? [];
-    if (!item.canNativeVideo || !isPostableOfficialSampleMovie(asset, item.sampleMovieUrl).usable) return { tier: "除外", score: -100, reason: "sample movie unusable" };
+    if (!officialSampleVideoAllowed(item)) return { tier: "除外", score: -100, reason: "sample movie unusable" };
     if (tags.includes("too_explicit_for_reach") || tags.includes("weak_visual") || asset?.media_quality === "weak") return { tier: "除外", score: -90, reason: "REACH不向き/weak" };
     if (asset?.media_quality === "strong" && tags.includes("first_seconds_strong")) return { tier: "A", score: 58, reason: "冒頭1〜3秒が強い strong 動画" };
     if (asset?.media_quality === "strong" && (tags.includes("actress_fit") || tags.includes("scene_surprise") || tags.includes("visual_mismatch"))) return { tier: "B", score: 44, reason: "strong 動画に作品固有Hookあり" };
@@ -1547,7 +1550,7 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
           if (role === "MONEY") return Boolean(selected.variant.url);
           if (selected.variant.mediaType !== "sample_movie") return true;
           const tags = item.mediaAsset?.manual_tags ?? [];
-          return item.canNativeVideo && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable && !tags.includes("too_explicit_for_reach") && item.mediaAsset?.media_quality !== "weak";
+          return officialSampleVideoAllowed(item) && !tags.includes("too_explicit_for_reach") && item.mediaAsset?.media_quality !== "weak";
         })
         .sort((a, b) => {
           const categoryA = a.selected.audit.signature.semanticHookCategory;
@@ -1804,7 +1807,7 @@ function selectDailyTopPicks(opportunities: XGrowthOpportunity[], mission: XDail
       .filter(({ candidate, role, selected }) => {
         if (role !== "MONEY" && selected.variant.mediaType === "sample_movie") {
           const tags = candidate.mediaAsset?.manual_tags ?? [];
-          if (!candidate.canNativeVideo || !isPostableOfficialSampleMovie(candidate.mediaAsset, candidate.sampleMovieUrl).usable) return false;
+          if (!officialSampleVideoAllowed(candidate)) return false;
           if (tags.includes("too_explicit_for_reach") || candidate.mediaAsset?.media_quality === "weak") return false;
         }
         return hasRealMedia(candidate, selected.variant);
@@ -2123,8 +2126,7 @@ function replenishAfterFinalDiversity(
     if (variant.mediaType !== "sample_movie") return false;
     const tags = item.mediaAsset?.manual_tags ?? [];
     return Boolean(item.sampleMovieUrl)
-      && item.canNativeVideo
-      && isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable
+      && officialSampleVideoAllowed(item)
       && !tags.includes("too_explicit_for_reach")
       && item.mediaAsset?.media_quality !== "weak";
   };
@@ -2282,8 +2284,8 @@ function semanticSupplyDiagnostics(opportunities: XGrowthOpportunity[], picks: X
 function rawVideoEligibilityReasons(item: XGrowthOpportunity) {
   const reasons: string[] = [];
   if (!isVideoCandidate({ ...item, mediaType: "sample_movie" })) reasons.push("video media/sample_movie_urlなし");
-  if (!item.canNativeVideo) reasons.push("rightsまたはX使用可否未確認");
-  if (!isPostableOfficialSampleMovie(item.mediaAsset, item.sampleMovieUrl).usable) reasons.push("official sample / fetch / safety gate NG");
+  if (!officialSampleVideoAllowed(item)) reasons.push("rightsまたはX使用可否未確認");
+  if (!officialSampleVideoAllowed(item)) reasons.push("official sample / fetch / safety gate NG");
   return [...new Set(reasons)];
 }
 
