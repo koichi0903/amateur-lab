@@ -28,7 +28,7 @@ import { getXMediaSupplyStatus, getRightsReviewQueue, isPostableOfficialSampleMo
 import { isVideoCandidate } from "@/lib/xVideoCandidate";
 import { buildVisualVideoFacts, primaryUsableVisualFact, type XVisualVideoFacts, visualFactScores } from "@/lib/xVisualVideoFacts";
 import { assignSemanticHook, SEMANTIC_CATEGORY_QUOTA } from "./xGrowthSemantic";
-import { decisionFactProofLine, type DecisionType } from "@/lib/domain/decisionFacts";
+import { decisionFactProofLine, type DecisionFacts, type DecisionType } from "@/lib/domain/decisionFacts";
 
 export type XGrowthIntent = "REACH" | "AUTHORITY" | "FOLLOW" | "CONVERSATION" | "MONEY";
 export type XMoneyGateReason = "missing_affiliate_url" | "price_truth_unavailable" | "last_mile_ng" | "native_x_voice_ng" | "unsafe_or_too_explicit" | "duplicate_or_posted" | "stale_or_expired" | "media_mismatch" | "other";
@@ -124,6 +124,22 @@ export function decisionTypeForCandidate(candidate: Pick<XGrowthOpportunity, "de
   const facts = candidate.decisionFacts;
   if ((candidate.category === "hidden_gem" || candidate.sourceType === "HIDDEN_GEM") && facts?.eligibleDecisionTypes?.includes("HIDDEN_VALUE")) return "HIDDEN_VALUE";
   return facts?.decisionType ?? "UNKNOWN";
+}
+
+/**
+ * Resolve the presentation primary at the point where a source/lane is chosen.
+ * eligibleDecisionTypes remains the complete truth/evidence label set; only
+ * decisionType is changed to describe the angle used for this candidate.
+ */
+export function presentationDecisionFactsForSource(
+  facts: DecisionFacts | null | undefined,
+  sourceType: XOpportunitySourceType,
+): DecisionFacts | null | undefined {
+  if (!facts) return facts;
+  const primary = sourceType === "HIDDEN_GEM" && facts.eligibleDecisionTypes.includes("HIDDEN_VALUE")
+    ? "HIDDEN_VALUE"
+    : facts.decisionType;
+  return primary === facts.decisionType ? facts : { ...facts, decisionType: primary };
 }
 
 export function decisionTypesForCandidate(candidate: Pick<XGrowthOpportunity, "decisionFacts">): DecisionType[] {
@@ -585,6 +601,7 @@ export function expandCreativeSupply(candidates: XPostCandidate[]): XPostCandida
       key,
       category,
       sourceType,
+      decisionFacts: presentationDecisionFactsForSource(candidate.decisionFacts, sourceType) ?? candidate.decisionFacts,
       selectionReason: `${candidate.selectionReason} angle:${suffix}`,
     });
   };

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { candidateDedupeKey, candidateMediaDedupeKey, cheapCandidatePrefilter, decisionCoverageScore, decisionTypeForCandidate, decisionTypesForCandidate, isDecisionFactEligible, isDistinctCandidate, preserveDecisionLanesBeforeLimit } from "./xGrowthOS";
+import { buildXCreativeVariants } from "./xCreativeEngine";
+import { candidateDedupeKey, candidateMediaDedupeKey, cheapCandidatePrefilter, decisionCoverageScore, decisionTypeForCandidate, decisionTypesForCandidate, expandCreativeSupply, isDecisionFactEligible, isDistinctCandidate, presentationDecisionFactsForSource, preserveDecisionLanesBeforeLimit } from "./xGrowthOS";
 import { buildDecisionFacts } from "./domain/decisionFacts";
 
 const candidate = (overrides: Record<string, unknown> = {}) => ({
@@ -84,6 +85,53 @@ test("HIDDEN_GEM sourceType promotes a multi-label candidate to HIDDEN_VALUE pri
   assert.deepEqual(facts.eligibleDecisionTypes, ["RECORD_LOW", "HIDDEN_VALUE"]);
   assert.equal(decisionTypeForCandidate({ decisionFacts: facts, sourceType: "HIDDEN_GEM" } as never), "HIDDEN_VALUE");
   assert.equal(decisionTypeForCandidate({ decisionFacts: facts, sourceType: "PRICE_EVENT" } as never), "RECORD_LOW");
+});
+
+test("HIDDEN_GEM expansion propagates primary facts into HIDDEN copy and persistence payload", () => {
+  const facts = buildDecisionFacts({
+    currentPrice: 213,
+    recordedLowestPrice: 213,
+    discountRate: 30,
+    isOnSale: true,
+    ranking: null,
+    reviewAverage: 4.5,
+    reviewCount: 10,
+  });
+  const primaryFacts = presentationDecisionFactsForSource(facts, "HIDDEN_GEM");
+  assert.equal(primaryFacts?.decisionType, "HIDDEN_VALUE");
+  assert.deepEqual(primaryFacts?.eligibleDecisionTypes, ["RECORD_LOW", "HIDDEN_VALUE"]);
+  const hiddenCopy = buildXCreativeVariants({
+    key: "hidden-primary",
+    title: "Hidden work",
+    url: "https://example.test/work",
+    category: "discovery_gap",
+    actress: null,
+    genre: null,
+    currentPrice: 213,
+    previousPrice: null,
+    discountRate: 30,
+    reviewAverage: 4.5,
+    reviewCount: 10,
+    ranking: null,
+    score: 50,
+    discoveryScore: 60,
+    buyTimingScore: 40,
+    isNinetyDayLow: false,
+    decisionFacts: primaryFacts!,
+    sourceType: "HIDDEN_GEM",
+  });
+  assert.equal(hiddenCopy.some((variant) => variant.bodyText.includes("ランキング外") && variant.bodyText.includes("レビュー10件")), true);
+
+  const expanded = expandCreativeSupply([{
+    key: "hidden-expansion",
+    category: "score",
+    sourceType: "WORK",
+    discoveryScore: 60,
+    decisionFacts: facts,
+  } as never]);
+  const hidden = expanded.find((candidate) => candidate.sourceType === "HIDDEN_GEM");
+  assert.equal(hidden?.decisionFacts?.decisionType, "HIDDEN_VALUE");
+  assert.deepEqual(hidden?.decisionFacts?.eligibleDecisionTypes, ["RECORD_LOW", "HIDDEN_VALUE"]);
 });
 
 test("cheap prefilter reserves every available Decision Facts lane before score fill", () => {
