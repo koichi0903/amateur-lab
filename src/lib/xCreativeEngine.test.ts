@@ -75,6 +75,17 @@ const recentLogs = videoBodies.map((postText, index) => ({
 const reuseChecked = buildXCreativeVariants({ ...baseInput, recentLogs });
 assert.ok(reuseChecked.some((variant) => !variant.quality.lastMile.nativeXVoice.checks.noTemplateReuse));
 
+const repeatedFingerprintLogs = [0, 1].map((index) => ({
+  id: index + 200,
+  post_text: `${index ? "別の" : "前の"}投稿です。\n続きも見ておきたい。`,
+  posted_at: new Date().toISOString(),
+  creative_genome: {},
+})) as XPostLog[];
+const fingerprintDiversified = buildXCreativeVariants({ ...baseInput, recentLogs: repeatedFingerprintLogs })
+  .filter((variant) => variant.mediaType === "sample_movie");
+assert.ok(fingerprintDiversified.filter((variant) => variant.quality.lastMile.nativeXVoice.checks.noTemplateReuse).length >= 10);
+assert.ok(fingerprintDiversified.some((variant) => variant.bodyText.startsWith("固定女優、")));
+
 const protectedText = "この入り方、少し気になって続きを見てしまう。\n冒頭の展開が予想と少し違う。";
 const sameStructureLogs = [0, 1].map((index) => ({
   id: index + 100,

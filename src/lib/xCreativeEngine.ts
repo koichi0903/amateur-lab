@@ -394,7 +394,7 @@ function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPl
       : nativeVisualOpening(input, visualFact, concretePhrase, intent, direction);
     const subjectLead = primaryActress(input) ? `${subject}、${action}` : `${subject}で、${action}`;
     const lines = layout === 0
-      ? [visualOpening, action]
+      ? [subjectLead, visualOpening]
       : layout === 1
         ? [action, concretePhrase]
         : layout === 2
