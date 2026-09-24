@@ -844,27 +844,37 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
 export function DailyPlanReevaluateButton({ approvedMediaId }: { approvedMediaId: number }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<Message>(null);
 
   async function reevaluate() {
     setPending(true);
+    setMessage(null);
     try {
       const response = await fetch("/api/admin/myfans/daily-plan/reevaluate", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ approvedMediaId }),
       });
-      if (!response.ok) throw new Error("再評価に失敗しました。");
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "再評価に失敗しました。保存状態は変更されていません。");
+      if (payload.error) throw new Error(payload.error);
+      setMessage({ text: "Daily Planを保存しました。", error: false });
       router.refresh();
+    } catch (error) {
+      setMessage({ text: error instanceof Error ? error.message : "再評価に失敗しました。保存状態は変更されていません。", error: true });
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <button type="button" onClick={reevaluate} disabled={pending} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-black text-white disabled:cursor-wait disabled:opacity-60">
-      {pending ? <LoaderCircle size={17} className="animate-spin" /> : <RefreshCw size={17} />}
-      今日の候補を再評価
-    </button>
+    <div className="flex flex-col items-start gap-2">
+      <button type="button" onClick={reevaluate} disabled={pending} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-black text-white disabled:cursor-wait disabled:opacity-60">
+        {pending ? <LoaderCircle size={17} className="animate-spin" /> : <RefreshCw size={17} />}
+        {pending ? "再評価中…" : "今日の候補を再評価"}
+      </button>
+      {message && <p role="status" className={`text-xs ${message.error ? "text-red-300" : "text-emerald-300"}`}>{message.text}</p>}
+    </div>
   );
 }
 

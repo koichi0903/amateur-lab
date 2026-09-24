@@ -117,6 +117,29 @@ test("execution diagnostics are read-only and identify qualified quote ids witho
   assert.equal(JSON.stringify(board.diagnostics).includes("affiliate"), false);
 });
 
+test("three eligible discovery quotes are distributed across slots instead of collapsing into one slot", () => {
+  const board = buildMyfansExecutionBoard(analytics([
+    quote(588, { text_excerpt: "制服っぽい写真から始まるから一回戻る" }),
+    quote(600, { text_excerpt: "海辺で赤と黒だけ浮くから目が止まる" }),
+    quote(614, { text_excerpt: "引きから近めに変わるから印象が残る" }),
+  ]), { planDate: "2026-09-24", operationDay: 1 });
+  assert.ok(board.recovery.candidateOptions >= 2);
+  assert.ok(board.recovery.passCount >= 2);
+  assert.ok(board.candidates.length >= 2);
+  assert.ok(new Set(board.candidates.map((candidate) => candidate.sourceXUrl)).size >= 2);
+});
+
+test("one genuinely eligible quote stays at one selected candidate and cooldown is not bypassed", () => {
+  const board = buildMyfansExecutionBoard(analytics([
+    quote(1),
+    quote(2, { last_used_at: "2026-09-24T00:00:00.000Z", cooldown_until: "2026-10-24T00:00:00.000Z" }),
+    quote(3, { selected_for_today: true, last_used_at: "2026-09-24T00:00:00.000Z" }),
+  ]), { planDate: "2026-09-24", operationDay: 1 });
+  assert.equal(board.recovery.candidateOptions, 1);
+  assert.equal(board.candidates.length, 1);
+  assert.deepEqual(board.diagnostics.qualifiedDiscoveryIds, [1]);
+});
+
 test("creator match alone does not turn productless discovery into a product candidate", () => {
   const board = buildMyfansExecutionBoard(
     analytics([quote(1)], [product(17, 101)]),
