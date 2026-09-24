@@ -4,7 +4,8 @@ import { getMyfansAnalytics } from "@/lib/myfansAnalytics";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildMyfansAcquisitionPlanner } from "@/lib/myfansAcquisitionPlanner";
 import { buildMyfansExecutionBoard, buildQuoteCandidateCollectionTasks } from "@/lib/myfansXExecution";
-import { AffiliatePasteImportForm, DailyPlanReevaluateButton, QuoteCandidateTasks, XExecutionBoard } from "./MyfansAdminForms";
+import { restorePersistedDailySnapshot } from "@/lib/myfansDailySnapshotView";
+import { AffiliatePasteImportForm, DailyPlanReevaluateButton, PersistedDailyPlanBoard, QuoteCandidateTasks, XExecutionBoard } from "./MyfansAdminForms";
 import { permanentRedirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -59,15 +60,17 @@ export default async function MyfansDailyPage({
   const currentPlan = analytics.dailyPlans.find((plan) => plan.plan_date === board.planDate && plan.approved_media_id === selectedMediaId)
     ?? analytics.dailyPlans.find((plan) => plan.plan_date === board.planDate && plan.approved_media_id === null)
     ?? null;
-  const savedSelection = currentPlan?.strategy_json?.daily_option_selection;
-  const snapshot = currentPlan ? {
-    message: "保存済みDaily Snapshot",
+  const persistedSnapshot = currentPlan ? restorePersistedDailySnapshot({
     id: currentPlan.id,
-    revision: currentPlan.revision ?? null,
-    postCount: board.candidates.length,
+    planDate: currentPlan.plan_date,
+    revision: currentPlan.revision,
     evaluatedAt: currentPlan.evaluated_at ?? currentPlan.updated_at ?? null,
-    selectedOptions: savedSelection && typeof savedSelection === "object" ? savedSelection as Record<string, string> : {},
-  } : null;
+    strategyJson: currentPlan.strategy_json,
+  }) : null;
+  const displayOptionCount = persistedSnapshot?.optionCount ?? board.recovery.candidateOptions;
+  const displaySelectedCount = persistedSnapshot?.selectedCount ?? board.recovery.passCount;
+  const displaySelectedStatus = displaySelectedCount >= board.recovery.selectedMinimum ? "READY" : "SUPPLY_INSUFFICIENT";
+  const displayPostCount = persistedSnapshot?.selectedCount ?? board.candidates.length;
   const quoteTasks = buildQuoteCandidateCollectionTasks(analytics);
 
 
@@ -105,13 +108,17 @@ export default async function MyfansDailyPage({
               <p className="text-xs font-black tracking-[0.16em] text-emerald-300">TODAY AT A GLANCE</p>
               <h2 id="myfans-status-title" className="mt-2 text-2xl font-black">今日の状態</h2>
             </div>
-            <p className="text-xs text-zinc-400">{board.planDate} JST / {board.todayStrategy.stageLabel}</p>
+            <div className="text-right text-xs text-zinc-400">
+              <p>{board.planDate} JST / {board.todayStrategy.stageLabel}</p>
+              {persistedSnapshot && <p className="mt-1 text-emerald-300">保存済み plan {persistedSnapshot.planId} / revision {persistedSnapshot.revision ?? "-"} / {dateTime(persistedSnapshot.evaluatedAt)}</p>}
+              {!persistedSnapshot && <p className="mt-1 text-amber-300">live preview（未保存）</p>}
+            </div>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-            <Card label="候補 options" value={`${board.recovery.candidateOptions}/${board.recovery.candidateOptionsTarget}`} note="4 slot × A/B/C" />
-            <Card label="今日 selected" value={`${board.recovery.passCount}/${board.recovery.selectedMinimum}〜${board.recovery.selectedMaximum}`} note={board.recovery.selectedStatus === "READY" ? "投稿候補あり" : "供給不足"} />
+            <Card label="候補 options" value={`${displayOptionCount}/${board.recovery.candidateOptionsTarget}`} note={persistedSnapshot ? "保存済みDaily Snapshot" : "4 slot × A/B/C"} />
+            <Card label="今日 selected" value={`${displaySelectedCount}/${board.recovery.selectedMinimum}〜${board.recovery.selectedMaximum}`} note={displaySelectedStatus === "READY" ? "投稿候補あり" : "供給不足"} />
             <Card label="収集推奨" value={`${quoteTasks.length}件`} note="全クリエイター巡回" />
-            <Card label="投稿候補" value={`${board.candidates.length}本`} note={board.heldCandidates.length ? `保留 ${board.heldCandidates.length}本` : "Quality Gate通過"} />
+            <Card label="投稿候補" value={`${displayPostCount}本`} note={persistedSnapshot ? "保存済みselected" : board.heldCandidates.length ? `保留 ${board.heldCandidates.length}本` : "Quality Gate通過"} />
             <Card label="投稿後入力" value={analytics.posts.some((post) => post.status === "ready") ? "投稿URL" : "候補保存"} note="URL・24h指標" />
             <Card label="最新収集" value={dateTime(board.quotePool.funnel.latestCollectedAt)} note="Companion保存時刻" />
           </div>
@@ -131,8 +138,8 @@ export default async function MyfansDailyPage({
               <p className="mt-2 text-xs leading-5 text-zinc-400">{planner.tasks.length ? `全クリエイター巡回から次の${Math.min(10, Math.max(5, planner.tasks.length))}件を収集` : "収集より投稿・計測を優先"} / cursor・cycleは自動保持</p>
             </a>
             <a href="#today-candidates" className="rounded-lg border border-violet-800 bg-zinc-950 p-4 transition hover:border-violet-500">
-              <p className="text-sm font-black text-violet-200">2. {board.recovery.passCount < board.recovery.selectedMinimum ? "候補を選ぶ" : "投稿準備"}</p>
-              <p className="mt-2 text-xs leading-5 text-zinc-400">{board.recovery.passCount}/{board.recovery.selectedMinimum}〜{board.recovery.selectedMaximum} selected / A・B・Cから選択</p>
+              <p className="text-sm font-black text-violet-200">2. {displaySelectedCount < board.recovery.selectedMinimum ? "候補を選ぶ" : "投稿準備"}</p>
+              <p className="mt-2 text-xs leading-5 text-zinc-400">{displaySelectedCount}/{board.recovery.selectedMinimum}〜{board.recovery.selectedMaximum} selected / {persistedSnapshot ? "保存済みplanを表示中" : "A・B・Cから選択"}</p>
             </a>
             <a href="#post-metrics" className="rounded-lg border border-cyan-800 bg-zinc-950 p-4 transition hover:border-cyan-500">
               <p className="text-sm font-black text-cyan-200">3. {analytics.posts.some((post) => post.status === "ready") ? "投稿後を記録" : "投稿URLを保存"}</p>
@@ -145,7 +152,7 @@ export default async function MyfansDailyPage({
           </div>
         </section>
 
-        {board.recovery.candidateOptions < board.recovery.candidateOptionsTarget && (
+        {!persistedSnapshot && board.recovery.candidateOptions < board.recovery.candidateOptionsTarget && (
           <section className="mt-5 rounded-xl border border-amber-800 bg-amber-950/20 p-5" aria-labelledby="myfans-funnel-diagnostics-title">
             <p className="text-xs font-black tracking-[0.16em] text-amber-300">FUNNEL DIAGNOSTICS</p>
             <h2 id="myfans-funnel-diagnostics-title" className="mt-2 text-xl font-black">候補が足りない理由</h2>
@@ -163,8 +170,8 @@ export default async function MyfansDailyPage({
         )}
 
         <details className="mt-5 rounded-xl border border-cyan-900 bg-cyan-950/15 p-5">
-          <summary className="cursor-pointer list-none text-sm font-black text-cyan-200">Daily候補診断（read-only）</summary>
-          <p className="mt-3 text-xs leading-5 text-zinc-500">ページ生成時の件数と理由コードだけを表示します。本文、リンク値、affiliate値は記録しません。</p>
+          <summary className="cursor-pointer list-none text-sm font-black text-cyan-200">{persistedSnapshot ? "現在候補の再計算結果（read-only）" : "Daily候補診断（read-only）"}</summary>
+          <p className="mt-3 text-xs leading-5 text-zinc-500">{persistedSnapshot ? "保存済みDaily Snapshotは上の表示を正本とし、ここは再評価前のlive preview診断です。" : "ページ生成時の件数と理由コードだけを表示します。本文、リンク値、affiliate値は記録しません。"}</p>
           <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">JST日付</p><p className="mt-1 font-black text-white">{board.diagnostics.planDateJst}</p></div>
             <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">raw / media scope</p><p className="mt-1 font-black text-white">{board.diagnostics.rawQuoteCount} / {board.diagnostics.mediaScopeCount}</p></div>
@@ -243,7 +250,7 @@ export default async function MyfansDailyPage({
 
         <div id="today-candidates" className="mt-8">
           <div id="post-metrics">
-            <XExecutionBoard candidates={board.candidates} candidateOptions={board.candidateOptions} selectedOptions={snapshot?.selectedOptions ?? {}} planDate={board.planDate} posts={analytics.posts} />
+            {persistedSnapshot ? <PersistedDailyPlanBoard snapshot={persistedSnapshot} /> : <XExecutionBoard candidates={board.candidates} candidateOptions={board.candidateOptions} selectedOptions={board.selectedOptions} planDate={board.planDate} posts={analytics.posts} />}
           </div>
         </div>
 

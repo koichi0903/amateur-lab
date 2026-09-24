@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, Download, ExternalLink, FileUp, Image as ImageIcon, LoaderCircle, MousePointerClick, Plus, RefreshCw, Save, XCircle } from "lucide-react";
 import type { buildMyfansExecutionBoard, MyfansQuoteCollectionTask } from "@/lib/myfansXExecution";
 import type { MyfansApprovedMedia, MyfansCreator, MyfansProduct, MyfansXPost } from "@/lib/myfansAnalytics";
+import type { PersistedDailySnapshotView } from "@/lib/myfansDailySnapshotView";
 import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummary";
 import { MYFANS_AFFILIATE_URL_SOURCE_MANUAL, MYFANS_CLICK_ATTRIBUTION_WINDOW_HOURS, myfansAffiliateLinkStatus, myfansAffiliateLinkStatusLabel, normalizeMyfansAffiliateUrl } from "@/lib/myfansAffiliateLink";
 import { getXWeightedLength } from "@/lib/xText";
@@ -875,6 +876,63 @@ export function DailyPlanReevaluateButton({ approvedMediaId }: { approvedMediaId
       </button>
       {message && <p role="status" className={`text-xs ${message.error ? "text-red-300" : "text-emerald-300"}`}>{message.text}</p>}
     </div>
+  );
+}
+
+export function PersistedDailyPlanBoard({ snapshot }: { snapshot: PersistedDailySnapshotView }) {
+  return (
+    <section className="space-y-5" aria-labelledby="persisted-daily-plan-title">
+      <div className="rounded-xl border border-emerald-800 bg-emerald-950/20 p-5">
+        <p className="text-xs font-black tracking-[0.16em] text-emerald-300">PERSISTED DAILY SNAPSHOT</p>
+        <h2 id="persisted-daily-plan-title" className="mt-2 text-xl font-black">保存済みDaily Planを表示中</h2>
+        <p className="mt-2 text-xs leading-5 text-zinc-400">plan {snapshot.planId} / revision {snapshot.revision ?? "-"} / selected {snapshot.selectedCount}件 / 保存時刻 {snapshot.evaluatedAt ? new Date(snapshot.evaluatedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", hour12: false }) : "-"}</p>
+        <p className="mt-2 text-xs leading-5 text-zinc-500">再評価を実行するまで、候補0件のlive計算結果でこの保存状態を上書きしません。slot番号と空slotは保存値をそのまま表示します。</p>
+      </div>
+      {snapshot.slots.map((slot) => {
+        const selectedLabel = snapshot.selectedOptions[String(slot.postOrder)] ?? "";
+        return (
+          <article key={`${slot.slot}-${slot.postOrder}`} className="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-xs font-black text-emerald-300">Slot{slot.postOrder} / {slot.slot || "保存値"}</p>
+                <h2 className="mt-1 text-xl font-black">保存済み候補</h2>
+              </div>
+              <p className="text-xs font-black text-zinc-400">選択済み: {selectedLabel || "なし"}</p>
+            </div>
+            <div className="mt-4 grid gap-4 lg:grid-cols-3">
+              {slot.candidates.map((candidate) => {
+                const selected = selectedLabel === candidate.optionLabel;
+                return (
+                  <div key={candidate.id} className={`rounded-lg border p-4 ${selected ? "border-emerald-500 bg-emerald-950/25" : "border-zinc-800 bg-zinc-950"}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-black text-white">候補{candidate.optionLabel}（{candidate.optionName}）</p>
+                        <p className="mt-1 text-xs font-bold text-zinc-500">{candidate.candidateType || "保存済み候補"} / {candidate.role || "-"} / {candidate.postType || "-"}</p>
+                      </div>
+                      <span className={`rounded-md px-2 py-1 text-[11px] font-black ${selected ? "bg-emerald-400 text-black" : "bg-zinc-800 text-zinc-300"}`}>{selected ? "選択済み" : "未選択"}</span>
+                    </div>
+                    <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+                      <p className="text-xs font-black text-zinc-500">公開本文全文</p>
+                      <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-zinc-100">{candidate.body || "保存済み本文なし"}</p>
+                    </div>
+                    <div className="mt-3 grid gap-1 text-xs leading-5 text-zinc-300">
+                      <p><span className="font-black text-zinc-500">引用元X:</span> {candidate.quoteXUrl || candidate.sourceXUrl || "-"}</p>
+                      <p><span className="font-black text-zinc-500">候補タイプ:</span> {candidate.candidateType || "-"} / {candidate.monetizableStatus || "unlinked"}</p>
+                      <p><span className="font-black text-zinc-500">myfans作品:</span> {candidate.productTitle || "なし"}</p>
+                      <p><span className="font-black text-zinc-500">送客先:</span> {candidate.myfansTargetUrl || "なし"}</p>
+                      <p><span className="font-black text-zinc-500">アフィリエイト:</span> {candidate.affiliateUrl ? candidate.affiliateUrl : "なし（product-less discoveryを含む）"}</p>
+                      <p><span className="font-black text-zinc-500">Quality:</span> {candidate.quality ?? "-"} / Topic Value {candidate.topicValue ?? "-"}</p>
+                      <p><span className="font-black text-zinc-500">新規性:</span> {candidate.noveltyLabel || "保存値"} / 同じsource: {candidate.sameSourceStatus || "-"}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </article>
+        );
+      })}
+      {!snapshot.slots.length && <p className="rounded-xl border border-amber-800 bg-amber-950/20 p-5 text-sm text-amber-200">保存済みplanの候補snapshotが空です。再評価は実行せず、保存状態を保持しています。</p>}
+    </section>
   );
 }
 
