@@ -533,7 +533,7 @@ function angleForSource(sourceType: XOpportunitySourceType): XCreativeAngle {
   return map[sourceType];
 }
 
-function expandCreativeSupply(candidates: XPostCandidate[]): XPostCandidate[] {
+export function expandCreativeSupply(candidates: XPostCandidate[]): XPostCandidate[] {
   const expanded = new Map<string, XPostCandidate>();
   const add = (candidate: XPostCandidate, sourceType: XOpportunitySourceType, suffix: string, category = candidate.category) => {
     const key = `${candidate.key}-${suffix}`;
@@ -565,7 +565,7 @@ function expandCreativeSupply(candidates: XPostCandidate[]): XPostCandidate[] {
   return [...expanded.values()];
 }
 
-function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity {
+export function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity {
   const eventType = inferEvent(candidate);
   const hasVideo = candidate.creativeKind !== "comparison";
   const priceSignal = candidate.decisionFacts?.decisionType === "RECORD_LOW" ? 24 : candidate.isNinetyDayLow ? 24 : candidate.previousPrice ? 16 : candidate.discountRate >= 30 ? 10 : 0;
@@ -905,6 +905,24 @@ export function cheapCandidatePrefilter(items: XGrowthOpportunity[], limit = 300
     perSource.set(item.sourceType, (perSource.get(item.sourceType) ?? 0) + 1);
   }
   return ranked.filter((item) => selected.has(item.key)).slice(0, limit);
+}
+
+/** Keep Decision Facts lanes alive before applying the bounded score window. */
+export function preserveDecisionLanesBeforeLimit(
+  items: XGrowthOpportunity[],
+  limit = 500,
+  mustKeepWorkIds: ReadonlySet<number> = new Set(),
+) {
+  const selected = new Map<string, XGrowthOpportunity>();
+  const add = (item: XGrowthOpportunity) => {
+    if (selected.size < limit) selected.set(item.key, item);
+  };
+  for (const item of items) if (mustKeepWorkIds.has(item.workId)) add(item);
+  for (const decisionType of DECISION_TYPES) {
+    items.filter((item) => decisionTypeForCandidate(item) === decisionType).slice(0, 30).forEach(add);
+  }
+  for (const item of items) add(item);
+  return [...selected.values()];
 }
 
 function applyRankingHistory(opportunities: XGrowthOpportunity[], histories: Map<number, { observations: number; previousRanking: number | null }>) {
@@ -2519,10 +2537,7 @@ export async function buildXGrowthOS({
   });
   const baseLimit = includeDeferred ? 500 : 500;
   const mustKeepWorkIds = new Set([56714]);
-  const scored = [
-    ...scoredAll.filter((item) => mustKeepWorkIds.has(item.workId)),
-    ...scoredAll.slice(0, baseLimit),
-  ].filter((item, index, rows) => rows.findIndex((row) => row.key === item.key) === index);
+  const scored = preserveDecisionLanesBeforeLimit(scoredAll, baseLimit, mustKeepWorkIds);
   const [media, rankingHistories] = await Promise.all([
     mark("media_assets_ms", fetchMediaAssets(scored.map((item) => item.workId))),
     mark("ranking_history_ms", fetchRankingSnapshotHistory(scored.map((item) => item.workId))),

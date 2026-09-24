@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { candidateDedupeKey, candidateMediaDedupeKey, cheapCandidatePrefilter, decisionCoverageScore, isDecisionFactEligible, isDistinctCandidate } from "./xGrowthOS";
+import { candidateDedupeKey, candidateMediaDedupeKey, cheapCandidatePrefilter, decisionCoverageScore, isDecisionFactEligible, isDistinctCandidate, preserveDecisionLanesBeforeLimit } from "./xGrowthOS";
 import { buildDecisionFacts } from "./domain/decisionFacts";
 
 const candidate = (overrides: Record<string, unknown> = {}) => ({
@@ -100,6 +100,35 @@ test("cheap prefilter reserves every available Decision Facts lane before score 
     revenueScore: 1,
   };
   const result = cheapCandidatePrefilter([...recordLow, highDiscount, hiddenValue] as never, 30);
+  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "RECORD_LOW"), true);
+  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIGH_DISCOUNT_NOT_LOW"), true);
+  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIDDEN_VALUE"), true);
+});
+
+test("score window preserves Decision Facts lanes before truncating ranked supply", () => {
+  const facts = (decisionType: "RECORD_LOW" | "HIGH_DISCOUNT_NOT_LOW" | "HIDDEN_VALUE") => ({
+    ...buildDecisionFacts({
+      currentPrice: 500,
+      recordedLowestPrice: decisionType === "RECORD_LOW" ? 500 : 400,
+      discountRate: decisionType === "HIDDEN_VALUE" ? 20 : 50,
+      isOnSale: true,
+      ranking: decisionType === "HIDDEN_VALUE" ? null : 10,
+      reviewAverage: 4.5,
+      reviewCount: 10,
+    }),
+    decisionType,
+  });
+  const visualScoring = { videoHookStrength: 0, visualSpecificity: 0 } as never;
+  const recordLow = Array.from({ length: 600 }, (_, index) => ({
+    key: `record-window-${index}`,
+    workId: index + 1,
+    sourceType: "COMPARISON",
+    decisionFacts: facts("RECORD_LOW"),
+    visualScoring,
+  }));
+  const highDiscount = { key: "high-window", workId: 10_001, sourceType: "PRICE_EVENT", decisionFacts: facts("HIGH_DISCOUNT_NOT_LOW"), visualScoring };
+  const hiddenValue = { key: "hidden-window", workId: 10_002, sourceType: "HIDDEN_GEM", decisionFacts: facts("HIDDEN_VALUE"), visualScoring };
+  const result = preserveDecisionLanesBeforeLimit([...recordLow, highDiscount, hiddenValue] as never, 100);
   assert.equal(result.some((item) => item.decisionFacts?.decisionType === "RECORD_LOW"), true);
   assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIGH_DISCOUNT_NOT_LOW"), true);
   assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIDDEN_VALUE"), true);
