@@ -16,6 +16,7 @@ export type MyfansDailySnapshotResult = {
   revision: number | null;
   evaluatedAt: string | null;
   selectedOptions: Record<string, string>;
+  errorCode?: string;
 };
 
 function snapshotEvidence(candidate: MyfansDailyCandidate | MyfansDailyCandidateOption, board: MyfansExecutionBoard) {
@@ -241,10 +242,14 @@ export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard, app
     score_json: { global_score: row.globalScore, source_score: row.candidate.score, rank: index + 1 },
     evidence_json: { visual_verified: row.candidate.quote_visual_ready, visual_render_status: visualRenderStatus(row.candidate), media_type: row.candidate.media_type, media_permalink: row.candidate.media_permalink, views: row.candidate.views, likes: row.candidate.likes, reposts: row.candidate.reposts, replies: row.candidate.replies, creator_rank: row.candidate.creator_rank, reason: row.candidate.score_reason },
   }));
-  const linkage = [...board.candidates, ...(board.candidateOptions ?? []).flatMap((slot) => slot.candidates)]
+  const linkageRows = [...board.candidates, ...(board.candidateOptions ?? []).flatMap((slot) => slot.candidates)]
     .map((candidate) => candidate.resolverEvidence)
     .filter((row): row is NonNullable<typeof row> => Boolean(row?.source_status_url && row.discovered_myfans_url && row.diagnostic_mode !== true))
     .map((row) => ({ approved_media_id: row.approved_media_id ?? null, quote_candidate_id: row.quote_candidate_id ?? null, source_status_url: row.source_status_url, source_author_handle: row.source_author_handle, discovered_myfans_url: row.discovered_myfans_url, final_myfans_url: row.final_myfans_url ?? null, product_id: row.product_id ?? null, resolution_method: row.resolution_method, confidence: row.confidence, evidence_source: row.evidence_source, verified_at: row.verified_at, metadata: row.metadata ?? {} }));
+  const linkage = [...new Map(linkageRows.map((row) => [
+    `${row.source_status_url}\u0000${row.discovered_myfans_url}\u0000${row.evidence_source}`,
+    row,
+  ])).values()];
   const outbound = board.outboundTasks.map((task) => ({ task_type: task.type, target_url: task.targetUrl, reason: task.reason, suggested_text: task.suggestedText }));
   const plan = {
     approved_media_id: approvedMediaId,
@@ -265,8 +270,14 @@ export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard, app
     p_audit: board.supplyAudit,
   });
   if (error || !data?.plan_id) {
-    console.error("myfans daily snapshot RPC failed", error?.message ?? "invalid response");
-    return { id: null, status: "unavailable", message: "Daily Planの保存に失敗しました。時間をおいて再試行してください。", postCount: 0, planDate: board.planDate, planKey: board.planKey, revision: null, evaluatedAt: null, selectedOptions: board.selectedOptions };
+    const errorCode = typeof error?.code === "string" ? error.code : "RPC_EMPTY_RESULT";
+    console.error("myfans daily snapshot RPC failed", {
+      code: errorCode,
+      message: typeof error?.message === "string" ? error.message : "invalid response",
+      details: typeof error?.details === "string" ? error.details : undefined,
+      hint: typeof error?.hint === "string" ? error.hint : undefined,
+    });
+    return { id: null, status: "unavailable", message: "Daily Planの保存に失敗しました。保存状態は変更されていません。時間をおいて再試行してください。", errorCode, postCount: 0, planDate: board.planDate, planKey: board.planKey, revision: null, evaluatedAt: null, selectedOptions: board.selectedOptions };
   }
   const replaced = data.replaced === true;
   return { id: Number(data.plan_id), status: replaced ? "existing" : "saved", message: replaced ? "同日のDaily Planをatomicに再評価しました" : "今日のDaily Planを保存しました", postCount: board.candidates.length, planDate: board.planDate, planKey: board.planKey, revision: Number(data.revision), evaluatedAt, selectedOptions: board.selectedOptions };

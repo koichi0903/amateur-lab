@@ -322,9 +322,21 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
       }
     };
     refresh().catch(() => {});
-    const timer = window.setInterval(() => refresh().catch(() => {}), 1500);
-    return () => { disposed = true; window.clearInterval(timer); };
+    return () => { disposed = true; };
   }, [readWorkerState]);
+
+  useEffect(() => {
+    if (state?.status !== "running") return;
+    let disposed = false;
+    const refresh = async () => {
+      if (disposed) return;
+      await readWorkerState().then((next) => {
+        if (!disposed && next) setState(next);
+      }).catch(() => {});
+    };
+    const timer = window.setInterval(refresh, 5000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [readWorkerState, state?.status]);
 
   async function startDiagnostic() {
     let normalized = "";
@@ -424,7 +436,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState<QuoteRefreshProgress | null>(null);
   const [message, setMessage] = useState<Message>(null);
-  const [batchSize, setBatchSize] = useState(10);
+  const [batchSize, setBatchSize] = useState(5);
   const [visualBatchSize, setVisualBatchSize] = useState(10);
   const [visualProgress, setVisualProgress] = useState<VisualVerificationProgress | null>(null);
   const [visualQueue, setVisualQueue] = useState<VisualQueueState | null>(null);
@@ -727,6 +739,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <select value={batchSize} onChange={(event) => setBatchSize(Number(event.target.value))} className={inputClass}>
             <option value={10}>次の10アカウント</option>
+            <option value={5}>次のrotation batch（最大5・低負荷）</option>
           </select>
           <button type="button" onClick={refreshProgressOnly} disabled={pending} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-violet-700 px-4 text-sm font-black text-white disabled:cursor-wait disabled:opacity-60">
             {pending ? <LoaderCircle size={17} className="animate-spin" /> : <Save size={17} />}

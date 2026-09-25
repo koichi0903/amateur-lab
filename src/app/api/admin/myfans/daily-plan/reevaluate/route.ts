@@ -14,6 +14,9 @@ export async function POST(request: Request) {
     if (analytics.error) return NextResponse.json({ error: "候補データを読み込めません。接続状態を確認して再試行してください。" }, { status: 503 });
     const board = buildMyfansExecutionBoard(analytics, body.planDate ? { planDate: body.planDate } : {});
     const snapshot = await ensureMyfansDailySnapshot(board, approvedMediaId);
+    if (snapshot.status === "unavailable") {
+      return NextResponse.json({ error: snapshot.message, code: snapshot.errorCode ?? "RPC_EMPTY_RESULT" }, { status: 503 });
+    }
     return NextResponse.json(snapshot);
   } catch (error) {
     console.error("myfans daily plan reevaluate failed", error);

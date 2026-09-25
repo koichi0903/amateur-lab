@@ -505,7 +505,7 @@ async function runBulkQuoteRefresh() {
   if (!isDailyPageUrl(tab.url)) throw new Error("Daily Page（/admin/myfans）を開いてから実行してください。");
   const probe = await sendRuntimeMessage({ type: "myfans_admin_probe", tabId: tab.id });
   if (!probe?.ok) throw new Error(probe?.error || "Daily PageへのexecuteScript probeに失敗しました。");
-  const batchSize = Math.min(10, Math.max(1, Math.round(Number(document.getElementById("batchSize").value) || 10)));
+  const batchSize = Math.min(5, Math.max(1, Math.round(Number(document.getElementById("batchSize").value) || 5)));
   const cooldownDays = Math.min(30, Math.max(1, Math.round(Number(document.getElementById("cooldownDays").value) || 3)));
   const settings = {
     baseUrl: baseUrl(),

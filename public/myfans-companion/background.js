@@ -1091,6 +1091,9 @@ async function resolveWorkerTabLink(tabId, sourceUrl, statusUrl, expectedHandle)
   let lastObservedUrl = "";
   let finalUrl = "";
   const resolverStartedAt = Date.now();
+  // Redirects can require a real page load before the final /posts UUID is
+  // observable from the tab.
+  await waitForTabComplete(tabId, 30000).catch(() => undefined);
   while (Date.now() - resolverStartedAt < 30000) {
     const tab = await chrome.tabs.get(tabId);
     const observedUrl = String(tab.url || "").replace(/[?#].*$/, "");
@@ -1170,7 +1173,7 @@ async function resolveCandidateMyfansLinks(tabId, candidate, statusUrl, expected
       });
       continue;
     }
-    if (!/^https:\/\/(?:www\.)?(?:mfco\.link|t\.co)\//i.test(observedUrl)) continue;
+    if (!/^https:\/\/(?:www\.)?(?:mfco\.link|t\.co|myfans\.jp)\//i.test(observedUrl)) continue;
     const resolved = await resolveWorkerTabLink(tabId, observedUrl, statusUrl, expectedHandle);
     evidence.push({ ...resolved.evidence, linkSource: candidate?.myfansLinkSource || "parent" });
     if (resolved.resolvedUrl) resolvedLinks.push(resolved.resolvedUrl);
@@ -1325,7 +1328,7 @@ function collectXQuoteCandidates() {
   if (notFound) return fail("DOM_WAIT", "PROFILE_NOT_FOUND/SUSPENDED", "プロフィールが存在しない、または凍結/停止されています。", baseDiagnostics);
   if (hasRetry) return fail("DOM_WAIT", "X_TEMPORARY_ERROR", "Xの一時エラー/Retry表示を検知しました。", baseDiagnostics);
   if (hasSensitiveGate && articleCount === 0) return fail("DOM_WAIT", "SENSITIVE_CONTENT_GATE", "センシティブ警告で投稿一覧が表示されていません。", baseDiagnostics);
-  const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]')).slice(0, 20);
+  const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]')).slice(0, 60);
   if (articles.length === 0) return fail("DOM_WAIT", "NO_TWEET_ARTICLES", "tweet articleが表示されませんでした。", baseDiagnostics);
   const quoteCandidates = articles.map((article) => {
     const statusUrl = Array.from(article.querySelectorAll("a[href]"))
@@ -2101,7 +2104,7 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
     throw categorizedError(result.errorCode || FAILURE_CATEGORY.UNKNOWN, result.errorMessage || "Xページから引用候補を取得できませんでした。");
   }
   result = await validateVideoPermalinks(tabId, result);
-  const parentCandidates = result.quoteCandidates.filter((candidate) => candidate.xPostUrl && (candidate.mediaType === "image" || candidate.mediaType === "video")).slice(0, 5);
+  const parentCandidates = result.quoteCandidates.filter((candidate) => candidate.xPostUrl && (candidate.mediaType === "image" || candidate.mediaType === "video")).slice(0, 12);
   const authorReplies = [];
   const completeThreadCandidates = [];
   const collectionStatuses = result.quoteCandidates.map((candidate) => ({
@@ -2323,8 +2326,8 @@ async function runBulkQuoteRefresh(settings) {
     if (!persistedSettings.jobId) {
       const created = await quoteRefreshRequest(persistedSettings, {
         action: "create",
-        batchSize: persistedSettings.batchSize || 10,
-        queueLimit: persistedSettings.queueLimit || persistedSettings.batchSize || 10,
+        batchSize: persistedSettings.batchSize || 5,
+        queueLimit: persistedSettings.queueLimit || persistedSettings.batchSize || 5,
         cooldownDays: persistedSettings.cooldownDays || 3,
         targetedCreatorIds: persistedSettings.targetedCreatorIds || [],
         sessionId,
@@ -2592,7 +2595,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "myfans_visual_verification_start") {
     const settings = message.settings || {};
     runVisualVerification(settings);
-    sendResponse({ ok: true, status: "accepted", workerVersion: WORKER_VERSION, batchSize: settings.batchSize || 10 });
+    sendResponse({ ok: true, status: "accepted", workerVersion: WORKER_VERSION, batchSize: settings.batchSize || 24 });
     return true;
   }
   if (message?.type === "myfans_quote_refresh_state") {

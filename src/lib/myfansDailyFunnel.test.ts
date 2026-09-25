@@ -163,8 +163,29 @@ test("stale or ineligible quote sources remain excluded", () => {
     quote(2, { text_excerpt: "", source_value_verdict: "LOW_SOURCE_VALUE", score: 10, views: 0, likes: 0, has_image: false, media_type: "none", media_permalink: null }),
   ]), { planDate: "2026-09-24", operationDay: 1 });
   assert.equal(board.recovery.candidateOptions, 0);
-  assert.ok(board.quotePool.funnel.rejectionReasons.some((row) => row.reason === "期限切れ(7日超)"));
-  assert.ok(board.quotePool.funnel.rejectionReasons.some((row) => row.reason === "source value不通過"));
+  assert.ok(board.quotePool.funnel.rejectionReasons.some((row) => row.reason === "期限切れ(14日超)"));
+  assert.ok(board.quotePool.funnel.rejectionReasons.some((row) => row.reason === "利用可能mediaなし"));
+});
+
+test("LOW_SOURCE_VALUE remains in the ranked discovery pool when media and source are usable", () => {
+  const board = buildMyfansExecutionBoard(analytics([
+    quote(701, { text_excerpt: "短い", source_value_verdict: "LOW_SOURCE_VALUE", source_value_score: 18, score: 92 }),
+  ]), { planDate: "2026-09-24", operationDay: 1 });
+  assert.equal(board.quotePool.funnel.sourceValuePass, 0);
+  assert.equal(board.quotePool.funnel.sourceValueLow, 1);
+  assert.equal(board.quotePool.funnel.hardEligible, 1);
+  assert.deepEqual(board.quotePool.funnel.qualifiedDiscoveryIds, [701]);
+  assert.equal(board.quotePool.funnel.ranked12, 1);
+});
+
+test("daily freshness uses a JST calendar boundary and accepts exactly 14 days", () => {
+  const board = buildMyfansExecutionBoard(analytics([
+    quote(801, { collected_at: "2026-09-10T15:00:00.000Z" }),
+    quote(802, { collected_at: "2026-09-09T15:00:00.000Z" }),
+  ]), { planDate: "2026-09-25", operationDay: 1 });
+  assert.equal(board.quotePool.funnel.rawFresh14d, 1);
+  assert.equal(board.quotePool.funnel.hardEligible, 1);
+  assert.deepEqual(board.quotePool.funnel.qualifiedDiscoveryIds, [801]);
 });
 
 test("plan date uses JST at the UTC day boundary", () => {

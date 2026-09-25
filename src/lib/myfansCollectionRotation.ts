@@ -1,5 +1,7 @@
 export const MYFANS_COLLECTION_KEY = "myfans_quote_refresh";
-export const MAX_MYFANS_ACCOUNTS_PER_RUN = 10;
+// Keep each browser session small enough to avoid a burst of profile/status
+// navigations. The cursor makes the next run continue with different creators.
+export const MAX_MYFANS_ACCOUNTS_PER_RUN = 5;
 
 export type CollectionAccount = {
   creatorId: number;

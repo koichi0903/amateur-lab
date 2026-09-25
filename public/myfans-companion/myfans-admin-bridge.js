@@ -222,7 +222,7 @@ function startVisualFromDetail(rawDetail) {
         baseUrl: window.location.origin,
         approvedMediaId: detail.approvedMediaId || null,
         approvedMediaName: detail.approvedMediaName || "@lumi_reviw",
-        batchSize: detail.batchSize || detail.limit || 10
+        batchSize: detail.batchSize || detail.limit || 5
       }
     },
     (response) => {

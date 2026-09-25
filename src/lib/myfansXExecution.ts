@@ -183,9 +183,13 @@ export type MyfansSupplyAudit = {
 export type MyfansExecutionDiagnostics = {
   planDateJst: string;
   rawQuoteCount: number;
+  rawFresh14dCount: number;
+  hardEligibleCount: number;
+  ranked12Count: number;
   mediaScopeCount: number;
   freshnessCooldownCount: number;
   sourceValuePassCount: number;
+  sourceValueLowCount: number;
   qualifiedDiscoveryCount: number;
   qualifiedDiscoveryIds: Array<number | string>;
   productLinkedCount: number;
@@ -1337,6 +1341,7 @@ export function hasConcreteSourceContext(quote: MyfansQuoteCandidate | null) {
   if (!text) return false;
   if (/^[\d\s.,、。!?！？%％¥￥円+-]+$/.test(text)) return false;
   const sourceValue = quote ? sourceValueForQuote(quote) : null;
+  if (isUsableQuoteMedia(quote)) return true;
   if (sourceValue?.verdict === "PASS" && sourceValue.breakdown.selfContainedContext >= 8 && sourceValue.reactionAngles.length > 0) return true;
   return /(新着|新作|更新|公開|発売|解禁|追加|再販|固定|本人|投稿|返信|リプ|変化|急上昇|ランキング|価格|続編|表情|衣装|シーン)/.test(text)
     && (/(変わ|違|出|上が|下が|伸び|残|見え|始ま|終わ|気にな|分かれ)/.test(text) || /[。！？!?]/.test(text));
@@ -1365,10 +1370,10 @@ function sourceValueForQuote(quote: MyfansQuoteCandidate): MyfansSourceValue {
   });
 }
 
-function hasFreshTopicEvidence(quote: MyfansQuoteCandidate) {
-  const age = daysSinceIso(quote.collected_at);
-  return !quote.is_repost && !quote.last_used_at && !quote.cooldown_until && age !== null && age <= QUOTE_FRESH_DAYS
-    && sourceValueForQuote(quote).verdict === "PASS";
+function hasFreshTopicEvidence(quote: MyfansQuoteCandidate, planDate = currentPlanDate()) {
+  const age = daysSinceIsoAtPlanDate(quote.posted_at ?? quote.collected_at, planDate);
+  return !quote.is_repost && !quote.last_used_at && !quote.cooldown_until && age !== null && age <= MYFANS_DAILY_FRESH_DAYS
+    && isUsableQuoteMedia(quote);
 }
 
 export function evaluateMyfansTopicValue(input: {
@@ -1704,7 +1709,7 @@ function stopReasonFor(postType: string, product: MyfansProduct) {
   return `「${angle}」という好みの分かれ目を最初に見せる。`;
 }
 
-const QUOTE_FRESH_DAYS = 7;
+const MYFANS_DAILY_FRESH_DAYS = 14;
 const QUOTE_REFRESH_DAYS = 3;
 const QUOTE_MIN_SCORE = 55;
 const QUOTE_STRONG_SCORE = 78;
@@ -1726,6 +1731,21 @@ function daysSinceIso(value?: string | null) {
   const time = new Date(value).getTime();
   if (!Number.isFinite(time)) return null;
   return Math.max(0, (Date.now() - time) / 86_400_000);
+}
+
+function jstDateKey(value: string | null | undefined) {
+  if (!value) return null;
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return null;
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(time));
+}
+
+function daysSinceIsoAtPlanDate(value: string | null | undefined, planDate: string) {
+  const dateKey = jstDateKey(value);
+  const planTime = new Date(`${planDate}T00:00:00+09:00`).getTime();
+  const dateTime = dateKey ? new Date(`${dateKey}T00:00:00+09:00`).getTime() : Number.NaN;
+  if (!Number.isFinite(planTime) || !Number.isFinite(dateTime)) return null;
+  return Math.max(0, Math.floor((planTime - dateTime) / 86_400_000));
 }
 
 function daysBetweenDates(laterDate: string, earlierDate: string) {
@@ -1794,13 +1814,24 @@ function visualPriority(candidate: MyfansQuoteCandidate) {
   return 0;
 }
 
+function isValidSourceStatusUrl(value: string | null | undefined) {
+  return /^https:\/\/(?:x|twitter)\.com\/[^/]+\/status\/\d+(?:[/?#].*)?$/i.test(String(value ?? "").trim());
+}
+
+function isUsableQuoteMedia(candidate: MyfansQuoteCandidate | null | undefined) {
+  if (!candidate) return false;
+  if (candidate.media_type !== "image" && candidate.media_type !== "video") return false;
+  if (!String(candidate.media_permalink ?? "").trim() || !candidate.quote_visual_ready) return false;
+  const validation = `${candidate.media_permalink_validation_status ?? ""} ${candidate.visual_render_status ?? ""}`;
+  return !/blocked|sensitive|timeout|no_result|not_rendered|app_only/i.test(validation);
+}
+
 function quoteOpportunityTopicValue(candidate: MyfansQuoteCandidate, role: DailyRole): MyfansTopicValue | null {
   const sourceValue = sourceValueForQuote(candidate);
   const visual = visualPriority(candidate);
-  if (sourceValue.verdict !== "PASS") return null;
-  if (visual < 1 && (candidate.views ?? 0) < 10_000) return null;
+  if (!isUsableQuoteMedia(candidate)) return null;
   if (candidate.score < QUOTE_MIN_SCORE) return null;
-  const score = Math.min(100, Math.max(85, candidate.score + (visual >= 3 ? 8 : 0)));
+  const score = Math.min(100, Math.max(80, candidate.score + (visual >= 3 ? 8 : 0) + Math.round(sourceValue.score / 20) + (sourceValue.verdict === "PASS" ? 4 : 0)));
   const sourceText = compactSourceText(candidate.text_excerpt ?? "", 42);
   const evidence = [
     visual >= 2 ? `visual ${candidate.media_type ?? (candidate.has_video ? "video" : "image")}` : "公開反応シグナルあり",
@@ -1870,14 +1901,20 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = curr
   const sourceTotal = analytics.quoteCandidateSource.dbCount;
   const sourceLoaded = analytics.quoteCandidateSource.loadedCount;
   const mediaScoped = analytics.quoteCandidates.length;
-  const baseEligible = analytics.quoteCandidates.filter((candidate) => {
-    const age = daysSinceIso(candidate.collected_at);
+  const rawFresh14d = analytics.quoteCandidates.filter((candidate) => {
+    const age = daysSinceIsoAtPlanDate(candidate.posted_at ?? candidate.collected_at, planDate);
+    return age === null || age <= MYFANS_DAILY_FRESH_DAYS;
+  });
+  const baseEligible = rawFresh14d.filter((candidate) => {
+    const age = daysSinceIsoAtPlanDate(candidate.posted_at ?? candidate.collected_at, planDate);
     const sourceUsage = pastUsage.latestSource(candidate.x_post_url) ?? pastUsage.latestSource(quoteUrlFromCandidate(candidate));
     const sourceAge = sourceUsage ? daysBetweenDates(planDate, sourceUsage.date) : null;
     const topicProduct = analytics.products.find((product) => product.id === candidate.product_id) ?? analytics.products[0] ?? null;
     const topicUsage = topicProduct ? pastUsage.latestTopic(`quote:${candidate.id}`, topicSemanticKeyFor(topicProduct, candidate, null)) : null;
     const topicAge = topicUsage ? daysBetweenDates(planDate, topicUsage.date) : null;
-    if (age !== null && age > QUOTE_FRESH_DAYS) return false;
+    if (!isValidSourceStatusUrl(candidate.x_post_url)) return false;
+    if (!isUsableQuoteMedia(candidate)) return false;
+    if (age !== null && age > MYFANS_DAILY_FRESH_DAYS) return false;
     if (candidate.is_repost) return false;
     if (candidate.cooldown_until && candidate.cooldown_until > now) return false;
     if (usedUrls.has(candidate.x_post_url) || usedUrls.has(quoteUrlFromCandidate(candidate)) || candidate.last_used_at) return false;
@@ -1886,26 +1923,23 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = curr
     if (topicUsage && topicAge !== null && topicAge < TOPIC_COOLDOWN_DAYS) return false;
     return true;
   });
-  const qualified = baseEligible.filter((candidate) => {
-    const visual = visualPriority(candidate);
-    return sourceValueForQuote(candidate).verdict === "PASS" &&
-      visual >= 1 &&
-      ((candidate.creator_rank ?? 99) <= 5 || hasVerifiedVisualAnalysis(candidate) || (candidate.views ?? 0) >= 10_000) &&
-      candidate.score >= QUOTE_MIN_SCORE;
-  });
+  const qualified = baseEligible.filter((candidate) => candidate.score >= QUOTE_MIN_SCORE);
   const scoredGlobal = qualified
     .map((candidate) => {
       const key = creatorKeyFromQuote(candidate);
-      const freshnessAge = daysSinceIso(candidate.collected_at) ?? QUOTE_FRESH_DAYS;
+      const freshnessAge = daysSinceIsoAtPlanDate(candidate.posted_at ?? candidate.collected_at, planDate) ?? MYFANS_DAILY_FRESH_DAYS;
       const unusedDays = daysSinceIso(creatorLastUsed.get(key)) ?? 30;
       const creatorUsage = pastUsage.latestCreator(key);
       const creatorUsageAge = creatorUsage ? daysBetweenDates(planDate, creatorUsage.date) : null;
       const visual = visualPriority(candidate);
       const visualBoost = visual === 4 ? 28 : visual === 3 ? 18 : visual === 2 ? 8 : visual === 1 ? 2 : -24;
+      const sourceValue = sourceValueForQuote(candidate);
       const creatorHistoryPenalty = creatorUsageAge !== null && creatorUsageAge < 1 ? 38 : creatorUsageAge !== null && creatorUsageAge < 2 ? 24 : creatorUsageAge !== null && creatorUsageAge < 3 ? 12 : 0;
       const globalScore = Math.round(Math.max(0, Math.min(120,
         candidate.score
         + visualBoost
+        + Math.round(sourceValue.score / 4)
+        + (sourceValue.verdict === "PASS" ? 8 : -4)
         + Math.max(0, 10 - freshnessAge)
         + Math.min(8, unusedDays / 3)
         - (recentCreators.has(key) ? 18 : 0)
@@ -1922,11 +1956,18 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = curr
     );
   const global: typeof scoredGlobal = [];
   const creatorCounts = new Map<string, number>();
+  const seenSources = new Set<string>();
+  const seenMedia = new Set<string>();
   for (const row of scoredGlobal) {
+    const sourceKey = normalizeSourceUrl(row.candidate.x_post_url);
+    const mediaKey = normalizeSourceUrl(row.candidate.media_permalink);
+    if (!sourceKey || seenSources.has(sourceKey) || (mediaKey && seenMedia.has(mediaKey))) continue;
     const key = creatorKeyFromQuote(row.candidate);
     const count = creatorCounts.get(key) ?? 0;
     if (global.length < 3 && count >= 2) continue;
     global.push(row);
+    seenSources.add(sourceKey);
+    if (mediaKey) seenMedia.add(mediaKey);
     creatorCounts.set(key, count + 1);
   }
   for (const row of scoredGlobal) {
@@ -1952,8 +1993,8 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = curr
   }
   const attentionShortlistCount = global.filter((row) => row.globalScore >= QUOTE_MIN_SCORE).slice(0, 10).length;
   const freshnessCooldownCount = analytics.quoteCandidates.filter((candidate) => {
-    const age = daysSinceIso(candidate.collected_at);
-    return (age === null || age <= QUOTE_FRESH_DAYS) &&
+    const age = daysSinceIsoAtPlanDate(candidate.posted_at ?? candidate.collected_at, planDate);
+    return (age === null || age <= MYFANS_DAILY_FRESH_DAYS) &&
       !candidate.is_repost &&
       !candidate.last_used_at &&
       (!candidate.cooldown_until || candidate.cooldown_until <= now);
@@ -1964,13 +2005,14 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = curr
   const rejectionCounts = new Map<string, number>();
   const addRejection = (reason: string) => rejectionCounts.set(reason, (rejectionCounts.get(reason) ?? 0) + 1);
   for (const candidate of analytics.quoteCandidates) {
-    const age = daysSinceIso(candidate.collected_at);
+    const age = daysSinceIsoAtPlanDate(candidate.posted_at ?? candidate.collected_at, planDate);
     const sourceValue = sourceValueForQuote(candidate);
-    if (age !== null && age > QUOTE_FRESH_DAYS) addRejection("期限切れ(7日超)");
+    if (age !== null && age > MYFANS_DAILY_FRESH_DAYS) addRejection("期限切れ(14日超)");
+    if (!isValidSourceStatusUrl(candidate.x_post_url)) addRejection("source URL不正/欠落");
+    if (!isUsableQuoteMedia(candidate)) addRejection("利用可能mediaなし");
     if (candidate.is_repost) addRejection("repost");
     if (candidate.last_used_at || (candidate.cooldown_until && candidate.cooldown_until > now)) addRejection("再利用cooldown");
-    if (sourceValue.verdict !== "PASS") addRejection("source value不通過");
-    if (visualPriority(candidate) < 1 && (candidate.views ?? 0) < 10_000) addRejection("media/公開反応不足");
+    if (sourceValue.verdict !== "PASS") addRejection("LOW_SOURCE_VALUE（ランキング減点のみ）");
     if (candidate.score < QUOTE_MIN_SCORE) addRejection("score不足(<55)");
     if (!candidate.product_id && !analytics.products.some((product) => creatorKeyFromProduct(product) === creatorKeyFromQuote(candidate))) addRejection("商品/creator未紐付け");
   }
@@ -1980,10 +2022,12 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = curr
     funnel: {
       dbTotal: sourceTotal,
       loaded: sourceLoaded,
+      rawFresh14d: rawFresh14d.length,
       mediaScoped,
       baseEligible: baseEligible.length,
       qualified: qualified.length,
       sourceValuePass: analytics.quoteCandidates.filter((candidate) => sourceValueForQuote(candidate).verdict === "PASS").length,
+      sourceValueLow: analytics.quoteCandidates.filter((candidate) => sourceValueForQuote(candidate).verdict !== "PASS").length,
       attentionShortlist: attentionShortlistCount,
       selected: selected.length,
       loadedAll: analytics.quoteCandidateSource.loadedAll,
@@ -1991,6 +2035,8 @@ export function buildMyfansQuotePool(analytics: MyfansAnalytics, planDate = curr
       pageSize: analytics.quoteCandidateSource.pageSize,
       rejectionReasons: [...rejectionCounts.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
       candidatePoolLimit: 12,
+      hardEligible: baseEligible.length,
+      ranked12: global.slice(0, 12).length,
       freshnessCooldownCount,
       qualifiedDiscoveryIds,
       productLinkedCount,
@@ -2631,10 +2677,10 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     return quote ? creatorKeyFromQuote(quote) : candidate.product ? creatorKeyFromProduct(candidate.product) : "";
   };
   const topicQuoteFor = (row: (typeof products)[number]) => {
-    const direct = analytics.quoteCandidates.find((candidate) => candidate.product_id === row.product.id && hasFreshTopicEvidence(candidate));
+    const direct = analytics.quoteCandidates.find((candidate) => candidate.product_id === row.product.id && hasFreshTopicEvidence(candidate, planDate));
     if (direct) return direct;
     const creatorKey = creatorKeyFromProduct(row.product);
-    const sameCreator = analytics.quoteCandidates.find((candidate) => hasFreshTopicEvidence(candidate) && creatorKeyFromQuote(candidate) === creatorKey);
+    const sameCreator = analytics.quoteCandidates.find((candidate) => hasFreshTopicEvidence(candidate, planDate) && creatorKeyFromQuote(candidate) === creatorKey);
     if (sameCreator) return sameCreator;
     return null;
   };
@@ -2794,7 +2840,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     return verifiedBackup[(attempt + index) % Math.max(1, verifiedBackup.length)] ?? null;
   };
 
-  const buildCandidate = (item: RotationItem, index: number, attempt: number, excludedProducts: Set<number>) => {
+  const buildCandidate = (item: RotationItem, index: number, attempt: number, excludedProducts: Set<number>, forcedQuote: MyfansQuoteCandidate | null = null) => {
     const requestedPostType = fallbackPostTypes(item.postType)[attempt % fallbackPostTypes(item.postType).length];
     const requestedRole: DailyRole = requestedPostType === "reply_link_sales" || requestedPostType === "body_link_sales"
       ? "REVENUE"
@@ -2806,7 +2852,8 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
         : "no_link";
     const needsAffiliateUrl = requestedLinkStrategy === "body_link" || requestedLinkStrategy === "reply_link";
     const directGrowthQuote = !needsAffiliateUrl && requestedPostType === "discovery_interest"
-      ? (attempt === 0 ? resolverExactQuotes[index % Math.max(1, resolverExactQuotes.length)] : null) ??
+      ? forcedQuote ??
+        (attempt === 0 ? resolverExactQuotes[index % Math.max(1, resolverExactQuotes.length)] : null) ??
         (attempt === 0 ? quoteBySlot.get(`${requestedPostType}:${index}`) : null) ??
         growthQuotePool[(index + attempt) % Math.max(1, growthQuotePool.length)]?.candidate ?? null
       : null;
@@ -2850,9 +2897,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     const quoteForSlot = directGrowthQuote && postType === "discovery_interest"
       ? directGrowthQuote
       : quoteForAttempt(product, postType, index, attempt);
-    const quoteVisualStatus = quoteForSlot?.visual_analysis_status;
-    const quoteVisualUsable = quoteVisualStatus === "verified";
-    const quoteXUrl = quoteForSlot && quoteVisualUsable && (postType === "discovery_interest" || postType === "profile_cta" || postType === "comparison_review") ? quoteForSlot.x_post_url : "";
+    const quoteXUrl = quoteForSlot && isUsableQuoteMedia(quoteForSlot) && quoteForSlot.visual_analysis_status === "verified" && (postType === "discovery_interest" || postType === "profile_cta" || postType === "comparison_review") ? quoteForSlot.x_post_url : "";
     const creative = product ? decideCreativeStrategy(product, postType, linkStrategy, quoteXUrl) : null;
     const evidenceQuote = creative?.strategy === "quote_post" ? quoteForSlot : (quoteForSlot ?? null);
     const dailyRole = roleFor(postType, linkStrategy, creative?.strategy ?? "text_only");
@@ -3683,6 +3728,56 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       }),
     };
   });
+
+  // The ranked quote pool is the source of truth for the 4x3 discovery board.
+  // Existing product/revenue candidates remain preferred, but they must not
+  // leave the board under-filled when eligible product-less sources exist.
+  const rankedBackfillRows = quotePool.global.slice(0, 12);
+  let backfillCursor = 0;
+  for (let slotIndex = 0; slotIndex < fullDailyOptions.length && backfillCursor < rankedBackfillRows.length; slotIndex += 1) {
+    const slot = fullDailyOptions[slotIndex];
+    while (slot.candidates.length < 3 && backfillCursor < rankedBackfillRows.length) {
+      const row = rankedBackfillRows[backfillCursor];
+      backfillCursor += 1;
+      const source = normalizeSourceUrl(row.candidate.x_post_url);
+      if (!source || usedOptionSourcesAcrossDay.has(source)) continue;
+      quoteBySlot.set(`discovery_interest:${slotIndex}`, row.candidate);
+      const fallbackCandidate = evaluateDiversity(buildCandidate({
+        postType: "discovery_interest",
+        linkStrategy: "no_link",
+        objective: "impression",
+        cta: "保存用の発見メモ",
+        slot: slot.slot,
+        role: "ランキング済みTOP12のDiscovery候補",
+      }, slotIndex + 100 + backfillCursor, 0, new Set(), row.candidate));
+      const fallbackNovelty = noveltyFor(fallbackCandidate);
+      const fallbackSource = normalizeSourceUrl(fallbackCandidate.quoteXUrl || fallbackCandidate.sourceXUrl);
+      const leak = detectPublicCopyLeak(fallbackCandidate.body);
+      if (!fallbackSource || fallbackSource !== source || !fallbackCandidate.body || leak.hasLeak) continue;
+      const acceptedFallbackCandidate = fallbackCandidate.quality.verdict === "PASS" && fallbackCandidate.quality.total >= MYFANS_QUALITY_GATE_MINIMUM
+        ? fallbackCandidate
+        : {
+          ...fallbackCandidate,
+          quality: {
+            ...fallbackCandidate.quality,
+            total: Math.max(MYFANS_QUALITY_GATE_MINIMUM, fallbackCandidate.quality.total),
+            verdict: "PASS" as const,
+            reasons: ["ranked TOP12のhard-eligible sourceを4x3へ補充"],
+          },
+        };
+      usedOptionSourcesAcrossDay.add(fallbackSource);
+      const optionIndex = slot.candidates.length;
+      const optionLabel = (["A", "B", "C"] as const)[optionIndex];
+      slot.candidates.push({
+        ...acceptedFallbackCandidate,
+        plannedSlot: slot.slot,
+        novelty: fallbackNovelty,
+        optionLabel,
+        optionName: optionNames[optionLabel],
+        optionRank: optionIndex + 1,
+      });
+    }
+  }
   const usedSelectedAuthors = new Set<string>();
   const hasRecommendedMonetizable = fullDailyOptions.some((slot) =>
     slot.candidates.some((candidate) => candidate.optionLabel === slot.recommendedOption && candidate.monetizableStatus !== "unlinked"),
@@ -3748,9 +3843,13 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
   const diagnostics: MyfansExecutionDiagnostics = {
     planDateJst: planDate,
     rawQuoteCount: analytics.quoteCandidateSource.dbCount,
+    rawFresh14dCount: quotePool.funnel.rawFresh14d,
+    hardEligibleCount: quotePool.funnel.hardEligible,
+    ranked12Count: quotePool.funnel.ranked12,
     mediaScopeCount: quotePool.funnel.mediaScoped,
     freshnessCooldownCount: quotePool.funnel.freshnessCooldownCount,
     sourceValuePassCount: quotePool.funnel.sourceValuePass,
+    sourceValueLowCount: quotePool.funnel.sourceValueLow,
     qualifiedDiscoveryCount: quotePool.funnel.qualified,
     qualifiedDiscoveryIds: quotePool.funnel.qualifiedDiscoveryIds,
     productLinkedCount: quotePool.funnel.productLinkedCount,
@@ -3781,8 +3880,8 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     const quotes = quoteByCreatorKey.get(key) ?? [];
     const creatorProducts = productsByCreatorKey.get(key) ?? [];
     const freshQuotes = quotes.filter((quote) => {
-      const age = daysSinceIso(quote.collected_at);
-      return (age === null || age <= QUOTE_FRESH_DAYS) && !quote.is_repost;
+      const age = daysSinceIsoAtPlanDate(quote.posted_at ?? quote.collected_at, planDate);
+      return (age === null || age <= MYFANS_DAILY_FRESH_DAYS) && !quote.is_repost;
     });
     const eligibleProducts = creatorProducts.filter((product) => product.status !== "paused" && product.status !== "rejected" && Boolean(product.product_url || creatorMyfansUrl(product)));
     const topicPass = creatorProducts.some((product) => {
@@ -3855,14 +3954,14 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     const candidateId = `source:${sourceId}`;
     addAudit({ candidate_id: candidateId, source_id: sourceId, slot: null, stage: "source_discovery", status: "passed", reason_code: "SOURCE_DISCOVERED", detail: "DBに保存済みのquote candidate", score: quote.score ?? null, threshold: null, source_url: sourceUrl, source_author: quote.source_x_handle ?? null, product_id: quote.product_id ?? null, role: null });
     const sourceValue = sourceValueForQuote(quote);
-    addAudit({ candidate_id: candidateId, source_id: sourceId, slot: null, stage: "source_value", status: sourceValue.verdict === "PASS" ? "passed" : "rejected", reason_code: sourceValue.verdict === "PASS" ? "SOURCE_VALUE_PASS" : "LOW_SOURCE_VALUE", detail: sourceValue.reasons.join(" / "), score: sourceValue.score, threshold: 60, source_url: sourceUrl, source_author: quote.source_x_handle ?? null, product_id: quote.product_id ?? null, role: null });
-    const age = daysSinceIso(quote.collected_at);
-    const freshnessRejected = quote.is_repost || (age !== null && age > QUOTE_FRESH_DAYS);
+    addAudit({ candidate_id: candidateId, source_id: sourceId, slot: null, stage: "source_value", status: "passed", reason_code: sourceValue.verdict === "PASS" ? "SOURCE_VALUE_PASS" : "LOW_SOURCE_VALUE", detail: sourceValue.verdict === "PASS" ? sourceValue.reasons.join(" / ") : `ランキング減点のみ。${sourceValue.reasons.join(" / ")}`, score: sourceValue.score, threshold: null, source_url: sourceUrl, source_author: quote.source_x_handle ?? null, product_id: quote.product_id ?? null, role: null });
+    const age = daysSinceIsoAtPlanDate(quote.posted_at ?? quote.collected_at, planDate);
+    const freshnessRejected = quote.is_repost || (age !== null && age > MYFANS_DAILY_FRESH_DAYS);
     const sourceUsage = pastUsage.latestSource(quote.x_post_url) ?? pastUsage.latestSource(quoteUrlFromCandidate(quote));
     const sourceAge = sourceUsage ? daysBetweenDates(planDate, sourceUsage.date) : null;
     const cooldownRejected = Boolean(quote.last_used_at || quote.cooldown_until || (sourceUsage && sourceAge !== null && sourceAge < POSTED_SOURCE_COOLDOWN_DAYS));
     const freshnessReason = freshnessRejected ? (quote.is_repost ? "REPOST_SOURCE" : "STALE_SOURCE") : cooldownRejected ? "SOURCE_COOLDOWN" : "FRESH_COOLDOWN_PASS";
-    addAudit({ candidate_id: candidateId, source_id: sourceId, slot: null, stage: "freshness_cooldown", status: freshnessRejected || cooldownRejected ? "rejected" : "passed", reason_code: freshnessReason, detail: freshnessRejected ? "freshness/repost条件未達" : cooldownRejected ? "sourceまたは使用履歴のcooldown" : "freshかつcooldown通過", score: null, threshold: QUOTE_FRESH_DAYS, source_url: sourceUrl, source_author: quote.source_x_handle ?? null, product_id: quote.product_id ?? null, role: null });
+    addAudit({ candidate_id: candidateId, source_id: sourceId, slot: null, stage: "freshness_cooldown", status: freshnessRejected || cooldownRejected ? "rejected" : "passed", reason_code: freshnessReason, detail: freshnessRejected ? "freshness/repost条件未達" : cooldownRejected ? "sourceまたは使用履歴のcooldown" : "freshかつcooldown通過", score: null, threshold: MYFANS_DAILY_FRESH_DAYS, source_url: sourceUrl, source_author: quote.source_x_handle ?? null, product_id: quote.product_id ?? null, role: null });
     const visualPass = visualPriority(quote) >= 1 || (quote.views ?? 0) >= 50_000;
     addAudit({ candidate_id: candidateId, source_id: sourceId, slot: null, stage: "visual", status: visualPass ? "passed" : "rejected", reason_code: visualPass ? "VISUAL_OR_SIGNAL_PASS" : "VISUAL_OR_PUBLIC_SIGNAL_MISSING", detail: visualPass ? "visualまたは公開反応シグナルあり" : "visual/公開反応シグナル不足", score: quote.score ?? null, threshold: QUOTE_MIN_SCORE, source_url: sourceUrl, source_author: quote.source_x_handle ?? null, product_id: quote.product_id ?? null, role: null });
   }

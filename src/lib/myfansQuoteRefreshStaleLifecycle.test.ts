@@ -38,7 +38,7 @@ test("stale 1/5 cleanup terminalizes the job without advancing cursor or losing 
     { cursorOrder: 39, cycleNo: 4 },
     10,
   );
-  assert.deepEqual(next.selected.map((account) => account.creatorId), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(next.selected.map((account) => account.creatorId), [1, 2, 3, 4, 5]);
 });
 
 test("cleanup protects the current session/run and is idempotent", () => {

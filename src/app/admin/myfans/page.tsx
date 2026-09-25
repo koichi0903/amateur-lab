@@ -38,12 +38,16 @@ export default async function MyfansDailyPage({
   const selectedMediaId = params?.media ? Number(params.media) : null;
   const planDate = params?.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : undefined;
   const analytics = await getMyfansAnalytics({ approvedMediaId: Number.isFinite(selectedMediaId) ? selectedMediaId : null });
-  const [supplyProductsResult, supplyEvidenceResult] = await Promise.all([
+  const [supplyProductsResult, supplyEvidenceResult, latestRefreshResult, latestSuccessfulSupplyResult] = await Promise.all([
     supabaseAdmin.from("myfans_products").select("id,title,product_url,affiliate_url,creator_id,price").order("created_at", { ascending: false }).limit(1000),
     supabaseAdmin.from("myfans_post_product_linkage_evidence").select("id,source_status_url,discovered_myfans_url,final_myfans_url,product_id,confidence,resolution_method,verified_at").order("verified_at", { ascending: false }).limit(1000),
+    supabaseAdmin.from("myfans_quote_refresh_jobs").select("id,status,total_creators,processed_creators,success_creators,failed_creators,batch_size,created_at,started_at,completed_at,stopped_reason,collection_cycle_no,cursor_before_order,cursor_after_order,cycle_completed,accounts_processed,complete_threads_found,candidates_saved,no_match,retryable_errors,eligible_creators,selection_note,collector_version").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    supabaseAdmin.from("myfans_quote_refresh_jobs").select("id,status,completed_at,candidates_saved,collection_cycle_no,cursor_after_order,collector_version").gt("candidates_saved", 0).order("completed_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
   const supplyProducts = supplyProductsResult.data ?? [];
   const supplyEvidence = supplyEvidenceResult.data ?? [];
+  const latestRefreshJob = latestRefreshResult.data;
+  const latestSuccessfulSupply = latestSuccessfulSupplyResult.data;
   const supplyProductByUrl = new Map(supplyProducts.map((product) => [product.product_url, product]));
   const supplyStatus = supplyEvidence.reduce<Record<string, number>>((counts, evidence) => {
     const product = evidence.product_id ? supplyProducts.find((item) => item.id === evidence.product_id) : null;
@@ -160,7 +164,9 @@ export default async function MyfansDailyPage({
             <p className="mt-2 text-sm leading-6 text-amber-50/80">収集件数ではなく、Dailyへ渡せる候補の件数です。商品未紐付けでもeligibleなquote sourceは発見候補として表示しますが、収益導線は作りません。</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">quote DB</p><p className="mt-1 text-lg font-black">{board.quotePool.funnel.dbTotal}件</p></div>
-              <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">Daily eligible</p><p className="mt-1 text-lg font-black">{board.quotePool.funnel.qualified}件</p></div>
+              <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">raw 14日以内</p><p className="mt-1 text-lg font-black">{board.quotePool.funnel.rawFresh14d}件</p></div>
+              <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">Hard eligible</p><p className="mt-1 text-lg font-black">{board.quotePool.funnel.hardEligible}件</p></div>
+              <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">ranked TOP12</p><p className="mt-1 text-lg font-black">{board.quotePool.funnel.ranked12}件</p></div>
               <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">候補上限</p><p className="mt-1 text-lg font-black">{board.quotePool.funnel.candidatePoolLimit}件</p></div>
               <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">今回のslot候補</p><p className="mt-1 text-lg font-black">{board.recovery.candidateOptions}件</p></div>
             </div>
@@ -170,14 +176,28 @@ export default async function MyfansDailyPage({
           </section>
         )}
 
+        <section className="mt-5 rounded-xl border border-violet-900 bg-violet-950/15 p-5" aria-labelledby="myfans-supply-status-title">
+          <p className="text-xs font-black tracking-[0.16em] text-violet-300">SUPPLY LOOP STATUS</p>
+          <h2 id="myfans-supply-status-title" className="mt-2 text-xl font-black">上流供給の実行状態</h2>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">今回保存</p><p className="mt-1 text-lg font-black">{latestRefreshJob?.candidates_saved ?? 0}件</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">rotation</p><p className="mt-1 text-lg font-black">cycle {latestRefreshJob?.collection_cycle_no ?? "-"} / cursor {latestRefreshJob?.cursor_after_order ?? "-"}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">処理 / thread / no-match</p><p className="mt-1 text-lg font-black">{latestRefreshJob?.accounts_processed ?? latestRefreshJob?.processed_creators ?? 0} / {latestRefreshJob?.complete_threads_found ?? 0} / {latestRefreshJob?.no_match ?? 0}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">最終保存成功</p><p className="mt-1 text-lg font-black">{dateTime(latestSuccessfulSupply?.completed_at ?? null)}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">停止理由</p><p className="mt-1 text-sm font-black">{latestRefreshJob?.stopped_reason ?? (latestRefreshJob?.status === "completed" ? "正常完了" : latestRefreshJob?.status ?? "未実行")}</p></div>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-zinc-500">最新run: {latestRefreshJob ? `${latestRefreshJob.status} / ${latestRefreshJob.collector_version ?? "collector version不明"} / ${latestRefreshJob.selection_note ?? "rotation stateを使用"}` : "まだ供給runの記録がありません"}</p>
+        </section>
+
         <details className="mt-5 rounded-xl border border-cyan-900 bg-cyan-950/15 p-5">
           <summary className="cursor-pointer list-none text-sm font-black text-cyan-200">{persistedSnapshot ? "現在候補の再計算結果（read-only）" : "Daily候補診断（read-only）"}</summary>
-          <p className="mt-3 text-xs leading-5 text-zinc-500">{persistedSnapshot ? "保存済みDaily Snapshotは上の表示を正本とし、ここは再評価前のlive preview診断です。" : "ページ生成時の件数と理由コードだけを表示します。本文、リンク値、affiliate値は記録しません。"}</p>
+          <p className="mt-3 text-xs leading-5 text-zinc-500">{persistedSnapshot ? "保存済みDaily Snapshotは上の表示を正本とし、ここは再評価前のlive preview診断です。" : "ページ生成時の件数と理由コードだけを表示します。本文、リンク値、affiliate値は記録しません。"} freshnessはJST基準の14日以内。Source Value LOWはHard除外ではなくランキング減点です。</p>
           <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">JST日付</p><p className="mt-1 font-black text-white">{board.diagnostics.planDateJst}</p></div>
-            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">raw / media scope</p><p className="mt-1 font-black text-white">{board.diagnostics.rawQuoteCount} / {board.diagnostics.mediaScopeCount}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">raw DB / 14日以内</p><p className="mt-1 font-black text-white">{board.diagnostics.rawQuoteCount} / {board.diagnostics.rawFresh14dCount}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">Hard eligible / ranked12</p><p className="mt-1 font-black text-white">{board.diagnostics.hardEligibleCount} / {board.diagnostics.ranked12Count}</p></div>
             <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">fresh+cooldown</p><p className="mt-1 font-black text-white">{board.diagnostics.freshnessCooldownCount}</p></div>
-            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">source value PASS</p><p className="mt-1 font-black text-white">{board.diagnostics.sourceValuePassCount}</p></div>
+            <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">Source Value PASS / LOW</p><p className="mt-1 font-black text-white">{board.diagnostics.sourceValuePassCount} / {board.diagnostics.sourceValueLowCount}</p></div>
             <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">qualified / IDs</p><p className="mt-1 font-black text-white">{board.diagnostics.qualifiedDiscoveryCount} / {board.diagnostics.qualifiedDiscoveryIds.join(", ") || "-"}</p></div>
             <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">product / creator map</p><p className="mt-1 font-black text-white">{board.diagnostics.productLinkedCount} / {board.diagnostics.creatorMapHitCount}</p></div>
             <div className="rounded-lg bg-zinc-950 p-3 text-xs"><p className="text-zinc-500">growth / dedupe後</p><p className="mt-1 font-black text-white">{board.diagnostics.growthQuotePoolCount} / {board.diagnostics.postDedupeCount}</p></div>

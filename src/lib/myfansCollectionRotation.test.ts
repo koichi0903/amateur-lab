@@ -4,12 +4,13 @@ import { collectionOutcomeForResult, selectCollectionAccounts } from "./myfansCo
 
 const accounts = Array.from({ length: 12 }, (_, index) => ({ creatorId: index + 1, rotationOrder: index + 1, collectionEnabled: true }));
 
-test("caps one run at ten and continues after the cursor", () => {
-  const first = selectCollectionAccounts(accounts, { cursorOrder: 0, cycleNo: 1 }, 50);
-  assert.equal(first.selected.length, 10);
-  assert.equal(first.nextCursor.cursorOrder, 10);
-  const second = selectCollectionAccounts(accounts, first.nextCursor, 10);
-  assert.deepEqual(second.selected.map((row) => row.creatorId), [11, 12]);
+test("caps one low-load run at five and continues after the cursor", () => {
+  const manyAccounts = Array.from({ length: 30 }, (_, index) => ({ creatorId: index + 1, rotationOrder: index + 1, collectionEnabled: true }));
+  const first = selectCollectionAccounts(manyAccounts, { cursorOrder: 0, cycleNo: 1 }, 50);
+  assert.equal(first.selected.length, 5);
+  assert.equal(first.nextCursor.cursorOrder, 5);
+  const second = selectCollectionAccounts(manyAccounts, first.nextCursor, 10);
+  assert.deepEqual(second.selected.map((row) => row.creatorId), [6, 7, 8, 9, 10]);
 });
 
 test("day changes do not reset the cursor", () => {
@@ -17,9 +18,9 @@ test("day changes do not reset the cursor", () => {
   assert.deepEqual(next.selected.map((row) => row.creatorId), [11, 12]);
 });
 
-test("disabled accounts are skipped and a full cycle wraps", () => {
+test("disabled accounts are skipped while low-load rotation stays bounded", () => {
   const next = selectCollectionAccounts(accounts.map((row) => row.creatorId === 11 ? { ...row, collectionEnabled: false } : row), { cursorOrder: 12, cycleNo: 3 }, 10);
-  assert.deepEqual(next.selected.map((row) => row.creatorId), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12].slice(0, 10));
+  assert.deepEqual(next.selected.map((row) => row.creatorId), [1, 2, 3, 4, 5]);
   assert.equal(next.nextCursor.cycleNo, 4);
 });
 
@@ -31,10 +32,10 @@ test("no match is not a permanent exclusion", () => {
   assert.equal(collectionOutcomeForResult({ candidatesCount: 0, errorCode: "THREAD_OBSERVATION_FAILED" }), "THREAD_INCOMPLETE");
 });
 
-test("mixed ten-account fixture preserves rotation, terminal counts, and exact source linkage", () => {
-  const selected = selectCollectionAccounts(accounts.slice(0, 10), { cursorOrder: 0, cycleNo: 7 }, 10);
-  assert.deepEqual(selected.selected.map((row) => row.creatorId), Array.from({ length: 10 }, (_, index) => index + 1));
-  assert.equal(selected.nextCursor.cursorOrder, 10);
+test("mixed low-load fixture preserves rotation, terminal counts, and exact source linkage", () => {
+  const selected = selectCollectionAccounts(accounts.slice(0, 10), { cursorOrder: 0, cycleNo: 7 }, 5);
+  assert.deepEqual(selected.selected.map((row) => row.creatorId), Array.from({ length: 5 }, (_, index) => index + 1));
+  assert.equal(selected.nextCursor.cursorOrder, 5);
   assert.equal(selected.nextCursor.cycleNo, 7);
 
   const outcomes = [

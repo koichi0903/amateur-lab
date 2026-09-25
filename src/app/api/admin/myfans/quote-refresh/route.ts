@@ -160,9 +160,10 @@ async function targetedCreatorRecommendations(approvedMediaId: number | null) {
   for (const product of productRows) productCount.set(Number(product.creator_id), (productCount.get(Number(product.creator_id)) ?? 0) + 1);
   const freshPassCreators = new Set<number>();
   for (const quote of quotes ?? []) {
-    const age = quote.collected_at ? (Date.now() - new Date(quote.collected_at).getTime()) / 86_400_000 : null;
+    const ageSource = quote.posted_at ?? quote.collected_at;
+    const age = ageSource ? (Date.now() - new Date(ageSource).getTime()) / 86_400_000 : null;
     const source = evaluateMyfansSourceValue({ text: quote.text_excerpt ?? "", postedAt: quote.posted_at, collectedAt: quote.collected_at, mediaType: quote.media_type, mediaPermalink: quote.media_permalink, quoteVisualReady: quote.quote_visual_ready, visualAnalysisStatus: quote.visual_analysis_status, views: quote.views, likes: quote.likes, reposts: quote.reposts, replies: quote.replies, isRepost: quote.is_repost, isReply: quote.is_reply, isQuote: quote.is_quote });
-    if (!quote.is_repost && !quote.last_used_at && !quote.cooldown_until && age !== null && age <= 7 && source.verdict === "PASS") freshPassCreators.add(Number(quote.creator_id));
+    if (!quote.is_repost && !quote.last_used_at && !quote.cooldown_until && age !== null && age <= 14 && source.verdict === "PASS") freshPassCreators.add(Number(quote.creator_id));
   }
   const candidates = (creators ?? [])
     .map((creator) => ({
@@ -354,7 +355,7 @@ async function createJob(payload: Record<string, unknown>) {
   const prioritized = orderedCreators.filter((creator) => selectedIds.has(creator.id));
   if (targetedCreatorIds.length && !prioritized.length) return NextResponse.json({ error: "指定されたtarget creatorは収集対象外です。" }, { status: 400 });
 
-  const selectionNote = `最大${MAX_MYFANS_ACCOUNTS_PER_RUN}アカウントを予約。cursorは各creatorのterminal処理時だけ進め、retryableは次回も再訪する。日付ではリセットしない。`;
+  const selectionNote = `低負荷のため1run最大${MAX_MYFANS_ACCOUNTS_PER_RUN}アカウント。固定creatorではなくcursorから次回は別creatorを選び、terminal処理時だけcursorを進め、retryableは次回も再訪する。run間隔は運用側で空ける。`;
 
   const jobInput = {
       approved_media_id: approvedMediaId,
