@@ -4,17 +4,19 @@
   "version": "0.1.38",
   "description": "Send the currently viewed myfans affiliate/product page to amateur-lab.",
   "permissions": ["activeTab", "scripting", "tabs", "storage", "alarms"],
-  "host_permissions": ["https://*.myfans.jp/*", "https://*.affiliate.myfans.jp/*", "https://x.com/*", "https://twitter.com/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "host_permissions": ["https://*.myfans.jp/*", "https://*.affiliate.myfans.jp/*", "https://x.com/*", "https://twitter.com/*", "http://localhost/*", "http://127.0.0.1/*", "https://hakkutsu-lab.com/*", "https://amateur-lab.vercel.app/*"],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
       "matches": [
-        "http://localhost/admin/myfans*",
-        "http://127.0.0.1/admin/myfans*"
+        "http://localhost:3000/admin/myfans*",
+        "http://127.0.0.1:3000/admin/myfans*",
+        "https://hakkutsu-lab.com/admin/myfans*",
+        "https://amateur-lab.vercel.app/admin/myfans*"
       ],
-      "js": ["myfans-admin-bridge.js"],
+      "js": ["origin.js", "myfans-admin-bridge.js"],
       "run_at": "document_start"
     }
   ],

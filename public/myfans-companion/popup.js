@@ -183,12 +183,11 @@ document.getElementById("version").textContent = `version ${EXTENSION_VERSION}`;
 document.getElementById("diagExtensionVersion").textContent = EXTENSION_VERSION;
 
 function isDailyPageUrl(value) {
-  try {
-    const url = new URL(String(value || ""));
-    return url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname) && url.pathname.startsWith("/admin/myfans");
-  } catch {
-    return false;
-  }
+  return globalThis.MyfansDailyPageOrigin.isDailyPage(value);
+}
+
+function dailyPageContext(value) {
+  return globalThis.MyfansDailyPageOrigin.resolve(value);
 }
 
 function yesNo(value) {
@@ -199,6 +198,22 @@ async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) throw new Error("現在のタブを取得できませんでした。");
   return tab;
+}
+
+async function syncDailyPageContext() {
+  const tab = await activeTab();
+  const detected = dailyPageContext(tab.url);
+  if (!detected) return null;
+  document.getElementById("baseUrl").value = detected.baseUrl;
+  if (detected.approvedMediaId) document.getElementById("mediaId").value = detected.approvedMediaId;
+  await sendRuntimeMessage({
+    type: "myfans_companion_settings_save",
+    settings: {
+      baseUrl: detected.baseUrl,
+      ...(detected.approvedMediaId ? { approvedMediaId: detected.approvedMediaId } : {})
+    }
+  });
+  return detected;
 }
 
 function sendRuntimeMessage(message) {
@@ -288,6 +303,7 @@ async function connectBridge() {
     status.textContent = "bridgeを接続しています...";
     const tab = await activeTab();
     if (!isDailyPageUrl(tab.url)) throw new Error("Daily Page（/admin/myfans）を開いてから実行してください。");
+    await syncDailyPageContext();
     const injected = await sendRuntimeMessage({ type: "myfans_admin_bridge_inject", tabId: tab.id, reason: "popup" });
     if (!injected?.ok) throw new Error(injected?.error || "bridgeを注入できませんでした。");
     const ping = await pingDailyPage(tab.id);
@@ -503,6 +519,7 @@ async function getActiveQuoteJob() {
 async function runBulkQuoteRefresh() {
   const tab = await activeTab();
   if (!isDailyPageUrl(tab.url)) throw new Error("Daily Page（/admin/myfans）を開いてから実行してください。");
+  await syncDailyPageContext();
   const probe = await sendRuntimeMessage({ type: "myfans_admin_probe", tabId: tab.id });
   if (!probe?.ok) throw new Error(probe?.error || "Daily PageへのexecuteScript probeに失敗しました。");
   const batchSize = Math.min(5, Math.max(1, Math.round(Number(document.getElementById("batchSize").value) || 5)));

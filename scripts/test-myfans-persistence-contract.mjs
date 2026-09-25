@@ -7,7 +7,8 @@ const route = fs.readFileSync("src/app/api/admin/myfans/daily-plan/reevaluate/ro
 const view = fs.readFileSync("src/lib/myfansDailySnapshotView.ts", "utf8");
 
 assert.match(page, /restorePersistedDailySnapshot/);
-assert.match(page, /currentPlan.*board\.planDate/);
+assert.match(page, /currentPlan = analytics\.dailyPlans[\s\S]*board\.planDate/);
+assert.match(page, /\.sort\(\(a, b\) => \(b\.revision \?\? 0\) - \(a\.revision \?\? 0\)/);
 assert.match(page, /persistedSnapshot && <PersistedDailyPlanBoard/);
 assert.match(page, /<XExecutionBoard candidates=\{board\.candidates\}/);
 assert.match(page, /4 Slot × 最大3/);

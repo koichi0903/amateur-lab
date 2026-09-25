@@ -3,11 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-dev.ps1",
     "dev:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-dev.ps1",
     "verify:canonical": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-canonical.ps1",
-    "dev:myfans": "next dev --webpack -p 3000",
-    "dev:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-dev.ps1",
+    "dev:myfans": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local-dev.ps1",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",

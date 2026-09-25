@@ -61,8 +61,12 @@ export default async function MyfansDailyPage({
   ];
   const planner = buildMyfansAcquisitionPlanner(analytics);
   const board = buildMyfansExecutionBoard(analytics, planDate ? { planDate } : {});
-  const currentPlan = analytics.dailyPlans.find((plan) => plan.plan_date === board.planDate && plan.approved_media_id === selectedMediaId)
-    ?? analytics.dailyPlans.find((plan) => plan.plan_date === board.planDate && plan.approved_media_id === null)
+  const currentPlan = analytics.dailyPlans
+    .filter((plan) => plan.plan_date === board.planDate && plan.approved_media_id === selectedMediaId)
+    .sort((a, b) => (b.revision ?? 0) - (a.revision ?? 0) || String(b.evaluated_at ?? b.updated_at ?? "").localeCompare(String(a.evaluated_at ?? a.updated_at ?? "")) || b.id - a.id)[0]
+    ?? analytics.dailyPlans
+      .filter((plan) => plan.plan_date === board.planDate && plan.approved_media_id === null)
+      .sort((a, b) => (b.revision ?? 0) - (a.revision ?? 0) || String(b.evaluated_at ?? b.updated_at ?? "").localeCompare(String(a.evaluated_at ?? a.updated_at ?? "")) || b.id - a.id)[0]
     ?? null;
   const persistedSnapshot = currentPlan ? restorePersistedDailySnapshot({
     id: currentPlan.id,

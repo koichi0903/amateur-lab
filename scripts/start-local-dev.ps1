@@ -42,6 +42,10 @@ if ($TestCase) {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$expectedRepoRoot = "C:\Users\DELL\Documents\Codex\amateur-lab-myfans-daily-funnel-audit"
+if ($repoRoot -ne $expectedRepoRoot) {
+    throw "Canonical local dev must be started from $expectedRepoRoot; refusing checkout $repoRoot"
+}
 $packagePath = Join-Path $repoRoot "package.json"
 $envPath = Join-Path $repoRoot ".env.local"
 $stateDir = Join-Path $env:LOCALAPPDATA "amateur-lab"

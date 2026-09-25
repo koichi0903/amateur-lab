@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$expectedRoot = "C:\Users\DELL\projects\amateur-lab"
+$expectedRoot = "C:\Users\DELL\Documents\Codex\amateur-lab-myfans-daily-funnel-audit"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if ($repoRoot -ne $expectedRoot) { throw "Canonical path mismatch: $repoRoot" }
 

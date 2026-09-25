@@ -1,5 +1,5 @@
 const QUOTE_STATE_KEY = "myfansQuoteRefreshState";
-importScripts("state.js");
+importScripts("origin.js", "state.js");
 
 const QUOTE_SETTINGS_KEY = "myfansQuoteRefreshSettings";
 const COMPANION_SETTINGS_KEY = "myfansCompanionSettings";
@@ -12,17 +12,11 @@ const COMPANION_PROTOCOL_VERSION = "2";
 const WORKER_VERSION = chrome.runtime.getManifest().version;
 const COLLECTOR_METHOD = "complete_thread_first_v2";
 const ADMIN_BRIDGE_FILE = "myfans-admin-bridge.js";
-const ADMIN_HOSTS = new Set(["localhost", "127.0.0.1"]);
 let diagnosticRunning = false;
 let quoteRefreshStartInFlight = false;
 
 function isMyfansAdminUrl(value) {
-  try {
-    const url = new URL(String(value || ""));
-    return url.protocol === "http:" && ADMIN_HOSTS.has(url.hostname) && url.pathname.startsWith("/admin/myfans");
-  } catch {
-    return false;
-  }
+  return globalThis.MyfansDailyPageOrigin.isDailyPage(value);
 }
 
 async function inspectAdminBridge(tabId) {
@@ -464,17 +458,7 @@ async function fetchCompanionJson(url, init, operation) {
 }
 
 function dailyPageContext(urlValue) {
-  try {
-    const url = new URL(String(urlValue || ""));
-    if (!isMyfansAdminUrl(url.href)) return null;
-    const media = url.searchParams.get("media");
-    return {
-      baseUrl: url.origin,
-      approvedMediaId: /^[1-9]\d*$/.test(media || "") ? media : ""
-    };
-  } catch {
-    return null;
-  }
+  return globalThis.MyfansDailyPageOrigin.resolve(urlValue);
 }
 
 async function getCompanionSettings() {
