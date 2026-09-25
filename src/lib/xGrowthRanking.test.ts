@@ -54,4 +54,14 @@ assert.equal(coverage.selected.some((item) => item.decisionTypes.includes("HIGH_
 assert.equal(coverage.selected.some((item) => item.decisionTypes.includes("HIDDEN_VALUE")), true);
 assert.equal(coverage.coverageAdjustments, 2);
 
+const fallback = selectRankedMediaMix([
+  { ...candidate(1, 100, "sample_movie"), mediaKey: "shared", mediaKeys: ["shared", "body:first"] },
+  { ...candidate(2, 99, "sample_movie"), mediaKey: "shared", mediaKeys: ["shared", "body:second"] },
+  { ...candidate(2, 98, "existing_link_image"), mediaKey: "image-2", mediaKeys: ["image-2", "body:second-image"] },
+  candidate(3, 97, "existing_link_image"),
+]);
+assert.deepEqual(fallback.rankedPool.map((item) => item.workId), [1, 2, 3]);
+assert.equal(fallback.rankedPool.find((item) => item.workId === 2)?.mediaKeys?.includes("body:second-image"), true);
+assert.equal(new Set(fallback.rankedPool.map((item) => item.workId)).size, fallback.rankedPool.length);
+
 console.log("xGrowth ranking regression tests passed");
