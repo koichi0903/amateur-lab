@@ -7,15 +7,22 @@ import type { Browser } from "playwright-core";
 
 type UpdateWorkOptions = {
   captureSampleMovie?: boolean;
+  unavailableMode?: "legacy" | "record";
 };
 
-export async function updateWork(
+export type UpdateWorkResult = {
+  status: "updated" | "unchanged" | "unavailable_deferred";
+  metadataChanged: boolean;
+  playwrightResult: Awaited<ReturnType<typeof updatePlaywrightItem>>;
+};
+
+export async function updateWorkDetailed(
   productId: string,
   item?: DmmItem | null,
   browser?: Browser,
   listPrice?: number | null,
   options: UpdateWorkOptions = {},
-): Promise<boolean> {
+): Promise<UpdateWorkResult> {
   const { data: currentWork, error: currentWorkError } = await supabase
     .from("works")
     .select("id,review_count,review_average,maker,series,url,release_date,actress")
@@ -42,6 +49,27 @@ export async function updateWork(
   browser,
   listPrice,
   options,
-);
-  return changed || playwrightResult === "updated";
+  );
+  return {
+    status:
+      playwrightResult === "unavailable_deferred"
+        ? "unavailable_deferred"
+        : changed || playwrightResult === "updated"
+          ? "updated"
+          : "unchanged",
+    metadataChanged: changed,
+    playwrightResult,
+  };
+}
+
+/** Backward-compatible boolean API for non-ended-sale workflows. */
+export async function updateWork(
+  productId: string,
+  item?: DmmItem | null,
+  browser?: Browser,
+  listPrice?: number | null,
+  options: UpdateWorkOptions = {},
+): Promise<boolean> {
+  const result = await updateWorkDetailed(productId, item, browser, listPrice, options);
+  return result.status === "updated";
 }

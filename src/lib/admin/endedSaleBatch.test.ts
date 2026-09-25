@@ -8,7 +8,9 @@ import {
 import {
   classifyEndedSaleRemaining,
   isDeferredUnavailableStatus,
+  summarizeEndedSaleOutcomes,
 } from "./endedSaleOutcome.ts";
+import { advanceUnavailableStatus } from "../playwright/unavailableStatus.ts";
 
 test("partitions a large ended-sale backlog instead of exceeding the scheduler limit", () => {
   const targets = Array.from({ length: ENDED_SALE_MAX_TARGETS_PER_RUN + 25 }, (_, index) => index);
@@ -123,4 +125,51 @@ test("keeps deferred classification safe for a paged backlog larger than 1,000",
   const result = classifyEndedSaleRemaining(remaining, processed);
   assert.equal(result.deferred.length, 1001);
   assert.equal(result.fatal.length, 0);
+});
+
+test("keeps ended-sale counters semantically separate", () => {
+  const result = summarizeEndedSaleOutcomes([
+    "updated",
+    ...Array.from({ length: 25 }, () => "unavailable_deferred" as const),
+    "unchanged",
+  ]);
+  assert.deepEqual(result, { updated: 1, deferred: 25, unchanged: 1 });
+});
+
+test("advances SALE to UNAVAILABLE_1 without clearing sale fields", () => {
+  assert.deepEqual(
+    advanceUnavailableStatus("SALE", "OLD", "20260925"),
+    {
+      nextStatus: "UNAVAILABLE_1_20260925_OLD",
+      nextCount: 1,
+      discontinued: false,
+    },
+  );
+});
+
+test("advances unavailable confirmations only on a later day", () => {
+  assert.equal(
+    advanceUnavailableStatus(
+      "UNAVAILABLE_1_20260925_OLD",
+      "OLD",
+      "20260925",
+    ).nextStatus,
+    "UNAVAILABLE_1_20260925_OLD",
+  );
+  assert.equal(
+    advanceUnavailableStatus(
+      "UNAVAILABLE_1_20260925_OLD",
+      "OLD",
+      "20260926",
+    ).nextStatus,
+    "UNAVAILABLE_2_20260926_OLD",
+  );
+  assert.equal(
+    advanceUnavailableStatus(
+      "UNAVAILABLE_2_20260926_OLD",
+      "OLD",
+      "20260927",
+    ).nextStatus,
+    "DISCONTINUED_20260927_OLD",
+  );
 });

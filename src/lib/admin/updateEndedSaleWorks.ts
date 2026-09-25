@@ -3,13 +3,16 @@ import { JOBS, beginJob, failJob, finishJob, updateJob } from "@/lib/jobs";
 import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import type { Browser } from "playwright-core";
-import { updateWork } from "./updateWork";
+import { updateWorkDetailed } from "./updateWork";
 import {
   ENDED_SALE_RUN_TIME_BUDGET_MS,
   ENDED_SALE_MAX_TARGETS_PER_RUN,
   processEndedSaleBatches,
 } from "./endedSaleBatch";
-import { classifyEndedSaleRemaining } from "./endedSaleOutcome";
+import {
+  classifyEndedSaleRemaining,
+  summarizeEndedSaleOutcomes,
+} from "./endedSaleOutcome";
 
 type EndedSaleTarget = {
   product_id: string;
@@ -23,12 +26,18 @@ async function updateBatch(batch: EndedSaleTarget[], browser: Browser) {
       console.log(`■ 終了セール更新開始 ${work.product_id}`);
 
       try {
-        const changed = await updateWork(work.product_id, undefined, browser);
-        console.log(`✓ 更新成功 ${work.product_id}`);
-        return { productId: work.product_id, success: true as const, changed };
+        const result = await updateWorkDetailed(
+          work.product_id,
+          undefined,
+          browser,
+          undefined,
+          { unavailableMode: "record" },
+        );
+        console.log(`[ENDED_SALE_RESULT] ${work.product_id} ${result.status}`);
+        return { productId: work.product_id, result };
       } catch (error) {
         console.error(`✗ 更新失敗 ${work.product_id}`, error);
-        return { productId: work.product_id, success: false as const };
+        return { productId: work.product_id, error: true as const };
       }
     }),
   );
@@ -62,7 +71,9 @@ export async function updateEndedSaleWorks() {
 
   let browser = await createBrowser();
   let processed = job.processed_count ?? 0;
-  let succeeded = 0;
+  let updated = 0;
+  let deferred = 0;
+  let unchanged = 0;
   const failedProductIds = new Set<string>();
   const failedTargets = new Map<string, EndedSaleTarget>();
   const processedProductIds = new Set<string>();
@@ -98,14 +109,23 @@ export async function updateEndedSaleWorks() {
       for (const work of batch) processedProductIds.add(work.product_id);
       const results = await updateBatch(batch, browser);
 
+      const summary = summarizeEndedSaleOutcomes(
+        results
+          .filter((result): result is Extract<typeof result, { result: unknown }> => "result" in result)
+          .map((result) => result.result.status),
+      );
+      updated += summary.updated;
+      deferred += summary.deferred;
+      unchanged += summary.unchanged;
+
       for (const result of results) {
-        if (result.success) succeeded += 1;
-        else {
+        if ("error" in result) {
           failedProductIds.add(result.productId);
           const failedTarget = batch.find((work) => work.product_id === result.productId);
           if (failedTarget) failedTargets.set(result.productId, failedTarget);
+          continue;
         }
-        if (result.success && result.changed) updatedWorkIds.add(result.productId);
+        if (result.result.status === "updated") updatedWorkIds.add(result.productId);
       }
 
       processed += batch.length;
@@ -121,7 +141,8 @@ export async function updateEndedSaleWorks() {
       }
 
       console.log(
-        `${processed}/${totalCount} success=${succeeded} failed=${failedProductIds.size}`,
+        `${processed}/${totalCount} updated=${updated} deferred=${deferred} ` +
+          `unchanged=${unchanged} failed=${failedProductIds.size}`,
       );
     }
   };
@@ -139,13 +160,21 @@ export async function updateEndedSaleWorks() {
       for (let index = 0; index < retryBatchTargets.length; index += UPDATE_CONFIG.parallel) {
         const batch = retryBatchTargets.slice(index, index + UPDATE_CONFIG.parallel);
         const results = await updateBatch(batch, browser);
+        const summary = summarizeEndedSaleOutcomes(
+          results
+            .filter((result): result is Extract<typeof result, { result: unknown }> => "result" in result)
+            .map((result) => result.result.status),
+        );
+        updated += summary.updated;
+        deferred += summary.deferred;
+        unchanged += summary.unchanged;
 
         for (const result of results) {
-          if (result.success) {
+          if (!("error" in result)) {
             failedProductIds.delete(result.productId);
             failedTargets.delete(result.productId);
+            if (result.result.status === "updated") updatedWorkIds.add(result.productId);
           }
-          if (result.success && result.changed) updatedWorkIds.add(result.productId);
         }
       }
     }
@@ -186,7 +215,7 @@ export async function updateEndedSaleWorks() {
       remainingAfterProductId = nextProductId;
     }
 
-    const { deferred, fatal } = classifyEndedSaleRemaining(
+    const { deferred: remainingDeferred, fatal } = classifyEndedSaleRemaining(
       remainingTargets,
       processedProductIds,
     );
@@ -197,23 +226,26 @@ export async function updateEndedSaleWorks() {
       );
     }
 
-    const warningMessage = deferred.length > 0
-      ? `終了セール更新完了（要再確認${deferred.length}件）。利用不可確認待ち: ${deferred
+    const warningMessage = remainingDeferred.length > 0
+      ? `終了セール更新完了（要再確認${remainingDeferred.length}件）。利用不可確認待ち: ${remainingDeferred
           .slice(0, 20)
           .map((target) => target.product_id)
-          .join(", ")}${deferred.length > 20 ? " …" : ""}`
+          .join(", ")}${remainingDeferred.length > 20 ? " …" : ""}`
       : null;
     await finishJob(JOBS.ENDED_SALE, warningMessage);
     console.log(
       `終了セール更新完了: ${processed}件（開始時点対象${totalCount}件）` +
-        (warningMessage ? ` / 要再確認${deferred.length}件` : ""),
+        (warningMessage ? ` / 要再確認${remainingDeferred.length}件` : ""),
     );
     return {
       workIds: [...updatedWorkIds],
       processedCount: processed,
       totalCount,
-      deferredCount: deferred.length,
-      deferredProductIds: deferred.slice(0, 20).map((target) => target.product_id),
+      updatedCount: updated,
+      deferredCount: remainingDeferred.length,
+      failedCount: failedProductIds.size,
+      unchangedCount: unchanged,
+      deferredProductIds: remainingDeferred.slice(0, 20).map((target) => target.product_id),
     };
   } catch (error) {
     await failJob(

@@ -15,20 +15,23 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { parsePage } from "./parser";
 import { saveWork } from "./save";
 import { watchSampleMovie } from "./sampleMovie";
+import { advanceUnavailableStatus } from "./unavailableStatus";
 
 export type PlaywrightUpdateResult =
   | "updated"
   | "unchanged"
+  | "unavailable_deferred"
   | "unavailable"
   | "sample_movie_missing";
 
 export type PlaywrightUpdateOptions = {
   captureSampleMovie?: boolean;
   sampleMovieOnly?: boolean;
+  /** Ended-sale checks must advance the unavailable confirmation counter even
+   * when DMM still has metadata for the product. Other workflows preserve the
+   * legacy defer-only behavior. */
+  unavailableMode?: "legacy" | "record";
 };
-
-const UNAVAILABLE_STATUS_PATTERN =
-  /^UNAVAILABLE_(\d+)_([0-9]{8})_(RESERVED|NEW|SEMI_NEW|OLD)$/;
 
 function japanDateKey(date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -42,14 +45,26 @@ function japanDateKey(date = new Date()): string {
   return `${value("year")}${value("month")}${value("day")}`;
 }
 
-async function recordUnavailable(productId: string): Promise<boolean> {
+type RecordUnavailableResult = {
+  changed: boolean;
+  dmmAvailable: boolean;
+  nextStatus: string | null;
+};
+
+async function recordUnavailable(
+  productId: string,
+  mode: "legacy" | "record",
+  diagnostics: Record<string, unknown>,
+): Promise<RecordUnavailableResult> {
   const dmmItem = await getDmmItem(productId);
   if (dmmItem) {
     // DMM and FANZA can temporarily disagree while a product is being
     // published or its storefront is changing. Treat this as a deferred
     // check instead of failing the whole scheduled batch.
-    console.warn(`[DEFERRED] FANZA価格未取得、次回再確認: ${productId}`);
-    return false;
+    if (mode === "legacy") {
+      console.warn(`[DEFERRED] FANZA価格未取得、次回再確認: ${productId}`);
+      return { changed: false, dmmAvailable: true, nextStatus: null };
+    }
   }
 
   const { data: work, error } = await supabase
@@ -61,10 +76,6 @@ async function recordUnavailable(productId: string): Promise<boolean> {
 
   const today = japanDateKey();
   const currentStatus = work.playwright_status ?? "";
-  const match = currentStatus.match(UNAVAILABLE_STATUS_PATTERN);
-  const originalStage =
-    match?.[3] ??
-    (work.stage === "DISCONTINUED" ? "OLD" : work.stage ?? "OLD");
 
   if (currentStatus.startsWith("DISCONTINUED_")) {
     const { error: touchError } = await supabase
@@ -72,16 +83,20 @@ async function recordUnavailable(productId: string): Promise<boolean> {
       .update({ updated_at: new Date().toISOString() })
       .eq("product_id", productId);
     if (touchError) throw touchError;
-    return true;
+    console.log(`[UNAVAILABLE_RESULT] ${productId}`, {
+      ...diagnostics,
+      dmmAvailable: Boolean(dmmItem),
+      transition: "touch_discontinued",
+    });
+    return {
+      changed: true,
+      dmmAvailable: Boolean(dmmItem),
+      nextStatus: currentStatus,
+    };
   }
 
-  const previousCount = Number(match?.[1] ?? 0);
-  const previousDate = match?.[2] ?? "";
-  const nextCount = previousDate === today ? previousCount : previousCount + 1;
-  const discontinued = nextCount >= 3;
-  const nextStatus = discontinued
-    ? `DISCONTINUED_${today}_${originalStage}`
-    : `UNAVAILABLE_${nextCount}_${today}_${originalStage}`;
+  const transition = advanceUnavailableStatus(currentStatus, work.stage, today);
+  const { nextCount, nextStatus, discontinued } = transition;
 
   const { error: updateError } = await supabase
     .from("works")
@@ -106,7 +121,16 @@ async function recordUnavailable(productId: string): Promise<boolean> {
       ? `[DISCONTINUED] ${productId} confirmed on 3 separate days`
       : `[UNAVAILABLE] ${productId} confirmation ${nextCount}/3`,
   );
-  return true;
+  console.log(`[UNAVAILABLE_RESULT] ${productId}`, {
+    ...diagnostics,
+    dmmAvailable: Boolean(dmmItem),
+    transition: nextStatus,
+  });
+  return {
+    changed: true,
+    dmmAvailable: Boolean(dmmItem),
+    nextStatus,
+  };
 }
 
 export async function updatePlaywrightItem(
@@ -118,6 +142,7 @@ export async function updatePlaywrightItem(
 ): Promise<PlaywrightUpdateResult>
 {
   const sampleMovieOnly = options.sampleMovieOnly === true;
+  const unavailableMode = options.unavailableMode ?? "legacy";
   const captureSampleMovie = options.captureSampleMovie === true || sampleMovieOnly;
   let dataChanged = false;
   let workUrl: string | undefined =
@@ -338,7 +363,11 @@ if (data.prices.length === 0) {
         error instanceof Error ? error.message : String(error),
     }));
 
-  console.log(`[PRICE_DIAGNOSTICS] ${productId}`, diagnostics);
+  console.log(`[PRICE_DIAGNOSTICS] ${productId}`, {
+    ...diagnostics,
+    productId,
+    dmmAvailable: unavailableMode === "record" ? "checked_below" : "not_checked",
+  });
   console.log(
     `[SKIP] ${productId} prices=[] url=${workUrl}`
   );
@@ -346,10 +375,22 @@ if (data.prices.length === 0) {
   // An unavailable/removed FANZA page was still checked successfully. Move its
   // timestamp forward so the oldest-first local batch does not select the same
   // 404 product again on every run.
-  const unavailableChanged = await recordUnavailable(productId);
+  const unavailableResult = await recordUnavailable(
+    productId,
+    unavailableMode,
+    {
+      productId,
+      url: workUrl,
+      page: diagnostics,
+    },
+  );
 
-  console.log(`[CHECKED] FANZA利用不可 ${productId}`);
-  return unavailableChanged ? "updated" : "unavailable";
+  console.log(
+    `[CHECKED] FANZA利用不可 ${productId} ` +
+      `dmm=${unavailableResult.dmmAvailable} ` +
+      `transition=${unavailableResult.nextStatus ?? "deferred"}`,
+  );
+  return "unavailable_deferred";
 }
 
 let saved = false;
