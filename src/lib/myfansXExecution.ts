@@ -3004,6 +3004,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       affiliateUrl: canConnectProduct ? resolvedProduct?.affiliate_url ?? "" : "",
       sourceXUrl: quoteForSlot?.x_post_url || product?.source_x_url || "",
       quoteXUrl: creative?.quoteXUrl ?? "",
+      mediaPermalink: quoteForSlot?.media_permalink || "",
       quoteCandidateId: quoteForSlot?.id ?? null,
       sourceXStatusId: (quoteForSlot?.x_post_url || product?.source_x_url || "").match(/status\/(\d+)/)?.[1] ?? "",
       sourceMediaType: quoteForSlot?.media_type ?? (quoteForSlot?.has_video ? "video" : quoteForSlot?.has_image ? "image" : "none"),

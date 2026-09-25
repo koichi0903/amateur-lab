@@ -67,7 +67,8 @@ export default async function MyfansDailyPage({
     evaluatedAt: currentPlan.evaluated_at ?? currentPlan.updated_at ?? null,
     strategyJson: currentPlan.strategy_json,
   }) : null;
-  const displayOptionCount = persistedSnapshot?.optionCount ?? board.recovery.candidateOptions;
+  const liveOptionCount = board.candidateOptions.reduce((count, slot) => count + slot.candidates.length, 0);
+  const displayOptionCount = liveOptionCount;
   const displaySelectedCount = persistedSnapshot?.selectedCount ?? board.recovery.passCount;
   const displaySelectedStatus = displaySelectedCount >= board.recovery.selectedMinimum ? "READY" : "SUPPLY_INSUFFICIENT";
   const displayPostCount = persistedSnapshot?.selectedCount ?? board.candidates.length;
@@ -115,7 +116,7 @@ export default async function MyfansDailyPage({
             </div>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-            <Card label="候補 options" value={`${displayOptionCount}/${board.recovery.candidateOptionsTarget}`} note={persistedSnapshot ? "保存済みDaily Snapshot" : "4 slot × A/B/C"} />
+            <Card label="投稿候補 options" value={`${displayOptionCount}/${board.recovery.candidateOptionsTarget}`} note="全eligible pool / 4 slot × A/B/C" />
             <Card label="今日 selected" value={`${displaySelectedCount}/${board.recovery.selectedMinimum}〜${board.recovery.selectedMaximum}`} note={displaySelectedStatus === "READY" ? "投稿候補あり" : "供給不足"} />
             <Card label="収集推奨" value={`${quoteTasks.length}件`} note="全クリエイター巡回" />
             <Card label="投稿候補" value={`${displayPostCount}本`} note={persistedSnapshot ? "保存済みselected" : board.heldCandidates.length ? `保留 ${board.heldCandidates.length}本` : "Quality Gate通過"} />
@@ -152,7 +153,7 @@ export default async function MyfansDailyPage({
           </div>
         </section>
 
-        {!persistedSnapshot && board.recovery.candidateOptions < board.recovery.candidateOptionsTarget && (
+        {board.recovery.candidateOptions < board.recovery.candidateOptionsTarget && (
           <section className="mt-5 rounded-xl border border-amber-800 bg-amber-950/20 p-5" aria-labelledby="myfans-funnel-diagnostics-title">
             <p className="text-xs font-black tracking-[0.16em] text-amber-300">FUNNEL DIAGNOSTICS</p>
             <h2 id="myfans-funnel-diagnostics-title" className="mt-2 text-xl font-black">候補が足りない理由</h2>
@@ -250,7 +251,13 @@ export default async function MyfansDailyPage({
 
         <div id="today-candidates" className="mt-8">
           <div id="post-metrics">
-            {persistedSnapshot ? <PersistedDailyPlanBoard snapshot={persistedSnapshot} /> : <XExecutionBoard candidates={board.candidates} candidateOptions={board.candidateOptions} selectedOptions={board.selectedOptions} planDate={board.planDate} posts={analytics.posts} />}
+            {persistedSnapshot && <PersistedDailyPlanBoard snapshot={persistedSnapshot} />}
+            <section className="mt-6 rounded-xl border border-violet-800 bg-violet-950/15 p-5" aria-labelledby="live-daily-options-title">
+              <p className="text-xs font-black tracking-[0.16em] text-violet-300">TOP 12 POSTING OPTIONS</p>
+              <h2 id="live-daily-options-title" className="mt-2 text-xl font-black">全eligible候補からの投稿候補（4 Slot × 最大3）</h2>
+              <p className="mt-2 text-xs leading-5 text-zinc-400">保存済みDaily重点とは別に、現在の全作品・eligible quote/sourceから再計算した手動投稿候補です。投稿URL保存が成功するまでposted確定しません。</p>
+            </section>
+            <XExecutionBoard candidates={board.candidates} candidateOptions={board.candidateOptions} selectedOptions={board.selectedOptions} planDate={board.planDate} posts={analytics.posts} />
           </div>
         </div>
 
