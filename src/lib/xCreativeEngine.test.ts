@@ -38,7 +38,7 @@ const variants = buildXCreativeVariants(baseInput);
 const videoVariants = variants.filter((variant) => variant.mediaType === "sample_movie");
 assert.deepEqual(buildXCreativeVariants(baseInput), variants);
 assert.ok(videoVariants.length > 0);
-assert.ok(videoVariants.every((variant) => variant.bodyText.includes("冒頭の展開が予想と少し違う。")));
+assert.ok(videoVariants.every((variant) => variant.bodyText.includes("冒頭の展開が予想と少し違う")));
 assert.ok(videoVariants.every((variant) => variant.quality.lastMile.humanVoice.checks.readerAction));
 assert.ok(videoVariants.every((variant) => variant.weightedLength <= 280));
 assert.ok(videoVariants.every((variant) => validateXCopyGrammar(baseInput, variant.bodyText).passed));
@@ -108,6 +108,11 @@ const recentLogs = videoBodies.map((postText, index) => ({
 })) as XPostLog[];
 const reuseChecked = buildXCreativeVariants({ ...baseInput, recentLogs });
 assert.ok(reuseChecked.some((variant) => !variant.quality.lastMile.nativeXVoice.checks.noTemplateReuse));
+const historicalVideoTemplate = buildXCreativeVariants({
+  ...baseInput,
+  recentLogs: [{ id: 900, post_text: "固定女優、冒頭の展開が予想と少し違う。", posted_at: new Date().toISOString(), creative_genome: {} }] as XPostLog[],
+}).filter((variant) => variant.mediaType === "sample_movie");
+assert.ok(historicalVideoTemplate.some((variant) => variant.quality.lastMile.nativeXVoice.checks.noTemplateReuse));
 
 const repeatedFingerprintLogs = [0, 1].map((index) => ({
   id: index + 200,

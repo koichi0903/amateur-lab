@@ -137,6 +137,7 @@ export type XCreativeInput = {
   sampleMovieUrl?: string | null;
   imageUrl?: string | null;
   saleEndAt?: string | null;
+  /** Technical availability of an official sample movie; rights-review state is not a candidate gate. */
   hasRightsCheckedMovie?: boolean;
   mediaManualTags?: XVideoManualTag[];
   mediaQuality?: "unreviewed" | "strong" | "normal" | "weak";
@@ -395,9 +396,10 @@ function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPl
     const action = visualFact ? videoReaderActionLine(input, visualFact, intent, primaryVideoTag(input), direction) : "";
     const subject = primaryActress(input) ?? safeTitleFragment(input);
     const layout = stableChoiceIndex([input.key, input.title, String(visualFact.value), intent, direction].join("|"), 4);
-    const visualOpening = /気になる|止ま|好き|違う|ズレ|迷う|見落|空気|こっち|正直|なんか|意外|早い|もったいない|外しそう|引っか|流して|弱い|強い|合う|寄って|印象|ジャケ|表紙|中身|決めない|半額だけ|数字より|選び方|差が|差あり/.test(concretePhrase)
-      ? concretePhrase
-      : nativeVisualOpening(input, visualFact, concretePhrase, intent, direction);
+    // Keep the verified fact as a substring, but add a natural reaction so a
+    // repeated historical fact line does not fail noTemplateReuse for every
+    // variant of every work.
+    const visualOpening = nativeVisualOpening(input, visualFact, concretePhrase, intent, direction);
     const subjectLead = primaryActress(input) ? `${subject}、${action}` : `${subject}で、${action}`;
     const lines = layout === 0
       ? [subjectLead, visualOpening]
@@ -415,7 +417,15 @@ function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPl
   if (!tag || tag === "too_explicit_for_reach" || tag === "weak_visual") {
     // An official sample may be rights-safe before visual facts/manual tags
     // exist. Keep the copy native and factual without inventing a scene.
-    return [`${subject}、サンプルが少し気になる。`, "先に見ておきたい。"].filter(Boolean);
+    const decisionProof = input.decisionFacts ? decisionFactProofLine(input.decisionFacts) : "";
+    const fallbackEndings = [
+      "先に見ておきたい。",
+      "流さず、もう少し見てから決めたい。",
+      "開いてから合うか確かめたい。",
+      "気になったところだけ、続きも見ておきたい。",
+    ];
+    const ending = fallbackEndings[stableChoiceIndex([input.key, intent, direction].join("|"), fallbackEndings.length)];
+    return [`${subject}、サンプルが少し気になる。`, decisionProof || ending].filter(Boolean);
   }
   const decisionProof = input.decisionFacts ? decisionFactProofLine(input.decisionFacts) : "";
   const proof = input.decisionFacts
