@@ -41,6 +41,7 @@ const relevantPatterns = [
   /^tsconfig\.json$/,
   /^vercel\.json$/,
   /^scripts\/vercel-ignore-build\.mjs$/,
+  /^scripts\/start-local-dev\.ps1$/,
 ];
 
 const hasRelevantChange = changedFiles.some((file) =>
