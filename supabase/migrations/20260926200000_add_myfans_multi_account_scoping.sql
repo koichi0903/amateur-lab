@@ -39,43 +39,38 @@ alter table public.myfans_audit_logs
 
 -- Preserve existing attribution without fabricating cross-account data.
 update public.myfans_affiliate_clicks c
-set approved_media_id = coalesce(p.approved_media_id, pr.approved_media_id)
+set approved_media_id = p.approved_media_id
 from public.myfans_x_posts p
-full join public.myfans_products pr on pr.id = c.product_id
-where c.approved_media_id is null
-  and (p.id = c.x_post_id or pr.id = c.product_id);
+where c.approved_media_id is null and c.x_post_id = p.id and p.approved_media_id is not null;
+update public.myfans_affiliate_clicks c
+set approved_media_id = p.approved_media_id
+from public.myfans_products p
+where c.approved_media_id is null and c.product_id = p.id and p.approved_media_id is not null;
 
 update public.myfans_conversions c
-set approved_media_id = coalesce(p.approved_media_id, pr.approved_media_id)
+set approved_media_id = p.approved_media_id
 from public.myfans_x_posts p
-full join public.myfans_products pr on pr.id = c.product_id
-where c.approved_media_id is null
-  and (p.id = c.x_post_id or pr.id = c.product_id);
+where c.approved_media_id is null and c.x_post_id = p.id and p.approved_media_id is not null;
+update public.myfans_conversions c
+set approved_media_id = p.approved_media_id
+from public.myfans_products p
+where c.approved_media_id is null and c.product_id = p.id and p.approved_media_id is not null;
 
 update public.myfans_daily_metrics d
-set approved_media_id = coalesce(p.approved_media_id, pr.approved_media_id)
+set approved_media_id = p.approved_media_id
 from public.myfans_x_posts p
-full join public.myfans_products pr on pr.id = d.product_id
-where d.approved_media_id is null
-  and (p.id = d.x_post_id or pr.id = d.product_id);
+where d.approved_media_id is null and d.x_post_id = p.id and p.approved_media_id is not null;
+update public.myfans_daily_metrics d
+set approved_media_id = p.approved_media_id
+from public.myfans_products p
+where d.approved_media_id is null and d.product_id = p.id and p.approved_media_id is not null;
 
--- Existing operational snapshots were created before the account switch and
--- therefore had no media id.  They belong to the only historically active
--- account, lumi_reviw.  Do not apply this backfill to supply tables.
-do $$
-declare v_lumi_id bigint;
-begin
-  select id into v_lumi_id from public.myfans_approved_media where account_key = 'lumi_reviw';
-  if v_lumi_id is not null then
-    update public.myfans_daily_plans set approved_media_id = v_lumi_id where approved_media_id is null;
-    update public.myfans_attention_candidates set approved_media_id = v_lumi_id where approved_media_id is null;
-    update public.myfans_outbound_tasks set approved_media_id = v_lumi_id where approved_media_id is null;
-    update public.myfans_quote_refresh_jobs set approved_media_id = v_lumi_id where approved_media_id is null;
-    update public.myfans_visual_verification_jobs set approved_media_id = v_lumi_id where approved_media_id is null;
-    update public.myfans_x_posts set approved_media_id = v_lumi_id where approved_media_id is null;
-  end if;
-end;
-$$;
+-- Do not guess the account for legacy operational rows that have NULL media id.
+-- In particular, Daily Plan and Attention contain duplicate legacy snapshots.
+-- They remain intact as history and are intentionally excluded by account-scoped
+-- readers.  Current canonical rows already carry approved_media_id=1 for
+-- @lumi_reviw; only unambiguous attribution below (post/product linkage) is
+-- backfilled.
 
 -- Revenue import files and conversion row keys are also account-local.
 update public.myfans_conversions c
