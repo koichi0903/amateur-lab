@@ -60,6 +60,9 @@ if (-not $head) { throw "Could not resolve the Git HEAD for $repoRoot" }
 
 try {
     New-Item -ItemType Directory -Path $stateDir -Force -ErrorAction Stop | Out-Null
+    $writeProbe = Join-Path $stateDir ".write-probe"
+    Set-Content -LiteralPath $writeProbe -Value "ok" -Encoding utf8 -ErrorAction Stop
+    Remove-Item -LiteralPath $writeProbe -Force -ErrorAction SilentlyContinue
 }
 catch {
     $stateDir = Join-Path $env:TEMP "amateur-lab"
@@ -116,6 +119,7 @@ function Test-IsProcessTreeMember {
 }
 
 $ownerPid = Get-PortOwner
+$portWasFree = $ownerPid -eq 0
 $marker = $null
 if (Test-Path -LiteralPath $markerPath) {
     try { $marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json }
@@ -164,9 +168,10 @@ try {
     for ($attempt = 1; $attempt -le 60; $attempt++) {
         if ($server.HasExited) { throw "Next exited before HTTP became ready. See $logPath and $errorLogPath" }
         $currentOwner = Get-PortOwner
-        if ($currentOwner -eq $server.Id -or (Test-IsProcessTreeMember $currentOwner $server.Id)) {
+        $ownedByLaunch = $currentOwner -eq $server.Id -or (Test-IsProcessTreeMember $currentOwner $server.Id)
+        if ($ownedByLaunch -or ($portWasFree -and $currentOwner -ne 0)) {
             try {
-                $response = Invoke-WebRequest -Uri "http://127.0.0.1:3000/admin/bijyo-reserved" -UseBasicParsing -TimeoutSec 3
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:3000/robots.txt" -UseBasicParsing -TimeoutSec 10
                 if ($response.StatusCode -eq 200) { $ready = $true; break }
             }
             catch { }
@@ -180,12 +185,16 @@ try {
     Write-Host "port 3000 PID: $listenerPid"
     Write-Host "cwd: $repoRoot"
     Write-Host "HEAD: $head"
-    Write-Host "HTTP: 200 /admin/bijyo-reserved"
+    Write-Host "HTTP: 200 /robots.txt"
     Write-Host "log: $logPath"
     Write-Host "error log: $errorLogPath"
 }
 catch {
     if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
+    if ($portWasFree) {
+        $listenerAfterFailure = Get-PortOwner
+        if ($listenerAfterFailure) { Stop-Process -Id $listenerAfterFailure -Force -ErrorAction SilentlyContinue }
+    }
     Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
     throw
 }
