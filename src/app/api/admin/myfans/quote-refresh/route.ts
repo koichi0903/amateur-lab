@@ -156,6 +156,11 @@ async function targetedCreatorRecommendations(approvedMediaId: number | null) {
   ]);
   if (creatorsError) throw creatorsError;
   if (quotesError) throw quotesError;
+  const { data: collectionStates, error: collectionStateError } = await supabaseAdmin
+    .from("myfans_creator_collection_state")
+    .select("creator_id,last_processed_at,state,collection_enabled")
+    .in("creator_id", creatorIds);
+  if (collectionStateError) throw collectionStateError;
   const productCount = new Map<number, number>();
   for (const product of productRows) productCount.set(Number(product.creator_id), (productCount.get(Number(product.creator_id)) ?? 0) + 1);
   const freshPassCreators = new Set<number>();
@@ -165,6 +170,14 @@ async function targetedCreatorRecommendations(approvedMediaId: number | null) {
     const source = evaluateMyfansSourceValue({ text: quote.text_excerpt ?? "", postedAt: quote.posted_at, collectedAt: quote.collected_at, mediaType: quote.media_type, mediaPermalink: quote.media_permalink, quoteVisualReady: quote.quote_visual_ready, visualAnalysisStatus: quote.visual_analysis_status, views: quote.views, likes: quote.likes, reposts: quote.reposts, replies: quote.replies, isRepost: quote.is_repost, isReply: quote.is_reply, isQuote: quote.is_quote });
     if (!quote.is_repost && !quote.last_used_at && !quote.cooldown_until && age !== null && age <= 14 && source.verdict === "PASS") freshPassCreators.add(Number(quote.creator_id));
   }
+  const latestCollectedAt = new Map<number, string>();
+  for (const quote of quotes ?? []) {
+    const creatorId = Number(quote.creator_id);
+    const current = latestCollectedAt.get(creatorId);
+    if (!current || String(quote.collected_at) > current) latestCollectedAt.set(creatorId, String(quote.collected_at));
+  }
+  const stateByCreator = new Map((collectionStates ?? []).map((state) => [Number(state.creator_id), state]));
+  const ageDays = (value: string | null | undefined) => value ? Math.max(0, (Date.now() - new Date(value).getTime()) / 86_400_000) : null;
   const candidates = (creators ?? [])
     .map((creator) => ({
       creatorId: creator.id,
@@ -173,9 +186,22 @@ async function targetedCreatorRecommendations(approvedMediaId: number | null) {
       productCount: productCount.get(creator.id) ?? 0,
       need: freshPassCreators.has(creator.id) ? "既存fresh sourceあり。再収集不要" : "既存productにfresh Source Value PASSなし",
       eligible: !freshPassCreators.has(creator.id),
+      lastCollectedAt: latestCollectedAt.get(creator.id) ?? null,
+      lastProcessedAt: stateByCreator.get(creator.id)?.last_processed_at ?? null,
+      collectionState: stateByCreator.get(creator.id)?.state ?? "ELIGIBLE",
     }))
-    .filter((row) => row.creatorXUrl && row.eligible)
-    .sort((a, b) => b.productCount - a.productCount || a.creatorId - b.creatorId)
+    .filter((row) => row.creatorXUrl && row.eligible && row.collectionState !== "PRIVATE" && row.collectionState !== "NO_POSTS")
+    .sort((a, b) => {
+      const priority = (row: typeof a) => {
+        const age = ageDays(row.lastCollectedAt) ?? ageDays(row.lastProcessedAt);
+        if (age === null) return 3000;
+        if (age >= 14) return 2500 + age;
+        if (age >= 3) return 2000 + age;
+        if (row.collectionState === "TEMP_ERROR" || row.collectionState === "THREAD_INCOMPLETE") return 1800 + age;
+        return 1000 + age;
+      };
+      return priority(b) - priority(a) || b.productCount - a.productCount || a.creatorId - b.creatorId;
+    })
     .slice(0, 5);
   return { candidates, reason: candidates.length ? "既存productにfresh sourceがないcreatorを最大5件選定" : "既存productにfresh source不足の対象なし" };
 }

@@ -1480,7 +1480,9 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
       formData.set("creative_reason", candidate.creativeReason);
       formData.set("card_payload", JSON.stringify(candidate.cardPayload));
       formData.set("ogp_check_required", candidate.ogpCheckRequired ? "true" : "false");
-      formData.set("quote_x_url", candidate.quoteXUrl);
+      // Product-less discovery still has a real source post. Preserve its
+      // identity so posted-state cooldown/exclusion can close the loop.
+      formData.set("quote_x_url", candidate.quoteXUrl || candidate.sourceXUrl);
       formData.set("media_permission_status", candidate.mediaPermissionStatus);
       formData.set("planned_slot", candidate.plannedSlot);
       formData.set("objective", candidate.objective);
@@ -1754,7 +1756,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
                           {pendingId === `skip-${candidate.id}` ? <LoaderCircle size={15} className="animate-spin" /> : <XCircle size={15} />}
                           {candidate.product ? "この作品を今後表示しない" : "この元投稿を今後表示しない"}
                         </button>
-                        <button type="button" disabled={!selected || !candidate.product || pendingId === candidate.id || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
+                        <button type="button" disabled={!selected || pendingId === candidate.id || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
                           <Save size={15} /> 選択候補を投稿ログへ保存
                         </button>
                       </div>

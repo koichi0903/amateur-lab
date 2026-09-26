@@ -476,9 +476,19 @@ async function updatePostExecution(formData: FormData) {
     const finalized = await supabaseAdmin.rpc("save_myfans_post", {
       p_post: { id, status: "posted", posted_at: postedAt, x_post_url: mode === "url" ? text(formData, "x_post_url") : undefined },
       p_idempotency_key: `post:${id}`,
-      p_quote_x_url: post.quote_x_url ?? "",
+      p_quote_x_url: post.quote_x_url || post.source_x_url || "",
     });
     if (finalized.error || !finalized.data?.post_id) throw new Error("投稿完了処理に失敗しました。再度状態を確認してください。");
+    const sourceUrl = post.quote_x_url || post.source_x_url || "";
+    const target = exclusionTargetForCandidate({ productId: null, quoteXUrl: sourceUrl, sourceXUrl: sourceUrl });
+    if (target) {
+      const exclusion = await recordMyfansPermanentExclusion({
+        ...target,
+        reason: "posted",
+        context: { recorded_from: "myfans_post_execution", post_id: id },
+      });
+      if (exclusion.error) throw exclusion.error;
+    }
   }
   await audit("x_post", id, `execution_${mode}`, "投稿実行ボードから更新", record);
   return { id };
