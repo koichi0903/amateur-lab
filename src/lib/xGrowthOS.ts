@@ -782,7 +782,7 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
     sourceType: item.sourceType,
     visualFacts,
   });
-  const variants = buildXCreativeVariants({
+  const creativeInput = {
     key: item.key,
     title: item.title,
     url: item.creativeVariants[0]?.url ?? "",
@@ -818,8 +818,21 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
     recommendedSlot: item.recommendedSlot,
     sourceType: item.sourceType,
     visualFacts,
-  }, hookScore);
-  const realMediaVariants = variants.map((variant) => variant.mediaType === "data_card" && item.imageUrl
+  };
+  const variants = buildXCreativeVariants(creativeInput, hookScore);
+  // A work with an official sample and a real work image must retain both
+  // media paths. Ranking chooses one representative per work later; dropping
+  // the image here would make the image side of the final mix impossible after
+  // the video quota is filled.
+  const imageFallbackVariants = item.imageUrl && variants.some((variant) => variant.mediaType === "sample_movie")
+    ? buildXCreativeVariants({
+      ...creativeInput,
+      sampleMovieUrl: null,
+      hasRightsCheckedMovie: false,
+      visualFacts: null,
+    }, hookScore)
+    : [];
+  const realMediaVariants = [...variants, ...imageFallbackVariants].map((variant) => variant.mediaType === "data_card" && item.imageUrl
     ? { ...variant, mediaType: "existing_link_image" as const, imageStrategy: "original_work_image" as const }
     : variant);
   const recommended = realMediaVariants.find((variant) => variant.intent === item.intent && variant.quality.passed)
