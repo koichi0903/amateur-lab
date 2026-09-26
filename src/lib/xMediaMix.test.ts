@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { buildVisualVideoFacts } from "./xVisualVideoFacts";
-import { auditCandidateUniqueness, candidateMediaDedupeKey, isDistinctCandidate, isOfficialEligibleVideoCandidate, isStrongSafeVideoCandidate, videoEligibilityReasons } from "./xGrowthOS";
+import { auditCandidateUniqueness, candidateMediaDedupeKey, isDistinctCandidate, isOfficialEligibleVideoCandidate, isStrongSafeVideoCandidate, selectRankedMediaMix, videoEligibilityReasons } from "./xGrowthOS";
+import type { DecisionType } from "./domain/decisionFacts";
 import { isVideoCandidate } from "./xVideoCandidate";
 
 const variant = {
@@ -40,6 +41,31 @@ assert.equal(isOfficialEligibleVideoCandidate({ ...item, mediaAsset: { ...item.m
 assert.equal(isOfficialEligibleVideoCandidate({ ...item, mediaAsset: { ...item.mediaAsset, rights_status: "unknown", x_usage_allowed: false, can_reupload: false, commercial_use_allowed: false }, mediaType: "sample_movie" }), true);
 assert.equal(isStrongSafeVideoCandidate({ ...item, sampleMovieUrl: "https://example.com/video.mp4", recommendedMediaUrl: "https://example.com/video.mp4", mediaAsset: { ...item.mediaAsset, source_url: "https://example.com/video.mp4", source_kind: "unknown_external" }, mediaType: "sample_movie" }, variant), false);
 assert.equal(isOfficialEligibleVideoCandidate({ ...item, sampleMovieUrl: "https://example.com/video.mp4", recommendedMediaUrl: "https://example.com/video.mp4", mediaAsset: { ...item.mediaAsset, source_url: "https://example.com/video.mp4", source_kind: "unknown_external" }, mediaType: "sample_movie" }), false);
+
+const rankedCandidate = (workId: number, mediaType: "sample_movie" | "existing_link_image", score: number, decisionTypes: DecisionType[] = ["RECORD_LOW"]) => ({
+  workId,
+  mediaKey: `${mediaType}:${workId}`,
+  mediaType,
+  score,
+  decisionTypes,
+});
+const fiveVideoSupply = Array.from({ length: 5 }, (_, index) => [
+  rankedCandidate(index + 1, "existing_link_image", 100),
+  rankedCandidate(index + 1, "sample_movie", 1),
+]).flat();
+assert.equal(selectRankedMediaMix(fiveVideoSupply, 9).selected.filter((candidate) => candidate.mediaType === "sample_movie").length, 5);
+const fourVideoSupply = Array.from({ length: 4 }, (_, index) => [
+  rankedCandidate(index + 20, "existing_link_image", 100),
+  rankedCandidate(index + 20, "sample_movie", 1),
+]).flat();
+assert.equal(selectRankedMediaMix(fourVideoSupply, 9).selected.filter((candidate) => candidate.mediaType === "sample_movie").length, 4);
+assert.equal(selectRankedMediaMix([
+  rankedCandidate(99, "existing_link_image", 100),
+  rankedCandidate(99, "sample_movie", 1),
+  rankedCandidate(100, "sample_movie", 2),
+  rankedCandidate(101, "sample_movie", 2),
+  rankedCandidate(102, "sample_movie", 2),
+], 5).selected.some((candidate) => candidate.workId === 99 && candidate.mediaType === "sample_movie"), true);
 
 const first = { workId: 1, productId: "p1", sampleMovieUrl: item.sampleMovieUrl, mediaAsset: { id: 101 } };
 const sameUrlDifferentWork = { workId: 2, productId: "p2", sampleMovieUrl: item.sampleMovieUrl, mediaAsset: { id: 102 } };

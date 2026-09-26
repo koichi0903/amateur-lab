@@ -20,6 +20,35 @@ function safeFilename(value: string) {
   return value.replace(/[^\w.-]+/g, "-").replace(/-+/g, "-").slice(0, 80) || "x-growth-media";
 }
 
+function isAllowedUpstreamUrl(value: string, mediaType: string) {
+  try {
+    const url = new URL(value);
+    // All remotely fetched X Growth media must remain on the official
+    // FANZA/DMM host allowlist. This also excludes localhost/private URLs.
+    return url.protocol === "https:" && sourceKindFor(url.toString()) === "official_sample"
+      && (mediaType === "sample_movie" || mediaType === "existing_link_image");
+  } catch {
+    return false;
+  }
+}
+
+async function fetchAllowedUpstream(url: string, mediaType: string, range?: string | null) {
+  let current = url;
+  for (let attempt = 0; attempt <= 3; attempt += 1) {
+    if (!isAllowedUpstreamUrl(current, mediaType)) throw new Error("許可されていない素材URLです。");
+    const response = await fetch(current, {
+      cache: "no-store",
+      redirect: "manual",
+      headers: range && mediaType === "sample_movie" ? { Range: range } : undefined,
+    });
+    if (response.status < 300 || response.status >= 400) return response;
+    const location = response.headers.get("location");
+    if (!location) return response;
+    current = new URL(location, current).toString();
+  }
+  throw new Error("素材URLのリダイレクト回数が上限を超えました。");
+}
+
 function escapeXml(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -221,10 +250,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const upstream = await fetch(resolved.url, {
-      cache: "no-store",
-      headers: range && mediaType === "sample_movie" ? { Range: range } : undefined,
-    });
+    const upstream = await fetchAllowedUpstream(resolved.url, mediaType, range);
     if (!upstream.ok || !upstream.body) {
       await auditXGrowth("media_download_failed", { workId, mediaType, assetId, status: upstream.status });
       return NextResponse.json({ error: "素材を取得できませんでした。" }, { status: 502 });
@@ -233,7 +259,7 @@ export async function GET(request: NextRequest) {
     const ext = extFromContentType(contentType, resolved.fallbackExt);
     const headers = new Headers({
       "Content-Type": contentType,
-      "Content-Disposition": `${mediaType === "sample_movie" ? "inline" : "attachment"}; filename="${safeFilename(resolved.basename)}.${ext}"`,
+      "Content-Disposition": `attachment; filename="${safeFilename(resolved.basename)}.${ext}"`,
       "Cache-Control": "private, no-store",
     });
     for (const header of ["content-length", "accept-ranges", "content-range"] as const) {

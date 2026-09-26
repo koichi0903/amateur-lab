@@ -1532,10 +1532,20 @@ export function selectRankedMediaMix<T extends RankedMediaMixCandidate>(items: r
   const seenMedia = new Set<string>();
   const byWork = new Map<number, T[]>();
   for (const item of sorted) byWork.set(item.workId, [...(byWork.get(item.workId) ?? []), item]);
+  // Keep a safe video representative when a work also has an image variant.
+  // The old score-only representative selection could permanently discard
+  // the video before media quota allocation even when enough safe videos
+  // existed across distinct works.
+  const videoSupplyWorks = new Set(
+    sorted.filter((item) => item.mediaType === "sample_movie").map((item) => item.workId),
+  );
+  const preferVideo = videoSupplyWorks.size > 0;
   for (const workItems of byWork.values()) {
     // Prefer the highest-ranked variant, but let a later safe variant rescue
     // the work when the first variant collides with an earlier work.
-    const representative = workItems.find((item) => {
+    const representative = (preferVideo && workItems.some((item) => item.mediaType === "sample_movie")
+      ? workItems.filter((item) => item.mediaType === "sample_movie")
+      : workItems).find((item) => {
       const keys = item.mediaKeys?.length ? item.mediaKeys : [item.mediaKey];
       return keys.every((key) => !seenMedia.has(key));
     });

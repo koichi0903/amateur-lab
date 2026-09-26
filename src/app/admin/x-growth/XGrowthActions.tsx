@@ -385,7 +385,7 @@ export function ManualPostActions({
       setMessage(error instanceof Error ? error.message : "削除できませんでした。既に削除済みの可能性があります。");
     }
   };
-  const materialLabel = mediaType === "sample_movie" ? "動画を開く/保存"
+  const materialLabel = mediaType === "sample_movie" ? "動画を保存"
     : mediaType === "existing_link_image" || mediaType === "data_card" ? "画像を開く"
       : mediaType === "quote" ? "引用元を開く"
         : "";
