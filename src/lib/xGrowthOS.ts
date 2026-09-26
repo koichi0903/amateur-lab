@@ -159,15 +159,6 @@ function isEligibleForDecisionType(candidate: Pick<XGrowthOpportunity, "decision
   return decisionTypesForCandidate(candidate).includes(type);
 }
 
-export function decisionCoverageScore(
-  decisionType: DecisionType,
-  selectedByType: Partial<Record<DecisionType, number>>,
-  eligibleByType: Partial<Record<DecisionType, number>>,
-) {
-  const missing = DECISION_TYPES.some((type) => (eligibleByType[type] ?? 0) > 0 && (selectedByType[type] ?? 0) === 0);
-  return missing && (eligibleByType[decisionType] ?? 0) > 0 && (selectedByType[decisionType] ?? 0) === 0 ? 100 : 0;
-}
-
 export type XDailyTopPick = XGrowthOpportunity & {
   pickOrder: number;
   slotId?: "slot_1" | "slot_2" | "slot_3";
@@ -986,17 +977,6 @@ export function cheapCandidatePrefilter(items: XGrowthOpportunity[], limit = 300
   });
   const selected = new Map<string, XGrowthOpportunity>();
   const add = (item: XGrowthOpportunity) => { if (selected.size < limit) selected.set(item.key, item); };
-  // Decision Facts lanes are a hard supply requirement, not a score-only
-  // preference. Reserve each available lane before role/source ranking fills
-  // the bounded prefilter. Otherwise a large RECORD_LOW pool can consume all
-  // slots and make the later lane-preservation pass a no-op.
-  for (const decisionType of DECISION_TYPES) {
-    const lane = ranked.filter((candidate) => isEligibleForDecisionType(candidate, decisionType));
-    if (lane[0]) add(lane[0]);
-  }
-  for (const decisionType of DECISION_TYPES) {
-    ranked.filter((candidate) => isEligibleForDecisionType(candidate, decisionType)).slice(1, 30).forEach(add);
-  }
   for (const item of ranked.filter((candidate) => candidate.sourceType === "MONEY").slice(0, 30)) add(item);
   for (const role of ["REACH", "FOLLOW", "AUTHORITY", "MONEY"] as const) {
     [...ranked].sort((a, b) => {
@@ -1024,9 +1004,6 @@ export function preserveDecisionLanesBeforeLimit(
     if (selected.size < limit) selected.set(item.key, item);
   };
   for (const item of items) if (mustKeepWorkIds.has(item.workId)) add(item);
-  for (const decisionType of DECISION_TYPES) {
-    items.filter((item) => isEligibleForDecisionType(item, decisionType)).slice(0, 30).forEach(add);
-  }
   for (const item of items) add(item);
   return [...selected.values()];
 }
@@ -1705,26 +1682,7 @@ export function selectRankedMediaMix<T extends RankedMediaMixCandidate>(items: r
   };
   for (const item of rankedPool) add(item, true);
   for (const item of rankedPool) add(item, false);
-  let coverageAdjustments = 0;
-  const coverageTypes: DecisionType[] = ["RECORD_LOW", "HIGH_DISCOUNT_NOT_LOW", "HIDDEN_VALUE"];
-  for (const type of coverageTypes) {
-    if (selected.some((item) => item.decisionTypes.includes(type))) continue;
-    const replacement = rankedPool.find((item) => !selectedWorks.has(item.workId) && item.decisionTypes.includes(type));
-    if (!replacement) continue;
-    const victimIndex = [...selected].map((item, index) => ({ item, index })).reverse().find(({ item }) => item.mediaType === replacement.mediaType
-      && !coverageTypes.some((otherType) => otherType !== type && item.decisionTypes.includes(otherType)
-        && selected.filter((selectedItem) => selectedItem.decisionTypes.includes(otherType)).length <= 1))?.index;
-    if (victimIndex === undefined) continue;
-    const victim = selected[victimIndex];
-    if (selectedMedia.has(replacement.mediaKey)) continue;
-    selectedWorks.delete(victim.workId);
-    selectedMedia.delete(victim.mediaKey);
-    selected[victimIndex] = replacement;
-    selectedWorks.add(replacement.workId);
-    selectedMedia.add(replacement.mediaKey);
-    coverageAdjustments += 1;
-  }
-  return { rankedPool, selected, targetVideos, targetImages, coverageAdjustments, duplicateBreakdown };
+  return { rankedPool, selected, targetVideos, targetImages, coverageAdjustments: 0, duplicateBreakdown };
 }
 
 function selectRankedDailyTopPicks(
@@ -1839,38 +1797,7 @@ function selectRankedDailyTopPicks(
     if (candidate.mediaType === "sample_movie") videoCount += 1;
     else imageCount += 1;
   }
-  let decisionCoverageAdjustments = 0;
-  for (const decisionType of DECISION_TYPES) {
-    if (selected.some((candidate) => isEligibleForDecisionType(candidate.item, decisionType))) continue;
-    const replacement = rankedPool.find((candidate) => {
-      if (!isEligibleForDecisionType(candidate.item, decisionType) || selectedWorkIds.has(candidate.item.workId)) return false;
-      const victim = [...selected].reverse().find((entry) => entry.mediaType === candidate.mediaType);
-      return Boolean(victim);
-    });
-    if (!replacement) continue;
-    const victimIndex = [...selected].reverse().findIndex((entry) => entry.mediaType === replacement.mediaType
-      && !DECISION_TYPES.some((otherType) => otherType !== decisionType && isEligibleForDecisionType(entry.item, otherType)
-        && selected.filter((selectedItem) => isEligibleForDecisionType(selectedItem.item, otherType)).length <= 1));
-    const actualIndex = selected.length - 1 - victimIndex;
-    const victim = selected[actualIndex];
-    const victimMediaKeys = variantMediaKeys(victim.item, victim.variant);
-    const replacementMediaKeys = variantMediaKeys(replacement.item, replacement.variant);
-    if (replacementMediaKeys.some((key) => selectedMedia.has(key) && !victimMediaKeys.includes(key))) continue;
-    selectedWorkIds.delete(victim.item.workId);
-    selectedWorkIds.add(replacement.item.workId);
-    for (const key of victimMediaKeys) selectedMedia.delete(key);
-    for (const key of replacementMediaKeys) selectedMedia.add(key);
-    selected[actualIndex] = {
-      ...replacement,
-      item: {
-        ...replacement.item,
-        decisionFacts: replacement.item.decisionFacts
-          ? { ...replacement.item.decisionFacts, decisionType }
-          : replacement.item.decisionFacts,
-      },
-    };
-    decisionCoverageAdjustments += 1;
-  }
+  const decisionCoverageAdjustments = 0;
   const slots = [
     { slotId: "slot_1" as const, slotRole: "REACH" as const, slotLabel: "投稿枠1: ranked 1〜3" },
     { slotId: "slot_2" as const, slotRole: "FOLLOW_OR_AUTHORITY" as const, slotLabel: "投稿枠2: ranked 4〜6" },
@@ -2049,16 +1976,7 @@ function selectDailyTopPicksLegacy(opportunities: XGrowthOpportunity[], mission:
             : 0;
           const slotPriorityBonus = semanticCategory ? semanticCategoryForSlot(slot.slotId, role, semanticCategory) * 3 : 0;
           const repetitionPenalty = hasDiversityConflict(item, [...picked, ...slotPicked], logs) ? 10 : 0;
-          // Multi-label eligibility supplies a lane, but only the lane's
-          // presentation primary type satisfies primary-type coverage.
-          const eligibleTypes = [decisionTypeForCandidate(item)];
-          const selectedByDecisionType = [...picked, ...slotPicked].reduce((counts, pick) => {
-            const type = decisionTypeForCandidate(pick);
-            counts[type] = (counts[type] ?? 0) + 1;
-            return counts;
-          }, {} as Partial<Record<DecisionType, number>>);
-          const decisionCoverageBonus = Math.max(0, ...eligibleTypes.map((type) => decisionCoverageScore(type, selectedByDecisionType, eligibleDecisionSupply)));
-          const score = selected ? roleScore(item, role) + selected.score * 0.2 + sourceBonus + (tier?.score ?? 0) * 0.18 + diversityBonus + slotPriorityBonus + decisionCoverageBonus - repetitionPenalty : -1;
+          const score = selected ? roleScore(item, role) + selected.score * 0.2 + sourceBonus + (tier?.score ?? 0) * 0.18 + diversityBonus + slotPriorityBonus - repetitionPenalty : -1;
           return { item, selected, tier, score };
         })
         .filter((entry): entry is typeof entry & { selected: NonNullable<typeof entry.selected> } => Boolean(entry.selected))
@@ -2654,7 +2572,6 @@ function replenishAfterFinalDiversity(
   const slotCount = (slotId: NonNullable<XDailyTopPick["slotId"]>) => next.filter((pick) => pick.slotId === slotId).length;
   for (const slot of slots) {
     while (slotCount(slot.id) < 3) {
-      const missingTypes = new Set(DECISION_TYPES.filter((type) => !next.some((pick) => decisionTypeForCandidate(pick) === type)));
       const candidates = roleFallbacks[slot.id]
         .flatMap((role) => opportunities.map((item) => ({ item, role, selected: selectCandidateVariant(item, role, next, logs) })))
         .filter((entry): entry is { item: XGrowthOpportunity; role: XGrowthIntent; selected: NonNullable<ReturnType<typeof selectCandidateVariant>> } => Boolean(entry.selected))
@@ -2668,7 +2585,7 @@ function replenishAfterFinalDiversity(
           && selected.variant.quality.dimensions.adSmell <= (role === "MONEY" ? 48 : 30)
           && hasRealMedia(item, selected.variant)
           && (role !== "MONEY" || Boolean(selected.variant.url)))
-        .sort((a, b) => Number(missingTypes.has(decisionTypeForCandidate(b.item))) - Number(missingTypes.has(decisionTypeForCandidate(a.item))) || b.selected.score - a.selected.score);
+        .sort((a, b) => b.selected.score - a.selected.score);
       let added = false;
       for (const entry of candidates) {
         const audit = diversityConflicts(entry.item, entry.role, entry.selected.variant, next, logs);

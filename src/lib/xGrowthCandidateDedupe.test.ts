@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildXCreativeVariants } from "./xCreativeEngine";
-import { candidateDedupeKey, candidateMediaDedupeKey, cheapCandidatePrefilter, decisionCoverageScore, decisionTypeForCandidate, decisionTypesForCandidate, expandCreativeSupply, isDecisionFactEligible, isDistinctCandidate, presentationDecisionFactsForSource, preserveDecisionLanesBeforeLimit } from "./xGrowthOS";
+import { candidateDedupeKey, candidateMediaDedupeKey, cheapCandidatePrefilter, decisionTypeForCandidate, decisionTypesForCandidate, expandCreativeSupply, isDecisionFactEligible, isDistinctCandidate, presentationDecisionFactsForSource, preserveDecisionLanesBeforeLimit } from "./xGrowthOS";
 import { buildDecisionFacts } from "./domain/decisionFacts";
 
 const candidate = (overrides: Record<string, unknown> = {}) => ({
@@ -49,11 +49,6 @@ test("Decision Facts eligibility excludes UNKNOWN and preserves all three lanes"
   assert.equal(isDecisionFactEligible({ decisionFacts: facts("RECORD_LOW") } as never), true);
   assert.equal(isDecisionFactEligible({ decisionFacts: facts("HIGH_DISCOUNT_NOT_LOW") } as never), true);
   assert.equal(isDecisionFactEligible({ decisionFacts: facts("HIDDEN_VALUE") } as never), true);
-  const supply = { RECORD_LOW: 10, HIGH_DISCOUNT_NOT_LOW: 10, HIDDEN_VALUE: 10, UNKNOWN: 0 } as const;
-  assert.equal(decisionCoverageScore("RECORD_LOW", {}, supply), 100);
-  assert.equal(decisionCoverageScore("HIGH_DISCOUNT_NOT_LOW", { RECORD_LOW: 1 }, supply), 100);
-  assert.equal(decisionCoverageScore("HIDDEN_VALUE", { RECORD_LOW: 1, HIGH_DISCOUNT_NOT_LOW: 1 }, supply), 100);
-  assert.equal(decisionCoverageScore("RECORD_LOW", { RECORD_LOW: 1, HIGH_DISCOUNT_NOT_LOW: 1, HIDDEN_VALUE: 1 }, supply), 0);
 });
 
 test("multi-label Decision Facts preserve HIDDEN lane eligibility while primary stays presentation-specific", () => {
@@ -134,7 +129,7 @@ test("HIDDEN_GEM expansion propagates primary facts into HIDDEN copy and persist
   assert.deepEqual(hidden?.decisionFacts?.eligibleDecisionTypes, ["RECORD_LOW", "HIDDEN_VALUE"]);
 });
 
-test("cheap prefilter reserves every available Decision Facts lane before score fill", () => {
+test("cheap prefilter follows score without forcing Decision Facts lanes", () => {
   const facts = (decisionType: "RECORD_LOW" | "HIGH_DISCOUNT_NOT_LOW" | "HIDDEN_VALUE") => ({
     ...buildDecisionFacts({
       currentPrice: 500,
@@ -180,11 +175,11 @@ test("cheap prefilter reserves every available Decision Facts lane before score 
   };
   const result = cheapCandidatePrefilter([...recordLow, highDiscount, hiddenValue] as never, 30);
   assert.equal(result.some((item) => item.decisionFacts?.decisionType === "RECORD_LOW"), true);
-  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIGH_DISCOUNT_NOT_LOW"), true);
-  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIDDEN_VALUE"), true);
+  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIGH_DISCOUNT_NOT_LOW"), false);
+  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIDDEN_VALUE"), false);
 });
 
-test("score window preserves Decision Facts lanes before truncating ranked supply", () => {
+test("score window follows rank without forcing Decision Facts lanes", () => {
   const facts = (decisionType: "RECORD_LOW" | "HIGH_DISCOUNT_NOT_LOW" | "HIDDEN_VALUE") => ({
     ...buildDecisionFacts({
       currentPrice: 500,
@@ -209,6 +204,6 @@ test("score window preserves Decision Facts lanes before truncating ranked suppl
   const hiddenValue = { key: "hidden-window", workId: 10_002, sourceType: "HIDDEN_GEM", decisionFacts: facts("HIDDEN_VALUE"), visualScoring };
   const result = preserveDecisionLanesBeforeLimit([...recordLow, highDiscount, hiddenValue] as never, 100);
   assert.equal(result.some((item) => item.decisionFacts?.decisionType === "RECORD_LOW"), true);
-  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIGH_DISCOUNT_NOT_LOW"), true);
-  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIDDEN_VALUE"), true);
+  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIGH_DISCOUNT_NOT_LOW"), false);
+  assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIDDEN_VALUE"), false);
 });

@@ -50,9 +50,10 @@ const coverage = selectRankedMediaMix([
   candidate(10, 50, "existing_link_image", ["HIGH_DISCOUNT_NOT_LOW"]),
   candidate(11, 49, "existing_link_image", ["HIDDEN_VALUE"]),
 ]);
-assert.equal(coverage.selected.some((item) => item.decisionTypes.includes("HIGH_DISCOUNT_NOT_LOW")), true);
-assert.equal(coverage.selected.some((item) => item.decisionTypes.includes("HIDDEN_VALUE")), true);
-assert.equal(coverage.coverageAdjustments, 2);
+assert.deepEqual(coverage.selected.map((item) => item.workId), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+assert.equal(coverage.selected.some((item) => item.decisionTypes.includes("HIGH_DISCOUNT_NOT_LOW")), false);
+assert.equal(coverage.selected.some((item) => item.decisionTypes.includes("HIDDEN_VALUE")), false);
+assert.equal(coverage.coverageAdjustments, 0);
 
 const fallback = selectRankedMediaMix([
   { ...candidate(1, 100, "sample_movie"), mediaKey: "shared", mediaKeys: ["shared", "body:first"] },
@@ -60,8 +61,8 @@ const fallback = selectRankedMediaMix([
   { ...candidate(2, 98, "existing_link_image"), mediaKey: "image-2", mediaKeys: ["image-2", "body:second-image"] },
   candidate(3, 97, "existing_link_image"),
 ]);
-assert.deepEqual(fallback.rankedPool.map((item) => item.workId), [1, 2, 3]);
-assert.equal(fallback.rankedPool.find((item) => item.workId === 2)?.mediaKeys?.includes("body:second-image"), true);
+assert.deepEqual(fallback.rankedPool.map((item) => item.workId), [1, 3]);
+assert.equal(fallback.rankedPool.find((item) => item.workId === 2), undefined);
 assert.equal(new Set(fallback.rankedPool.map((item) => item.workId)).size, fallback.rankedPool.length);
 
 console.log("xGrowth ranking regression tests passed");
