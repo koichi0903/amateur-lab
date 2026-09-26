@@ -360,7 +360,9 @@ async function savePost(formData: FormData) {
     updated_at: new Date().toISOString(),
   };
   if (!record.body) throw new Error("投稿本文を入力してください。");
-  const idempotencyKey = text(formData, "idempotency_key") || (id ? `post:${id}` : record.creative_variant_id ? `variant:${record.creative_variant_id}` : rowKey(record.body, record.quote_x_url, record.planned_slot));
+  const idempotencyKey = text(formData, "idempotency_key") || (id
+    ? `post:${id}`
+    : `${approvedMediaId ?? "shared"}:${record.creative_variant_id ? `variant:${record.creative_variant_id}` : rowKey(record.body, record.quote_x_url, record.planned_slot)}`);
   const { data, error } = await supabaseAdmin.rpc("save_myfans_post", {
     p_post: { ...record, id: id ?? null, idempotency_key: idempotencyKey },
     p_idempotency_key: idempotencyKey,
@@ -469,12 +471,12 @@ async function updatePostExecution(formData: FormData) {
     const postedAt = new Date().toISOString();
     const { data: post, error: postError } = await supabaseAdmin
       .from("myfans_x_posts")
-      .select("id,product_id,quote_x_url,source_x_url")
+      .select("id,product_id,quote_x_url,source_x_url,approved_media_id")
       .eq("id", id)
       .single();
     if (postError) throw postError;
     const finalized = await supabaseAdmin.rpc("save_myfans_post", {
-      p_post: { id, status: "posted", posted_at: postedAt, x_post_url: mode === "url" ? text(formData, "x_post_url") : undefined },
+      p_post: { id, status: "posted", posted_at: postedAt, approved_media_id: post.approved_media_id, x_post_url: mode === "url" ? text(formData, "x_post_url") : undefined },
       p_idempotency_key: `post:${id}`,
       p_quote_x_url: post.quote_x_url || post.source_x_url || "",
     });
@@ -484,6 +486,7 @@ async function updatePostExecution(formData: FormData) {
     if (target) {
       const exclusion = await recordMyfansPermanentExclusion({
         ...target,
+        approvedMediaId: post.approved_media_id,
         reason: "posted",
         context: { recorded_from: "myfans_post_execution", post_id: id },
       });
@@ -503,6 +506,7 @@ async function skipPermanentCandidate(formData: FormData) {
   if (!target) throw new Error("恒久除外するproduct/sourceを特定できません。");
   const { error } = await recordMyfansPermanentExclusion({
     ...target,
+    approvedMediaId: nullableId(formData, "approved_media_id"),
     reason: "user_skipped",
     context: { recorded_from: "myfans_3x4_skip", plan_date: text(formData, "plan_date") || null, candidate_id: text(formData, "candidate_id") || null },
   });
@@ -543,6 +547,7 @@ async function updateQuoteCandidate(formData: FormData) {
 
 async function saveClick(formData: FormData) {
   const record = {
+    approved_media_id: nullableId(formData, "approved_media_id"),
     product_id: nullableId(formData, "product_id"),
     x_post_id: nullableId(formData, "x_post_id"),
     clicked_at: text(formData, "clicked_at") || new Date().toISOString(),
@@ -594,6 +599,8 @@ async function saveXAccountMetric(formData: FormData) {
 async function importRevenue(formData: FormData) {
   const file = formData.get("file");
   const reportMonthInput = text(formData, "reportMonth");
+  const approvedMediaId = nullableId(formData, "approved_media_id");
+  if (!approvedMediaId) throw new Error("アカウントを選択してからCSVを取り込んでください。");
   if (!(file instanceof File) || file.size === 0) throw new Error("CSVファイルを選択してください。");
   if (file.size > MAX_FILE_SIZE) throw new Error("CSVは10MB以内にしてください。");
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(reportMonthInput)) throw new Error("対象月を選択してください。");
@@ -610,6 +617,7 @@ async function importRevenue(formData: FormData) {
   const productByTitle = new Map((products ?? []).map((product) => [product.title, product.id]));
   const sourceFile = file.name.slice(0, 255);
   const records = rows.map((row) => ({
+    approved_media_id: approvedMediaId,
     product_id: productByUrl.get(row.productUrl) ?? productByTitle.get(row.title) ?? null,
     conversion_type: row.conversionType,
     occurred_at: new Date(row.occurredAt).toISOString(),
@@ -617,7 +625,7 @@ async function importRevenue(formData: FormData) {
     reward_amount: row.rewardAmount,
     reward_rate: row.rewardRate,
     source_file: sourceFile,
-    row_key: rowKey(reportMonthInput, sourceFile, row.occurredAt, row.productUrl, row.title, String(row.rewardAmount)),
+    row_key: rowKey(String(approvedMediaId), reportMonthInput, sourceFile, row.occurredAt, row.productUrl, row.title, String(row.rewardAmount)),
     note: "",
   }));
 
@@ -634,7 +642,8 @@ async function importRevenue(formData: FormData) {
     rows_count: records.length,
     total_sales_amount: totalSalesAmount,
     total_reward_amount: totalRewardAmount,
-  }, { onConflict: "report_month,source_file" });
+    approved_media_id: approvedMediaId,
+  }, { onConflict: "approved_media_id,report_month,source_file" });
   await audit("import", null, "csv_import", sourceFile, { rows: records.length, totalRewardAmount });
 
   return {

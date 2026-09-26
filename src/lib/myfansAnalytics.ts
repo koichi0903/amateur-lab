@@ -98,6 +98,7 @@ export type MyfansXPost = {
 
 export type MyfansConversion = {
   id: number;
+  approved_media_id?: number | null;
   product_id: number | null;
   x_post_id: number | null;
   conversion_type: string;
@@ -110,6 +111,7 @@ export type MyfansConversion = {
 };
 
 export type MyfansDailyMetric = {
+  approved_media_id?: number | null;
   metric_date: string;
   impressions: number;
   engagements: number;
@@ -347,7 +349,7 @@ const QUOTE_CANDIDATE_SELECT =
 const QUOTE_CANDIDATE_SELECT_LEGACY =
   "id,approved_media_id,creator_id,product_id,creator_x_url,source_x_handle,x_post_url,media_permalink,media_type,media_count,quote_visual_ready,media_permalink_verified_at,media_permalink_validation_status,visual_score,posted_at,text_excerpt,views,likes,reposts,replies,bookmarks,has_image,has_video,is_pinned,is_reply,is_repost,is_quote,collected_at,score,score_reason,selected,creator_rank,global_score,global_rank,last_used_at,use_count,cooldown_until,selected_for_today";
 const MYFANS_X_POST_SELECT_BASE =
-  "id,product_id,post_type,status,body,self_reply,includes_pr,source_x_url,affiliate_url,selection_reason,scheduled_at,posted_at,x_post_url,x_post_id,impressions,likes_count,reposts_count,replies_count,clicks,growth_stage,link_strategy,cta_strategy,creative_variant_id,creative_strategy,creative_reason,card_payload,ogp_check_required,quote_x_url,media_permission_status,planned_slot,objective,approved_media_name,approved_media_id,growth_score_snapshot,revenue_score_snapshot,creator_ltv_score_snapshot,expected_reward_per_1000_impressions_snapshot,metrics_sync_error,created_at,myfans_products(title,price,estimated_reward)";
+  "id,product_id,approved_media_id,post_type,status,body,self_reply,includes_pr,source_x_url,affiliate_url,selection_reason,scheduled_at,posted_at,x_post_url,x_post_id,impressions,likes_count,reposts_count,replies_count,clicks,growth_stage,link_strategy,cta_strategy,creative_variant_id,creative_strategy,creative_reason,card_payload,ogp_check_required,quote_x_url,media_permission_status,planned_slot,objective,approved_media_name,growth_score_snapshot,revenue_score_snapshot,creator_ltv_score_snapshot,expected_reward_per_1000_impressions_snapshot,metrics_sync_error,created_at,myfans_products(title,price,estimated_reward)";
 const MYFANS_X_POST_SELECT_WITH_METRICS_RECORDED =
   MYFANS_X_POST_SELECT_BASE.replace("created_at,", "metrics_recorded_at,created_at,");
 const MYFANS_PRODUCT_SELECT_BASE =
@@ -446,17 +448,17 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
       fetchMyfansXPosts(),
       supabaseAdmin
         .from("myfans_affiliate_clicks")
-        .select("id", { count: "exact", head: true })
+        .select("id,approved_media_id", { count: "exact" })
         .gte("clicked_at", cutoff),
       supabaseAdmin
         .from("myfans_conversions")
-        .select("id,product_id,x_post_id,conversion_type,occurred_at,sale_amount,reward_amount,reward_rate,source_file,myfans_products(title)")
+        .select("id,approved_media_id,product_id,x_post_id,conversion_type,occurred_at,sale_amount,reward_amount,reward_rate,source_file,myfans_products(title)")
         .gte("occurred_at", cutoff)
         .order("occurred_at", { ascending: false })
         .limit(20),
       supabaseAdmin
         .from("myfans_daily_metrics")
-        .select("metric_date,impressions,engagements,clicks,conversions,reward_amount")
+        .select("approved_media_id,metric_date,impressions,engagements,clicks,conversions,reward_amount")
         .gte("metric_date", cutoff.slice(0, 10))
         .order("metric_date", { ascending: true })
         .limit(30),
@@ -488,7 +490,7 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
         .gte("plan_date", cutoff.slice(0, 10))
         .order("plan_date", { ascending: false })
         .limit(30),
-      fetchMyfansPermanentExclusions(),
+      fetchMyfansPermanentExclusions(options.approvedMediaId),
     ]);
 
     const error = [
@@ -545,11 +547,11 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
     const quoteCandidates = ((quoteCandidatesResult.data ?? []) as MyfansQuoteCandidate[])
       .filter((row) => !selectedMedia || row.approved_media_id === selectedMedia.id || row.approved_media_id === null);
     const allProductLinkageEvidence = ((productLinkageEvidenceResult.error ? [] : productLinkageEvidenceResult.data ?? []) as MyfansPostProductLinkageEvidence[])
-      .filter((row) => !selectedMedia || row.approved_media_id === selectedMedia.id || row.approved_media_id === null);
+      .filter((row) => !selectedMedia || row.approved_media_id === selectedMedia.id);
     const productLinkageEvidence = allProductLinkageEvidence.filter((row) => row.diagnostic_mode !== true);
     const diagnosticProductLinkageEvidence = allProductLinkageEvidence.filter((row) => row.diagnostic_mode === true);
     const dailyPlans = ((dailyPlansResult.data ?? []) as MyfansDailyPlanHistory[])
-      .filter((row) => !selectedMedia || row.approved_media_id === selectedMedia.id || row.approved_media_id === null);
+      .filter((row) => !selectedMedia || row.approved_media_id === selectedMedia.id);
     const quoteCandidateSource = {
       dbCount: quoteCandidatesResult.count ?? quoteCandidates.length,
       loadedCount: quoteCandidatesResult.data.length,
@@ -557,13 +559,17 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
       loadedAll: quoteCandidatesResult.data.length >= (quoteCandidatesResult.count ?? quoteCandidatesResult.data.length),
       latestCollectedAt: quoteCandidatesResult.data[0]?.collected_at ?? null,
     };
-    const posts = filterBySelectedMedia(allPosts, selectedMedia).filter((post) => !post.product_id || productIds.has(post.product_id));
-    const conversions = allConversions.filter((conversion) => !conversion.product_id || productIds.has(conversion.product_id));
+    const posts = allPosts.filter((post) => !selectedMedia || post.approved_media_id === selectedMedia.id).filter((post) => !post.product_id || productIds.has(post.product_id));
+    const conversions = allConversions.filter((conversion) =>
+      (!selectedMedia || conversion.approved_media_id === selectedMedia.id) &&
+      (!conversion.product_id || productIds.has(conversion.product_id)),
+    );
 
     const reward30d = conversions.reduce((sum, row) => sum + row.reward_amount, 0);
     const conversions30d = conversions.length;
-    const clicks30d = clicksResult.count ?? 0;
-    const daily = (dailyResult.data ?? []) as MyfansDailyMetric[];
+    const clicksRows = ((clicksResult.data ?? []) as Array<{ approved_media_id?: number | null }>);
+    const clicks30d = clicksRows.filter((row) => !selectedMedia || row.approved_media_id === selectedMedia.id).length;
+    const daily = ((dailyResult.data ?? []) as MyfansDailyMetric[]).filter((row) => !selectedMedia || row.approved_media_id === selectedMedia.id);
     const xAccountMetrics = ((xAccountMetricsResult.data ?? []) as Array<
       Omit<MyfansXAccountMetric, "myfans_approved_media"> & {
         myfans_approved_media?: Pick<MyfansApprovedMedia, "media_name"> | Array<Pick<MyfansApprovedMedia, "media_name">> | null;

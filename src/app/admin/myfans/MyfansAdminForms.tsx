@@ -368,7 +368,7 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
           resolve(detail || {});
         };
         window.addEventListener(DIAGNOSTIC_RESPONSE_EVENT, onAck);
-        window.dispatchEvent(new CustomEvent(DIAGNOSTIC_REQUEST_EVENT, { detail: { statusUrl: normalized, diagnosticRunId, diagnosticMode: true, approvedMediaId, approvedMediaName: "@lumi_reviw" } }));
+        window.dispatchEvent(new CustomEvent(DIAGNOSTIC_REQUEST_EVENT, { detail: { statusUrl: normalized, diagnosticRunId, diagnosticMode: true, approvedMediaId, approvedMediaName: "" } }));
       });
       if (!ack.ok) throw new Error(ack.error || "Companion workerの診断開始に失敗しました。");
       setState({ status: "running", diagnosticRunId, sourceStatusUrl: normalized });
@@ -546,7 +546,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
         window.dispatchEvent(new CustomEvent(VISUAL_REQUEST_EVENT, {
           detail: {
             approvedMediaId,
-            approvedMediaName: "@lumi_reviw",
+            approvedMediaName: "",
           batchSize: Math.min(5, visualBatchSize),
           },
         }));
@@ -1306,7 +1306,7 @@ function downloadCardPng(candidate: ExecutionCandidate) {
 
   context.fillStyle = "#334155";
   context.font = "900 24px sans-serif";
-  context.fillText(payloadText(payload, "footer") || "@lumi_reviw / myfans発掘・比較", 72, 632);
+  context.fillText(payloadText(payload, "footer") || "myfans発掘・比較", 72, 632);
   context.font = "700 20px sans-serif";
   context.fillText("画像・サムネ・動画不使用 / テキスト情報のみ", 760, 632);
   const dataUrl = canvas.toDataURL("image/png");
@@ -1349,7 +1349,7 @@ function CreativeCardPreview({ candidate }: { candidate: ExecutionCandidate }) {
         </div>
       </div>
       <div className="flex flex-col gap-1 border-t border-zinc-200 px-5 py-3 text-xs font-bold text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
-        <span>{payloadText(payload, "footer") || "@lumi_reviw / myfans発掘・比較"}</span>
+        <span>{payloadText(payload, "footer") || "myfans発掘・比較"}</span>
         <span>1200x675 PNG / 素材画像不使用</span>
       </div>
     </div>
@@ -1436,7 +1436,7 @@ export function QuoteCandidateTasks({ tasks }: { tasks: MyfansQuoteCollectionTas
   );
 }
 
-export function XExecutionBoard({ candidates, candidateOptions, selectedOptions, planDate, posts }: { candidates: ExecutionCandidate[]; candidateOptions?: CandidateOptionSlot[]; selectedOptions?: Record<string, string>; planDate: string; posts: MyfansXPost[] }) {
+export function XExecutionBoard({ candidates, candidateOptions, selectedOptions, planDate, posts, approvedMediaId }: { candidates: ExecutionCandidate[]; candidateOptions?: CandidateOptionSlot[]; selectedOptions?: Record<string, string>; planDate: string; posts: MyfansXPost[]; approvedMediaId?: number | null }) {
   const router = useRouter();
   const [message, setMessage] = useState<Message>(null);
   const [pendingId, setPendingId] = useState<string | number | null>(null);
@@ -1510,6 +1510,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
       formData.set("action", "daily_plan_select");
       formData.set("approved_media_id", String(candidate.approvedMediaId ?? ""));
       formData.set("plan_date", planDate);
+      if (candidate.approvedMediaId) formData.set("approved_media_id", String(candidate.approvedMediaId));
       formData.set("post_order", String(slot.postOrder));
       formData.set("option_label", candidate.optionLabel);
       await postFormData(formData);
@@ -1653,7 +1654,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
             この画面は選択中の運用メディアに紐づく商品から投稿文を作ります。引用元Xは引用投稿用として扱い、再アップロード用素材とは分けて表示します。myfans管理画面の商品詳細や最近生成したURLをコピーして貼ると、候補登録後に今日の投稿案が生成されます。
           </p>
           <AffiliatePasteImportForm />
-          <QuickProductForm />
+          <QuickProductForm approvedMediaId={approvedMediaId} />
         </section>
       )}
       <section className="rounded-xl border border-emerald-800 bg-emerald-950/20 p-5">
@@ -2055,14 +2056,14 @@ export function AffiliatePasteImportForm() {
   );
 }
 
-function QuickProductForm() {
+function QuickProductForm({ approvedMediaId }: { approvedMediaId?: number | null }) {
   const { pending, message, submit } = useMyfansSubmit("商品候補を保存しました。");
 
   return (
     <form onSubmit={submit} className="mt-5 grid gap-3 rounded-xl border border-amber-800/60 bg-zinc-950/80 p-4 lg:grid-cols-3">
       <input type="hidden" name="action" value="product" />
       <input type="hidden" name="status" value="candidate" />
-      <input type="hidden" name="approved_media_name" value="@lumi_reviw" />
+      <input type="hidden" name="approved_media_id" value={approvedMediaId ?? ""} />
       <Field label="商品名"><input name="title" required className={inputClass} /></Field>
       <Field label="商品URL"><input name="product_url" type="url" className={inputClass} /></Field>
       <Field label="アフィリンク"><input name="affiliate_url" type="url" className={inputClass} /></Field>
@@ -2081,11 +2082,12 @@ function QuickProductForm() {
   );
 }
 
-export function ClickForm({ products, posts }: { products: MyfansProduct[]; posts: MyfansXPost[] }) {
+export function ClickForm({ products, posts, approvedMediaId }: { products: MyfansProduct[]; posts: MyfansXPost[]; approvedMediaId?: number | null }) {
   const { pending, message, submit } = useMyfansSubmit("クリック実績を追加しました。");
   return (
     <form onSubmit={submit} className="mt-5 grid gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-5 lg:grid-cols-4">
       <input type="hidden" name="action" value="click" />
+      <input type="hidden" name="approved_media_id" value={approvedMediaId ?? ""} />
       <Field label="商品"><select name="product_id" className={inputClass}><option value="">未選択</option>{products.map((product) => <option key={product.id} value={product.id}>{product.title}</option>)}</select></Field>
       <Field label="投稿"><select name="x_post_id" className={inputClass}><option value="">未選択</option>{posts.map((post) => <option key={post.id} value={post.id}>{post.body.slice(0, 40)}</option>)}</select></Field>
       <Field label="日時"><input name="clicked_at" type="datetime-local" className={inputClass} /></Field>
@@ -2102,12 +2104,13 @@ export function ClickForm({ products, posts }: { products: MyfansProduct[]; post
   );
 }
 
-export function RevenueImportForm() {
+export function RevenueImportForm({ approvedMediaId }: { approvedMediaId?: number | null }) {
   const { pending, message, submit } = useMyfansSubmit("CSVを取り込みました。");
   const month = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", timeZone: "Asia/Tokyo" }).format(new Date()).slice(0, 7);
   return (
     <form onSubmit={submit} className="mt-5 grid gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-5 lg:grid-cols-[10rem_minmax(0,1fr)_auto]">
       <input type="hidden" name="action" value="revenue_import" />
+      <input type="hidden" name="approved_media_id" value={approvedMediaId ?? ""} />
       <Field label="対象月"><input type="month" name="reportMonth" defaultValue={month} required className={inputClass} /></Field>
       <Field label="myfansレポートCSV"><input type="file" name="file" accept=".csv,text/csv" required className="h-11 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-300 file:mr-3 file:border-0 file:bg-transparent file:font-bold file:text-emerald-400" /></Field>
       <button type="submit" disabled={pending} className="mt-auto inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-60">

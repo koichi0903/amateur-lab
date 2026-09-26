@@ -33,7 +33,8 @@ export default async function MyfansDailyPage({
 }) {
   const params = await searchParams;
   if (!params?.media) {
-    permanentRedirect("/admin/myfans?media=1");
+    const { data: defaultMedia } = await supabaseAdmin.from("myfans_approved_media").select("id").eq("status", "active").order("id", { ascending: true }).limit(1).maybeSingle();
+    permanentRedirect(`/admin/myfans?media=${defaultMedia?.id ?? ""}`);
   }
   const selectedMediaId = params?.media ? Number(params.media) : null;
   const planDate = params?.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : undefined;
@@ -64,9 +65,6 @@ export default async function MyfansDailyPage({
   const currentPlan = analytics.dailyPlans
     .filter((plan) => plan.plan_date === board.planDate && plan.approved_media_id === selectedMediaId)
     .sort((a, b) => (b.revision ?? 0) - (a.revision ?? 0) || String(b.evaluated_at ?? b.updated_at ?? "").localeCompare(String(a.evaluated_at ?? a.updated_at ?? "")) || b.id - a.id)[0]
-    ?? analytics.dailyPlans
-      .filter((plan) => plan.plan_date === board.planDate && plan.approved_media_id === null)
-      .sort((a, b) => (b.revision ?? 0) - (a.revision ?? 0) || String(b.evaluated_at ?? b.updated_at ?? "").localeCompare(String(a.evaluated_at ?? a.updated_at ?? "")) || b.id - a.id)[0]
     ?? null;
   const persistedSnapshot = currentPlan ? restorePersistedDailySnapshot({
     id: currentPlan.id,
@@ -156,7 +154,7 @@ export default async function MyfansDailyPage({
             </a>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            <DailyPlanReevaluateButton approvedMediaId={selectedMediaId ?? 1} />
+            <DailyPlanReevaluateButton approvedMediaId={selectedMediaId!} />
             <p className="text-xs text-zinc-500">供給が足りない時だけ再評価します。外部収集・X投稿はこの画面から自動実行しません。</p>
           </div>
         </section>
@@ -281,7 +279,7 @@ export default async function MyfansDailyPage({
               <h2 id="live-daily-options-title" className="mt-2 text-xl font-black">全eligible候補からの投稿候補（4 Slot × 最大3）</h2>
               <p className="mt-2 text-xs leading-5 text-zinc-400">保存済みDaily重点とは別に、現在の全作品・eligible quote/sourceから再計算した手動投稿候補です。投稿URL保存が成功するまでposted確定しません。</p>
             </section>
-            <XExecutionBoard candidates={board.candidates} candidateOptions={board.candidateOptions} selectedOptions={board.selectedOptions} planDate={board.planDate} posts={analytics.posts} />
+            <XExecutionBoard candidates={board.candidates} candidateOptions={board.candidateOptions} selectedOptions={board.selectedOptions} planDate={board.planDate} posts={analytics.posts} approvedMediaId={selectedMediaId} />
           </div>
         </div>
 
