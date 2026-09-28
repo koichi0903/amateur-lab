@@ -17,11 +17,13 @@ function Get-OwnerClassification {
     if ($null -eq $Marker -or $null -eq $ProcessInfo) { return "unknown" }
 
     $samePid = [int]$Marker.pid -eq $OwnerPid
-    $sameRepo = [string]$Marker.repoRoot -eq $RepoRoot
-    $isNext = [string]$ProcessInfo.CommandLine -match "(?i)(next|next\\dist\\bin)"
+    $commandLine = [string]$ProcessInfo.CommandLine
+    $sameRepo = [string]$Marker.repoRoot -eq $RepoRoot -or $commandLine -match [regex]::Escape($RepoRoot)
+    $isNext = $commandLine -match "(?i)(next|next\\dist\\bin)"
 
-    if ($samePid -and $sameRepo -and $isNext) { return "same-repo" }
-    if (-not $sameRepo -and [string]$Marker.repoRoot -match "(?i)(amateur-lab|bijyo)" -and $isNext) {
+    if ($sameRepo -and $isNext -and ($samePid -or $commandLine -match [regex]::Escape($RepoRoot))) { return "same-repo" }
+    $markerRepo = [string]$Marker.repoRoot
+    if (-not $sameRepo -and $markerRepo -match "(?i)(amateur-lab|bijyo)" -and $commandLine -match [regex]::Escape($markerRepo) -and $isNext) {
         return "known-different"
     }
     return "unknown"
@@ -29,7 +31,12 @@ function Get-OwnerClassification {
 
 if ($TestCase) {
     $fakeRoot = "C:\canonical\amateur-lab"
-    $fakeProcess = [pscustomobject]@{ CommandLine = "next dev --webpack -p 3000" }
+    $fakeProcess = if ($TestCase -eq "known-different") {
+        [pscustomobject]@{ CommandLine = "node C:\old\amateur-lab\node_modules\next\dist\bin\next dev --webpack -p 3000" }
+    }
+    else {
+        [pscustomobject]@{ CommandLine = "next dev --webpack -p 3000" }
+    }
     $fakeMarker = switch ($TestCase) {
         "same-repo" { [pscustomobject]@{ pid = 1234; repoRoot = $fakeRoot } }
         "known-different" { [pscustomobject]@{ pid = 1234; repoRoot = "C:\old\amateur-lab" } }
@@ -42,7 +49,7 @@ if ($TestCase) {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$expectedRepoRoot = "C:\Users\DELL\Documents\Codex\amateur-lab-myfans-daily-funnel-audit"
+$expectedRepoRoot = (Resolve-Path (Join-Path $env:USERPROFILE "projects\amateur-lab")).Path
 if ($repoRoot -ne $expectedRepoRoot) {
     throw "Canonical local dev must be started from $expectedRepoRoot; refusing checkout $repoRoot"
 }
@@ -53,6 +60,21 @@ $stateDir = Join-Path $env:LOCALAPPDATA "amateur-lab"
 if (-not (Test-Path -LiteralPath $packagePath)) { throw "package.json was not found at $repoRoot" }
 if (-not (Test-Path -LiteralPath $envPath)) {
     Write-Warning "No .env.local at $envPath. Values are never printed by this launcher; HTTP readiness will determine whether the app can run."
+}
+
+$nextDevDir = Join-Path $repoRoot ".next\dev"
+try {
+    New-Item -ItemType Directory -Path $nextDevDir -Force -ErrorAction Stop | Out-Null
+    $nextWriteProbe = Join-Path $nextDevDir ".write-probe"
+    Set-Content -LiteralPath $nextWriteProbe -Value "ok" -Encoding utf8 -ErrorAction Stop
+    Remove-Item -LiteralPath $nextWriteProbe -Force -ErrorAction Stop
+}
+catch {
+    $nextDistDirName = "..\..\Documents\Codex\amateur-lab-next-dev"
+    $nextDistDir = Join-Path $repoRoot $nextDistDirName
+    New-Item -ItemType Directory -Path $nextDistDir -Force -ErrorAction Stop | Out-Null
+    $env:NEXT_DIST_DIR = $nextDistDirName
+    Write-Warning "Cannot write to $nextDevDir; using $nextDistDir for Next development output."
 }
 
 $head = (& git -c "safe.directory=$repoRoot" -C $repoRoot rev-parse HEAD 2>$null).Trim()
