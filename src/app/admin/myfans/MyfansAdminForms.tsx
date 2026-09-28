@@ -1486,6 +1486,8 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
       formData.set("media_permission_status", candidate.mediaPermissionStatus);
       formData.set("planned_slot", candidate.plannedSlot);
       formData.set("objective", candidate.objective);
+      if (candidate.marketPatternKey) formData.set("market_pattern_key", candidate.marketPatternKey);
+      if (candidate.globalContentFingerprint) formData.set("global_content_fingerprint", candidate.globalContentFingerprint);
       formData.set("approved_media_name", candidate.approvedMediaName);
       if (candidate.approvedMediaId) formData.set("approved_media_id", String(candidate.approvedMediaId));
       formData.set("growth_score", String(candidate.opportunity?.growthScore ?? 0));

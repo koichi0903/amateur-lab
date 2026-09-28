@@ -86,6 +86,11 @@ export type MyfansXPost = {
   objective?: string;
   approved_media_name?: string;
   approved_media_id?: number | null;
+  pattern_id?: number | null;
+  quote_candidate_id?: number | null;
+  creator_id?: number | null;
+  strategy_type?: "SOURCE" | "MARKET_WINNER" | null;
+  global_content_fingerprint?: string | null;
   growth_score_snapshot?: number;
   revenue_score_snapshot?: number;
   creator_ltv_score_snapshot?: number;
@@ -128,6 +133,8 @@ export type MyfansApprovedMedia = {
   status: string;
   notes: string;
   created_at: string;
+  account_key?: string;
+  strategy_type?: "SOURCE" | "MARKET_WINNER";
 };
 
 export type MyfansXAccountMetric = {
@@ -349,7 +356,7 @@ const QUOTE_CANDIDATE_SELECT =
 const QUOTE_CANDIDATE_SELECT_LEGACY =
   "id,approved_media_id,creator_id,product_id,creator_x_url,source_x_handle,x_post_url,media_permalink,media_type,media_count,quote_visual_ready,media_permalink_verified_at,media_permalink_validation_status,visual_score,posted_at,text_excerpt,views,likes,reposts,replies,bookmarks,has_image,has_video,is_pinned,is_reply,is_repost,is_quote,collected_at,score,score_reason,selected,creator_rank,global_score,global_rank,last_used_at,use_count,cooldown_until,selected_for_today";
 const MYFANS_X_POST_SELECT_BASE =
-  "id,product_id,approved_media_id,post_type,status,body,self_reply,includes_pr,source_x_url,affiliate_url,selection_reason,scheduled_at,posted_at,x_post_url,x_post_id,impressions,likes_count,reposts_count,replies_count,clicks,growth_stage,link_strategy,cta_strategy,creative_variant_id,creative_strategy,creative_reason,card_payload,ogp_check_required,quote_x_url,media_permission_status,planned_slot,objective,approved_media_name,growth_score_snapshot,revenue_score_snapshot,creator_ltv_score_snapshot,expected_reward_per_1000_impressions_snapshot,metrics_sync_error,created_at,myfans_products(title,price,estimated_reward)";
+  "id,product_id,approved_media_id,pattern_id,quote_candidate_id,creator_id,strategy_type,global_content_fingerprint,post_type,status,body,self_reply,includes_pr,source_x_url,affiliate_url,selection_reason,scheduled_at,posted_at,x_post_url,x_post_id,impressions,likes_count,reposts_count,replies_count,clicks,growth_stage,link_strategy,cta_strategy,creative_variant_id,creative_strategy,creative_reason,card_payload,ogp_check_required,quote_x_url,media_permission_status,planned_slot,objective,approved_media_name,growth_score_snapshot,revenue_score_snapshot,creator_ltv_score_snapshot,expected_reward_per_1000_impressions_snapshot,metrics_sync_error,created_at,myfans_products(title,price,estimated_reward)";
 const MYFANS_X_POST_SELECT_WITH_METRICS_RECORDED =
   MYFANS_X_POST_SELECT_BASE.replace("created_at,", "metrics_recorded_at,created_at,");
 const MYFANS_PRODUCT_SELECT_BASE =
@@ -464,7 +471,7 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
         .limit(30),
       supabaseAdmin
         .from("myfans_approved_media")
-        .select("id,media_name,media_url,affiliate_media_id,status,notes,created_at")
+        .select("id,media_name,media_url,affiliate_media_id,status,notes,created_at,account_key,strategy_type")
         .order("created_at", { ascending: false })
         .limit(50),
       supabaseAdmin
@@ -542,10 +549,13 @@ export async function getMyfansAnalytics(options: MyfansAnalyticsOptions = {}) {
       ...conversion,
       myfans_products: firstRelation(conversion.myfans_products),
     }));
-    const products = filterBySelectedMedia(allProducts, selectedMedia);
+    // Market Winner consumes the shared supply pool by reference. These rows
+    // are never copied or reassigned to account 5; operational history remains
+    // filtered by the selected account below.
+    const products = selectedMedia?.id === 5 ? allProducts : filterBySelectedMedia(allProducts, selectedMedia);
     const productIds = new Set(products.map((product) => product.id));
     const quoteCandidates = ((quoteCandidatesResult.data ?? []) as MyfansQuoteCandidate[])
-      .filter((row) => !selectedMedia || row.approved_media_id === selectedMedia.id || row.approved_media_id === null);
+      .filter((row) => !selectedMedia || selectedMedia.id === 5 || row.approved_media_id === selectedMedia.id || row.approved_media_id === null);
     const allProductLinkageEvidence = ((productLinkageEvidenceResult.error ? [] : productLinkageEvidenceResult.data ?? []) as MyfansPostProductLinkageEvidence[])
       .filter((row) => !selectedMedia || row.approved_media_id === selectedMedia.id);
     const productLinkageEvidence = allProductLinkageEvidence.filter((row) => row.diagnostic_mode !== true);

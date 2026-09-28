@@ -7,6 +7,8 @@ import { buildMyfansExecutionBoard, buildQuoteCandidateCollectionTasks } from "@
 import { restorePersistedDailySnapshot } from "@/lib/myfansDailySnapshotView";
 import { AffiliatePasteImportForm, DailyPlanReevaluateButton, PersistedDailyPlanBoard, QuoteCandidateTasks, XExecutionBoard } from "./MyfansAdminForms";
 import { permanentRedirect } from "next/navigation";
+import { getMyfansStrategy, MARKET_PATTERN_KEYS } from "@/lib/myfansStrategy";
+import { buildMarketWinnerOpportunities } from "@/lib/myfansMarketWinnerServer";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -39,6 +41,10 @@ export default async function MyfansDailyPage({
   const selectedMediaId = params?.media ? Number(params.media) : null;
   const planDate = params?.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : undefined;
   const analytics = await getMyfansAnalytics({ approvedMediaId: Number.isFinite(selectedMediaId) ? selectedMediaId : null });
+  const strategy = getMyfansStrategy(selectedMediaId);
+  const marketWinner = strategy.strategyType === "MARKET_WINNER" && analytics.selectedMediaId
+    ? await buildMarketWinnerOpportunities(analytics, analytics.selectedMediaId)
+    : null;
   const [supplyProductsResult, supplyEvidenceResult, latestRefreshResult, latestSuccessfulSupplyResult] = await Promise.all([
     supabaseAdmin.from("myfans_products").select("id,title,product_url,affiliate_url,creator_id,price").order("created_at", { ascending: false }).limit(1000),
     supabaseAdmin.from("myfans_post_product_linkage_evidence").select("id,source_status_url,discovered_myfans_url,final_myfans_url,product_id,confidence,resolution_method,verified_at").order("verified_at", { ascending: false }).limit(1000),
@@ -87,10 +93,10 @@ export default async function MyfansDailyPage({
         <Link href="/admin" className="text-sm font-bold text-zinc-400 transition hover:text-white">管理画面へ戻る</Link>
         <div className="mt-7 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-xs font-black tracking-[0.18em] text-emerald-300">MYFANS DAILY OPERATIONS</p>
+            <p className="text-xs font-black tracking-[0.18em] text-emerald-300">MYFANS DAILY OPERATIONS / {strategy.strategyType}</p>
             <h1 className="mt-2 text-3xl font-black sm:text-5xl">myfans 今日の運用</h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
-              {analytics.selectedMedia?.media_name ?? "選択中メディア"}で、候補収集、X投稿、投稿URL登録、学習、成果確認までをこのページにまとめています。
+              {(analytics.selectedMedia?.media_name ?? strategy.handle) || "選択中メディア"} / {strategy.label}。候補収集、X投稿、投稿URL登録、学習、成果確認までをこのページにまとめています。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -101,6 +107,32 @@ export default async function MyfansDailyPage({
             ))}
           </div>
         </div>
+
+        {strategy.strategyType === "MARKET_WINNER" && (
+          <section className="mt-8 rounded-xl border border-fuchsia-800 bg-fuchsia-950/20 p-5" aria-labelledby="market-winner-title">
+            <p className="text-xs font-black tracking-[0.16em] text-fuchsia-300">MARKET WINNER FOUNDATION</p>
+            <h2 id="market-winner-title" className="mt-2 text-2xl font-black">{strategy.label}</h2>
+            <p className="mt-2 text-sm leading-6 text-zinc-300">{strategy.description}。競合観察からの初期Patternは実績ではなく仮説priorです。</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+            {MARKET_PATTERN_KEYS.map((key) => <span key={key} className="rounded-full bg-zinc-950 px-3 py-1.5 text-xs font-bold text-fuchsia-100">{key}</span>)}
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-lg bg-zinc-950 p-3"><p className="text-xs text-zinc-500">Today&apos;s Winners</p><p className="mt-1 text-2xl font-black text-fuchsia-200">{marketWinner?.opportunities.length ?? 0}</p><p className="text-xs text-zinc-500">guard通過済み</p></div>
+              <div className="rounded-lg bg-zinc-950 p-3"><p className="text-xs text-zinc-500">Shared Supply</p><p className="mt-1 text-2xl font-black text-fuchsia-200">{marketWinner?.sharedSupplyCount ?? 0}</p><p className="text-xs text-zinc-500">コピーなし・参照のみ</p></div>
+              <div className="rounded-lg bg-zinc-950 p-3"><p className="text-xs text-zinc-500">Pattern Learning</p><p className="mt-1 text-2xl font-black text-fuchsia-200">{marketWinner?.patternCount ?? 0}/9</p><p className="text-xs text-zinc-500">初期priorは仮説</p></div>
+            </div>
+            <div className="mt-5">
+              <p className="text-sm font-black text-fuchsia-100">Today&apos;s Winners / score理由</p>
+              {marketWinner?.opportunities.length ? <div className="mt-3 grid gap-3 lg:grid-cols-2">{marketWinner.opportunities.slice(0, 6).map((item) => <article key={item.id || `${item.patternKey}:${item.sourceXUrl}`} className="rounded-lg border border-fuchsia-900 bg-zinc-950 p-4">
+                <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black text-fuchsia-300">{item.patternKey} / {item.patternName}</p><p className="mt-1 text-sm font-bold text-white">{item.productTitle}</p></div><span className="rounded-full bg-fuchsia-400 px-2.5 py-1 text-xs font-black text-black">{item.winnerScore.toFixed(1)}</span></div>
+                <p className="mt-2 line-clamp-2 text-xs leading-5 text-zinc-400">{item.sourceExcerpt || "元投稿テキストなし"}</p>
+                <p className="mt-2 text-xs text-zinc-500">{item.creatorName} / {item.explanation.objective as string} / {item.guard.reasons.length ? item.guard.reasons.join(", ") : "guardなし"}</p>
+                <a className="mt-2 block truncate text-xs text-cyan-300 hover:underline" href={item.sourceXUrl} rel="noreferrer">引用元: {item.sourceXUrl}</a>
+              </article>)}</div> : <p className="mt-3 rounded-lg bg-zinc-950 p-4 text-sm text-zinc-400">共有供給がまだありません。ID1の供給をコピーせず、参照可能な候補が入るとここへ表示します。</p>}
+            </div>
+            {analytics.posts.length === 0 && <p className="mt-4 rounded-lg bg-zinc-950 p-4 text-sm text-zinc-400">ID5の投稿履歴はまだありません。Pattern候補・Opportunity生成後にここへ表示します。</p>}
+          </section>
+        )}
 
         {analytics.error && (
           <section className="mt-8 rounded-lg border border-amber-800 bg-amber-950/30 p-5 text-sm leading-6 text-amber-200">
@@ -130,6 +162,8 @@ export default async function MyfansDailyPage({
             <Card label="最新収集" value={dateTime(board.quotePool.funnel.latestCollectedAt)} note="Companion保存時刻" />
           </div>
         </section>
+
+        {strategy.strategyType === "MARKET_WINNER" && <p className="mt-5 rounded-lg border border-violet-900 bg-violet-950/20 p-4 text-sm text-violet-100">4×3 Execution Boardは下の既存Quality Gateを再利用し、共有供給をID5のOpportunity/Guard評価後に候補として表示します。Xライブ操作はこの検証では実行していません。</p>}
 
         <section className="mt-5 rounded-xl border border-zinc-800 bg-zinc-900 p-5" aria-labelledby="myfans-actions-title">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
