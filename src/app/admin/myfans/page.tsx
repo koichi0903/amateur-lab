@@ -78,6 +78,7 @@ export default async function MyfansDailyPage({
     revision: currentPlan.revision,
     evaluatedAt: currentPlan.evaluated_at ?? currentPlan.updated_at ?? null,
     strategyJson: currentPlan.strategy_json,
+    permanentExclusions: analytics.permanentExclusions,
   }) : null;
   const liveOptionCount = board.candidateOptions.reduce((count, slot) => count + slot.candidates.length, 0);
   const displayOptionCount = liveOptionCount;

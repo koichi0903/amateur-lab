@@ -1470,6 +1470,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
   const [message, setMessage] = useState<Message>(null);
   const [pendingId, setPendingId] = useState<string | number | null>(null);
   const [hiddenCandidateIds, setHiddenCandidateIds] = useState<Set<string>>(() => new Set());
+  const [savedCandidateIds, setSavedCandidateIds] = useState<Set<string>>(() => new Set());
   const [selectedBySlot, setSelectedBySlot] = useState<Record<number, string>>(() =>
     Object.fromEntries((candidateOptions ?? []).map((slot) => {
       const selectedLabel = selectedOptions?.[String(slot.postOrder)] ?? "";
@@ -1483,6 +1484,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
   }
 
   async function createCandidate(candidate: ExecutionCandidate) {
+    if (savedCandidateIds.has(candidate.id)) return;
     if (!canUseAffiliateLink(candidate)) {
       setMessage({ text: "リンクが必要な投稿です。先に正規myfansアフィリンクを作成/更新してください。", error: true });
       return;
@@ -1501,6 +1503,8 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
       formData.set("source_x_url", candidate.sourceXUrl);
       formData.set("affiliate_url", candidate.affiliateUrl);
       formData.set("selection_reason", candidate.reason);
+      if (candidate.quoteCandidateId) formData.set("quote_candidate_id", String(candidate.quoteCandidateId));
+      if (candidate.product?.creator_id) formData.set("creator_id", String(candidate.product.creator_id));
       formData.set("growth_stage", candidate.growthStage);
       formData.set("link_strategy", candidate.linkStrategy);
       formData.set("cta_strategy", candidate.ctaStrategy);
@@ -1524,8 +1528,8 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
       formData.set("creator_ltv_score", String(candidate.opportunity?.creatorLtvScore ?? 0));
       formData.set("expected_reward_per_1000_impressions", String(candidate.opportunity?.expectedRewardPer1000Impressions ?? 0));
       await postFormData(formData);
+      setSavedCandidateIds((current) => new Set(current).add(candidate.id));
       setMessage({ text: "候補を投稿ログに保存しました。", error: false });
-      router.refresh();
     } catch (error) {
       setMessage({ text: error instanceof Error ? error.message : "保存に失敗しました。", error: true });
     } finally {
@@ -1556,7 +1560,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
   }
 
   async function skipCandidate(candidate: CandidateOption) {
-    const targetLabel = candidate.product ? "この作品を今後表示しない" : "この元投稿を今後表示しない";
+    const targetLabel = "この候補を今後表示しない";
     if (!window.confirm(`${targetLabel}設定にします。日付が変わっても3×4候補へ戻りません。実行しますか？`)) return;
     setPendingId(`skip-${candidate.id}`);
     setMessage(null);
@@ -1564,6 +1568,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
       const formData = new FormData();
       formData.set("action", "permanent_candidate_skip");
       formData.set("candidate_id", candidate.id);
+      if (candidate.approvedMediaId) formData.set("approved_media_id", String(candidate.approvedMediaId));
       formData.set("plan_date", planDate);
       if (candidate.product?.id) formData.set("product_id", String(candidate.product.id));
       if (candidate.quoteCandidateId) formData.set("quote_candidate_id", String(candidate.quoteCandidateId));
@@ -1786,10 +1791,10 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
                         </button>
                         <button type="button" onClick={() => skipCandidate(candidate)} disabled={pendingId === `skip-${candidate.id}`} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-rose-800 bg-rose-950/40 px-3 text-xs font-black text-rose-200 disabled:cursor-wait disabled:opacity-60">
                           {pendingId === `skip-${candidate.id}` ? <LoaderCircle size={15} className="animate-spin" /> : <XCircle size={15} />}
-                          {candidate.product ? "この作品を今後表示しない" : "この元投稿を今後表示しない"}
+                          この候補を除外
                         </button>
-                        <button type="button" disabled={!selected || pendingId === candidate.id || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
-                          <Save size={15} /> 選択候補を投稿ログへ保存
+                        <button type="button" disabled={savedCandidateIds.has(candidate.id) || pendingId === candidate.id || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
+                          {savedCandidateIds.has(candidate.id) ? <Check size={15} /> : <Save size={15} />} {savedCandidateIds.has(candidate.id) ? "投稿ログに保存済み" : "投稿ログへ保存"}
                         </button>
                       </div>
                     </div>
@@ -1973,7 +1978,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
               ) : (
                 <button type="button" disabled className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-zinc-500"><ExternalLink size={15} />X投稿画面を開く</button>
               )}
-              <button type="button" disabled={pendingId === candidate.id || !publishBody(candidate) || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50"><Save size={15} />投稿ログへ保存</button>
+              <button type="button" disabled={savedCandidateIds.has(candidate.id) || pendingId === candidate.id || !publishBody(candidate) || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50">{savedCandidateIds.has(candidate.id) ? <Check size={15} /> : <Save size={15} />}{savedCandidateIds.has(candidate.id) ? "投稿ログに保存済み" : "投稿ログへ保存"}</button>
             </div>
                 </>
               );

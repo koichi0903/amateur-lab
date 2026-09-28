@@ -2575,6 +2575,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     products: analytics.products.filter((product) => !permanentExclusionSets.productIds.has(product.id)),
     quoteCandidates: analytics.quoteCandidates.filter((quote) => !isPermanentlyExcluded({
       productId: quote.product_id,
+      quoteCandidateId: quote.id,
       quoteXUrl: quote.x_post_url,
       sourceXUrl: quote.x_post_url,
       sets: permanentExclusionSets,
@@ -3170,6 +3171,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     const leak = detectPublicCopyLeak(publicText);
     if (isPermanentlyExcluded({
       productId: candidate.product?.id,
+      quoteCandidateId: candidate.quoteCandidateId,
       quoteXUrl: candidate.quoteXUrl,
       sourceXUrl: candidate.sourceXUrl,
       sets: permanentExclusionSets,

@@ -6,7 +6,7 @@ import { calculateMyfansSelectionScore, myfansLaunchPriority } from "@/lib/myfan
 import { MYFANS_AFFILIATE_URL_SOURCE_MANUAL, normalizeMyfansAffiliateUrl } from "@/lib/myfansAffiliateLink";
 import { MYFANS_DAILY_SELECTED_MAX } from "@/lib/myfansXExecution";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { exclusionTargetForCandidate, recordMyfansPermanentExclusion } from "@/lib/myfansPermanentExclusions";
+import { exclusionTargetForCandidate, manualCandidateExclusionTarget, recordMyfansPermanentExclusion } from "@/lib/myfansPermanentExclusions";
 import { getMyfansStrategy } from "@/lib/myfansStrategy";
 
 export const runtime = "nodejs";
@@ -555,12 +555,11 @@ async function updatePostExecution(formData: FormData) {
 }
 
 async function skipPermanentCandidate(formData: FormData) {
-  const productId = nullableId(formData, "product_id");
   const quoteXUrl = text(formData, "quote_x_url");
   const sourceXUrl = text(formData, "source_x_url");
   const quoteCandidateId = nullableId(formData, "quote_candidate_id");
-  const target = exclusionTargetForCandidate({ productId, quoteXUrl, sourceXUrl, quoteCandidateId });
-  if (!target) throw new Error("恒久除外するproduct/sourceを特定できません。");
+  const target = manualCandidateExclusionTarget({ quoteXUrl, sourceXUrl, quoteCandidateId });
+  if (!target) throw new Error("恒久除外する候補のsourceを特定できません。");
   const { error } = await recordMyfansPermanentExclusion({
     ...target,
     approvedMediaId: nullableId(formData, "approved_media_id"),
