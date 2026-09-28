@@ -43,6 +43,36 @@ test("今日から1週間はJSTの当日から7日後まで", () => {
   assert.deepEqual(filterRecentReleaseWorks(works, [], range).map((work) => work.id), [1, 2, 3]);
 });
 
+test("今日だけNEWを許可し、明日以降はRESERVEDだけを許可する", () => {
+  const range = { todayDate: "2026-09-28", startDate: "2026-09-28", endDate: "2026-10-05" };
+  const work = (id: number, stage: string, release_date: string, sample_movie_url = "sample.mp4") => ({ id, title: `作品${id}`, stage, created_at: "2026-09-27T15:00:00Z", release_date, image_url: null, sample_movie_url, product_id: null });
+  const result = filterRecentReleaseWorks([
+    work(328387, "NEW", "2026-09-28"),
+    work(2, "RESERVED", "2026-09-28"),
+    work(3, "RESERVED", "2026-09-29"),
+    work(4, "NEW", "2026-09-29"),
+    work(5, "OLD", "2026-09-28"),
+    work(6, "SEMI_NEW", "2026-09-28"),
+    work(7, "RESERVED", "2026-09-27"),
+    work(8, "RESERVED", "2026-10-05"),
+    work(9, "RESERVED", "2026-10-06"),
+  ], [], range);
+  assert.deepEqual(result.map((item) => item.id), [2, 328387, 3, 8]);
+});
+
+test("今日のNEWでも既存除外と今日枠だけを除外し、他の今日NEWは残す", () => {
+  const range = { todayDate: "2026-09-28", startDate: "2026-09-28", endDate: "2026-10-05" };
+  const work = (id: number) => ({ id, title: `作品${id}`, stage: "NEW", created_at: "2026-09-28T00:00:00Z", release_date: "2026-09-28", image_url: null, sample_movie_url: "sample.mp4", product_id: null });
+  const jobs = [
+    { work_id: 2, kind: "auto", slot_date: "2026-09-27", status: "posted" },
+    { work_id: 3, kind: "auto", slot_date: "2026-09-28", status: "pending" },
+    { work_id: 4, kind: "auto", slot_date: "2026-09-28", status: "skipped" },
+    { work_id: 5, kind: "auto", slot_date: "2026-09-28", status: "excluded" },
+    { work_id: 6, kind: "manual", slot_date: "2026-09-28", status: "pending" },
+  ];
+  assert.deepEqual(filterRecentReleaseWorks([work(1), work(2), work(3), work(4), work(5), work(6)], jobs, range).map((item) => item.id), [1]);
+});
+
 test("投稿済み・スキップ・対象外・当日枠・manual追加・重複を除外し、発売日と登録日で安定ソートする", () => {
   const range = { todayDate: "2026-09-21", startDate: "2026-09-21", endDate: "2026-09-28" };
   const work = (id: number, created_at: string, release_date = "2026-09-24") => ({ id, title: `作品${id}`, stage: "RESERVED", created_at, release_date, image_url: null, sample_movie_url: "sample.mp4", product_id: null });
