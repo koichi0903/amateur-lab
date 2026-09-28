@@ -885,11 +885,40 @@ export function DailyPlanReevaluateButton({ approvedMediaId }: { approvedMediaId
     <div className="flex flex-col items-start gap-2">
       <button type="button" onClick={reevaluate} disabled={pending} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-black text-white disabled:cursor-wait disabled:opacity-60">
         {pending ? <LoaderCircle size={17} className="animate-spin" /> : <RefreshCw size={17} />}
-        {pending ? "再評価中…" : "今日の候補を再評価"}
+        {pending ? "4×3を再評価中…" : "4×3を再評価・保存"}
       </button>
       {message && <p role="status" className={`text-xs ${message.error ? "text-red-300" : "text-emerald-300"}`}>{message.text}</p>}
     </div>
   );
+}
+
+export function MarketWinnerGenerateButton({ approvedMediaId }: { approvedMediaId: number }) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<Message>(null);
+
+  async function generate() {
+    setPending(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/admin/myfans/market-winner/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approvedMediaId }),
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string; sharedSupplyCount?: number; createdCount?: number; updatedCount?: number; generatedAt?: string; scoreRange?: { min: number; max: number } | null };
+      if (!response.ok) throw new Error(payload.error || "Winner候補の生成・更新に失敗しました。");
+      const score = payload.scoreRange ? ` / score ${payload.scoreRange.min.toFixed(1)}〜${payload.scoreRange.max.toFixed(1)}` : "";
+      setMessage({ text: `共有供給${payload.sharedSupplyCount ?? 0}件から、生成${payload.createdCount ?? 0}件・更新${payload.updatedCount ?? 0}件${score}。${payload.generatedAt ? ` ${new Date(payload.generatedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", hour12: false })}` : ""}`, error: false });
+      router.refresh();
+    } catch (error) {
+      setMessage({ text: error instanceof Error ? error.message : "Winner候補の生成・更新に失敗しました。", error: true });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return <div className="flex flex-col items-start gap-2"><button type="button" onClick={generate} disabled={pending} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-fuchsia-500 px-4 text-sm font-black text-black disabled:cursor-wait disabled:opacity-60"><RefreshCw size={17} className={pending ? "animate-spin" : ""} />{pending ? "Winner候補を生成中…" : "Winner候補を生成・更新"}</button>{message && <p role="status" className={`text-xs ${message.error ? "text-red-300" : "text-emerald-300"}`}>{message.text}</p>}</div>;
 }
 
 export function PersistedDailyPlanBoard({ snapshot }: { snapshot: PersistedDailySnapshotView }) {

@@ -26,6 +26,19 @@ export type MarketWinnerOpportunity = {
   explanation: Record<string, unknown>;
 };
 
+type SavedOpportunityRow = {
+  id: number;
+  pattern_id: number;
+  quote_candidate_id: number | null;
+  product_id: number | null;
+  creator_id: number | null;
+  source_x_url: string;
+  winner_score: number;
+  score_components: WinnerScoreComponents;
+  explanation: Record<string, unknown>;
+  status: string;
+};
+
 const PATTERN_KEYS: MarketPatternKey[] = ["QUOTE_HOOK", "PRICE_DROP", "LIMITED_WINDOW", "CREATOR_DISCOVERY", "COMPARISON", "NEW_RELEASE", "SOCIAL_PROOF", "CURIOSITY_GAP", "FOLLOW_SERIES"];
 
 function clamp(value: number) { return Math.max(0, Math.min(100, Math.round(value * 100) / 100)); }
@@ -135,6 +148,8 @@ export async function buildMarketWinnerOpportunities(analytics: MyfansAnalytics,
     }
   }
   const writeRows = rows.filter((row) => !row.opportunity.guard.blocked).sort((a, b) => b.opportunity.winnerScore - a.opportunity.winnerScore).slice(0, 100);
+  let createdCount = 0;
+  let updatedCount = 0;
   if (writeRows.length) {
     const patternIds = patterns.map((pattern) => pattern.id);
     const { data: existingRows, error: existingError } = await supabaseAdmin.from("myfans_market_opportunities").select("id,pattern_id,quote_candidate_id,product_id").eq("approved_media_id", approvedMediaId).in("pattern_id", patternIds).limit(1000);
@@ -162,13 +177,73 @@ export async function buildMarketWinnerOpportunities(analytics: MyfansAnalytics,
       if (saved?.id) {
         const { error } = await supabaseAdmin.from("myfans_market_opportunities").update(payload).eq("id", saved.id);
         if (error) throw error;
+        updatedCount += 1;
       } else {
         const { data: inserted, error } = await supabaseAdmin.from("myfans_market_opportunities").insert(payload).select("id").single();
         if (error) throw error;
         savedId = inserted?.id ?? 0;
+        createdCount += 1;
       }
       row.opportunity.id = savedId;
     }
   }
-  return { opportunities: writeRows.map((row) => row.opportunity).sort((a, b) => b.winnerScore - a.winnerScore), patternCount: patterns.length, sharedSupplyCount: candidates.length };
+  const opportunities = writeRows.map((row) => row.opportunity).sort((a, b) => b.winnerScore - a.winnerScore);
+  const scores = opportunities.map((item) => item.winnerScore);
+  return {
+    opportunities,
+    patternCount: patterns.length,
+    sharedSupplyCount: candidates.length,
+    createdCount,
+    updatedCount,
+    generatedAt: new Date().toISOString(),
+    scoreRange: scores.length ? { min: Math.min(...scores), max: Math.max(...scores) } : null,
+  };
+}
+
+/** Read the persisted winner set without evaluating or writing any opportunities. */
+export async function readMarketWinnerOpportunities(analytics: MyfansAnalytics, approvedMediaId: number) {
+  const [patternsResult, opportunitiesResult] = await Promise.all([
+    supabaseAdmin.from("myfans_market_patterns").select("id,pattern_key,name").in("pattern_key", PATTERN_KEYS),
+    supabaseAdmin
+      .from("myfans_market_opportunities")
+      .select("id,pattern_id,quote_candidate_id,product_id,creator_id,source_x_url,winner_score,score_components,explanation,status")
+      .eq("approved_media_id", approvedMediaId)
+      .in("status", ["candidate", "selected", "held"])
+      .order("winner_score", { ascending: false })
+      .limit(100),
+  ]);
+  if (patternsResult.error) throw patternsResult.error;
+  if (opportunitiesResult.error) throw opportunitiesResult.error;
+
+  const patterns = new Map((patternsResult.data ?? []).map((row) => [row.id, row]));
+  const quotes = new Map(analytics.quoteCandidates.map((quote) => [quote.id, quote]));
+  const products = new Map(analytics.products.map((product) => [product.id, product]));
+  const creators = new Map(analytics.creators.map((creator) => [creator.id, creator.display_name]));
+  const rows = (opportunitiesResult.data ?? []) as SavedOpportunityRow[];
+  const opportunities: MarketWinnerOpportunity[] = rows.map((row) => {
+    const pattern = patterns.get(row.pattern_id);
+    const quote = row.quote_candidate_id ? quotes.get(row.quote_candidate_id) : null;
+    const product = row.product_id ? products.get(row.product_id) : null;
+    const explanation = row.explanation ?? {};
+    return {
+      id: row.id,
+      patternKey: (pattern?.pattern_key ?? "QUOTE_HOOK") as MarketPatternKey,
+      patternName: pattern?.name ?? "保存済みPattern",
+      sourceXUrl: row.source_x_url,
+      sourceExcerpt: String(explanation.source_excerpt ?? quote?.text_excerpt ?? ""),
+      productTitle: product?.title ?? "供給プールの候補商品未紐付け",
+      productId: row.product_id,
+      creatorName: creators.get(row.creator_id ?? 0) ?? quote?.source_x_handle ?? "不明",
+      creatorId: row.creator_id,
+      winnerScore: Number(row.winner_score ?? 0),
+      scoreComponents: row.score_components,
+      guard: { blocked: false, penalty: 0, reasons: [] },
+      explanation,
+    };
+  });
+  return {
+    opportunities,
+    patternCount: patterns.size,
+    sharedSupplyCount: analytics.quoteCandidates.filter((quote) => Boolean(quote.x_post_url)).slice(0, 40).length,
+  };
 }

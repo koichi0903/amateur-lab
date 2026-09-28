@@ -5,10 +5,10 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildMyfansAcquisitionPlanner } from "@/lib/myfansAcquisitionPlanner";
 import { buildMyfansExecutionBoard, buildQuoteCandidateCollectionTasks } from "@/lib/myfansXExecution";
 import { restorePersistedDailySnapshot } from "@/lib/myfansDailySnapshotView";
-import { AffiliatePasteImportForm, DailyPlanReevaluateButton, PersistedDailyPlanBoard, QuoteCandidateTasks, XExecutionBoard } from "./MyfansAdminForms";
+import { AffiliatePasteImportForm, DailyPlanReevaluateButton, MarketWinnerGenerateButton, PersistedDailyPlanBoard, QuoteCandidateTasks, QuoteRefreshBatchPanel, XExecutionBoard } from "./MyfansAdminForms";
 import { permanentRedirect } from "next/navigation";
 import { getMyfansStrategy, MARKET_PATTERN_KEYS } from "@/lib/myfansStrategy";
-import { buildMarketWinnerOpportunities } from "@/lib/myfansMarketWinnerServer";
+import { readMarketWinnerOpportunities } from "@/lib/myfansMarketWinnerServer";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -43,7 +43,7 @@ export default async function MyfansDailyPage({
   const analytics = await getMyfansAnalytics({ approvedMediaId: Number.isFinite(selectedMediaId) ? selectedMediaId : null });
   const strategy = getMyfansStrategy(selectedMediaId);
   const marketWinner = strategy.strategyType === "MARKET_WINNER" && analytics.selectedMediaId
-    ? await buildMarketWinnerOpportunities(analytics, analytics.selectedMediaId)
+    ? await readMarketWinnerOpportunities(analytics, analytics.selectedMediaId)
     : null;
   const [supplyProductsResult, supplyEvidenceResult, latestRefreshResult, latestSuccessfulSupplyResult] = await Promise.all([
     supabaseAdmin.from("myfans_products").select("id,title,product_url,affiliate_url,creator_id,price").order("created_at", { ascending: false }).limit(1000),
@@ -128,8 +128,9 @@ export default async function MyfansDailyPage({
                 <p className="mt-2 line-clamp-2 text-xs leading-5 text-zinc-400">{item.sourceExcerpt || "元投稿テキストなし"}</p>
                 <p className="mt-2 text-xs text-zinc-500">{item.creatorName} / {item.explanation.objective as string} / {item.guard.reasons.length ? item.guard.reasons.join(", ") : "guardなし"}</p>
                 <a className="mt-2 block truncate text-xs text-cyan-300 hover:underline" href={item.sourceXUrl} rel="noreferrer">引用元: {item.sourceXUrl}</a>
-              </article>)}</div> : <p className="mt-3 rounded-lg bg-zinc-950 p-4 text-sm text-zinc-400">共有供給がまだありません。ID1の供給をコピーせず、参照可能な候補が入るとここへ表示します。</p>}
+              </article>)}</div> : <p className="mt-3 rounded-lg bg-zinc-950 p-4 text-sm text-zinc-400">保存済みWinner候補はありません。「Winner候補を生成・更新」を押した時だけ生成・保存されます。</p>}
             </div>
+            <div className="mt-5 flex flex-wrap items-center gap-3"><MarketWinnerGenerateButton approvedMediaId={analytics.selectedMediaId!} /><p className="text-xs text-zinc-500">Shared Supplyを参照し、Pattern・Guard・scoreを計算してID5のOpportunitiesだけをupsertします。ページ表示では保存しません。</p></div>
             {analytics.posts.length === 0 && <p className="mt-4 rounded-lg bg-zinc-950 p-4 text-sm text-zinc-400">ID5の投稿履歴はまだありません。Pattern候補・Opportunity生成後にここへ表示します。</p>}
           </section>
         )}
@@ -173,19 +174,17 @@ export default async function MyfansDailyPage({
             </div>
             <p className="text-xs text-zinc-500">上から順に、必要なものだけ実行します。</p>
           </div>
-          <div className="mt-4 grid gap-3 lg:grid-cols-3">
-            <a href="#collection" className="rounded-lg border border-emerald-800 bg-zinc-950 p-4 transition hover:border-emerald-500">
-              <p className="text-sm font-black text-emerald-200">1. {board.recovery.candidateOptions < board.recovery.candidateOptionsTarget ? "候補を補充" : "供給を確認"}</p>
-              <p className="mt-2 text-xs leading-5 text-zinc-400">{planner.tasks.length ? `全クリエイター巡回から次の${Math.min(10, Math.max(5, planner.tasks.length))}件を収集` : "収集より投稿・計測を優先"} / cursor・cycleは自動保持</p>
-            </a>
-            <a href="#today-candidates" className="rounded-lg border border-violet-800 bg-zinc-950 p-4 transition hover:border-violet-500">
-              <p className="text-sm font-black text-violet-200">2. {displaySelectedCount < board.recovery.selectedMinimum ? "候補を選ぶ" : "投稿準備"}</p>
-              <p className="mt-2 text-xs leading-5 text-zinc-400">{displaySelectedCount}/{board.recovery.selectedMinimum}〜{board.recovery.selectedMaximum} selected / {persistedSnapshot ? "保存済みplanを表示中" : "A・B・Cから選択"}</p>
-            </a>
-            <a href="#post-metrics" className="rounded-lg border border-cyan-800 bg-zinc-950 p-4 transition hover:border-cyan-500">
-              <p className="text-sm font-black text-cyan-200">3. {analytics.posts.some((post) => post.status === "ready") ? "投稿後を記録" : "投稿URLを保存"}</p>
-              <p className="mt-2 text-xs leading-5 text-zinc-400">投稿URLを保存し、24時間後に5指標を入力</p>
-            </a>
+          <div className={`mt-4 grid gap-3 ${strategy.strategyType === "MARKET_WINNER" ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+            {strategy.strategyType === "SOURCE" ? <>
+              <a href="#collection" className="rounded-lg border border-emerald-800 bg-zinc-950 p-4 transition hover:border-emerald-500"><p className="text-sm font-black text-emerald-200">1. Source候補を更新</p><p className="mt-2 text-xs leading-5 text-zinc-400">Xプロフィールを開き、Companionで収集した候補を保存します。</p></a>
+              <a href="#today-candidates" className="rounded-lg border border-violet-800 bg-zinc-950 p-4 transition hover:border-violet-500"><p className="text-sm font-black text-violet-200">2. 4×3を再評価・保存</p><p className="mt-2 text-xs leading-5 text-zinc-400">Source更新後の候補からDaily Planを保存します。</p></a>
+              <a href="#today-candidates" className="rounded-lg border border-cyan-800 bg-zinc-950 p-4 transition hover:border-cyan-500"><p className="text-sm font-black text-cyan-200">3. 投稿候補を選ぶ／投稿準備</p><p className="mt-2 text-xs leading-5 text-zinc-400">4 Slot × 最大3から候補を選びます。</p></a>
+            </> : <>
+              <a href="#market-winner-title" className="rounded-lg border border-emerald-800 bg-zinc-950 p-4 transition hover:border-emerald-500"><p className="text-sm font-black text-emerald-200">1. Shared Supplyを確認／更新</p><p className="mt-2 text-xs leading-5 text-zinc-400">更新はSOURCE側のCompanion/X収集を使います。</p></a>
+              <a href="#market-winner-title" className="rounded-lg border border-fuchsia-800 bg-zinc-950 p-4 transition hover:border-fuchsia-500"><p className="text-sm font-black text-fuchsia-200">2. Winner候補を生成・更新</p><p className="mt-2 text-xs leading-5 text-zinc-400">押した時だけID5 Opportunitiesをupsertします。</p></a>
+              <a href="#today-candidates" className="rounded-lg border border-violet-800 bg-zinc-950 p-4 transition hover:border-violet-500"><p className="text-sm font-black text-violet-200">3. 4×3を再評価・保存</p><p className="mt-2 text-xs leading-5 text-zinc-400">Daily Plan保存です。Winner生成とは別操作です。</p></a>
+              <a href="#today-candidates" className="rounded-lg border border-cyan-800 bg-zinc-950 p-4 transition hover:border-cyan-500"><p className="text-sm font-black text-cyan-200">4. 投稿候補を選ぶ／投稿準備</p><p className="mt-2 text-xs leading-5 text-zinc-400">保存済み候補から投稿準備を行います。</p></a>
+            </>}
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <DailyPlanReevaluateButton approvedMediaId={selectedMediaId!} />
@@ -277,6 +276,7 @@ export default async function MyfansDailyPage({
           </div>
         </details>
 
+        {strategy.strategyType === "SOURCE" && <QuoteRefreshBatchPanel approvedMediaId={selectedMediaId} />}
         <QuoteCandidateTasks tasks={quoteTasks} />
 
         <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
