@@ -25,7 +25,7 @@ function shiftTokyoDate(date: string, days: number) {
 
 export function recentReleaseDateRange(now = new Date()): ReleaseDateRange {
   const todayDate = tokyoDate(now);
-  return { todayDate, startDate: shiftTokyoDate(todayDate, 1), endDate: shiftTokyoDate(todayDate, 7) };
+  return { todayDate, startDate: todayDate, endDate: shiftTokyoDate(todayDate, 7) };
 }
 
 export type RecentReleaseWork = {

@@ -29,20 +29,22 @@ test("手動追加は本日の4枠に数えず、不足を正直に返す", () =
   assert.deepEqual(progress, { posted: 1, target: 4, remaining: 3, shortage: 3 });
 });
 
-test("今後1週間はJSTの明日から7日後まで", () => {
+test("今日から1週間はJSTの当日から7日後まで", () => {
   const range = recentReleaseDateRange(new Date("2026-09-21T00:30:00+09:00"));
-  assert.deepEqual(range, { todayDate: "2026-09-21", startDate: "2026-09-22", endDate: "2026-09-28" });
+  assert.deepEqual(range, { todayDate: "2026-09-21", startDate: "2026-09-21", endDate: "2026-09-28" });
+  assert.deepEqual(recentReleaseDateRange(new Date("2026-09-20T15:30:00Z")), range);
   const works = [
+    { id: 0, title: "昨日", stage: "RESERVED", created_at: "2026-09-20T01:00:00+09:00", release_date: "2026-09-20", image_url: null, sample_movie_url: "https://www.dmm.co.jp/sample.mp4", product_id: null },
     { id: 1, title: "今日", stage: "RESERVED", created_at: "2026-09-21T01:00:00+09:00", release_date: "2026-09-21", image_url: null, sample_movie_url: "https://www.dmm.co.jp/sample.mp4", product_id: null },
     { id: 2, title: "明日", stage: "RESERVED", created_at: "2026-09-20T01:00:00+09:00", release_date: "2026-09-22", image_url: null, sample_movie_url: "https://www.dmm.co.jp/sample.mp4", product_id: null },
     { id: 3, title: "+7日", stage: "RESERVED", created_at: "2026-09-19T01:00:00+09:00", release_date: "2026-09-28", image_url: null, sample_movie_url: "https://www.dmm.co.jp/sample.mp4", product_id: null },
     { id: 4, title: "+8日", stage: "RESERVED", created_at: "2026-09-18T01:00:00+09:00", release_date: "2026-09-29", image_url: null, sample_movie_url: "https://www.dmm.co.jp/sample.mp4", product_id: null },
   ];
-  assert.deepEqual(filterRecentReleaseWorks(works, [], range).map((work) => work.id), [2, 3]);
+  assert.deepEqual(filterRecentReleaseWorks(works, [], range).map((work) => work.id), [1, 2, 3]);
 });
 
 test("投稿済み・スキップ・対象外・当日枠・manual追加・重複を除外し、発売日と登録日で安定ソートする", () => {
-  const range = { todayDate: "2026-09-21", startDate: "2026-09-22", endDate: "2026-09-28" };
+  const range = { todayDate: "2026-09-21", startDate: "2026-09-21", endDate: "2026-09-28" };
   const work = (id: number, created_at: string, release_date = "2026-09-24") => ({ id, title: `作品${id}`, stage: "RESERVED", created_at, release_date, image_url: null, sample_movie_url: "sample.mp4", product_id: null });
   const jobs = [
     { work_id: 2, kind: "auto", slot_date: "2026-09-20", status: "posted" },
@@ -57,7 +59,7 @@ test("投稿済み・スキップ・対象外・当日枠・manual追加・重�
 });
 
 test("手動追加ジョブを作成するとfuture一覧から直ちに消える", () => {
-  const range = { todayDate: "2026-09-21", startDate: "2026-09-22", endDate: "2026-09-28" };
+  const range = { todayDate: "2026-09-21", startDate: "2026-09-21", endDate: "2026-09-28" };
   const work = { id: 42, title: "手動追加対象", stage: "RESERVED", created_at: "2026-09-20T00:00:00Z", release_date: "2026-09-25", image_url: null, sample_movie_url: "sample.mp4", product_id: null };
   assert.deepEqual(filterRecentReleaseWorks([work], [], range).map((item) => item.id), [42]);
   assert.deepEqual(filterRecentReleaseWorks([work], [{ work_id: 42, kind: "manual", slot_date: "2026-09-21", status: "pending" }], range), []);
