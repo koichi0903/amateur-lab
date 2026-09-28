@@ -9,6 +9,7 @@ import type { MyfansApprovedMedia, MyfansCreator, MyfansProduct, MyfansXPost } f
 import type { PersistedDailySnapshotView } from "@/lib/myfansDailySnapshotView";
 import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummary";
 import { MYFANS_AFFILIATE_URL_SOURCE_MANUAL, MYFANS_CLICK_ATTRIBUTION_WINDOW_HOURS, myfansAffiliateLinkStatus, myfansAffiliateLinkStatusLabel, normalizeMyfansAffiliateUrl } from "@/lib/myfansAffiliateLink";
+import { candidateSaveBlockReason } from "@/lib/myfansCandidateSave";
 import { getXWeightedLength } from "@/lib/xText";
 
 type Message = { text: string; error: boolean } | null;
@@ -1485,8 +1486,9 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
 
   async function createCandidate(candidate: ExecutionCandidate) {
     if (savedCandidateIds.has(candidate.id)) return;
-    if (!canUseAffiliateLink(candidate)) {
-      setMessage({ text: "リンクが必要な投稿です。先に正規myfansアフィリンクを作成/更新してください。", error: true });
+    const saveBlockReason = candidateSaveBlockReason(candidate);
+    if (saveBlockReason) {
+      setMessage({ text: saveBlockReason, error: true });
       return;
     }
     setPendingId(candidate.id);
@@ -1511,7 +1513,23 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
       formData.set("creative_variant_id", candidate.creativeVariantId);
       formData.set("creative_strategy", candidate.creativeStrategy);
       formData.set("creative_reason", candidate.creativeReason);
-      formData.set("card_payload", JSON.stringify(candidate.cardPayload));
+      formData.set("card_payload", JSON.stringify({
+        ...candidate.cardPayload,
+        candidate_id: candidate.id,
+        source_x_url: candidate.sourceXUrl,
+        quote_x_url: candidate.quoteXUrl,
+        quote_candidate_id: candidate.quoteCandidateId,
+        creator_id: candidate.product?.creator_id ?? null,
+        product_id: candidate.product?.id ?? null,
+        objective: candidate.objective,
+        creative_strategy: candidate.creativeStrategy,
+        link_strategy: candidate.linkStrategy,
+        attribution: {
+          source_author: candidate.sourceAuthorLabel,
+          source_media_type: candidate.sourceMediaType,
+          approved_media_id: candidate.approvedMediaId,
+        },
+      }));
       formData.set("ogp_check_required", candidate.ogpCheckRequired ? "true" : "false");
       // Product-less discovery still has a real source post. Preserve its
       // identity so posted-state cooldown/exclusion can close the loop.
@@ -1727,8 +1745,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
               <div className="mt-4 grid gap-4 lg:grid-cols-3">
                 {slot.candidates.filter((candidate) => !hiddenCandidateIds.has(candidate.id)).map((candidate) => {
                   const selected = selectedBySlot[slot.postOrder] === candidate.id;
-                  const linkRequired = needsFreshAffiliateLink(candidate);
-                  const linkReady = canUseAffiliateLink(candidate);
+                  const saveBlockReason = candidateSaveBlockReason(candidate);
                   return (
                     <div key={candidate.id} className={`rounded-lg border p-4 ${selected ? "border-emerald-500 bg-emerald-950/25" : "border-zinc-800 bg-zinc-950"}`}>
                       <div className="flex items-start justify-between gap-3">
@@ -1793,9 +1810,10 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
                           {pendingId === `skip-${candidate.id}` ? <LoaderCircle size={15} className="animate-spin" /> : <XCircle size={15} />}
                           この候補を除外
                         </button>
-                        <button type="button" disabled={savedCandidateIds.has(candidate.id) || pendingId === candidate.id || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
-                          {savedCandidateIds.has(candidate.id) ? <Check size={15} /> : <Save size={15} />} {savedCandidateIds.has(candidate.id) ? "投稿ログに保存済み" : "投稿ログへ保存"}
+                        <button type="button" disabled={savedCandidateIds.has(candidate.id) || pendingId === candidate.id || Boolean(saveBlockReason)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
+                          {savedCandidateIds.has(candidate.id) ? <Check size={15} /> : <Save size={15} />} {savedCandidateIds.has(candidate.id) ? "投稿ログに保存済み" : "この候補を投稿ログへ保存"}
                         </button>
+                        {saveBlockReason && <p className="text-xs font-bold text-amber-200">保存不可: {saveBlockReason}</p>}
                       </div>
                     </div>
                   );
@@ -1812,6 +1830,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
               const linkRequired = needsFreshAffiliateLink(candidate);
               const linkStatus = candidate.product ? myfansAffiliateLinkStatus(candidate.product) : "missing";
               const linkReady = canUseAffiliateLink(candidate);
+              const saveBlockReason = candidateSaveBlockReason(candidate);
               const selfReplyPreview = linkRequired && candidate.product && linkReady
                 ? `#PR\n詳細はこちら\n${candidate.product.affiliate_url}`.trim()
                 : candidate.selfReply;
@@ -1978,7 +1997,8 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
               ) : (
                 <button type="button" disabled className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-zinc-500"><ExternalLink size={15} />X投稿画面を開く</button>
               )}
-              <button type="button" disabled={savedCandidateIds.has(candidate.id) || pendingId === candidate.id || !publishBody(candidate) || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50">{savedCandidateIds.has(candidate.id) ? <Check size={15} /> : <Save size={15} />}{savedCandidateIds.has(candidate.id) ? "投稿ログに保存済み" : "投稿ログへ保存"}</button>
+              <button type="button" disabled={savedCandidateIds.has(candidate.id) || pendingId === candidate.id || Boolean(saveBlockReason)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50">{savedCandidateIds.has(candidate.id) ? <Check size={15} /> : <Save size={15} />}{savedCandidateIds.has(candidate.id) ? "投稿ログに保存済み" : "この候補を投稿ログへ保存"}</button>
+              {saveBlockReason && <p className="mt-2 text-xs font-bold text-amber-200">保存不可: {saveBlockReason}</p>}
             </div>
                 </>
               );

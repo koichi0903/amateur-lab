@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
   // Override default ignores of eslint-config-next.
   globalIgnores([
     ".next/**",
+    ".next-isolated/**",
+    ".next-ux-verify*/**",
     ".next-local-playwright-*/**",
     ".next-local-update-*/**",
     "work/**",
