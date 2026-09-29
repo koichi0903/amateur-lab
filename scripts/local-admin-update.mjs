@@ -10,6 +10,21 @@ import {
   isSuccessfulTaskResponse,
 } from "./local-admin-update-helpers.mjs";
 
+async function writeFileWithRetry(path, contents) {
+  let lastError;
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    try {
+      await writeFile(path, contents, "utf8");
+      return;
+    } catch (error) {
+      lastError = error;
+      if (error?.code !== "EPERM" && error?.code !== "EBUSY") throw error;
+      await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+    }
+  }
+  throw lastError;
+}
+
 loadEnv({ path: resolve(process.cwd(), ".env.local"), quiet: true });
 
 const TASKS = {
@@ -526,6 +541,6 @@ async function run(taskName) {
     }
   } finally {
     await stopServer();
-    await writeFile(tsconfigPath, originalTsconfig, "utf8");
+    await writeFileWithRetry(tsconfigPath, originalTsconfig);
   }
 }

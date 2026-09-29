@@ -14,15 +14,16 @@ function Get-OwnerClassification {
     )
 
     if ($OwnerPid -eq 0) { return "no-owner" }
-    if ($null -eq $Marker -or $null -eq $ProcessInfo) { return "unknown" }
+    if ($null -eq $ProcessInfo) { return "unknown" }
 
-    $samePid = [int]$Marker.pid -eq $OwnerPid
     $commandLine = [string]$ProcessInfo.CommandLine
-    $sameRepo = [string]$Marker.repoRoot -eq $RepoRoot -or $commandLine -match [regex]::Escape($RepoRoot)
+    $samePid = $null -ne $Marker -and [int]$Marker.pid -eq $OwnerPid
+    $markerRepo = if ($null -ne $Marker) { [string]$Marker.repoRoot } else { "" }
+    $sameRepo = $markerRepo -eq $RepoRoot -or $commandLine -match [regex]::Escape($RepoRoot)
     $isNext = $commandLine -match "(?i)(next|next\\dist\\bin)"
 
-    if ($sameRepo -and $isNext -and ($samePid -or $commandLine -match [regex]::Escape($RepoRoot))) { return "same-repo" }
-    $markerRepo = [string]$Marker.repoRoot
+    if ($samePid -and $sameRepo -and $isNext) { return "same-repo" }
+    if (-not $samePid -and $markerRepo -eq $RepoRoot -and $sameRepo -and $isNext) { return "stale-canonical" }
     if (-not $sameRepo -and $markerRepo -match "(?i)(amateur-lab|bijyo)" -and $commandLine -match [regex]::Escape($markerRepo) -and $isNext) {
         return "known-different"
     }
@@ -95,6 +96,30 @@ $markerPath = Join-Path $stateDir "local-dev-3000.json"
 $logPath = Join-Path $stateDir "local-dev-3000.log"
 $errorLogPath = Join-Path $stateDir "local-dev-3000.err.log"
 
+function Stop-CanonicalProcessTree {
+    param([int]$ListenerPid)
+
+    $rootPid = $ListenerPid
+    $currentPid = $ListenerPid
+    $visited = @{}
+    while ($currentPid -and -not $visited.ContainsKey($currentPid)) {
+        $visited[$currentPid] = $true
+        $process = Read-OwnerProcess $currentPid
+        if ($null -eq $process) { break }
+        $commandLine = [string]$process.CommandLine
+        if ($commandLine -match [regex]::Escape($repoRoot) -and $commandLine -match "(?i)(node|next|npm|powershell)") {
+            $rootPid = $currentPid
+        }
+        $currentPid = [int]$process.ParentProcessId
+    }
+    & taskkill.exe /PID $rootPid /T /F 2>$null | Out-Null
+    for ($attempt = 1; $attempt -le 20; $attempt++) {
+        if ((Get-PortOwner) -eq 0) { return }
+        Start-Sleep -Milliseconds 250
+    }
+    throw "Canonical port 3000 process tree did not stop (root PID $rootPid)."
+}
+
 function Read-OwnerProcess {
     param([int]$ProcessId)
     try {
@@ -160,6 +185,13 @@ switch ($classification) {
         Write-Host "server cwd: $($marker.repoRoot)"
         Write-Host "server command: $($processInfo.CommandLine)"
         exit 0
+    }
+    "stale-canonical" {
+        Write-Host "Port 3000 is owned by a canonical Next process with a stale marker; stopping only that verified process tree."
+        Stop-CanonicalProcessTree $ownerPid
+        Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
+        $ownerPid = 0
+        $portWasFree = $true
     }
     "known-different" {
         Write-Host "Port 3000 is owned by a different known amateur-lab checkout: $($marker.repoRoot). No process was stopped; stop it explicitly after verifying its provenance."

@@ -42,6 +42,21 @@ const tsconfigPath = resolve(process.cwd(), "tsconfig.json");
 const originalTsconfig = await readFile(tsconfigPath, "utf8");
 let interrupted = false;
 
+async function writeFileWithRetry(path, contents) {
+  let lastError;
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    try {
+      await writeFile(path, contents, "utf8");
+      return;
+    } catch (error) {
+      lastError = error;
+      if (error?.code !== "EPERM" && error?.code !== "EBUSY") throw error;
+      await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+    }
+  }
+  throw lastError;
+}
+
 const server = spawn(
   process.execPath,
   ["node_modules/next/dist/bin/next", "dev", "-p", String(port)],
@@ -174,7 +189,7 @@ try {
   }
 } finally {
   await stopServer();
-  await writeFile(tsconfigPath, originalTsconfig, "utf8");
+  await writeFileWithRetry(tsconfigPath, originalTsconfig);
   await rm(distDirPath, { recursive: true, force: true }).catch((error) => {
     console.warn(
       `[注意] 一時フォルダを削除できませんでした: ${error.message}`,
