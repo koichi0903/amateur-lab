@@ -50,7 +50,8 @@ export function filterRecentReleaseWorks(works: RecentReleaseWork[], jobs: Recen
   return works
     .filter((work) => {
       const releaseDate = work.release_date.slice(0, 10);
-      if (work.stage !== "RESERVED" || !work.sample_movie_url || releaseDate < dateRange.startDate || releaseDate > dateRange.endDate) return false;
+      const stageAllowed = releaseDate === dateRange.todayDate ? ["RESERVED", "NEW"].includes(work.stage) : work.stage === "RESERVED";
+      if (!stageAllowed || !work.sample_movie_url || releaseDate < dateRange.startDate || releaseDate > dateRange.endDate) return false;
       if (excludedWorkIds.has(work.id) || assignedToday.has(work.id) || manualWorks.has(work.id) || seen.has(work.id)) return false;
       seen.add(work.id);
       return true;

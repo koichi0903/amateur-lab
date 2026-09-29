@@ -1475,16 +1475,17 @@ export async function POST(request: Request) {
     if (cleanText(payload.protocolVersion) !== COMPANION_PROTOCOL_VERSION) {
       return NextResponse.json({ errorCode: "VERSION_MISMATCH", error: "Companion/API protocol version mismatch", expectedProtocolVersion: COMPANION_PROTOCOL_VERSION, receivedProtocolVersion: cleanText(payload.protocolVersion) || null }, { status: 409 });
     }
-    const approvedMediaName = cleanText(payload.approvedMediaName) || "@lumi_reviw";
+    const requestedApprovedMediaName = cleanText(payload.approvedMediaName);
     let approvedMediaId = Number.isFinite(Number(payload.approvedMediaId)) ? Number(payload.approvedMediaId) : null;
     if (!approvedMediaId) {
       const { data: media } = await supabaseAdmin
         .from("myfans_approved_media")
         .select("id")
-        .eq("media_name", approvedMediaName)
+        .eq("media_name", requestedApprovedMediaName)
         .maybeSingle();
       approvedMediaId = media?.id ?? null;
     }
+    const approvedMediaName = requestedApprovedMediaName || (approvedMediaId ? (await supabaseAdmin.from("myfans_approved_media").select("media_name").eq("id", approvedMediaId).maybeSingle()).data?.media_name ?? "" : "");
     if (payload.type === "x_diagnostic_status_scan" || payload.diagnosticMode === true) return await saveDiagnosticStatusScan(payload, approvedMediaId);
     if (payload.type === "x_single_status_collect") return await saveSingleStatusCollection(payload, approvedMediaId);
     if (payload.type === "x_quote_scan") return await saveQuoteScan(payload, approvedMediaId);

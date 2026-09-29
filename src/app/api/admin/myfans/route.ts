@@ -6,7 +6,8 @@ import { calculateMyfansSelectionScore, myfansLaunchPriority } from "@/lib/myfan
 import { MYFANS_AFFILIATE_URL_SOURCE_MANUAL, normalizeMyfansAffiliateUrl } from "@/lib/myfansAffiliateLink";
 import { MYFANS_DAILY_SELECTED_MAX } from "@/lib/myfansXExecution";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { exclusionTargetForCandidate, recordMyfansPermanentExclusion } from "@/lib/myfansPermanentExclusions";
+import { exclusionTargetForCandidate, manualCandidateExclusionTarget, recordMyfansPermanentExclusion } from "@/lib/myfansPermanentExclusions";
+import { getMyfansStrategy } from "@/lib/myfansStrategy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -311,6 +312,17 @@ async function savePost(formData: FormData) {
   const revenueScore = intValue(formData, "revenue_score");
   const creatorLtvScore = intValue(formData, "creator_ltv_score");
   const expectedRewardPer1000 = intValue(formData, "expected_reward_per_1000_impressions");
+  let patternId = nullableId(formData, "pattern_id");
+  const patternKey = text(formData, "market_pattern_key");
+  if (!patternId && patternKey) {
+    const { data: pattern, error: patternError } = await supabaseAdmin
+      .from("myfans_market_patterns")
+      .select("id")
+      .eq("pattern_key", patternKey)
+      .maybeSingle();
+    if (patternError && !/market_patterns|schema cache|column/i.test(patternError.message)) throw patternError;
+    patternId = pattern?.id ?? null;
+  }
   const record = {
     product_id: productId,
     post_type: text(formData, "post_type") || "discovery",
@@ -352,6 +364,11 @@ async function savePost(formData: FormData) {
     objective: text(formData, "objective") || "impression",
     approved_media_name: approvedMediaName,
     approved_media_id: approvedMediaId,
+    pattern_id: patternId,
+    quote_candidate_id: nullableId(formData, "quote_candidate_id"),
+    creator_id: nullableId(formData, "creator_id"),
+    strategy_type: getMyfansStrategy(approvedMediaId).strategyType,
+    global_content_fingerprint: text(formData, "global_content_fingerprint") || null,
     growth_score_snapshot: growthScore,
     revenue_score_snapshot: revenueScore,
     creator_ltv_score_snapshot: creatorLtvScore,
@@ -360,7 +377,9 @@ async function savePost(formData: FormData) {
     updated_at: new Date().toISOString(),
   };
   if (!record.body) throw new Error("投稿本文を入力してください。");
-  const idempotencyKey = text(formData, "idempotency_key") || (id ? `post:${id}` : record.creative_variant_id ? `variant:${record.creative_variant_id}` : rowKey(record.body, record.quote_x_url, record.planned_slot));
+  const idempotencyKey = text(formData, "idempotency_key") || (id
+    ? `post:${id}`
+    : `${approvedMediaId ?? "shared"}:${record.creative_variant_id ? `variant:${record.creative_variant_id}` : rowKey(record.body, record.quote_x_url, record.planned_slot)}`);
   const { data, error } = await supabaseAdmin.rpc("save_myfans_post", {
     p_post: { ...record, id: id ?? null, idempotency_key: idempotencyKey },
     p_idempotency_key: idempotencyKey,
@@ -370,6 +389,14 @@ async function savePost(formData: FormData) {
     console.error("myfans post save RPC failed", error?.message ?? "invalid response");
     throw new Error("投稿ログの保存に失敗しました。入力を確認して、時間をおいて再試行してください。");
   }
+  const { error: attributionError } = await supabaseAdmin.from("myfans_x_posts").update({
+    pattern_id: record.pattern_id,
+    quote_candidate_id: record.quote_candidate_id,
+    creator_id: record.creator_id,
+    strategy_type: record.strategy_type,
+    global_content_fingerprint: record.global_content_fingerprint,
+  }).eq("id", Number(data.post_id));
+  if (attributionError && !/pattern_id|quote_candidate_id|creator_id|strategy_type|global_content_fingerprint|schema cache|column/i.test(attributionError.message)) throw attributionError;
   await audit("x_post", Number(data.post_id), id ? "update" : "create", record.body.slice(0, 80));
   return { id: Number(data.post_id) };
 }
@@ -465,16 +492,48 @@ async function updatePostExecution(formData: FormData) {
   if (mode === "metrics") {
     const { error } = await supabaseAdmin.from("myfans_x_posts").update(record).eq("id", id);
     if (error) throw error;
+    const { data: attributedPost, error: attributedPostError } = await supabaseAdmin
+      .from("myfans_x_posts")
+      .select("approved_media_id,pattern_id,creator_id,product_id,quote_candidate_id,impressions,likes_count,reposts_count,replies_count,clicks")
+      .eq("id", id)
+      .maybeSingle();
+    if (attributedPostError && !/pattern_id|quote_candidate_id|creator_id|schema cache|column/i.test(attributedPostError.message)) throw attributedPostError;
+    if (attributedPost?.approved_media_id && attributedPost.pattern_id) {
+      const scope = supabaseAdmin.from("myfans_pattern_learning").select("id,impressions,engagements,clicks,posts_count,posterior_weight").eq("approved_media_id", attributedPost.approved_media_id).eq("pattern_id", attributedPost.pattern_id);
+      const scoped = attributedPost.creator_id ? scope.eq("creator_id", attributedPost.creator_id) : scope.is("creator_id", null);
+      const scopedProduct = attributedPost.product_id ? scoped.eq("product_id", attributedPost.product_id) : scoped.is("product_id", null);
+      const scopedQuote = attributedPost.quote_candidate_id ? scopedProduct.eq("quote_candidate_id", attributedPost.quote_candidate_id) : scopedProduct.is("quote_candidate_id", null);
+      const { data: learning } = await scopedQuote.maybeSingle();
+      const next = {
+        approved_media_id: attributedPost.approved_media_id,
+        pattern_id: attributedPost.pattern_id,
+        creator_id: attributedPost.creator_id ?? null,
+        product_id: attributedPost.product_id ?? null,
+        quote_candidate_id: attributedPost.quote_candidate_id ?? null,
+        impressions: (learning?.impressions ?? 0) + (attributedPost.impressions ?? 0),
+        engagements: (learning?.engagements ?? 0) + (attributedPost.likes_count ?? 0) + (attributedPost.reposts_count ?? 0) + (attributedPost.replies_count ?? 0),
+        clicks: (learning?.clicks ?? 0) + (attributedPost.clicks ?? 0),
+        posts_count: (learning?.posts_count ?? 0) + 1,
+        posterior_weight: Math.max(1, Number((learning?.posterior_weight ?? 1)) + Math.min(2, ((attributedPost.clicks ?? 0) / Math.max(1, attributedPost.impressions ?? 0)) * 10)),
+        last_observed_at: new Date().toISOString(),
+        metadata: { feedback_source: "myfans_x_posts_metrics", post_id: id },
+        updated_at: new Date().toISOString(),
+      };
+      const learningWrite = learning?.id
+        ? await supabaseAdmin.from("myfans_pattern_learning").update(next).eq("id", learning.id)
+        : await supabaseAdmin.from("myfans_pattern_learning").insert(next);
+      if (learningWrite.error) throw learningWrite.error;
+    }
   } else {
     const postedAt = new Date().toISOString();
     const { data: post, error: postError } = await supabaseAdmin
       .from("myfans_x_posts")
-      .select("id,product_id,quote_x_url,source_x_url")
+      .select("id,product_id,quote_x_url,source_x_url,approved_media_id")
       .eq("id", id)
       .single();
     if (postError) throw postError;
     const finalized = await supabaseAdmin.rpc("save_myfans_post", {
-      p_post: { id, status: "posted", posted_at: postedAt, x_post_url: mode === "url" ? text(formData, "x_post_url") : undefined },
+      p_post: { id, status: "posted", posted_at: postedAt, approved_media_id: post.approved_media_id, x_post_url: mode === "url" ? text(formData, "x_post_url") : undefined },
       p_idempotency_key: `post:${id}`,
       p_quote_x_url: post.quote_x_url || post.source_x_url || "",
     });
@@ -484,6 +543,7 @@ async function updatePostExecution(formData: FormData) {
     if (target) {
       const exclusion = await recordMyfansPermanentExclusion({
         ...target,
+        approvedMediaId: post.approved_media_id,
         reason: "posted",
         context: { recorded_from: "myfans_post_execution", post_id: id },
       });
@@ -495,14 +555,14 @@ async function updatePostExecution(formData: FormData) {
 }
 
 async function skipPermanentCandidate(formData: FormData) {
-  const productId = nullableId(formData, "product_id");
   const quoteXUrl = text(formData, "quote_x_url");
   const sourceXUrl = text(formData, "source_x_url");
   const quoteCandidateId = nullableId(formData, "quote_candidate_id");
-  const target = exclusionTargetForCandidate({ productId, quoteXUrl, sourceXUrl, quoteCandidateId });
-  if (!target) throw new Error("恒久除外するproduct/sourceを特定できません。");
+  const target = manualCandidateExclusionTarget({ quoteXUrl, sourceXUrl, quoteCandidateId });
+  if (!target) throw new Error("恒久除外する候補のsourceを特定できません。");
   const { error } = await recordMyfansPermanentExclusion({
     ...target,
+    approvedMediaId: nullableId(formData, "approved_media_id"),
     reason: "user_skipped",
     context: { recorded_from: "myfans_3x4_skip", plan_date: text(formData, "plan_date") || null, candidate_id: text(formData, "candidate_id") || null },
   });
@@ -543,6 +603,7 @@ async function updateQuoteCandidate(formData: FormData) {
 
 async function saveClick(formData: FormData) {
   const record = {
+    approved_media_id: nullableId(formData, "approved_media_id"),
     product_id: nullableId(formData, "product_id"),
     x_post_id: nullableId(formData, "x_post_id"),
     clicked_at: text(formData, "clicked_at") || new Date().toISOString(),
@@ -594,6 +655,8 @@ async function saveXAccountMetric(formData: FormData) {
 async function importRevenue(formData: FormData) {
   const file = formData.get("file");
   const reportMonthInput = text(formData, "reportMonth");
+  const approvedMediaId = nullableId(formData, "approved_media_id");
+  if (!approvedMediaId) throw new Error("アカウントを選択してからCSVを取り込んでください。");
   if (!(file instanceof File) || file.size === 0) throw new Error("CSVファイルを選択してください。");
   if (file.size > MAX_FILE_SIZE) throw new Error("CSVは10MB以内にしてください。");
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(reportMonthInput)) throw new Error("対象月を選択してください。");
@@ -610,6 +673,7 @@ async function importRevenue(formData: FormData) {
   const productByTitle = new Map((products ?? []).map((product) => [product.title, product.id]));
   const sourceFile = file.name.slice(0, 255);
   const records = rows.map((row) => ({
+    approved_media_id: approvedMediaId,
     product_id: productByUrl.get(row.productUrl) ?? productByTitle.get(row.title) ?? null,
     conversion_type: row.conversionType,
     occurred_at: new Date(row.occurredAt).toISOString(),
@@ -617,7 +681,7 @@ async function importRevenue(formData: FormData) {
     reward_amount: row.rewardAmount,
     reward_rate: row.rewardRate,
     source_file: sourceFile,
-    row_key: rowKey(reportMonthInput, sourceFile, row.occurredAt, row.productUrl, row.title, String(row.rewardAmount)),
+    row_key: rowKey(String(approvedMediaId), reportMonthInput, sourceFile, row.occurredAt, row.productUrl, row.title, String(row.rewardAmount)),
     note: "",
   }));
 
@@ -634,7 +698,8 @@ async function importRevenue(formData: FormData) {
     rows_count: records.length,
     total_sales_amount: totalSalesAmount,
     total_reward_amount: totalRewardAmount,
-  }, { onConflict: "report_month,source_file" });
+    approved_media_id: approvedMediaId,
+  }, { onConflict: "approved_media_id,report_month,source_file" });
   await audit("import", null, "csv_import", sourceFile, { rows: records.length, totalRewardAmount });
 
   return {

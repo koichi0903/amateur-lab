@@ -14,6 +14,7 @@ export type MyfansPermanentExclusion = {
   reason: MyfansPermanentExclusionReason;
   context: Record<string, unknown>;
   created_at: string;
+  approved_media_id?: number | null;
 };
 
 export function normalizePermanentSourceUrl(value: string | null | undefined) {
@@ -29,20 +30,27 @@ export function sourceExclusionKey(sourceUrl: string) {
   return normalized ? `source:${normalized}` : "";
 }
 
+export function quoteCandidateExclusionKey(quoteCandidateId: number) {
+  return `quote_candidate:${quoteCandidateId}`;
+}
+
 export function buildPermanentExclusionSets(exclusions: readonly MyfansPermanentExclusion[]) {
   return {
     productIds: new Set(exclusions.filter((row) => row.entity_type === "product").map((row) => row.product_id).filter((id): id is number => Number.isSafeInteger(id))),
     sourceKeys: new Set(exclusions.filter((row) => row.entity_type === "source").map((row) => row.entity_key)),
+    quoteCandidateIds: new Set(exclusions.filter((row) => row.entity_type === "source").map((row) => row.quote_candidate_id).filter((id): id is number => Number.isSafeInteger(id))),
   };
 }
 
 export function isPermanentlyExcluded(input: {
   productId?: number | null;
+  quoteCandidateId?: number | null;
   quoteXUrl?: string | null;
   sourceXUrl?: string | null;
   sets: ReturnType<typeof buildPermanentExclusionSets>;
 }) {
   if (input.productId && input.sets.productIds.has(input.productId)) return true;
+  if (input.quoteCandidateId && input.sets.quoteCandidateIds.has(input.quoteCandidateId)) return true;
   return [input.quoteXUrl, input.sourceXUrl].some((url) => {
     const key = url ? sourceExclusionKey(url) : "";
     return Boolean(key && input.sets.sourceKeys.has(key));
@@ -78,12 +86,14 @@ export function derivePostedExclusions(posts: readonly MyfansXPost[]): MyfansPer
     });
 }
 
-export async function fetchMyfansPermanentExclusions() {
-  return supabaseAdmin
+export async function fetchMyfansPermanentExclusions(approvedMediaId?: number | null) {
+  let query = supabaseAdmin
     .from("myfans_permanent_candidate_exclusions")
-    .select("id,entity_type,entity_key,product_id,source_status_url,quote_candidate_id,reason,context,created_at")
+    .select("id,entity_type,entity_key,product_id,source_status_url,quote_candidate_id,reason,context,created_at,approved_media_id")
     .order("created_at", { ascending: false })
     .limit(10000);
+  if (approvedMediaId) query = query.eq("approved_media_id", approvedMediaId);
+  return query;
 }
 
 export async function recordMyfansPermanentExclusion(input: {
@@ -92,6 +102,7 @@ export async function recordMyfansPermanentExclusion(input: {
   productId?: number | null;
   sourceStatusUrl?: string | null;
   quoteCandidateId?: number | null;
+  approvedMediaId?: number | null;
   reason: MyfansPermanentExclusionReason;
   context?: Record<string, unknown>;
 }) {
@@ -102,9 +113,10 @@ export async function recordMyfansPermanentExclusion(input: {
     product_id: input.productId ?? null,
     source_status_url: input.sourceStatusUrl ?? null,
     quote_candidate_id: input.quoteCandidateId ?? null,
+    approved_media_id: input.approvedMediaId ?? null,
     reason: input.reason,
     context: input.context ?? {},
-  }, { onConflict: "entity_type,entity_key", ignoreDuplicates: true }).select("id").maybeSingle();
+  }, { onConflict: "approved_media_id,entity_type,entity_key", ignoreDuplicates: true }).select("id").maybeSingle();
 }
 
 export function exclusionTargetForCandidate(input: {
@@ -117,4 +129,16 @@ export function exclusionTargetForCandidate(input: {
   const sourceStatusUrl = normalizePermanentSourceUrl(input.quoteXUrl || input.sourceXUrl);
   if (!sourceStatusUrl) return null;
   return { entityType: "source" as const, entityKey: sourceExclusionKey(sourceStatusUrl), productId: null, sourceStatusUrl, quoteCandidateId: input.quoteCandidateId ?? null };
+}
+
+/** Manual rejection is candidate-scoped even when the candidate is linked to a product. */
+export function manualCandidateExclusionTarget(input: {
+  quoteXUrl?: string | null;
+  sourceXUrl?: string | null;
+  quoteCandidateId?: number | null;
+}) {
+  const sourceStatusUrl = normalizePermanentSourceUrl(input.quoteXUrl || input.sourceXUrl);
+  if (sourceStatusUrl) return { entityType: "source" as const, entityKey: sourceExclusionKey(sourceStatusUrl), productId: null, sourceStatusUrl, quoteCandidateId: input.quoteCandidateId ?? null };
+  if (input.quoteCandidateId) return { entityType: "source" as const, entityKey: quoteCandidateExclusionKey(input.quoteCandidateId), productId: null, sourceStatusUrl: null, quoteCandidateId: input.quoteCandidateId };
+  return null;
 }

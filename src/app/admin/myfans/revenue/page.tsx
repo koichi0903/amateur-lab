@@ -6,13 +6,16 @@ import { ClickForm, RevenueImportForm } from "../MyfansAdminForms";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function MyfansRevenuePage() {
-  const analytics = await getMyfansAnalytics();
+export default async function MyfansRevenuePage({ searchParams }: { searchParams?: Promise<{ media?: string }> }) {
+  const params = await searchParams;
+  const requestedMediaId = params?.media ? Number(params.media) : null;
+  const analytics = await getMyfansAnalytics({ approvedMediaId: Number.isFinite(requestedMediaId) ? requestedMediaId : null });
+  const selectedMediaId = analytics.selectedMediaId;
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <Link href="/admin/myfans?media=1" className="inline-flex items-center gap-2 text-sm font-bold text-zinc-400 transition hover:text-white">
+        <Link href={`/admin/myfans?media=${selectedMediaId ?? ""}`} className="inline-flex items-center gap-2 text-sm font-bold text-zinc-400 transition hover:text-white">
           <ArrowLeft size={16} /> myfansへ戻る
         </Link>
         <h1 className="mt-7 text-3xl font-black sm:text-5xl">myfans収益分析</h1>
@@ -60,8 +63,8 @@ export default async function MyfansRevenuePage() {
           </section>
         </div>
 
-        <RevenueImportForm />
-        <ClickForm products={analytics.products} posts={analytics.posts} />
+        <RevenueImportForm approvedMediaId={selectedMediaId} />
+        <ClickForm products={analytics.products} posts={analytics.posts} approvedMediaId={selectedMediaId} />
 
         <section className="mt-8 overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900 p-5">
           <h2 className="font-black">最近の成果</h2>

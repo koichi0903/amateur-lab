@@ -2575,6 +2575,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     products: analytics.products.filter((product) => !permanentExclusionSets.productIds.has(product.id)),
     quoteCandidates: analytics.quoteCandidates.filter((quote) => !isPermanentlyExcluded({
       productId: quote.product_id,
+      quoteCandidateId: quote.id,
       quoteXUrl: quote.x_post_url,
       sourceXUrl: quote.x_post_url,
       sets: permanentExclusionSets,
@@ -3001,16 +3002,16 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
         text: quoteForSlot.text_excerpt,
         products: analytics.products,
         evidenceSource: quoteForSlot.is_reply ? "author_reply" : "author_post",
-        approvedMediaId: quoteForSlot.approved_media_id ?? analytics.selectedMediaId ?? null,
+        approvedMediaId: analytics.selectedMediaId === 5 ? 5 : quoteForSlot.approved_media_id ?? analytics.selectedMediaId ?? null,
         quoteCandidateId: quoteForSlot.id,
       })
       : null;
-    const dbExistingEvidence = quoteForSlot && product && quoteMatchesProduct(quoteForSlot, product)
+      const dbExistingEvidence = quoteForSlot && product && quoteMatchesProduct(quoteForSlot, product)
       ? buildDbExistingEvidence({
         sourceStatusUrl: quoteForSlot.x_post_url,
         sourceAuthorHandle: sourceAuthorHandleFromQuote(quoteForSlot),
         product,
-        approvedMediaId: quoteForSlot.approved_media_id ?? analytics.selectedMediaId ?? null,
+        approvedMediaId: analytics.selectedMediaId === 5 ? 5 : quoteForSlot.approved_media_id ?? analytics.selectedMediaId ?? null,
         quoteCandidateId: quoteForSlot.id,
       })
       : null;
@@ -3051,6 +3052,8 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       quoteXUrl: creative?.quoteXUrl ?? "",
       mediaPermalink: quoteForSlot?.media_permalink || "",
       quoteCandidateId: quoteForSlot?.id ?? null,
+      marketPatternKey: analytics.selectedMediaId === 5 ? "QUOTE_HOOK" : null,
+      globalContentFingerprint: analytics.selectedMediaId === 5 && quoteForSlot ? `quote:${stableHash(`${quoteForSlot.x_post_url}|${quoteForSlot.text_excerpt}`)}` : null,
       sourceXStatusId: (quoteForSlot?.x_post_url || product?.source_x_url || "").match(/status\/(\d+)/)?.[1] ?? "",
       sourceMediaType: quoteForSlot?.media_type ?? (quoteForSlot?.has_video ? "video" : quoteForSlot?.has_image ? "image" : "none"),
       sourceAuthorHandle,
@@ -3090,7 +3093,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
       ogpCheckRequired: creative?.ogpCheckRequired ?? false,
       mediaPermissionStatus: candidateProduct?.media_permission_status ?? "unknown",
       approvedMediaName: candidateProduct?.approved_media_name || "@lumi_reviw",
-      approvedMediaId: candidateProduct?.approved_media_id ?? analytics.selectedMediaId ?? null,
+        approvedMediaId: analytics.selectedMediaId === 5 ? 5 : candidateProduct?.approved_media_id ?? analytics.selectedMediaId ?? null,
       growthStage: stage,
       postType,
       linkStrategy,
@@ -3168,6 +3171,7 @@ export function buildMyfansExecutionBoard(analytics: MyfansAnalytics, options: B
     const leak = detectPublicCopyLeak(publicText);
     if (isPermanentlyExcluded({
       productId: candidate.product?.id,
+      quoteCandidateId: candidate.quoteCandidateId,
       quoteXUrl: candidate.quoteXUrl,
       sourceXUrl: candidate.sourceXUrl,
       sets: permanentExclusionSets,

@@ -9,6 +9,7 @@ import type { MyfansApprovedMedia, MyfansCreator, MyfansProduct, MyfansXPost } f
 import type { PersistedDailySnapshotView } from "@/lib/myfansDailySnapshotView";
 import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummary";
 import { MYFANS_AFFILIATE_URL_SOURCE_MANUAL, MYFANS_CLICK_ATTRIBUTION_WINDOW_HOURS, myfansAffiliateLinkStatus, myfansAffiliateLinkStatusLabel, normalizeMyfansAffiliateUrl } from "@/lib/myfansAffiliateLink";
+import { candidateSaveBlockReason } from "@/lib/myfansCandidateSave";
 import { getXWeightedLength } from "@/lib/xText";
 
 type Message = { text: string; error: boolean } | null;
@@ -368,7 +369,7 @@ export function DiagnosticStatusPanel({ approvedMediaId }: { approvedMediaId: nu
           resolve(detail || {});
         };
         window.addEventListener(DIAGNOSTIC_RESPONSE_EVENT, onAck);
-        window.dispatchEvent(new CustomEvent(DIAGNOSTIC_REQUEST_EVENT, { detail: { statusUrl: normalized, diagnosticRunId, diagnosticMode: true, approvedMediaId, approvedMediaName: "@lumi_reviw" } }));
+        window.dispatchEvent(new CustomEvent(DIAGNOSTIC_REQUEST_EVENT, { detail: { statusUrl: normalized, diagnosticRunId, diagnosticMode: true, approvedMediaId, approvedMediaName: "" } }));
       });
       if (!ack.ok) throw new Error(ack.error || "Companion workerの診断開始に失敗しました。");
       setState({ status: "running", diagnosticRunId, sourceStatusUrl: normalized });
@@ -546,7 +547,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
         window.dispatchEvent(new CustomEvent(VISUAL_REQUEST_EVENT, {
           detail: {
             approvedMediaId,
-            approvedMediaName: "@lumi_reviw",
+            approvedMediaName: "",
           batchSize: Math.min(5, visualBatchSize),
           },
         }));
@@ -885,11 +886,40 @@ export function DailyPlanReevaluateButton({ approvedMediaId }: { approvedMediaId
     <div className="flex flex-col items-start gap-2">
       <button type="button" onClick={reevaluate} disabled={pending} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-black text-white disabled:cursor-wait disabled:opacity-60">
         {pending ? <LoaderCircle size={17} className="animate-spin" /> : <RefreshCw size={17} />}
-        {pending ? "再評価中…" : "今日の候補を再評価"}
+        {pending ? "4×3を再評価中…" : "4×3を再評価・保存"}
       </button>
       {message && <p role="status" className={`text-xs ${message.error ? "text-red-300" : "text-emerald-300"}`}>{message.text}</p>}
     </div>
   );
+}
+
+export function MarketWinnerGenerateButton({ approvedMediaId }: { approvedMediaId: number }) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<Message>(null);
+
+  async function generate() {
+    setPending(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/admin/myfans/market-winner/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approvedMediaId }),
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string; sharedSupplyCount?: number; createdCount?: number; updatedCount?: number; generatedAt?: string; scoreRange?: { min: number; max: number } | null };
+      if (!response.ok) throw new Error(payload.error || "Winner候補の生成・更新に失敗しました。");
+      const score = payload.scoreRange ? ` / score ${payload.scoreRange.min.toFixed(1)}〜${payload.scoreRange.max.toFixed(1)}` : "";
+      setMessage({ text: `共有供給${payload.sharedSupplyCount ?? 0}件から、生成${payload.createdCount ?? 0}件・更新${payload.updatedCount ?? 0}件${score}。${payload.generatedAt ? ` ${new Date(payload.generatedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", hour12: false })}` : ""}`, error: false });
+      router.refresh();
+    } catch (error) {
+      setMessage({ text: error instanceof Error ? error.message : "Winner候補の生成・更新に失敗しました。", error: true });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return <div className="flex flex-col items-start gap-2"><button type="button" onClick={generate} disabled={pending} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-fuchsia-500 px-4 text-sm font-black text-black disabled:cursor-wait disabled:opacity-60"><RefreshCw size={17} className={pending ? "animate-spin" : ""} />{pending ? "Winner候補を生成中…" : "Winner候補を生成・更新"}</button>{message && <p role="status" className={`text-xs ${message.error ? "text-red-300" : "text-emerald-300"}`}>{message.text}</p>}</div>;
 }
 
 export function PersistedDailyPlanBoard({ snapshot }: { snapshot: PersistedDailySnapshotView }) {
@@ -1306,7 +1336,7 @@ function downloadCardPng(candidate: ExecutionCandidate) {
 
   context.fillStyle = "#334155";
   context.font = "900 24px sans-serif";
-  context.fillText(payloadText(payload, "footer") || "@lumi_reviw / myfans発掘・比較", 72, 632);
+  context.fillText(payloadText(payload, "footer") || "myfans発掘・比較", 72, 632);
   context.font = "700 20px sans-serif";
   context.fillText("画像・サムネ・動画不使用 / テキスト情報のみ", 760, 632);
   const dataUrl = canvas.toDataURL("image/png");
@@ -1349,7 +1379,7 @@ function CreativeCardPreview({ candidate }: { candidate: ExecutionCandidate }) {
         </div>
       </div>
       <div className="flex flex-col gap-1 border-t border-zinc-200 px-5 py-3 text-xs font-bold text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
-        <span>{payloadText(payload, "footer") || "@lumi_reviw / myfans発掘・比較"}</span>
+        <span>{payloadText(payload, "footer") || "myfans発掘・比較"}</span>
         <span>1200x675 PNG / 素材画像不使用</span>
       </div>
     </div>
@@ -1436,11 +1466,12 @@ export function QuoteCandidateTasks({ tasks }: { tasks: MyfansQuoteCollectionTas
   );
 }
 
-export function XExecutionBoard({ candidates, candidateOptions, selectedOptions, planDate, posts }: { candidates: ExecutionCandidate[]; candidateOptions?: CandidateOptionSlot[]; selectedOptions?: Record<string, string>; planDate: string; posts: MyfansXPost[] }) {
+export function XExecutionBoard({ candidates, candidateOptions, selectedOptions, planDate, posts, approvedMediaId }: { candidates: ExecutionCandidate[]; candidateOptions?: CandidateOptionSlot[]; selectedOptions?: Record<string, string>; planDate: string; posts: MyfansXPost[]; approvedMediaId?: number | null }) {
   const router = useRouter();
   const [message, setMessage] = useState<Message>(null);
   const [pendingId, setPendingId] = useState<string | number | null>(null);
   const [hiddenCandidateIds, setHiddenCandidateIds] = useState<Set<string>>(() => new Set());
+  const [savedCandidateIds, setSavedCandidateIds] = useState<Set<string>>(() => new Set());
   const [selectedBySlot, setSelectedBySlot] = useState<Record<number, string>>(() =>
     Object.fromEntries((candidateOptions ?? []).map((slot) => {
       const selectedLabel = selectedOptions?.[String(slot.postOrder)] ?? "";
@@ -1454,8 +1485,10 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
   }
 
   async function createCandidate(candidate: ExecutionCandidate) {
-    if (!canUseAffiliateLink(candidate)) {
-      setMessage({ text: "リンクが必要な投稿です。先に正規myfansアフィリンクを作成/更新してください。", error: true });
+    if (savedCandidateIds.has(candidate.id)) return;
+    const saveBlockReason = candidateSaveBlockReason(candidate);
+    if (saveBlockReason) {
+      setMessage({ text: saveBlockReason, error: true });
       return;
     }
     setPendingId(candidate.id);
@@ -1472,13 +1505,31 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
       formData.set("source_x_url", candidate.sourceXUrl);
       formData.set("affiliate_url", candidate.affiliateUrl);
       formData.set("selection_reason", candidate.reason);
+      if (candidate.quoteCandidateId) formData.set("quote_candidate_id", String(candidate.quoteCandidateId));
+      if (candidate.product?.creator_id) formData.set("creator_id", String(candidate.product.creator_id));
       formData.set("growth_stage", candidate.growthStage);
       formData.set("link_strategy", candidate.linkStrategy);
       formData.set("cta_strategy", candidate.ctaStrategy);
       formData.set("creative_variant_id", candidate.creativeVariantId);
       formData.set("creative_strategy", candidate.creativeStrategy);
       formData.set("creative_reason", candidate.creativeReason);
-      formData.set("card_payload", JSON.stringify(candidate.cardPayload));
+      formData.set("card_payload", JSON.stringify({
+        ...candidate.cardPayload,
+        candidate_id: candidate.id,
+        source_x_url: candidate.sourceXUrl,
+        quote_x_url: candidate.quoteXUrl,
+        quote_candidate_id: candidate.quoteCandidateId,
+        creator_id: candidate.product?.creator_id ?? null,
+        product_id: candidate.product?.id ?? null,
+        objective: candidate.objective,
+        creative_strategy: candidate.creativeStrategy,
+        link_strategy: candidate.linkStrategy,
+        attribution: {
+          source_author: candidate.sourceAuthorLabel,
+          source_media_type: candidate.sourceMediaType,
+          approved_media_id: candidate.approvedMediaId,
+        },
+      }));
       formData.set("ogp_check_required", candidate.ogpCheckRequired ? "true" : "false");
       // Product-less discovery still has a real source post. Preserve its
       // identity so posted-state cooldown/exclusion can close the loop.
@@ -1486,6 +1537,8 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
       formData.set("media_permission_status", candidate.mediaPermissionStatus);
       formData.set("planned_slot", candidate.plannedSlot);
       formData.set("objective", candidate.objective);
+      if (candidate.marketPatternKey) formData.set("market_pattern_key", candidate.marketPatternKey);
+      if (candidate.globalContentFingerprint) formData.set("global_content_fingerprint", candidate.globalContentFingerprint);
       formData.set("approved_media_name", candidate.approvedMediaName);
       if (candidate.approvedMediaId) formData.set("approved_media_id", String(candidate.approvedMediaId));
       formData.set("growth_score", String(candidate.opportunity?.growthScore ?? 0));
@@ -1493,8 +1546,8 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
       formData.set("creator_ltv_score", String(candidate.opportunity?.creatorLtvScore ?? 0));
       formData.set("expected_reward_per_1000_impressions", String(candidate.opportunity?.expectedRewardPer1000Impressions ?? 0));
       await postFormData(formData);
+      setSavedCandidateIds((current) => new Set(current).add(candidate.id));
       setMessage({ text: "候補を投稿ログに保存しました。", error: false });
-      router.refresh();
     } catch (error) {
       setMessage({ text: error instanceof Error ? error.message : "保存に失敗しました。", error: true });
     } finally {
@@ -1510,6 +1563,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
       formData.set("action", "daily_plan_select");
       formData.set("approved_media_id", String(candidate.approvedMediaId ?? ""));
       formData.set("plan_date", planDate);
+      if (candidate.approvedMediaId) formData.set("approved_media_id", String(candidate.approvedMediaId));
       formData.set("post_order", String(slot.postOrder));
       formData.set("option_label", candidate.optionLabel);
       await postFormData(formData);
@@ -1524,7 +1578,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
   }
 
   async function skipCandidate(candidate: CandidateOption) {
-    const targetLabel = candidate.product ? "この作品を今後表示しない" : "この元投稿を今後表示しない";
+    const targetLabel = "この候補を今後表示しない";
     if (!window.confirm(`${targetLabel}設定にします。日付が変わっても3×4候補へ戻りません。実行しますか？`)) return;
     setPendingId(`skip-${candidate.id}`);
     setMessage(null);
@@ -1532,6 +1586,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
       const formData = new FormData();
       formData.set("action", "permanent_candidate_skip");
       formData.set("candidate_id", candidate.id);
+      if (candidate.approvedMediaId) formData.set("approved_media_id", String(candidate.approvedMediaId));
       formData.set("plan_date", planDate);
       if (candidate.product?.id) formData.set("product_id", String(candidate.product.id));
       if (candidate.quoteCandidateId) formData.set("quote_candidate_id", String(candidate.quoteCandidateId));
@@ -1653,7 +1708,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
             この画面は選択中の運用メディアに紐づく商品から投稿文を作ります。引用元Xは引用投稿用として扱い、再アップロード用素材とは分けて表示します。myfans管理画面の商品詳細や最近生成したURLをコピーして貼ると、候補登録後に今日の投稿案が生成されます。
           </p>
           <AffiliatePasteImportForm />
-          <QuickProductForm />
+          <QuickProductForm approvedMediaId={approvedMediaId} />
         </section>
       )}
       <section className="rounded-xl border border-emerald-800 bg-emerald-950/20 p-5">
@@ -1690,8 +1745,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
               <div className="mt-4 grid gap-4 lg:grid-cols-3">
                 {slot.candidates.filter((candidate) => !hiddenCandidateIds.has(candidate.id)).map((candidate) => {
                   const selected = selectedBySlot[slot.postOrder] === candidate.id;
-                  const linkRequired = needsFreshAffiliateLink(candidate);
-                  const linkReady = canUseAffiliateLink(candidate);
+                  const saveBlockReason = candidateSaveBlockReason(candidate);
                   return (
                     <div key={candidate.id} className={`rounded-lg border p-4 ${selected ? "border-emerald-500 bg-emerald-950/25" : "border-zinc-800 bg-zinc-950"}`}>
                       <div className="flex items-start justify-between gap-3">
@@ -1754,11 +1808,12 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
                         </button>
                         <button type="button" onClick={() => skipCandidate(candidate)} disabled={pendingId === `skip-${candidate.id}`} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-rose-800 bg-rose-950/40 px-3 text-xs font-black text-rose-200 disabled:cursor-wait disabled:opacity-60">
                           {pendingId === `skip-${candidate.id}` ? <LoaderCircle size={15} className="animate-spin" /> : <XCircle size={15} />}
-                          {candidate.product ? "この作品を今後表示しない" : "この元投稿を今後表示しない"}
+                          この候補を除外
                         </button>
-                        <button type="button" disabled={!selected || pendingId === candidate.id || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
-                          <Save size={15} /> 選択候補を投稿ログへ保存
+                        <button type="button" disabled={savedCandidateIds.has(candidate.id) || pendingId === candidate.id || Boolean(saveBlockReason)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
+                          {savedCandidateIds.has(candidate.id) ? <Check size={15} /> : <Save size={15} />} {savedCandidateIds.has(candidate.id) ? "投稿ログに保存済み" : "この候補を投稿ログへ保存"}
                         </button>
+                        {saveBlockReason && <p className="text-xs font-bold text-amber-200">保存不可: {saveBlockReason}</p>}
                       </div>
                     </div>
                   );
@@ -1775,6 +1830,7 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
               const linkRequired = needsFreshAffiliateLink(candidate);
               const linkStatus = candidate.product ? myfansAffiliateLinkStatus(candidate.product) : "missing";
               const linkReady = canUseAffiliateLink(candidate);
+              const saveBlockReason = candidateSaveBlockReason(candidate);
               const selfReplyPreview = linkRequired && candidate.product && linkReady
                 ? `#PR\n詳細はこちら\n${candidate.product.affiliate_url}`.trim()
                 : candidate.selfReply;
@@ -1941,7 +1997,8 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
               ) : (
                 <button type="button" disabled className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-zinc-500"><ExternalLink size={15} />X投稿画面を開く</button>
               )}
-              <button type="button" disabled={pendingId === candidate.id || !publishBody(candidate) || (linkRequired && !linkReady)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50"><Save size={15} />投稿ログへ保存</button>
+              <button type="button" disabled={savedCandidateIds.has(candidate.id) || pendingId === candidate.id || Boolean(saveBlockReason)} onClick={() => createCandidate(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50">{savedCandidateIds.has(candidate.id) ? <Check size={15} /> : <Save size={15} />}{savedCandidateIds.has(candidate.id) ? "投稿ログに保存済み" : "この候補を投稿ログへ保存"}</button>
+              {saveBlockReason && <p className="mt-2 text-xs font-bold text-amber-200">保存不可: {saveBlockReason}</p>}
             </div>
                 </>
               );
@@ -2055,14 +2112,14 @@ export function AffiliatePasteImportForm() {
   );
 }
 
-function QuickProductForm() {
+function QuickProductForm({ approvedMediaId }: { approvedMediaId?: number | null }) {
   const { pending, message, submit } = useMyfansSubmit("商品候補を保存しました。");
 
   return (
     <form onSubmit={submit} className="mt-5 grid gap-3 rounded-xl border border-amber-800/60 bg-zinc-950/80 p-4 lg:grid-cols-3">
       <input type="hidden" name="action" value="product" />
       <input type="hidden" name="status" value="candidate" />
-      <input type="hidden" name="approved_media_name" value="@lumi_reviw" />
+      <input type="hidden" name="approved_media_id" value={approvedMediaId ?? ""} />
       <Field label="商品名"><input name="title" required className={inputClass} /></Field>
       <Field label="商品URL"><input name="product_url" type="url" className={inputClass} /></Field>
       <Field label="アフィリンク"><input name="affiliate_url" type="url" className={inputClass} /></Field>
@@ -2081,11 +2138,12 @@ function QuickProductForm() {
   );
 }
 
-export function ClickForm({ products, posts }: { products: MyfansProduct[]; posts: MyfansXPost[] }) {
+export function ClickForm({ products, posts, approvedMediaId }: { products: MyfansProduct[]; posts: MyfansXPost[]; approvedMediaId?: number | null }) {
   const { pending, message, submit } = useMyfansSubmit("クリック実績を追加しました。");
   return (
     <form onSubmit={submit} className="mt-5 grid gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-5 lg:grid-cols-4">
       <input type="hidden" name="action" value="click" />
+      <input type="hidden" name="approved_media_id" value={approvedMediaId ?? ""} />
       <Field label="商品"><select name="product_id" className={inputClass}><option value="">未選択</option>{products.map((product) => <option key={product.id} value={product.id}>{product.title}</option>)}</select></Field>
       <Field label="投稿"><select name="x_post_id" className={inputClass}><option value="">未選択</option>{posts.map((post) => <option key={post.id} value={post.id}>{post.body.slice(0, 40)}</option>)}</select></Field>
       <Field label="日時"><input name="clicked_at" type="datetime-local" className={inputClass} /></Field>
@@ -2102,12 +2160,13 @@ export function ClickForm({ products, posts }: { products: MyfansProduct[]; post
   );
 }
 
-export function RevenueImportForm() {
+export function RevenueImportForm({ approvedMediaId }: { approvedMediaId?: number | null }) {
   const { pending, message, submit } = useMyfansSubmit("CSVを取り込みました。");
   const month = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", timeZone: "Asia/Tokyo" }).format(new Date()).slice(0, 7);
   return (
     <form onSubmit={submit} className="mt-5 grid gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-5 lg:grid-cols-[10rem_minmax(0,1fr)_auto]">
       <input type="hidden" name="action" value="revenue_import" />
+      <input type="hidden" name="approved_media_id" value={approvedMediaId ?? ""} />
       <Field label="対象月"><input type="month" name="reportMonth" defaultValue={month} required className={inputClass} /></Field>
       <Field label="myfansレポートCSV"><input type="file" name="file" accept=".csv,text/csv" required className="h-11 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-300 file:mr-3 file:border-0 file:bg-transparent file:font-bold file:text-emerald-400" /></Field>
       <button type="submit" disabled={pending} className="mt-auto inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 text-sm font-black text-white transition hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-60">

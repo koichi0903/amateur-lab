@@ -1,3 +1,5 @@
+import { buildPermanentExclusionSets, isPermanentlyExcluded, type MyfansPermanentExclusion } from "@/lib/myfansPermanentExclusions";
+
 export type PersistedDailyCandidateView = {
   id: string;
   optionLabel: string;
@@ -137,8 +139,10 @@ export function restorePersistedDailySnapshot(input: {
   revision?: number | null;
   evaluatedAt?: string | null;
   strategyJson: Record<string, unknown> | null;
+  permanentExclusions?: readonly MyfansPermanentExclusion[];
 }): PersistedDailySnapshotView {
   const strategyJson = input.strategyJson ?? {};
+  const exclusionSets = buildPermanentExclusionSets(input.permanentExclusions ?? []);
   const rawSlots = Array.isArray(strategyJson.candidate_options) ? strategyJson.candidate_options : [];
   const slots = rawSlots.map((rawSlot, slotIndex) => {
     const slot = asRecord(rawSlot);
@@ -148,10 +152,19 @@ export function restorePersistedDailySnapshot(input: {
       slot: asString(slot.slot),
       postOrder,
       recommendedOption: asString(slot.recommended_option) || "A",
-      candidates: rawCandidates.map((candidate, candidateIndex) => restoreCandidate(candidate, postOrder, candidateIndex)),
+      candidates: rawCandidates
+        .map((candidate, candidateIndex) => restoreCandidate(candidate, postOrder, candidateIndex))
+        .filter((candidate) => !isPermanentlyExcluded({
+          productId: candidate.productId,
+          quoteXUrl: candidate.quoteXUrl,
+          sourceXUrl: candidate.sourceXUrl,
+          sets: exclusionSets,
+        })),
     };
   });
-  const selectedOptions = selectedOptionsFrom(strategyJson);
+  const selectedOptions = Object.fromEntries(Object.entries(selectedOptionsFrom(strategyJson)).filter(([postOrder, optionLabel]) =>
+    slots.find((slot) => slot.postOrder === Number(postOrder))?.candidates.some((candidate) => candidate.optionLabel === optionLabel),
+  ));
   const selectedCount = slots.reduce((count, slot) => count + (selectedOptions[String(slot.postOrder)] ? 1 : 0), 0);
   return {
     planId: input.id,

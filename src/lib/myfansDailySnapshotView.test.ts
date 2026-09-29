@@ -43,3 +43,37 @@ test("JST day selection remains an exact persisted plan date", () => {
   assert.equal(snapshot("2026-09-25").planDate, "2026-09-25");
   assert.notEqual(snapshot("2026-09-26").planDate, snapshot("2026-09-25").planDate);
 });
+
+test("persisted snapshot hides a manually excluded source and clears its selection", () => {
+  const view = restorePersistedDailySnapshot({
+    ...snapshotInput(),
+    permanentExclusions: [{
+      id: 9,
+      entity_type: "source",
+      entity_key: "source:https://x.com/a/status/1",
+      product_id: null,
+      source_status_url: "https://x.com/a/status/1",
+      quote_candidate_id: null,
+      reason: "user_skipped",
+      context: {},
+      created_at: "2026-09-25",
+      approved_media_id: 1,
+    }],
+  });
+  assert.equal(view.slots[0]?.candidates.length, 0);
+  assert.deepEqual(view.selectedOptions, {});
+  assert.equal(view.selectedCount, 0);
+});
+
+function snapshotInput() {
+  return {
+    id: 61,
+    planDate: "2026-09-25",
+    revision: 1,
+    evaluatedAt: "2026-09-25T01:30:00.000Z",
+    strategyJson: {
+      daily_option_selection: { "1": "A" },
+      candidate_options: [{ post_order: 1, slot: "12:10", recommended_option: "A", candidates: [{ id: "s1a", option_label: "A", body: "slot one", quote_x_url: "https://x.com/a/status/1", product_id: null }] }],
+    },
+  } as const;
+}

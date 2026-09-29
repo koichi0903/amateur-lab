@@ -30,7 +30,7 @@ const menus = [
   },
   {
     title: "𝕏 myfans X運用",
-    description: "@lumi_reviwのDaily Growth Command Centerを開く",
+    description: "ID1 Source / ID5 Market WinnerのDaily Growth Command Centerを開く",
     href: "/admin/myfans?media=1",
   },
   {

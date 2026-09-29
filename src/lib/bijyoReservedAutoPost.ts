@@ -46,7 +46,7 @@ export async function getBijyoRecentReleasedWorks(jobs: BijyoJob[], now = new Da
   const dateRange = recentReleaseDateRange(now);
   const result = await supabaseAdmin.from("works")
     .select("id,title,stage,created_at,release_date,image_url,sample_movie_url,product_id")
-    .eq("stage", "RESERVED")
+    .in("stage", ["RESERVED", "NEW"])
     .gte("release_date", dateRange.startDate)
     .lte("release_date", dateRange.endDate)
     .not("sample_movie_url", "is", null)
