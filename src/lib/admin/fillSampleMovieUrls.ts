@@ -12,6 +12,7 @@ import {
 } from "@/lib/playwright/updatePlaywrightItem";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { beginJob, failJob, finishJob, JOBS, updateJob } from "@/lib/jobs";
+import { NON_VR_GENRE_OR_FILTER } from "@/lib/vr";
 
 type SampleMovieTarget = {
   product_id: string;
@@ -82,6 +83,9 @@ async function countTargets(afterProductId?: string | null): Promise<number> {
       .is("sample_movie_url", null)
       .not("url", "is", null)
       .neq("stage", "DISCONTINUED")
+      .or(NON_VR_GENRE_OR_FILTER)
+      .not("title", "ilike", "%VR%")
+      .or("series.is.null,series.not.ilike.%VR%")
       .or(`sample_movie_checked_at.is.null,sample_movie_checked_at.lt.${retryBefore}`);
     if (afterProductId) query = query.gt("product_id", afterProductId);
 
@@ -154,6 +158,9 @@ async function loadTargets(
       .is("sample_movie_url", null)
       .not("url", "is", null)
       .neq("stage", "DISCONTINUED")
+      .or(NON_VR_GENRE_OR_FILTER)
+      .not("title", "ilike", "%VR%")
+      .or("series.is.null,series.not.ilike.%VR%")
       .or(`sample_movie_checked_at.is.null,sample_movie_checked_at.lt.${retryBefore}`)
       .order("product_id", { ascending: true })
       .limit(limit);
