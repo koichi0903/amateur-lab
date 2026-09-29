@@ -29,6 +29,7 @@ type UpdateResponse = {
   message?: string;
   processedCount?: number;
   totalCount?: number;
+  nextOffset?: number | null;
 };
 
 const PUBLIC_CACHE_TASKS = [
@@ -455,6 +456,30 @@ async function handleFillSampleMovies() {
   }
 }
 
+async function handleUpdateActressProfiles() {
+  try {
+    let offset = 1;
+    let processed = 0;
+    let total = 0;
+    while (true) {
+      const response = await fetch(`/api/actress-profile-update?offset=${offset}`, { method: "POST" });
+      const data = (await response.json()) as UpdateResponse;
+      if (!response.ok || data.success === false) throw new Error(data.message ?? "女優プロフィール補完に失敗しました。");
+      processed += data.processedCount ?? 0;
+      total = data.totalCount ?? total;
+      if (data.completed !== false || !data.nextOffset) break;
+      offset = data.nextOffset;
+    }
+    alert(`女優プロフィール補完が完了しました。${processed}件を確認しました（全${total}件）。`);
+    await loadJobs();
+  } catch (error) {
+    console.error(error);
+    alert(error instanceof Error ? error.message : "女優プロフィール補完に失敗しました。");
+  } finally {
+    setLoading(false);
+  }
+}
+
 async function handleRunSchedule(
   schedule: "daily-0030" | "daily-1030" | "tue-fri-1800" | "sunday-1800",
 ) {
@@ -715,6 +740,7 @@ const idleJobCount = displayedJobs.filter(
 onUpdateReview={handleUpdateReview}
 onUpdateMissingPrices={handleUpdateMissingPrices}
 onFillSampleMovies={handleFillSampleMovies}
+onUpdateActressProfiles={handleUpdateActressProfiles}
 onUpdateReserve={handleUpdateReserve}
 onRefreshPublicCache={handleRefreshPublicCache}
   isUpdating={isUpdating}

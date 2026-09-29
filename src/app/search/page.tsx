@@ -1,18 +1,18 @@
 import type { Metadata } from "next";
 import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
-import { ArrowRight, Search, Sparkles } from "lucide-react";
+import { Search, Sparkles } from "lucide-react";
 import Header from "@/components/layout/Header";
-import WorkImage from "@/components/home/WorkImage";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
-import { workDetailHref } from "@/lib/affiliateTracking";
+import FanzaStyleWorkCard from "@/components/catalog/FanzaStyleWorkCard";
+import { buildInsightsForWorks, type HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 
-export const metadata: Metadata = pageMetadata({ title: "作品検索 | 発掘LAB", description: "作品名、女優、メーカー、シリーズ、ジャンルからFANZA作品を検索できます。", canonical: "/search", robots: { index: false, follow: true } });
+export const metadata: Metadata = pageMetadata({ title: "作品検索 | 発掘LAB", description: "作品名、品番、女優、メーカー、シリーズ、ジャンルからFANZA作品を検索できます。", canonical: "/search", robots: { index: false, follow: true } });
 
-const SEARCH_COLUMNS = ["title", "actress", "maker", "series", "genre"] as const;
+const SEARCH_COLUMNS = ["title", "product_id", "actress", "maker", "series", "genre"] as const;
 const MAX_QUERY_LENGTH = 100;
-const MAX_RESULTS = 60;
+const PAGE_SIZE = 24;
 
 function normalizeQuery(value: string | undefined) {
   return (value ?? "").trim().slice(0, MAX_QUERY_LENGTH);
@@ -26,103 +26,100 @@ function quoteFilterValue(value: string) {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-type SearchParams = { q?: string; sort?: string; maxPrice?: string; sale?: string; sample?: string };
+type SearchParams = { q?: string; genres?: string; sort?: string; releaseFrom?: string; releaseTo?: string; dateStart?: string; dateEnd?: string; minPrice?: string; maxPrice?: string; sale?: string; sample?: string; page?: string };
 
 async function searchWorks(query: string, params: SearchParams) {
-  if (!query) return { works: [] as Work[], error: null };
-
-  const pattern = `%${escapeLikePattern(query)}%`;
-  const filter = SEARCH_COLUMNS
-    .map((column) => `${column}.ilike.${quoteFilterValue(pattern)}`)
-    .join(",");
+  const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
   let worksQuery = supabase
     .from("works")
-    .select("id,title,image_url,score,price,sale_price,actress,maker,series,genre,sample_movie_url,review_average,review_count")
-    .or(filter);
+    .select("id,product_id,title,image_url,score,price,sale_price,list_price,discount_rate,actress,maker,series,genre,sample_movie_url,review_average,review_count,sale_end_at,affiliate_url", { count: "exact" });
 
+  if (query) {
+    const pattern = `%${escapeLikePattern(query)}%`;
+    const filter = SEARCH_COLUMNS
+      .map((column) => `${column}.ilike.${quoteFilterValue(pattern)}`)
+      .join(",");
+    worksQuery = worksQuery.or(filter);
+  }
+
+  const genres = (params.genres ?? "").split(",").map((genre) => genre.trim()).filter(Boolean).slice(0, 20);
+  if (genres.length) worksQuery = worksQuery.or(genres.map((genre) => `genre.ilike.${quoteFilterValue(`%${escapeLikePattern(genre)}%`)}`).join(","));
+  const releaseFrom = params.releaseFrom ?? params.dateStart;
+  const releaseTo = params.releaseTo ?? params.dateEnd;
+  if (releaseFrom) worksQuery = worksQuery.gte("release_date", releaseFrom);
+  if (releaseTo) worksQuery = worksQuery.lte("release_date", releaseTo);
+  const minPrice = Number(params.minPrice) >= 0 && params.minPrice !== "" ? Number(params.minPrice) : null;
   const maxPrice = Number(params.maxPrice) > 0 ? Number(params.maxPrice) : null;
-  if (maxPrice) worksQuery = worksQuery.or(`and(sale_price.gt.0,sale_price.lte.${maxPrice}),and(sale_price.eq.0,price.lte.${maxPrice})`);
+  if (minPrice !== null || maxPrice) {
+    const salePrice = ["sale_price.gt.0", minPrice !== null ? `sale_price.gte.${minPrice}` : null, maxPrice ? `sale_price.lte.${maxPrice}` : null].filter(Boolean).join(",");
+    const regularPrice = ["sale_price.eq.0", minPrice !== null ? `price.gte.${minPrice}` : null, maxPrice ? `price.lte.${maxPrice}` : null].filter(Boolean).join(",");
+    worksQuery = worksQuery.or(`and(${salePrice}),and(${regularPrice})`);
+  }
   if (params.sale === "1") worksQuery = worksQuery.gt("sale_price", 0);
   if (params.sample === "1") worksQuery = worksQuery.not("sample_movie_url", "is", null).neq("sample_movie_url", "");
-  if (params.sort === "price") worksQuery = worksQuery.order("sale_price", { ascending: true, nullsFirst: false }).order("price", { ascending: true });
-  else if (params.sort === "review") worksQuery = worksQuery.order("review_average", { ascending: false }).order("review_count", { ascending: false });
+  const sort = params.sort === "date_desc" ? "release-desc" : params.sort === "date_asc" ? "release-asc" : params.sort;
+  if (sort === "price") worksQuery = worksQuery.order("sale_price", { ascending: true, nullsFirst: false }).order("price", { ascending: true });
+  else if (sort === "review") worksQuery = worksQuery.order("review_average", { ascending: false }).order("review_count", { ascending: false });
+  else if (sort === "release-asc") worksQuery = worksQuery.order("release_date", { ascending: true, nullsFirst: false });
+  else if (sort === "release-desc") worksQuery = worksQuery.order("release_date", { ascending: false, nullsFirst: false });
   else worksQuery = worksQuery.order("score", { ascending: false, nullsFirst: false });
 
-  const response = await worksQuery.limit(MAX_RESULTS);
+  const response = await worksQuery.range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 
-  return { works: (response.data ?? []) as unknown as Work[], error: response.error };
+  return { works: (response.data ?? []) as unknown as Work[], totalCount: response.count ?? 0, page, error: response.error };
 }
 
 async function getDiscoveryWorks() {
   const response = await supabase
     .from("works")
-    .select("id,title,image_url,score,price,sale_price,actress,maker,series,genre,sample_movie_url,review_average,review_count")
+    .select("id,product_id,title,image_url,score,price,sale_price,list_price,discount_rate,actress,maker,series,genre,sample_movie_url,review_average,review_count,sale_end_at,affiliate_url")
     .order("score", { ascending: false, nullsFirst: false })
     .limit(8);
 
   return (response.data ?? []) as unknown as Work[];
 }
 
-function currentPrice(work: Work) {
-  return work.sale_price > 0 ? work.sale_price : work.price;
+async function getSearchPriceInsights(works: Work[]) {
+  if (!works.length) return [] as HomePriceInsightWork[];
+  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  try {
+    return await Promise.race([
+      buildInsightsForWorks(works as unknown as HomePriceInsightWork[], since, { requireBuyTimingSignal: false }),
+      new Promise<HomePriceInsightWork[]>((resolve) => setTimeout(() => resolve([]), 10_000)),
+    ]);
+  } catch {
+    return [] as HomePriceInsightWork[];
+  }
 }
 
 function splitValues(value: string | null) {
   return value?.split(" / ").map((item) => item.trim()).filter(Boolean) ?? [];
 }
 
-function DetailLinks({ work }: { work: Work }) {
-  const links = [
-    ...splitValues(work.actress).slice(0, 2).map((name) => ({ label: name, href: `/actress/${encodeURIComponent(name)}` })),
-    ...(work.maker ? [{ label: work.maker, href: `/maker/${encodeURIComponent(work.maker)}` }] : []),
-    ...(work.series ? [{ label: work.series, href: `/series/${encodeURIComponent(work.series)}` }] : []),
-    ...splitValues(work.genre).slice(0, 2).map((name) => ({ label: name, href: `/genre/${encodeURIComponent(name)}` })),
-  ];
-
-  return (
-    <div className="mt-3 flex min-w-0 flex-wrap gap-1.5">
-      {links.slice(0, 4).map((link) => (
-        <Link key={`${link.href}-${link.label}`} href={link.href} className="max-w-full truncate rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600 transition hover:bg-pink-50 hover:text-pink-600">
-          {link.label}
-        </Link>
-      ))}
-    </div>
-  );
+function buildSearchHref(params: SearchParams, page: number) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (key !== "page" && value) query.set(key, value);
+  }
+  query.set("page", String(page));
+  return `/search?${query.toString()}`;
 }
 
 function WorkCard({ work }: { work: Work }) {
-  const price = currentPrice(work);
-
-  return (
-    <article className="grid min-w-0 grid-cols-[104px_minmax(0,1fr)] gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-5 sm:p-4">
-      <Link href={workDetailHref(work.id, "search")} className="group relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100">
-        <WorkImage src={work.image_url} alt={work.title} sizes="160px" unoptimized className="object-cover transition duration-300 group-hover:scale-105" />
-      </Link>
-      <div className="flex min-w-0 flex-col">
-        <div className="flex items-baseline gap-1.5 text-pink-600">
-          <span className="text-[10px] font-black tracking-wider">発掘スコア</span>
-          <strong className="text-2xl leading-none">{work.score > 0 ? work.score : "—"}</strong>
-        </div>
-        <Link href={workDetailHref(work.id, "search")} className="mt-2 line-clamp-2 break-all text-sm font-black leading-5 text-slate-900 hover:text-pink-600 sm:text-base sm:leading-6">
-          {work.title}
-        </Link>
-        <DetailLinks work={work} />
-        <div className="mt-auto flex items-end justify-between gap-2 pt-3 text-xs font-black sm:text-sm">
-          <span className={work.sale_price > 0 ? "text-rose-600" : price > 0 ? "text-slate-900" : "text-slate-400"}>
-            {price > 0 ? `¥${price.toLocaleString("ja-JP")}` : "価格未取得"}
-          </span>
-          <Link href={workDetailHref(work.id, "search")} className="flex shrink-0 items-center gap-1 text-pink-600">詳細 <ArrowRight size={14} /></Link>
-        </div>
-      </div>
-    </article>
-  );
+  return <FanzaStyleWorkCard work={work} sourcePage="search" />;
 }
 
 export default async function SearchPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams;
   const query = normalizeQuery(params.q);
-  const { works, error } = await searchWorks(query, params);
-  const discoveryWorks = !query || (!error && works.length === 0) ? await getDiscoveryWorks() : [];
+  const releaseFrom = params.releaseFrom ?? params.dateStart;
+  const releaseTo = params.releaseTo ?? params.dateEnd;
+  const hasSearchConditions = Boolean(query || params.genres || releaseFrom || releaseTo || params.minPrice || params.maxPrice || params.sale === "1" || params.sample === "1" || params.sort);
+  const { works, totalCount, page, error } = await searchWorks(query, params);
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const searchInsights = await getSearchPriceInsights(works);
+  const searchInsightsById = new Map(searchInsights.map((work) => [work.id, work]));
+  const discoveryWorks = !hasSearchConditions || (!error && works.length === 0) ? await getDiscoveryWorks() : [];
   const suggestions = Array.from(
     new Set(
       discoveryWorks.flatMap((work) => [
@@ -137,39 +134,58 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
     <>
       <Header />
       <main className="min-h-screen overflow-x-hidden bg-[#f8fafc] text-slate-950">
-        <section className="border-b border-slate-200 bg-white">
-          <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
-            <Link href="/" className="text-xs font-bold text-slate-500 transition hover:text-pink-600">TOP <span className="mx-1">/</span> 検索</Link>
-            <div className="mt-5 flex max-w-3xl items-start gap-4">
-              <span className="shrink-0 rounded-2xl bg-pink-50 p-3 text-pink-600"><Search size={28} /></span>
-              <div className="min-w-0"><p className="text-xs font-black tracking-[0.18em] text-pink-600">SEARCH</p><h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">作品を検索</h1><p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">作品名を中心に、女優・メーカー・シリーズ・ジャンルから発掘できます。</p></div>
+        {hasSearchConditions ? (
+          <section className="border-b border-slate-200 bg-white">
+            <div className="mx-auto flex max-w-[1500px] flex-col gap-4 px-4 py-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+              <div>
+                <h1 className="mt-2 flex items-baseline gap-3 text-2xl font-black tracking-tight sm:text-3xl">検索結果 <span className="text-sm font-bold text-slate-500 sm:text-base">{totalCount}件</span></h1>
+              </div>
+              <form action="/search" className="flex items-center gap-3">
+                <input type="hidden" name="q" value={query} />
+                {params.genres && <input type="hidden" name="genres" value={params.genres} />}
+                {releaseFrom && <input type="hidden" name="releaseFrom" value={releaseFrom} />}
+                {releaseTo && <input type="hidden" name="releaseTo" value={releaseTo} />}
+                {params.minPrice && <input type="hidden" name="minPrice" value={params.minPrice} />}
+                {params.maxPrice && <input type="hidden" name="maxPrice" value={params.maxPrice} />}
+                {params.sale === "1" && <input type="hidden" name="sale" value="1" />}
+                {params.sample === "1" && <input type="hidden" name="sample" value="1" />}
+                <label className="flex items-center gap-2 text-sm font-bold text-slate-600">並び順<select name="sort" defaultValue={params.sort ?? "score"} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800"><option value="score">発掘スコア順</option><option value="release-desc">発売日が新しい順</option><option value="release-asc">発売日が古い順</option><option value="price">価格が安い順</option><option value="review">レビュー評価順</option></select></label>
+                <button type="submit" className="h-10 rounded-lg bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-pink-600">適用</button>
+              </form>
             </div>
-            <form action="/search" className="mt-8 flex max-w-3xl flex-col gap-3 sm:flex-row">
-              <label className="flex min-w-0 flex-1 items-center rounded-2xl border border-slate-300 bg-white px-4 shadow-sm focus-within:border-pink-400 focus-within:ring-4 focus-within:ring-pink-50">
-                <Search size={19} className="shrink-0 text-slate-400" />
-                <input type="search" name="q" defaultValue={query} maxLength={MAX_QUERY_LENGTH} aria-label="検索語" autoComplete="off" placeholder="作品名・女優・メーカーなど" className="h-14 min-w-0 flex-1 bg-transparent pl-3 text-base outline-none placeholder:text-slate-400" />
-              </label>
-              <button type="submit" className="h-14 shrink-0 rounded-2xl bg-slate-950 px-8 text-sm font-black text-white shadow-sm transition hover:bg-pink-600">検索する</button>
-            </form>
-            {suggestions.length > 0 && <div className="mt-4 flex max-w-4xl flex-wrap items-center gap-2"><span className="text-xs font-black text-slate-500">人気の候補</span>{suggestions.map((suggestion) => <Link key={suggestion} href={`/search?q=${encodeURIComponent(suggestion)}`} className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-pink-300 hover:text-pink-600">{suggestion}</Link>)}</div>}
-            {query && <form action="/search" className="mt-4 grid max-w-4xl gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto_auto_auto]"><input type="hidden" name="q" value={query} /><label className="text-xs font-black text-slate-600">並び順<select name="sort" defaultValue={params.sort ?? "score"} className="mt-1 block h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold"><option value="score">発掘スコア順</option><option value="price">価格が安い順</option><option value="review">レビュー評価順</option></select></label><label className="text-xs font-black text-slate-600">上限価格<select name="maxPrice" defaultValue={params.maxPrice ?? ""} className="mt-1 block h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold"><option value="">指定なし</option><option value="500">500円以下</option><option value="1000">1,000円以下</option><option value="2000">2,000円以下</option><option value="3000">3,000円以下</option></select></label><label className="flex h-11 items-center gap-2 self-end rounded-xl border border-slate-200 bg-white px-3 text-sm font-black"><input type="checkbox" name="sale" value="1" defaultChecked={params.sale === "1"} className="accent-pink-600" />セール</label><label className="flex h-11 items-center gap-2 self-end rounded-xl border border-slate-200 bg-white px-3 text-sm font-black"><input type="checkbox" name="sample" value="1" defaultChecked={params.sample === "1"} className="accent-pink-600" />サンプル</label><button type="submit" className="h-11 self-end rounded-xl bg-pink-600 px-5 text-sm font-black text-white">適用</button></form>}
-          </div>
-        </section>
+          </section>
+        ) : (
+          <section className="border-b border-slate-200 bg-white">
+            <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
+              <Link href="/" className="text-xs font-bold text-slate-500 transition hover:text-pink-600">TOP <span className="mx-1">/</span> 検索</Link>
+              <div className="mt-5 flex max-w-3xl items-start gap-4">
+                <span className="shrink-0 rounded-2xl bg-pink-50 p-3 text-pink-600"><Search size={28} /></span>
+                <div className="min-w-0"><p className="text-xs font-black tracking-[0.18em] text-pink-600">SEARCH</p><h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">作品を検索</h1><p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">作品名・品番を中心に、女優・メーカー・シリーズ・ジャンルから発掘できます。</p></div>
+              </div>
+              <form action="/search" className="mt-8 flex max-w-3xl flex-col gap-3 sm:flex-row">
+                <label className="flex min-w-0 flex-1 items-center rounded-2xl border border-slate-300 bg-white px-4 shadow-sm focus-within:border-pink-400 focus-within:ring-4 focus-within:ring-pink-50"><Search size={19} className="shrink-0 text-slate-400" /><input type="search" name="q" maxLength={MAX_QUERY_LENGTH} aria-label="検索語" autoComplete="off" placeholder="作品名・品番・女優・メーカーなど" className="h-14 min-w-0 flex-1 bg-transparent pl-3 text-base outline-none placeholder:text-slate-400" /></label>
+                <button type="submit" className="h-14 shrink-0 rounded-2xl bg-slate-950 px-8 text-sm font-black text-white shadow-sm transition hover:bg-pink-600">検索する</button>
+              </form>
+              {suggestions.length > 0 && <div className="mt-4 flex max-w-4xl flex-wrap items-center gap-2"><span className="text-xs font-black text-slate-500">人気の候補</span>{suggestions.map((suggestion) => <Link key={suggestion} href={`/search?q=${encodeURIComponent(suggestion)}`} className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-pink-300 hover:text-pink-600">{suggestion}</Link>)}</div>}
+            </div>
+          </section>
+        )}
 
-        <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
-          {!query ? (
-            <><div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center sm:p-10"><Search className="mx-auto text-slate-300" size={40} /><p className="mt-4 font-black">検索語を入力してください</p><p className="mt-2 text-sm leading-6 text-slate-500">候補をクリックするか、特集・お得ページから条件を絞れます。</p><div className="mt-5 flex flex-wrap justify-center gap-2"><Link href="/features" className="rounded-full bg-indigo-50 px-4 py-2 text-sm font-black text-indigo-700">特集から探す</Link><Link href="/deals" className="rounded-full bg-pink-50 px-4 py-2 text-sm font-black text-pink-700">お得条件から探す</Link></div></div><section className="mt-10"><p className="text-xs font-black tracking-widest text-pink-600">DISCOVERY</p><h2 className="mt-1 text-2xl font-black">迷ったときの高スコア作品</h2><div className="mt-5 grid gap-3 lg:grid-cols-2">{discoveryWorks.map((work) => <WorkCard key={work.id} work={work} />)}</div></section></>
+        <div className={`mx-auto max-w-[1500px] px-4 sm:px-6 lg:px-8 ${hasSearchConditions ? "py-6 lg:py-8" : "py-10 lg:py-14"}`}>
+          {!hasSearchConditions ? (
+            <><div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center sm:p-10"><Search className="mx-auto text-slate-300" size={40} /><p className="mt-4 font-black">検索語を入力してください</p><p className="mt-2 text-sm leading-6 text-slate-500">候補をクリックするか、特集・お得ページから条件を絞れます。</p><div className="mt-5 flex flex-wrap justify-center gap-2"><Link href="/features" className="rounded-full bg-indigo-50 px-4 py-2 text-sm font-black text-indigo-700">特集から探す</Link><Link href="/deals" className="rounded-full bg-pink-50 px-4 py-2 text-sm font-black text-pink-700">お得条件から探す</Link></div></div><section className="mt-10"><p className="text-xs font-black tracking-widest text-pink-600">DISCOVERY</p><h2 className="mt-1 text-2xl font-black">迷ったときの高スコア作品</h2><div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{discoveryWorks.map((work) => <WorkCard key={work.id} work={work} />)}</div></section></>
           ) : error ? (
             <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">検索結果を読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div>
           ) : works.length === 0 ? (
-            <><div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center sm:p-14"><Sparkles className="mx-auto text-slate-300" size={40} /><p className="mt-4 break-all font-black">「{query}」に一致する作品はありませんでした</p><p className="mt-2 text-sm leading-6 text-slate-500">検索語を短くするか、上の候補をお試しください。</p></div><section className="mt-10"><h2 className="text-2xl font-black">代わりに人気作品を見る</h2><div className="mt-5 grid gap-3 lg:grid-cols-2">{discoveryWorks.map((work) => <WorkCard key={work.id} work={work} />)}</div></section></>
+            <><div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center sm:p-14"><Sparkles className="mx-auto text-slate-300" size={40} /><p className="mt-4 break-all font-black">「{query}」に一致する作品はありませんでした</p><p className="mt-2 text-sm leading-6 text-slate-500">検索語を短くするか、上の候補をお試しください。</p></div><section className="mt-10"><h2 className="text-2xl font-black">代わりに人気作品を見る</h2><div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{discoveryWorks.map((work) => <WorkCard key={work.id} work={work} />)}</div></section></>
           ) : (
             <>
-              <div className="mb-6 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div className="min-w-0"><p className="text-xs font-black tracking-widest text-pink-600">SEARCH RESULTS</p><h2 className="mt-1 break-all text-2xl font-black">「{query}」の検索結果</h2></div>
-                <span className="shrink-0 text-xs font-bold text-slate-500">{works.length}件{works.length === MAX_RESULTS ? "（最大60件）" : ""}</span>
-              </div>
-              <div className="grid gap-3 lg:grid-cols-2">{works.map((work) => <WorkCard key={work.id} work={work} />)}</div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{works.map((work) => <FanzaStyleWorkCard key={work.id} work={work} sourcePage="search" insight={searchInsightsById.get(work.id)} />)}</div>
+              {totalPages > 1 && <nav aria-label="検索結果のページ" className="mt-10 flex items-center justify-center gap-3">
+                {page > 1 ? <Link href={buildSearchHref(params, page - 1)} className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-700 transition hover:border-pink-300 hover:text-pink-600">前へ</Link> : <span className="rounded-xl border border-slate-200 bg-slate-100 px-5 py-3 text-sm font-black text-slate-400">前へ</span>}
+                <span className="text-sm font-bold text-slate-500">{page} / {totalPages}</span>
+                {page < totalPages ? <Link href={buildSearchHref(params, page + 1)} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-pink-600">次へ</Link> : <span className="rounded-xl bg-slate-200 px-5 py-3 text-sm font-black text-slate-400">次へ</span>}
+              </nav>}
             </>
           )}
         </div>

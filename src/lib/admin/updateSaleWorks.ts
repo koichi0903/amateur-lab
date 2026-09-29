@@ -7,6 +7,7 @@ import {
 } from "@/lib/playwright/browserManager";
 import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
 import { getSaleItems } from "@/lib/playwright/getSaleItems";
+import { notifyPriceAlertsForProducts } from "@/lib/pushNotifications";
 
 import {
   beginJob,
@@ -206,6 +207,12 @@ console.log("targets =", targets.length);
     }
 
     await finishJob(JOBS.SALE);
+
+    try {
+      await notifyPriceAlertsForProducts(updatedWorkIds);
+    } catch (notificationError) {
+      console.error("[push] sale price notifications failed", notificationError);
+    }
 
 console.log("⑨ セール更新完了");
 console.log("======================================");

@@ -67,7 +67,7 @@ export const editorialGuides: readonly EditorialGuide[] = [
       { title: "同価格帯の代替作品も確認する", paragraphs: ["候補の作品詳細では、近い価格帯の作品も比較します。より高評価で安い候補がある場合は、セール表示だけを理由に決めないようにします。"] },
     ],
     faq: [{ question: "過去最安なら必ず買うべきですか？", answer: "価格面では有力ですが、作品内容や視聴条件との一致が優先です。過去最安は購入を保証する判定ではありません。" }, { question: "セール終了日時は正確ですか？", answer: "取得した日時を表示していますが変更される場合があります。購入直前に公式ページで確認してください。" }],
-    related: [{ href: "/deals/lowest-price", label: "過去最安作品を見る" }, { href: "/deals/ending-soon", label: "終了間近を見る" }, { href: "/reports/price-drops", label: "価格下落レポート" }],
+    related: [{ href: "/sale", label: "現在のセール作品を見る" }, { href: "/deals/lowest-price", label: "過去最安作品を見る" }, { href: "/deals/ending-soon", label: "終了間近を見る" }],
   },
   {
     slug: "ranking-guide",

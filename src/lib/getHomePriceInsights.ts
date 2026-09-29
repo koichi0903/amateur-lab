@@ -17,7 +17,7 @@ const HOME_PRICE_DROP_CANDIDATE_LIMIT = 25;
 const HOME_LOWEST_UPDATE_LIMIT = 5;
 
 const HOME_PRICE_WORK_COLUMNS =
-  "id,product_id,title,image_url,genre,price,sale_price,list_price,discount_rate,lowest_price,is_bottom_price,sale_end_at,ranking,realtime_rank,review_average,review_count,score";
+  "id,product_id,title,image_url,genre,price,sale_price,list_price,discount_rate,lowest_price,is_bottom_price,sale_end_at,ranking,realtime_rank,review_average,review_count,score,affiliate_url";
 
 export type PriceHistoryRow = {
   product_id: string;
@@ -47,6 +47,7 @@ export type HomePriceInsightWork = Pick<
   | "review_average"
   | "review_count"
   | "score"
+  | "affiliate_url"
 > & {
   currentPrice: number;
   previousPrice: number | null;

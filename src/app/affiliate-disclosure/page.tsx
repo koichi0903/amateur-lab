@@ -5,7 +5,7 @@ import { pageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = pageMetadata({
   title: "広告・アフィリエイトについて | 発掘LAB",
-  description: "発掘LABの広告・アフィリエイト方針、ランキングと価格表示の考え方を説明します。",
+  description: "発掘LABの広告・アフィリエイト方針と価格表示の考え方を説明します。",
   canonical: "/affiliate-disclosure",
 });
 
@@ -16,8 +16,8 @@ export default function AffiliateDisclosurePage() {
         <p>発掘LABはDMMアフィリエイトを利用しています。当サイト内のリンクからFANZAへ移動し商品を購入された場合、発掘LABの運営者に紹介料が支払われることがあります。リンクを経由したことを理由に、お客様の購入価格が上乗せされることはありません。</p>
         <p>広告を含む導線には、サイト共通の広告表示または購入ボタン付近の案内を設けています。</p>
       </PolicySection>
-      <PolicySection title="ランキング・おすすめの方針">
-        <p>ランキング、発掘スコア、おすすめ理由は、当サイトに登録された価格・レビュー・人気・セール・作品属性などのデータをもとに算出しています。個別作品から追加の広告料を受け取って掲載順位を販売するものではありません。</p>
+      <PolicySection title="掲載順と表示情報の方針">
+        <p>検索結果やランキングは、各ページに表示される条件、価格、レビュー、作品属性などのデータに基づいて掲載しています。個別作品から追加の広告料を受け取って掲載順位を販売するものでもありません。</p>
         <p>分析結果は作品選びの参考情報であり、満足度や購入後の結果を保証するものではありません。</p>
       </PolicySection>
       <PolicySection title="価格・販売情報と取引主体">

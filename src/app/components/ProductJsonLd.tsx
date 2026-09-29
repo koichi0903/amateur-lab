@@ -24,7 +24,7 @@ export default function ProductJsonLd({
 
     name: work.title,
 
-    description: `${work.title}のレビュー・評価・発掘スコアを掲載しています。`,
+    description: `${work.title}のレビュー・評価・現在価格・価格推移を掲載しています。`,
 
     sku: work.product_id,
 

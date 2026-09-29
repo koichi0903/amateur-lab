@@ -1,8 +1,8 @@
-import FeaturedWorkCard from "./FeaturedWorkCard";
-import type { FeaturedWork } from "./FeaturedWorkCard";
+import FanzaStyleWorkCard from "@/components/catalog/FanzaStyleWorkCard";
+import type { Work } from "@/types/work";
 
 type Props = {
-  works: FeaturedWork[] | null;
+  works: Work[] | null;
 };
 
 export default function RelatedWorks({
@@ -14,45 +14,13 @@ export default function RelatedWorks({
 
   return (
     <section className="mt-12">
-
-      <div className="mb-6 flex items-center justify-between">
-
-        <div>
-
-          <h2 className="text-3xl font-black text-zinc-900">
-            🔎 あわせて比較したい作品
-          </h2>
-
-          <p className="mt-1 text-sm text-zinc-500">
-            シリーズ・女優・ジャンル・メーカーの共通点から選定
-          </p>
-
-        </div>
-
-        <div className="rounded-full bg-pink-100 px-4 py-2 text-sm font-bold text-pink-700">
-          全{works.length}作品
-        </div>
-
+      <div className="mb-5 flex items-center gap-3">
+        <span className="h-7 w-1 rounded-full bg-pink-500" aria-hidden="true" />
+        <h2 className="text-2xl font-black text-zinc-900">関連作品</h2>
       </div>
-
-      <div className="mb-3 flex items-center justify-end gap-1 text-xs font-bold text-pink-600 sm:hidden">
-        <span aria-hidden="true">←</span>
-        横にスワイプして続きを見る
-        <span aria-hidden="true">→</span>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+        {works.slice(0, 12).map((work) => <FanzaStyleWorkCard key={work.id} work={work} sourcePage="direct" showChart={false} />)}
       </div>
-
-      <div className="-mx-3 flex gap-3 overflow-x-auto px-3 pb-4 snap-x snap-mandatory scrollbar-thin sm:mx-0 sm:gap-6 sm:px-0">
-
-        {works.map((work) => (
-  <div
-    key={work.id}
-    className="w-[82%] max-w-[18rem] flex-shrink-0 snap-start sm:w-[360px] sm:max-w-none"
-  >
-    <FeaturedWorkCard work={work} />
-  </div>
-))}
-      </div>
-
     </section>
   );
 }

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, Search, Sparkles, Trophy, Users } from "lucide-react";
+import { ArrowRight, Search, Sparkles, UserRound } from "lucide-react";
 import Header from "@/components/layout/Header";
 import WorkImage from "@/components/home/WorkImage";
 import {
@@ -8,37 +8,85 @@ import {
   isEntityIndexable,
 } from "@/lib/catalog/entityIndexSummaries";
 import { pageMetadata } from "@/lib/seo";
+import { getActressProfiles, type ActressProfile } from "@/lib/catalog/actressProfiles";
 
 export const revalidate = 86400;
 
-export async function generateMetadata({ searchParams }: { searchParams: Promise<{ q?: string; page?: string }> }): Promise<Metadata> {
+function normalizeActressSearchText(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("ja")
+    .replace(/[\u30a1-\u30f6]/g, (character) => String.fromCharCode(character.charCodeAt(0) - 0x60))
+    .replace(/\s+/g, "");
+}
+
+export async function generateMetadata({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; sort?: string }> }): Promise<Metadata> {
   const params = await searchParams;
   const query = (params.q ?? "").trim();
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
   return pageMetadata({
     title: `${query ? `「${query}」のFANZA女優検索結果` : "FANZA女優ランキング"}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
-    description: "FANZA登録作品数と発掘スコアから、注目の女優と出演作品を探せます。",
+    description: "FANZA作品の出演女優を、生年月日・身長・スリーサイズ・カップと出演作品数から探せます。",
     canonical: query ? "/actress" : `/actress${page > 1 ? `?page=${page}` : ""}`,
     robots: query ? { index: false, follow: true } : undefined,
   });
 }
 
-export default async function ActressPage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string }> }) {
+export default async function ActressPage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; sort?: string }> }) {
   const params = await searchParams;
   const query = (params.q ?? "").trim();
   const requestedPage = Number.parseInt(params.page ?? "1", 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  const pageSize = 48;
+  const sort = params.sort ?? "count-desc";
+  const pageSize = 24;
   const ranked = (await getEntityIndexSummaries("actress")).filter((summary) =>
     isEntityIndexable("actress", summary),
   );
-  const filtered = query ? ranked.filter((item) => item.name.toLocaleLowerCase("ja").includes(query.toLocaleLowerCase("ja"))) : ranked;
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const profiles = await getActressProfiles(ranked.map((item) => item.name));
+  const profileByName = new Map(profiles.map((profile) => [profile.name, profile]));
+  const normalizedQuery = normalizeActressSearchText(query);
+  const filtered = normalizedQuery
+    ? ranked.filter((item) => {
+      const profile = profileByName.get(item.name);
+      return normalizeActressSearchText(item.name).includes(normalizedQuery)
+        || normalizeActressSearchText(profile?.ruby).includes(normalizedQuery);
+    })
+    : ranked;
+  const profileValue = (profile: ActressProfile | undefined, field: "height_cm" | "bust_cm" | "waist_cm" | "hip_cm") => profile?.[field] ?? null;
+  const cupValue = (profile: ActressProfile | undefined) => profile?.cup ? [...profile.cup.toUpperCase()].reduce((sum, letter) => sum * 27 + (letter.charCodeAt(0) - 64), 0) : null;
+  const sorted = [...filtered].sort((a, b) => {
+    if (sort === "count-desc" || sort === "count-asc") {
+      return sort === "count-desc" ? b.count - a.count : a.count - b.count;
+    }
+    if (sort === "birthday-asc" || sort === "birthday-desc") {
+      const aValue = profileByName.get(a.name)?.birthday ?? null;
+      const bValue = profileByName.get(b.name)?.birthday ?? null;
+      if (aValue == null && bValue == null) return 0;
+      if (aValue == null) return 1;
+      if (bValue == null) return -1;
+      return sort === "birthday-asc" ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+    }
+    const descending = sort.endsWith("-desc");
+    const fieldKey = sort.replace(/-(?:asc|desc)$/, "");
+    const field = fieldKey === "height" ? "height_cm"
+      : fieldKey === "bust" ? "bust_cm"
+        : fieldKey === "waist" ? "waist_cm"
+          : fieldKey === "hip" ? "hip_cm"
+            : "cup";
+    const aValue = field === "cup" ? cupValue(profileByName.get(a.name)) : profileValue(profileByName.get(a.name), field);
+    const bValue = field === "cup" ? cupValue(profileByName.get(b.name)) : profileValue(profileByName.get(b.name), field);
+    if (aValue == null && bValue == null) return 0;
+    if (aValue == null) return 1;
+    if (bValue == null) return -1;
+    return descending ? bValue - aValue : aValue - bValue;
+  });
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const visible = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const visible = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const pageHref = (target: number) => {
     const next = new URLSearchParams();
     if (query) next.set("q", query);
+    if (sort !== "count-desc") next.set("sort", sort);
     if (target > 1) next.set("page", String(target));
     const value = next.toString();
     return value ? `/actress?${value}` : "/actress";
@@ -49,49 +97,62 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
       <Header />
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
         <section className="border-b border-slate-200 bg-white">
-          <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
-            <Link href="/" className="text-xs font-bold text-slate-500 hover:text-pink-600">TOP <span className="mx-1">/</span> 女優</Link>
-            <div className="mt-5 flex max-w-3xl items-start gap-4">
-              <span className="rounded-2xl bg-pink-50 p-3 text-pink-600"><Users size={28} /></span>
-              <div>
-                <p className="text-xs font-black tracking-[0.18em] text-pink-600">ACTRESS RANKING</p>
-                <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">女優登録作品数ランキング</h1>
-                <p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">発掘LABに登録されている出演作品数が多い女優順に紹介します。</p>
-              </div>
+          <div className="mx-auto max-w-[1500px] px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+            <div>
+              <div className="flex items-center gap-3"><UserRound size={24} /><h1 className="text-2xl font-black sm:text-3xl">AV女優検索</h1></div>
+              <p className="mt-2 text-sm text-sky-300">出演作品数やプロフィールを見ながら女優を探せます。</p>
             </div>
-            <form className="mt-8 flex max-w-xl items-center rounded-full border border-slate-200 bg-slate-50 px-5 shadow-sm" action="/actress">
-              <Search size={18} className="shrink-0 text-slate-400" />
-              <input name="q" defaultValue={query} aria-label="女優名で検索" placeholder="女優名で検索" className="h-12 min-w-0 flex-1 bg-transparent px-3 text-sm font-bold outline-none placeholder:font-normal" />
-              <button className="text-sm font-black text-pink-600">検索</button>
+            <div className="mt-5 flex w-full max-w-xl items-center gap-3">
+              <form action="/actress" className="flex h-12 min-w-0 flex-1 items-center rounded border border-slate-200 bg-slate-50 px-3">
+                <input type="search" name="q" defaultValue={query} aria-label="女優名で検索" placeholder="名前で検索（ひらがな可）" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400" />
+                <button aria-label="女優名を検索" className="text-slate-400 hover:text-pink-600"><Search size={19} /></button>
+              </form>
+              <button type="button" className="h-12 shrink-0 rounded border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700">▽ 絞り込み▼</button>
+            </div>
+            <form action="/actress" className="mt-3 flex max-w-sm items-center gap-3">
+            {query && <input type="hidden" name="q" value={query} />}
+            <select id="actress-sort" name="sort" defaultValue={sort} aria-label="並び順" className="h-10 min-w-0 flex-1 rounded border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700">
+              <option value="count-desc">登録作品数（多い順）</option>
+              <option value="count-asc">登録作品数（少ない順）</option>
+              <option value="birthday-desc">生年月日（新しい順）</option>
+              <option value="birthday-asc">生年月日（古い順）</option>
+              <option value="cup-desc">カップ数（大きい順）</option>
+              <option value="cup-asc">カップ数（小さい順）</option>
+              <option value="height-desc">身長（高い順）</option>
+              <option value="height-asc">身長（低い順）</option>
+              <option value="bust-desc">バスト（大きい順）</option>
+              <option value="bust-asc">バスト（小さい順）</option>
+              <option value="waist-desc">ウエスト（大きい順）</option>
+              <option value="waist-asc">ウエスト（小さい順）</option>
+              <option value="hip-desc">ヒップ（大きい順）</option>
+              <option value="hip-asc">ヒップ（小さい順）</option>
+            </select>
+            <button className="rounded bg-slate-950 px-4 py-2 text-sm font-black text-white hover:bg-pink-600">適用</button>
             </form>
           </div>
         </section>
 
-        <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
-          <div className="mb-6 flex items-end justify-between gap-4">
-            <div><p className="text-xs font-black tracking-widest text-pink-600">{query ? "SEARCH RESULT" : "ACTRESS RANKING"}</p><h2 className="mt-1 text-2xl font-black">{query ? `「${query}」の検索結果` : "登録作品数が多い順"}</h2>{!query && <p className="mt-2 text-sm leading-6 text-slate-500">同数の場合は、出演作品の最高発掘スコアが高い順に表示しています。</p>}</div>
-            <span className="shrink-0 text-xs font-bold text-slate-400">全{filtered.length}名</span>
-          </div>
-
+        <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           {visible.length ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
               {visible.map((item) => {
-                const rank = ranked.findIndex((candidate) => candidate.name === item.name) + 1;
+                const profile = profileByName.get(item.name);
+                const profileImage = profile?.image_url_large || profile?.image_url_small || null;
                 return (
-                  <Link key={item.name} href={`/actress/${encodeURIComponent(item.name)}`} className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg sm:p-3">
-                    <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100">
-                      <WorkImage src={item.imageUrl} alt={`${item.name}の出演作品`} sizes="(max-width: 640px) 45vw, (max-width: 1024px) 30vw, 220px" unoptimized className="object-cover transition duration-300 group-hover:scale-105" />
-                      {!query && rank <= 3 && <span className="absolute left-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-lg shadow-md"><Trophy size={18} className={rank === 1 ? "text-amber-500" : rank === 2 ? "text-slate-400" : "text-orange-600"} /></span>}
-                    </div>
-                    <div className="flex flex-1 flex-col px-1 pb-1 pt-3">
-                      <p className="text-[10px] font-black tracking-wider text-pink-600">登録作品数 {rank}位</p>
-                      <h2 className="mt-1 truncate text-base font-black sm:text-lg">{item.name}</h2>
-                      <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] font-black">
-                        <span className="rounded-full bg-slate-950 px-2 py-1 text-white">おすすめを見る</span>
-                        <span className="rounded-full bg-rose-50 px-2 py-1 text-rose-700">今買うべき作品</span>
-                        <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-700">埋もれ名作</span>
+                  <Link key={item.name} href={`/actress/${encodeURIComponent(item.name)}`} className="group flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg sm:p-3">
+                    <div className="relative flex items-center justify-center">
+                      <div className="relative h-28 w-28 overflow-hidden rounded-xl border-2 border-slate-300 bg-white shadow-sm">
+                        <WorkImage src={profileImage || item.imageUrl} fallbackSrc={profileImage ? item.imageUrl : null} alt={`${item.name}のプロフィール画像`} sizes="112px" unoptimized className="object-cover object-[50%_25%] transition duration-300 group-hover:scale-105" />
                       </div>
-                      <div className="mt-3 flex items-end justify-between gap-2 border-t border-slate-100 pt-3">
+                    </div>
+                    <div className="flex flex-1 flex-col px-1 pb-1 pt-1.5">
+                      <h2 className="mt-0.5 truncate text-base font-black sm:text-lg">{item.name}</h2>
+                      <div className="mt-1 h-[4rem] space-y-0.5 overflow-hidden text-xs font-bold leading-4 text-slate-500">
+                        {profile?.birthday && <p>{profile.birthday}</p>}
+                        {profile?.height_cm && <p>身長: {profile.height_cm}cm</p>}
+                        {(profile?.bust_cm || profile?.waist_cm || profile?.hip_cm || profile?.cup) && <p>B{profile.bust_cm ?? "-"} W{profile.waist_cm ?? "-"} H{profile.hip_cm ?? "-"}{profile?.cup ? ` ${profile.cup}カップ` : ""}</p>}
+                      </div>
+                      <div className="mt-auto flex items-end justify-between gap-2 border-t border-slate-100 pt-2">
                         <div><p className="text-[10px] font-bold text-slate-400">登録作品数</p><p className="text-xl font-black text-pink-600">{item.count}<span className="ml-0.5 text-xs">作品</span></p></div>
                         <ArrowRight size={17} className="mb-1 text-pink-600" />
                       </div>

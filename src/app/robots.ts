@@ -1,7 +1,14 @@
 import type { MetadataRoute } from "next";
-import { SITE_URL } from "@/lib/seo";
+import { IS_VERCEL_PREVIEW, SITE_URL } from "@/lib/seo";
 
 export default function robots(): MetadataRoute.Robots {
+  if (IS_VERCEL_PREVIEW) {
+    return {
+      rules: { userAgent: "*", disallow: "/" },
+      host: SITE_URL,
+    };
+  }
+
   return {
     rules: [
       {

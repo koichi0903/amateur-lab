@@ -14,6 +14,7 @@ import { isOperatorLandingPath } from "@/lib/externalAttribution";
 import type { SampleMovieDeliveryMode } from "@/lib/sampleMovieFallback";
 
 export type AffiliatePlacement =
+  | "listing-card"
   | "detail-sidebar"
   | "buy-timing-panel"
   | "mobile-sticky"

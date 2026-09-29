@@ -24,6 +24,8 @@ onUpdateMissingPrices?: () => void;
 
 onFillSampleMovies?: () => void;
 
+onUpdateActressProfiles?: () => void;
+
 onUpdateReserve?: () => void;
 
 onRefreshPublicCache?: () => void;
@@ -59,6 +61,8 @@ onUpdateReview,
 onUpdateMissingPrices,
 
 onFillSampleMovies,
+
+onUpdateActressProfiles,
 
 onUpdateReserve,
 
@@ -139,11 +143,17 @@ onStop,
   color: "bg-lime-600 hover:bg-lime-500",
 },
   {
-  jobName: "sample_movie",
-  label: "🎬 サンプル動画補完",
-  onClick: onFillSampleMovies,
-  color: "bg-violet-600 hover:bg-violet-500",
-},
+    jobName: "sample_movie",
+    label: "🎬 サンプル動画補完",
+    onClick: onFillSampleMovies,
+    color: "bg-violet-600 hover:bg-violet-500",
+  },
+  {
+    jobName: "actress_profiles",
+    label: "👩 女優プロフィール補完",
+    onClick: onUpdateActressProfiles,
+    color: "bg-fuchsia-600 hover:bg-fuchsia-500",
+  },
   {
   jobName: "reserve",
   label: "📅 予約作品更新",
@@ -316,6 +326,7 @@ onStop,
   "⭐ レビュー更新",
   "💵 価格補完",
   "🎬 サンプル動画補完",
+  "👩 女優プロフィール補完",
   "🏆 ランキング更新",
   "🚀 全更新",
 ]

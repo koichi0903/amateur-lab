@@ -47,7 +47,6 @@ export function decodeCatalogName(value: string) {
 }
 
 export async function catalogMetadata(kind: CatalogKind, name: string, page = 1): Promise<Metadata> {
-  const { label } = catalogConfig[kind];
   const suffix = page > 1 ? ` ${page}ページ目` : "";
   const subject = kind === "series" ? `${name}シリーズ` : name;
   let robots: Metadata["robots"] = { index: false, follow: true };
@@ -58,11 +57,10 @@ export async function catalogMetadata(kind: CatalogKind, name: string, page = 1)
       : null;
     if (
       page === 1 &&
-      summary &&
-      isEntityIndexable(kind, summary) &&
       pageResult &&
       !pageResult.error &&
-      pageResult.works.length > 0
+      pageResult.works.length > 0 &&
+      ((kind === "genre" || kind === "maker") || (summary && isEntityIndexable(kind, summary)))
     ) {
       robots = undefined;
     }
@@ -71,12 +69,14 @@ export async function catalogMetadata(kind: CatalogKind, name: string, page = 1)
   }
 
   return pageMetadata({
-    title: kind === "genre" || kind === "maker" || kind === "series"
-      ? `${subject}のFANZA作品おすすめBEST10${suffix} | セールと注目作も比較 | 発掘LAB`
-      : `${subject}のFANZA作品おすすめ・人気ランキング${suffix} | 発掘LAB`,
-    description: kind === "genre" || kind === "maker" || kind === "series"
-      ? `${subject}のFANZA作品をBEST10形式で比較。埋もれ度、価格判断、レビュー件数、価格条件から選べます。`
-      : `${subject}のFANZA作品を、発掘スコア、レビュー件数、現在価格で比較。${label}別の買い時と関連条件から作品を探せます。`,
+    title: kind === "genre"
+      ? `${subject}のFANZA作品一覧${suffix} | 発掘LAB`
+      : kind === "maker"
+        ? `${subject}のFANZA作品一覧${suffix} | 人気順・価格順で比較 | 発掘LAB`
+        : `${subject}のFANZA作品おすすめBEST10${suffix} | セールと注目作も比較 | 発掘LAB`,
+    description: kind === "genre" || kind === "maker"
+      ? `${subject}のFANZA作品を、人気順・発売日順・価格順で並び替えて探せます。現在価格、レビュー、価格推移も作品ごとに確認できます。`
+      : `${subject}のFANZA作品をBEST10形式で比較。埋もれ度、価格判断、レビュー件数、価格条件から選べます。`,
     canonical: `/${kind}/${encodeURIComponent(name)}${page > 1 ? `/page/${page}` : ""}`,
     robots,
   });

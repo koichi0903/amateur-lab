@@ -10,9 +10,9 @@ import {
 type EntityKind = "maker" | "series" | "genre";
 
 const configs = {
-  maker: { label: "メーカー", plural: "社", eyebrow: "MAKER RANKING", title: "メーカー登録作品数ランキング", description: "発掘LABに登録されている作品数が多いメーカー順に紹介します。", Icon: Building2 },
-  series: { label: "シリーズ", plural: "件", eyebrow: "SERIES RANKING", title: "シリーズ登録作品数ランキング", description: "発掘LABに登録されている作品数が多いシリーズ順に紹介します。", Icon: Clapperboard },
-  genre: { label: "ジャンル", plural: "件", eyebrow: "GENRE RANKING", title: "ジャンル登録作品数ランキング", description: "発掘LABに登録されている作品数が多いジャンル順に紹介します。", Icon: Tags },
+  maker: { label: "メーカー", plural: "社", eyebrow: "MAKER RANKING", title: "メーカー登録作品数ランキング", searchTitle: "メーカー検索", description: "登録作品数や発掘スコアを見ながらメーカーを探せます。", Icon: Building2 },
+  series: { label: "シリーズ", plural: "件", eyebrow: "SERIES RANKING", title: "シリーズ登録作品数ランキング", searchTitle: "シリーズ検索", description: "登録作品数や発掘スコアを見ながらシリーズを探せます。", Icon: Clapperboard },
+  genre: { label: "ジャンル", plural: "件", eyebrow: "GENRE RANKING", title: "ジャンル登録作品数ランキング", searchTitle: "ジャンル検索", description: "登録作品数や発掘スコアを見ながらジャンルを探せます。", Icon: Tags },
 } as const;
 
 export default async function EntityIndexPage({ kind, searchParams }: { kind: EntityKind; searchParams: Promise<{ q?: string; page?: string }> }) {
@@ -39,9 +39,7 @@ export default async function EntityIndexPage({ kind, searchParams }: { kind: En
 
   return <><Header /><main className="min-h-screen overflow-x-hidden bg-[#f8fafc] text-slate-950">
     <section className="border-b border-slate-200 bg-white"><div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
-      <Link href="/" className="text-xs font-bold text-slate-500 hover:text-pink-600">TOP <span className="mx-1">/</span> {config.label}</Link>
-      <div className="mt-5 flex max-w-3xl items-start gap-4"><span className="shrink-0 rounded-2xl bg-pink-50 p-3 text-pink-600"><config.Icon size={28} /></span><div className="min-w-0"><p className="text-xs font-black tracking-[0.18em] text-pink-600">{config.eyebrow}</p><h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">{config.title}</h1><p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">{config.description}</p></div></div>
-      <form className="mt-8 flex max-w-xl items-center rounded-full border border-slate-200 bg-slate-50 px-5 shadow-sm" action={`/${kind}`}><Search size={18} className="shrink-0 text-slate-400" /><input type="search" name="q" maxLength={100} defaultValue={query} aria-label={`${config.label}名で検索`} placeholder={`${config.label}名で検索`} className="h-12 min-w-0 flex-1 bg-transparent px-3 text-sm font-bold outline-none placeholder:font-normal" /><button className="shrink-0 text-sm font-black text-pink-600">検索</button></form>
+      <div className="flex items-start justify-between gap-8"><div><div className="flex items-center gap-3"><config.Icon size={24} className="text-pink-600" /><h1 className="text-2xl font-black sm:text-3xl">{config.searchTitle}</h1></div><p className="mt-2 text-sm text-slate-600">{config.description}</p></div><div className="hidden items-center gap-2 lg:flex"><form action={`/${kind}`} className="flex h-10 w-[300px] items-center rounded border border-slate-200 bg-slate-50 px-3"><input type="search" name="q" maxLength={100} defaultValue={query} aria-label={`${config.label}名で検索`} placeholder={`${config.label}名で検索`} className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400" /><button aria-label={`${config.label}を検索`} className="text-slate-400 hover:text-pink-600"><Search size={17} /></button></form><button type="button" className="rounded border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700">▽ 絞り込み▼</button></div></div>
     </div></section>
     <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
       <div className="mb-6 flex min-w-0 items-end justify-between gap-4"><div className="min-w-0"><p className="text-xs font-black tracking-widest text-pink-600">{query ? "SEARCH RESULT" : `${kind.toUpperCase()} RANKING`}</p><h2 className="mt-1 break-all text-2xl font-black">{query ? `「${query}」の検索結果` : "登録作品数が多い順"}</h2>{!query && <p className="mt-2 text-sm leading-6 text-slate-500">同数の場合は、所属作品の最高発掘スコアが高い順に表示しています。</p>}</div><span className="shrink-0 text-xs font-bold text-slate-400">全{filtered.length}{config.plural}</span></div>

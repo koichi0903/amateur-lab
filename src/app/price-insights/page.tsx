@@ -6,8 +6,9 @@ import Header from "@/components/layout/Header";
 import MiniPriceHistoryChart from "@/components/home/MiniPriceHistoryChart";
 import WorkImage from "@/components/home/WorkImage";
 import { workDetailHref } from "@/lib/affiliateTracking";
-import { getHomePriceInsights } from "@/lib/getHomePriceInsights";
+import { getHomePriceInsights, type HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
+import AffiliateLink from "@/app/components/AffiliateLink";
 
 export const revalidate = 1800;
 // Price history is runtime Supabase data. Keep this SEO page server-rendered,
@@ -37,7 +38,12 @@ function insightBadgeTone(badge: string) {
 }
 
 export default async function PriceInsightsPage() {
-  const { buyTiming } = await getHomePriceInsights();
+  let buyTiming: HomePriceInsightWork[] = [];
+  try {
+    buyTiming = (await getHomePriceInsights()).buyTiming;
+  } catch (error) {
+    console.warn("[price-insights] data is temporarily unavailable", error);
+  }
   const structuredItems = buyTiming.map((work) => ({
     name: work.title,
     url: `${SITE_URL}/works/${work.id}`,
@@ -223,12 +229,25 @@ export default async function PriceInsightsPage() {
                       <p className="text-[11px] font-bold leading-5 text-slate-500">
                         TOPと同じ買い時スコア・価格履歴で表示
                       </p>
-                      <Link
-                        href={workDetailHref(work.id, "price-report")}
-                        className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-pink-600 px-4 text-sm font-black text-white transition hover:bg-pink-700"
-                      >
-                        価格と理由を見る <ArrowRight size={16} />
-                      </Link>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <Link
+                          href={workDetailHref(work.id, "price-report")}
+                          className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-pink-200 bg-pink-50 px-4 text-sm font-black text-pink-700 transition hover:bg-pink-100"
+                        >
+                          価格と理由を見る <ArrowRight size={16} />
+                        </Link>
+                        {work.affiliate_url && (
+                          <AffiliateLink
+                            href={work.affiliate_url}
+                            workId={work.id}
+                            placement="listing-card"
+                            sourcePage="price-report"
+                            className="flex h-11 shrink-0 items-center justify-center rounded-xl bg-pink-600 px-4 text-sm font-black text-white transition hover:bg-pink-700"
+                          >
+                            FANZAで見る
+                          </AffiliateLink>
+                        )}
+                      </div>
                     </div>
                   </article>
                 );

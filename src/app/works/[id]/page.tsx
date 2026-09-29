@@ -1,30 +1,14 @@
 import { supabase } from "../../../lib/supabase";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import WorkHero from "../../components/WorkHero";
-import WorkInfo from "../../components/WorkInfo";
-import AIAnalysis from "../../components/AIAnalysis";
+import WorkDetailHero from "../../components/WorkDetailHero";
 import RelatedWorks from "../../components/RelatedWorks";
-import PriceHistory from "@/app/components/PriceHistory";
 import Breadcrumb from "@/app/components/Breadcrumb";
 import BreadcrumbJsonLd from "@/app/components/BreadcrumbJsonLd";
-import Link from "next/link";
 import ProductJsonLd from "@/app/components/ProductJsonLd";
-import WorkTabs from "@/app/components/WorkTabs";
-import PurchaseCard from "@/app/components/PurchaseCard";
-import PurchaseDecisionGuide from "@/app/components/PurchaseDecisionGuide";
-import { createChartData } from "@/lib/createChartData";
-import ReviewTab from "@/app/components/ReviewTab";
-import SampleImageCarousel from "@/app/components/SampleImageCarousel";
-import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
 import WorkPageViewTracker from "@/app/components/WorkPageViewTracker";
-import BuyTimingPanel from "@/app/components/BuyTimingPanel";
-import DealWorkCard, { type DealWork } from "@/components/deals/DealWorkCard";
-import CompareTray from "@/components/comparison/CompareTray";
-import PriceTypes from "@/app/components/PriceTypes";
-import { analyzeRecommendation } from "@/lib/analyzers/recommendAnalyzer";
-import { analyzePurchaseDecision } from "@/lib/analyzers/purchaseDecisionAnalyzer";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
+import { isOfficialSampleMovieUrl } from "@/lib/officialSampleMovie";
 import {
   isWorkIndexable,
   WORK_INDEX_MIN_PRICE,
@@ -32,11 +16,9 @@ import {
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
-import { calculateBuyTimingScore, getBuyTimingFunnelStats } from "@/lib/buyTiming";
+import Header from "@/components/layout/Header";
+import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
 
-import {
-  analyzeWork,
-} from "@/lib/analyzers/analysisAnalyzer";
 
 function currentTimeMs() {
   return Date.now();
@@ -50,6 +32,16 @@ type WorkDetail = Work & {
 const WORK_DETAIL_REVALIDATE_SECONDS = 60 * 60 * 24;
 const workDetailCacheTag = (workId: string | number) => `work-detail:${String(workId)}`;
 const workDetailProductCacheTag = (productId: string) => `work-detail-product:${productId}`;
+
+function getOfficialSampleEmbedUrl(work: WorkDetail): string | null {
+  if (!work.product_id || !isOfficialSampleMovieUrl(work.sample_movie_url)) return null;
+
+  const base = `https://www.dmm.co.jp/service/digitalapi/-/html5_player/=/cid=${encodeURIComponent(work.product_id)}/mtype=AhRVShI_/service=litevideo/mode=part/width=260/height=167`;
+  const affiliateId = process.env.DMM_AFFILIATE_ID?.trim();
+  return affiliateId
+    ? `${base}/affi_id=${encodeURIComponent(affiliateId)}/`
+    : `${base}/`;
+}
 
 const WORK_DETAIL_COLUMNS = [
   "id", "product_id", "title", "actress", "genre", "maker", "series",
@@ -98,7 +90,7 @@ const getWork = cache(
 
         return data as WorkDetail | null;
       },
-      ["work-detail-row-v2-purchase-signals", id],
+      ["work-detail-row-v3-duration-text-purchase-signals", id],
       { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [workDetailCacheTag(id)] },
     )(),
 );
@@ -139,43 +131,6 @@ const getWorkDetailData = cache(
     )(),
 );
 
-const getEntityRanks = cache(
-  async (
-    workId: number,
-    actresses: string[],
-    genres: string[],
-    makers: string[],
-    series: string[]
-  ) =>
-    unstable_cache(
-      async () => {
-    const [actressRanks, genreRanks, makerRanks, seriesRanks] = await Promise.all([
-      actresses.length
-        ? supabase.from("actress_rankings").select("original_rank, fanza_rank").in("name", actresses)
-        : Promise.resolve({ data: [] }),
-      genres.length
-        ? supabase.from("genre_rankings").select("rank").in("name", genres)
-        : Promise.resolve({ data: [] }),
-      makers.length
-        ? supabase.from("maker_rankings").select("rank").in("name", makers)
-        : Promise.resolve({ data: [] }),
-      series.length
-        ? supabase.from("series_rankings").select("original_rank, fanza_rank").in("name", series)
-        : Promise.resolve({ data: [] }),
-    ]);
-
-    return {
-      actressRanks: actressRanks.data ?? [],
-      genreRanks: genreRanks.data ?? [],
-      makerRanks: makerRanks.data ?? [],
-      seriesRanks: seriesRanks.data ?? [],
-    };
-      },
-      ["work-detail-entity-ranks", String(workId), ...actresses, ...genres, ...makers, ...series],
-      { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [workDetailCacheTag(workId)] },
-    )(),
-);
-
 const getRelatedWorks = cache(
   async (
     workId: number,
@@ -199,11 +154,11 @@ const getRelatedWorks = cache(
       sources.map(async (source) => {
         const { data } = await supabase
           .from("works")
-          .select("id,title,actress,image_url,score,review_average,review_count,price,sale_price")
+          .select("id,product_id,title,actress,genre,maker,series,image_url,score,review_average,review_count,price,sale_price,list_price,discount_rate,sale_end_at,affiliate_url,stage")
           .ilike(source.column, `%${source.value}%`)
           .neq("id", workId)
           .order("score", { ascending: false, nullsFirst: false })
-          .limit(10);
+          .limit(18);
 
         return (data ?? []).map((work) => ({ work, weight: source.weight }));
       }),
@@ -223,47 +178,13 @@ const getRelatedWorks = cache(
 
     return [...candidates.values()]
       .sort((a, b) => b.relevance - a.relevance)
-      .slice(0, 8)
-      .map((candidate) => candidate.work);
+      .slice(0, 12)
+      .map((candidate) => candidate.work) as unknown as Work[];
       },
       ["work-detail-related-works", String(workId), mainActress, mainSeries, mainGenre, mainMaker],
       { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [workDetailCacheTag(workId)] },
     )(),
 );
-
-const getValueAlternatives = cache(
-  async (mainGenre: string, workId: number, currentPrice: number) =>
-    unstable_cache(
-      async () => {
-    if (!mainGenre || currentPrice <= 0) return [];
-    const minimumPrice = Math.max(1, Math.floor(currentPrice * 0.55));
-    const maximumPrice = Math.ceil(currentPrice * 1.45);
-    const { data } = await supabase
-      .from("works")
-      .select("id,title,image_url,price,sale_price,list_price,discount_rate,score,review_average,review_count,sale_end_at,lowest_price,is_bottom_price,sample_movie_url")
-      .ilike("genre", `%${mainGenre}%`)
-      .neq("id", workId)
-      .gte("price", minimumPrice)
-      .lte("price", maximumPrice)
-      .order("score", { ascending: false, nullsFirst: false })
-      .limit(18);
-
-    return ((data ?? []) as DealWork[])
-      .sort((a, b) => {
-        const aPrice = a.sale_price > 0 ? a.sale_price : a.price;
-        const bPrice = b.sale_price > 0 ? b.sale_price : b.price;
-        const aValue = (a.sale_price > 0 ? 30 : 0) + a.score - Math.abs(aPrice - currentPrice) / 100;
-        const bValue = (b.sale_price > 0 ? 30 : 0) + b.score - Math.abs(bPrice - currentPrice) / 100;
-        return bValue - aValue;
-      })
-      .slice(0, 5);
-      },
-      ["work-detail-value-alternatives", mainGenre, String(workId), String(currentPrice)],
-      { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [workDetailCacheTag(workId)] },
-    )(),
-);
-
-
 
 export async function generateMetadata(
   { params }: { params: Promise<{ id: string }> }
@@ -291,14 +212,13 @@ export async function generateMetadata(
     });
   }
 
-  const scoreText = typeof work.score === "number" && work.score > 0 ? `・発掘スコア${work.score}` : "";
   const actressText = work.actress ? `${work.actress}出演。` : "";
   const currentPrice = work.sale_price > 0 ? work.sale_price : work.price;
   const priceText = currentPrice > 0 ? `現在価格${currentPrice.toLocaleString("ja-JP")}円。` : "";
   const reviewText = work.review_count > 0
     ? `レビュー${work.review_average.toFixed(2)}（${work.review_count}件）。`
     : "";
-  const title = `${work.title}｜FANZA価格・過去最安値・買い時${scoreText} | 発掘LAB`;
+  const title = `${work.title}｜FANZA価格・過去最安値・買い時 | 発掘LAB`;
   const description = `${work.title}のFANZA現在価格、価格推移、過去最安値、買い時を確認。${priceText}${reviewText}${actressText}同価格帯の作品とも比較できます。`;
   const encodedId = encodeURIComponent(id);
   const socialImage = work.image_url || `${SITE_URL}/ogp.png`;
@@ -366,12 +286,6 @@ export default async function WorkDetailPage(
   const genres = splitEntities(work.genre);
   const makers = splitEntities(work.maker);
   const series = splitEntities(work.series);
-  const { actressRanks, genreRanks, makerRanks, seriesRanks } =
-    await getEntityRanks(work.id, actresses, genres, makers, series);
-  const minimumRank = (values: Array<number | null | undefined>) => {
-    const ranks = values.filter((value): value is number => typeof value === "number" && value > 0);
-    return ranks.length ? Math.min(...ranks) : null;
-  };
   const saleActive = !work.sale_end_at || Date.parse(work.sale_end_at) > currentTimeMs();
   const hasSaleEvidence =
     saleActive &&
@@ -398,82 +312,36 @@ export default async function WorkDetailPage(
     currentPrice.normal_price > mobileDisplayPrice
       ? Math.round((1 - mobileDisplayPrice / currentPrice.normal_price) * 100)
       : hasSaleEvidence ? work.discount_rate : 0;
-  const recommendationReasons = analyzeRecommendation({
-    work,
-    currentPrice,
-    priceHistory: priceHistory ?? [],
-    entityRanks: {
-      actress: minimumRank(actressRanks.flatMap((row) => [row.original_rank, row.fanza_rank])),
-      genre: minimumRank(genreRanks.map((row) => row.rank)),
-      maker: minimumRank(makerRanks.map((row) => row.rank)),
-      series: minimumRank(seriesRanks.flatMap((row) => [row.original_rank, row.fanza_rank])),
-    },
-  });
-
-const mainActress = actresses[0] ?? "";
-const mainGenre = genres[0] ?? "";
-const mainMaker = makers[0] ?? "";
-const mainSeries = series[0] ?? "";
-const relatedWorks = await getRelatedWorks(
-  work.id,
-  mainActress,
-  mainSeries,
-  mainGenre,
-  mainMaker,
-);
-const valueAlternatives = await getValueAlternatives(
-  mainGenre,
-  work.id,
-  mobileDisplayPrice ?? 0
-);
-
-  const {
-  summary,
-  goodPoints,
-  cautionPoints,
-  conclusion,
-} = analyzeWork(work);
-
-const chartPrice = (priceHistory ?? []).find((item) => {
-  const value = item.sale_price ?? item.normal_price ?? 0;
-  return value === (work.sale_price > 0 ? work.sale_price : work.price);
-}) ?? currentPrice;
-
-const chartData = createChartData(
-  priceHistory ?? [],
-  chartPrice.display_name ?? chartPrice.type ?? "",
-  chartPrice.period ?? null,
-);
-const purchaseDecision = analyzePurchaseDecision({
-  work,
-  currentPrice,
-  priceHistory: priceHistory ?? [],
-  offerCount: currentOffers.length,
-  mainActress,
-  mainGenre,
-  mainSeries,
-});
-const buyTimingFunnel = await getBuyTimingFunnelStats(work.id, 30);
-const buyTiming = calculateBuyTimingScore({
-  work,
-  priceHistory: priceHistory ?? [],
-  funnel: buyTimingFunnel,
-});
+  const mainActress = actresses[0] ?? "";
+  const mainGenre = genres[0] ?? "";
+  const mainMaker = makers[0] ?? "";
+  const mainSeries = series[0] ?? "";
+  const relatedWorks = await getRelatedWorks(
+    work.id,
+    mainActress,
+    mainSeries,
+    mainGenre,
+    mainMaker,
+  );
 
   return (
+  <>
+  <Header />
   <main className="min-h-screen bg-gray-100 py-8 pb-24 md:pb-8">
     <WorkPageViewTracker
       workId={work.id}
       price={mobileDisplayPrice ?? null}
       discountRate={mobileDisplayDiscountRate ?? null}
-      discoveryScore={typeof work.score === "number" ? work.score : null}
+      discoveryScore={null}
       ranking={typeof work.ranking === "number" ? work.ranking : null}
     />
-    <div className="mx-auto max-w-7xl px-4 sm:px-6">
+    <div className="mx-auto max-w-[1500px] px-4 sm:px-6">
 
       <Breadcrumb
+        variant="compact"
         items={[
-          { label: "🏠 TOP", href: "/" },
+          { label: "ホーム", href: "/" },
+          ...(mainMaker ? [{ label: mainMaker, href: `/maker/${encodeURIComponent(mainMaker)}` }] : []),
           { label: work.title },
         ]}
       />
@@ -488,145 +356,28 @@ const buyTiming = calculateBuyTimingScore({
       <ProductJsonLd work={work} />
 
       {/* Hero */}
-      <section className="mt-6 rounded-3xl border border-pink-100 bg-white p-4 shadow-sm sm:p-8">
-<WorkHero
+      <section className="mt-0 p-0 sm:p-8">
+<WorkDetailHero
   work={work}
   sampleImages={sampleImages ?? []}
   sampleMovieUrl={work.sample_movie_url}
+  officialSampleEmbedUrl={getOfficialSampleEmbedUrl(work)}
+  priceHistory={priceHistory ?? []}
+  displayPrice={mobileDisplayPrice ?? null}
+  regularPrice={currentPrice.normal_price ?? work.price ?? null}
+  discountRate={mobileDisplayDiscountRate}
 />
       </section>
 
-      {/* タブ */}
-      <section className="mt-8">
-        <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <WorkTabs
-            analysis={
-              <AIAnalysis
-                work={work}
-                chartData={chartData}
-                recommendationReasons={recommendationReasons}
-              />
-            }
-            review={
-              <ReviewTab
-                work={work}
-                summary={summary}
-                goodPoints={goodPoints}
-                cautionPoints={cautionPoints}
-                conclusion={conclusion}
-              />
-            }
-            price={
-              <div className="space-y-8">
-                <PriceTypes prices={currentOffers} />
-                <PriceHistory history={priceHistory ?? []} />
-              </div>
-            }
-            info={<WorkInfo work={work} />}
-            related={<RelatedWorks works={relatedWorks ?? []} />}
-          />
-
-          <PurchaseCard
-            work={work}
-            offers={currentOffers}
-            checkedAt={priceHistory[0]?.changed_at ?? null}
-            sampleMovieAvailable={!!work.sample_movie_url}
-            recommendationReasons={recommendationReasons}
-          />
-        </div>
-      </section>
-
-      <BuyTimingPanel
-        decision={buyTiming}
-        workId={work.id}
-        affiliateUrl={work.affiliate_url}
-      />
-
-      <PurchaseDecisionGuide
-        decision={purchaseDecision}
-        hasAlternatives={valueAlternatives.length > 0}
-      />
-
-      {valueAlternatives.length > 0 && (
-        <section className="mt-10 rounded-3xl border border-emerald-100 bg-white p-4 shadow-sm sm:p-7" aria-labelledby="value-alternatives">
-          <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-xs font-black tracking-widest text-emerald-600">COMPARE BEFORE BUYING</p>
-              <h2 id="value-alternatives" className="mt-1 text-2xl font-black">同価格帯のおすすめと買い比べ</h2>
-              <p className="mt-2 text-sm text-slate-500">「{mainGenre}」から、価格が近く評価・セール条件の良い候補を選びました。</p>
-            </div>
-            <Link href={`/deals/under-1000`} className="text-sm font-black text-pink-600 hover:underline">さらにお得な作品を見る →</Link>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            {valueAlternatives.map((alternative) => <DealWorkCard key={alternative.id} work={alternative} source="comparison" />)}
-          </div>
-        </section>
-      )}
-
-      <SampleImageCarousel
-  images={sampleImages ?? []}
-/>
-
-      {/* 関連ページ */}
-      <section className="mt-10 rounded-2xl border bg-white p-6 shadow-sm">
-
-        <h2 className="mb-5 text-2xl font-black">
-          🔗 関連ページ
-        </h2>
-
-        <div className="flex flex-wrap gap-3">
-
-          {actresses.map((actress) => (
-            <Link
-              key={`actress-${actress}`}
-              href={`/actress/${encodeURIComponent(actress)}`}
-              className="rounded-xl bg-pink-100 px-4 py-2 font-semibold hover:bg-pink-200"
-            >
-              👩 {actress}の作品一覧
-            </Link>
-          ))}
-
-          {genres.map((genre) => (
-            <Link
-              key={`genre-${genre}`}
-              href={`/genre/${encodeURIComponent(genre)}`}
-              className="rounded-xl bg-indigo-100 px-4 py-2 font-semibold hover:bg-indigo-200"
-            >
-              🏷 {genre}
-            </Link>
-          ))}
-
-          {makers.map((maker) => (
-            <Link
-              key={`maker-${maker}`}
-              href={`/maker/${encodeURIComponent(maker)}`}
-              className="rounded-xl bg-green-100 px-4 py-2 font-semibold hover:bg-green-200"
-            >
-              🏢 {maker}
-            </Link>
-          ))}
-
-          {series.map((seriesName) => (
-            <Link
-              key={`series-${seriesName}`}
-              href={`/series/${encodeURIComponent(seriesName)}`}
-              className="rounded-xl bg-yellow-100 px-4 py-2 font-semibold hover:bg-yellow-200"
-            >
-              📚 {seriesName}
-            </Link>
-          ))}
-
-        </div>
-
-      </section>
+      <RelatedWorks works={relatedWorks ?? []} />
 
     </div>
-    <MobilePurchaseBar
-      work={work}
-      displayPrice={mobileDisplayPrice}
-      displayDiscountRate={mobileDisplayDiscountRate}
-    />
-    <CompareTray />
   </main>
+  <MobilePurchaseBar
+    work={work}
+    displayPrice={mobileDisplayPrice}
+    displayDiscountRate={mobileDisplayDiscountRate}
+  />
+  </>
 );
 }

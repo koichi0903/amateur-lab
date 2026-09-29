@@ -56,7 +56,7 @@ playwright_status: string;
 label: string | null;
 sale_end_at: string | null;
 product_release_date: string | null;
-duration: number | null;
+duration: number | string | null;
 
 is_bottom_price: boolean;
 lowest_price: number | null;

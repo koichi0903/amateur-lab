@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -20,7 +24,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
   "include": [
@@ -29,7 +35,23 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    "**/*.mts"
+    "**/*.mts",
+    ".next-codex/types/**/*.ts",
+    ".next-codex/dev/types/**/*.ts",
+    ".next-xgrowth-dev-3003/types/**/*.ts",
+    ".next-xgrowth-dev-3003/dev/types/**/*.ts",
+    ".next-xgrowth-build/types/**/*.ts",
+    ".next-xgrowth-build/dev/types/**/*.ts",
+    ".next-xgrowth-verify-20260926/types/**/*.ts",
+    ".next-xgrowth-verify-20260926/dev/types/**/*.ts",
+    ".next-xgrowth-verify-20260926-2/types/**/*.ts",
+    ".next-xgrowth-verify-20260926-2/dev/types/**/*.ts",
+    ".next-codex-3002/types/**/*.ts",
+    ".next-codex-3002/dev/types/**/*.ts",
+    ".next-local-update-production/types/**/*.ts",
+    ".next-local-update-production/dev/types/**/*.ts",
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules"
+  ]
 }

@@ -40,3 +40,28 @@ affiliateURL?: string;  // アフィリエイトURL
 
   rank?: number;
 }
+
+export interface DmmActressProfile {
+  id?: number | string;
+  actress_id?: number | string;
+  name?: string;
+  ruby?: string | null;
+  bust?: number | string | null;
+  cup?: string | null;
+  waist?: number | string | null;
+  hip?: number | string | null;
+  height?: number | string | null;
+  birthday?: string | null;
+  blood_type?: string | null;
+  hobby?: string | null;
+  prefectures?: string | null;
+  imageURL?: {
+    small?: string | null;
+    large?: string | null;
+  };
+  listURL?: {
+    digital?: string | null;
+    monthly?: string | null;
+    mono?: string | null;
+  };
+}

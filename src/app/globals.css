@@ -62,10 +62,21 @@ body {
   font-family: var(--font-geist-sans), "Noto Sans JP", Arial, Helvetica, sans-serif;
 }
 
+.work-detail-title {
+  font-family: "Noto Sans JP", Inter, sans-serif;
+}
+
 html {
   scroll-behavior: smooth;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* 公開ページの作品一覧はTOPページと同じ横幅で揃える。 */
+@media (min-width: 1600px) {
+  .max-w-\[1500px\] {
+    max-width: 1600px;
+  }
 }

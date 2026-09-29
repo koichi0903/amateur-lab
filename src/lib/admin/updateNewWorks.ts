@@ -20,6 +20,7 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { saveDmmItem } from "./save";
 import { restoreDiscontinuedWorks } from "./restoreDiscontinuedWorks";
 import { updateWork } from "./updateWork";
+import { notifySeriesAlertsForProducts } from "@/lib/pushNotifications";
 
 type NewProduct = Awaited<ReturnType<typeof getNewItems>>["products"][number];
 
@@ -258,6 +259,11 @@ export async function updateNewWorks() {
     }
 
     await finishJob(JOBS.NEW_UPDATE);
+    try {
+      await notifySeriesAlertsForProducts(updatedWorkIds);
+    } catch (notificationError) {
+      console.error("[push] series notifications failed", notificationError);
+    }
     console.log("新作更新完了");
     return { workIds: updatedWorkIds };
   } catch (error) {

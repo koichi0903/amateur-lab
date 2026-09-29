@@ -6,12 +6,14 @@ const PUBLIC_API_PATHS = new Set([
   "/api/compare",
   "/api/contact",
   "/api/favorites",
+  "/api/push/subscribe",
   "/api/work-page-view",
 ]);
 const LOCAL_UPDATE_API_PATHS = new Set([
   "/api/admin/browser-health",
   "/api/admin/server-health",
   "/api/admin/local-playwright-update",
+  "/api/actress-profile-update",
   "/api/dmm-ranking",
   "/api/fanza-page",
   "/api/review-update",

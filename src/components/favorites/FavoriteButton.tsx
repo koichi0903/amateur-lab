@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { FAVORITES_CHANGED_EVENT, readFavoriteIds, toggleFavorite } from "@/lib/favorites";
 
-type Props = { workId: number; addLabel?: string; className?: string };
+type Props = { workId: number; addLabel?: string; className?: string; iconOnly?: boolean };
 
-export default function FavoriteButton({ workId, addLabel = "お気に入り", className = "" }: Props) {
+export default function FavoriteButton({ workId, addLabel = "お気に入り", className = "", iconOnly = false }: Props) {
   const [isFavorite, setIsFavorite] = useState(false);
 
   useEffect(() => {
@@ -21,7 +21,7 @@ export default function FavoriteButton({ workId, addLabel = "お気に入り", c
 
   return (
     <button type="button" aria-pressed={isFavorite} aria-label={isFavorite ? "お気に入りから解除" : "お気に入りに追加"} onClick={() => toggleFavorite(workId)} className={className}>
-      {isFavorite ? "♥ お気に入り済み" : `♡ ${addLabel}`}
+      {iconOnly ? (isFavorite ? "♥" : "♡") : (isFavorite ? "♥ お気に入り済み" : `♡ ${addLabel}`)}
     </button>
   );
 }

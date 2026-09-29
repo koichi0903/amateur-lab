@@ -22,7 +22,7 @@ export default function TermsPage() {
       <PolicySection title="禁止事項">
         <ul className="list-disc space-y-2 pl-6">
           <li>法令または公序良俗に反する行為</li>
-          <li>18歳未満の方による利用、または年齢確認を不正に回避する行為</li>
+          <li>18歳未満の方による利用</li>
           <li>不正アクセス、攻撃、脆弱性の悪用、運営を妨害する行為</li>
           <li>サーバーへ過度な負荷を与える自動取得、複製、再配布</li>
           <li>当サイトや第三者の著作権、商標権、肖像権、プライバシーその他の権利を侵害する行為</li>

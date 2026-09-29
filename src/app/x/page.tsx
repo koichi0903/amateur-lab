@@ -77,7 +77,7 @@ export default async function XLandingPage() {
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1500px] px-4 py-8 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 border-b border-zinc-800 pb-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-black tracking-[0.18em] text-pink-400">@hakkutsu_lab X向け入口</p>

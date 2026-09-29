@@ -7,15 +7,15 @@ import { supabase } from "@/lib/supabase";
 import { getDiscoveryEntityRankings, type DiscoveryEntityKind, type DiscoveryEntityRankingItem } from "@/lib/ranking/discoveryEntityRanking";
 import type { Work } from "@/types/work";
 import { pageMetadata } from "@/lib/seo";
-import { workDetailHref } from "@/lib/affiliateTracking";
 import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
-import MiniPriceHistoryChart from "@/components/home/MiniPriceHistoryChart";
 import { buildInsightsForWorks, type HomePriceInsightWork } from "@/lib/getHomePriceInsights";
+import FanzaStyleWorkCard from "@/components/catalog/FanzaStyleWorkCard";
+import { sortTrendingWorks } from "@/lib/trendingRanking";
 
 export const revalidate = 86400;
 
 const rankingTypes = {
-  overall: { label: "総合", title: "FANZA作品の発掘ランキング", description: "FANZA作品の魅力を総合評価した「発掘スコア」が高い作品順です。", metric: "発掘スコア" },
+  overall: { label: "総合", title: "FANZA人気作品ランキング", description: "FANZAで注目されている作品を、価格・レビュー・販売状況とあわせて比較できます。" },
   actress: { label: "女優", title: "FANZA作品から見る発掘女優ランキング", description: "FANZA出演作品の発掘スコアと実績を集計し、いま発掘したい女優を紹介します。", entityLabel: "女優" },
   genre: { label: "ジャンル", title: "FANZA作品の発掘ジャンルランキング", description: "FANZA所属作品の発掘スコアと実績を集計し、いま発掘したいジャンルを紹介します。", entityLabel: "ジャンル" },
   maker: { label: "メーカー", title: "FANZA作品の発掘メーカーランキング", description: "FANZA所属作品の発掘スコアと実績を集計し、いま発掘したいメーカーを紹介します。", entityLabel: "メーカー" },
@@ -42,16 +42,6 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   });
 }
 
-function getPrice(work: Work) {
-  return work.sale_price > 0 ? work.sale_price : work.price;
-}
-
-function Price({ work }: { work: Work }) {
-  const price = getPrice(work);
-  if (!price || price <= 0) return <span className="text-slate-400">価格未取得</span>;
-  return <span className={work.sale_price > 0 ? "text-rose-600" : "text-slate-900"}>¥{price.toLocaleString("ja-JP")}{work.discount_rate > 0 && <span className="ml-2 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-black text-rose-600">{work.discount_rate}%OFF</span>}</span>;
-}
-
 function RankBadge({ rank }: { rank: number }) {
   const styles = [
     "bg-gradient-to-br from-amber-300 to-amber-500 text-white shadow-amber-200",
@@ -61,30 +51,8 @@ function RankBadge({ rank }: { rank: number }) {
   return <span className={`flex h-11 w-11 items-center justify-center rounded-full text-lg font-black shadow-lg ${styles[rank - 1] ?? "bg-slate-900 text-white"}`}>{rank}</span>;
 }
 
-function PriceChart({ insight }: { insight?: HomePriceInsightWork }) {
-  if (!insight) return null;
-  return <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1">
-    <MiniPriceHistoryChart
-      points={insight.priceHistory}
-      windowStartAt={insight.priceWindowStartAt}
-      windowEndAt={insight.priceWindowEndAt}
-      lowPrice={insight.low90Price}
-      currentPrice={insight.currentPrice}
-      variant="compact"
-    />
-  </div>;
-}
-
-function WorkTopCard({ work, rank, insight }: { work: Work; rank: number; insight?: HomePriceInsightWork }) {
-  return <Link href={workDetailHref(work.id, "ranking")} className={`group relative flex min-w-0 flex-col overflow-hidden rounded-3xl border bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:shadow-xl sm:p-4 ${rank === 1 ? "border-amber-300 lg:-mt-4 lg:mb-4" : "border-slate-200"}`}>
-    <div className="absolute left-5 top-5 z-10"><RankBadge rank={rank} /></div>{rank === 1 && <Crown className="absolute right-5 top-5 z-10 text-amber-500" size={27} />}
-    <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-slate-100"><WorkImage src={work.image_url} alt={work.title} sizes="(max-width: 768px) 92vw, 30vw" priority={rank === 1} unoptimized className="object-cover transition duration-500 group-hover:scale-105" /></div>
-    <div className="flex flex-1 flex-col px-1 pb-1 pt-4"><div className="text-pink-600"><span className="block text-[10px] font-black tracking-wider">順位基準：発掘スコア</span><strong className="mt-1 block text-3xl leading-none">{work.score > 0 ? work.score : "—"}</strong></div><h2 className="mt-3 line-clamp-2 min-h-12 text-base font-black leading-6 text-slate-900">{work.title}</h2><div className="mt-auto flex items-center justify-between gap-3 border-t border-slate-100 pt-4 text-sm font-black"><Price work={work} /><span className="flex shrink-0 items-center gap-1 text-pink-600">価格・詳細 <ArrowRight size={15} /></span></div><PriceChart insight={insight} /></div>
-  </Link>;
-}
-
 function WorkListCard({ work, rank, insight }: { work: Work; rank: number; insight?: HomePriceInsightWork }) {
-  return <Link href={workDetailHref(work.id, "ranking")} className="group grid min-w-0 grid-cols-[38px_112px_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-pink-200 hover:shadow-md sm:grid-cols-[48px_150px_minmax(0,1fr)] sm:gap-5 sm:p-4"><span className="text-center text-xl font-black text-slate-400 sm:text-2xl">{rank}</span><div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-100"><WorkImage src={work.image_url} alt={work.title} sizes="150px" unoptimized className="object-cover transition duration-300 group-hover:scale-105" /></div><div className="min-w-0 self-stretch py-0.5"><div className="text-pink-600"><span className="block text-[10px] font-black tracking-wider">順位基準：発掘スコア</span><strong className="mt-0.5 block text-2xl leading-none">{work.score > 0 ? work.score : "—"}</strong></div><h2 className="mt-2 line-clamp-2 text-sm font-black leading-5 text-slate-900 sm:text-base sm:leading-6">{work.title}</h2><div className="mt-2 text-xs font-black sm:text-sm"><Price work={work} /></div><PriceChart insight={insight} /></div></Link>;
+  return <FanzaStyleWorkCard work={work} sourcePage="ranking" rank={rank} insight={insight} />;
 }
 
 function EntityMetrics({ item, compact = false }: { item: DiscoveryEntityRankingItem; compact?: boolean }) {
@@ -117,12 +85,13 @@ export default async function RankingPage({ searchParams }: { searchParams: Prom
   let totalItems = 0;
 
   if (type === "overall") {
-    let rankingQuery = supabase.from("works").select("id,product_id,title,image_url,genre,score,price,sale_price,list_price,discount_rate,sample_movie_url,lowest_price,is_bottom_price,sale_end_at,ranking,realtime_rank,review_average,review_count", { count: "exact" }).gt("score", 0).or(NON_VR_GENRE_OR_FILTER).not("title", "ilike", "%VR%");
+    let rankingQuery = supabase.from("works").select("id,product_id,title,image_url,actress,genre,maker,series,price,sale_price,list_price,discount_rate,sample_movie_url,lowest_price,is_bottom_price,sale_end_at,ranking,realtime_rank,previous_realtime_rank,review_average,review_count,affiliate_url", { count: "exact" }).or(NON_VR_GENRE_OR_FILTER).not("title", "ilike", "%VR%");
     if (saleOnly) rankingQuery = rankingQuery.gt("sale_price", 0);
     if (sampleOnly) rankingQuery = rankingQuery.not("sample_movie_url", "is", null).neq("sample_movie_url", "");
     if (maxPrice) rankingQuery = rankingQuery.or(`and(sale_price.gt.0,sale_price.lte.${maxPrice}),and(sale_price.eq.0,price.lte.${maxPrice})`);
-    const result = await rankingQuery.order("score", { ascending: false, nullsFirst: false }).range(offset, offset + pageSize - 1);
-    works = ((result.data ?? []) as unknown as Work[]).filter(isNonVrWork);
+    const result = await rankingQuery.limit(2000);
+    const sortedWorks = sortTrendingWorks(((result.data ?? []) as unknown as Work[]).filter(isNonVrWork));
+    works = sortedWorks.slice(offset, offset + pageSize);
     totalItems = result.count ?? works.length;
     errorMessage = result.error?.message ?? null;
   } else {
@@ -154,11 +123,7 @@ export default async function RankingPage({ searchParams }: { searchParams: Prom
   const entityKind = type === "overall" ? null : type;
 
   return <><Header /><main className="min-h-screen bg-[#f8fafc] text-slate-950">
-    <section className="border-b border-slate-200 bg-white"><div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8"><Link href="/" className="text-xs font-bold text-slate-500 transition hover:text-pink-600">TOP <span className="mx-1">/</span> ランキング</Link><div className="mt-5 flex max-w-3xl items-start gap-4"><span className="shrink-0 rounded-2xl bg-pink-50 p-3 text-pink-600"><Trophy size={28} /></span><div className="min-w-0"><p className="text-xs font-black tracking-[0.18em] text-pink-600">DISCOVERY RANKING</p><h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">{current.title}</h1><p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">{current.description}</p>{entityKind && <p className="mt-2 text-xs leading-5 text-slate-400">発掘スコアは、上位5作品の平均60%・上位20作品の平均25%・登録作品数補正15%で算出しています。</p>}</div></div><nav aria-label="ランキング種別" className="mt-8 flex gap-2 overflow-x-auto pb-1">{(Object.entries(rankingTypes) as [RankingType, (typeof rankingTypes)[RankingType]][]).map(([key, item]) => <Link key={key} href={key === "overall" ? "/ranking" : `/ranking?type=${key}`} aria-current={key === type ? "page" : undefined} className={`shrink-0 rounded-full px-5 py-2.5 text-sm font-black transition ${key === type ? "bg-slate-950 text-white shadow-md" : "border border-slate-200 bg-white text-slate-600 hover:border-pink-300 hover:text-pink-600"}`}>{item.label}</Link>)}</nav></div></section>
-    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{type === "overall" && <form action="/ranking" className="mb-8 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-[1fr_auto_auto_auto]"><label className="text-xs font-black text-slate-600">上限価格<select name="maxPrice" defaultValue={maxPrice ?? ""} className="mt-1 block h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold"><option value="">指定なし</option><option value="1000">1,000円以下</option><option value="2000">2,000円以下</option><option value="3000">3,000円以下</option></select></label><label className="flex h-11 items-center gap-2 self-end rounded-xl border border-slate-200 px-3 text-sm font-black"><input type="checkbox" name="sale" value="1" defaultChecked={saleOnly} className="h-4 w-4 accent-pink-600" />セール中</label><label className="flex h-11 items-center gap-2 self-end rounded-xl border border-slate-200 px-3 text-sm font-black"><input type="checkbox" name="sample" value="1" defaultChecked={sampleOnly} className="h-4 w-4 accent-pink-600" />サンプルあり</label><button type="submit" className="h-11 self-end rounded-xl bg-slate-950 px-6 text-sm font-black text-white hover:bg-pink-600">絞り込む</button></form>}{errorMessage ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">ランキングを読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : itemCount === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center"><Sparkles className="mx-auto text-slate-300" size={38} /><p className="mt-4 font-black">ランキングを集計中です</p></div> : <>
-      {page === 1 && <section aria-labelledby="top-ranking"><div className="mb-6"><p className="text-xs font-black tracking-widest text-pink-600">TOP PICKS</p><h2 id="top-ranking" className="mt-1 text-2xl font-black">{entityKind ? `発掘${rankingTypes[entityKind].entityLabel} TOP3` : "発掘スコア TOP3"}</h2></div><div className="grid gap-4 md:grid-cols-3 lg:items-start">{entityKind ? entities.slice(0, 3).map((item) => <EntityTopCard key={item.name} item={item} kind={entityKind} />) : works.slice(0, 3).map((work, index) => <WorkTopCard key={work.id} work={work} rank={index + 1} insight={rankingInsightsById.get(work.id)} />)}</div></section>}
-      {(page > 1 || itemCount > 3) && <section className={page === 1 ? "mt-12" : ""} aria-labelledby="all-ranking"><div className="mb-5 flex items-end justify-between gap-4"><div><p className="text-xs font-black tracking-widest text-pink-600">DISCOVERY RANKING</p><h2 id="all-ranking" className="mt-1 text-2xl font-black">{page === 1 ? "4位以降" : `${offset + 1}〜${offset + itemCount}位`}</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{totalItems}{entityKind ? "件" : "作品"}</span></div><div className="grid gap-3 lg:grid-cols-2">{entityKind ? (page === 1 ? entities.slice(3) : entities).map((item) => <EntityListCard key={item.name} item={item} kind={entityKind} />) : (page === 1 ? works.slice(3) : works).map((work, index) => <WorkListCard key={work.id} work={work} rank={offset + index + (page === 1 ? 4 : 1)} insight={rankingInsightsById.get(work.id)} />)}</div></section>}
-      {(page > 1 || hasNextPage) && <nav aria-label="ランキングのページ送り" className="mt-10 flex items-center justify-center gap-3">{page > 1 && <Link href={pageHref(page - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black">← 前の30件</Link>}{hasNextPage && <Link href={pageHref(page + 1)} className="flex items-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black text-white">次の30件 <ArrowRight size={16} /></Link>}</nav>}
-    </>}</div>
+    {type === "overall" ? <section className="bg-white"><div className="mx-auto max-w-[1500px] px-4 pb-12 pt-10 sm:px-6 sm:pb-16 sm:pt-14 lg:px-8"><h1 className="text-3xl font-black tracking-tight sm:text-5xl">FANZA人気作品ランキング</h1><p className="mt-3 text-sm leading-7 text-slate-600 sm:text-base">現在の売れ筋作品をランキング順に掲載。価格・割引・レビュー情報とあわせて比較できます。</p><p className="mt-2 max-w-4xl text-xs leading-6 text-slate-500 sm:text-sm">FANZAの人気作品を定期的に集計し、上位作品を一覧で確認できます。気になる作品は詳細ページで現在価格やセール情報を確認できます。</p></div></section> : <section className="border-b border-slate-200 bg-white"><div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 sm:py-14 lg:px-8"><Link href="/" className="text-xs font-bold text-slate-500 transition hover:text-pink-600">TOP <span className="mx-1">/</span> ランキング</Link><div className="mt-5 flex max-w-3xl items-start gap-4"><span className="shrink-0 rounded-2xl bg-pink-50 p-3 text-pink-600"><Trophy size={28} /></span><div className="min-w-0"><p className="text-xs font-black tracking-[0.18em] text-pink-600">DISCOVERY RANKING</p><h1 className="mt-2 text-3xl font-black tracking-tight sm:text-5xl">{current.title}</h1><p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">{current.description}</p></div></div><nav aria-label="ランキング種別" className="mt-8 flex gap-2 overflow-x-auto pb-1">{(Object.entries(rankingTypes) as [RankingType, (typeof rankingTypes)[RankingType]][]).map(([key, item]) => <Link key={key} href={key === "overall" ? "/ranking" : `/ranking?type=${key}`} aria-current={key === type ? "page" : undefined} className={`shrink-0 rounded-full px-5 py-2.5 text-sm font-black transition ${key === type ? "bg-slate-950 text-white shadow-md" : "border border-slate-200 bg-white text-slate-600 hover:border-pink-300 hover:text-pink-600"}`}>{item.label}</Link>)}</nav></div></section>}
+    <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">{errorMessage ? <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center"><p className="font-black">ランキングを読み込めませんでした</p><p className="mt-2 text-sm text-slate-500">時間をおいて、もう一度お試しください。</p></div> : itemCount === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center"><Sparkles className="mx-auto text-slate-300" size={38} /><p className="mt-4 font-black">ランキングを集計中です</p></div> : type === "overall" ? <><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{works.map((work, index) => <WorkListCard key={work.id} work={work} rank={offset + index + 1} insight={rankingInsightsById.get(work.id)} />)}</div>{(page > 1 || hasNextPage) && <nav aria-label="ランキングのページ送り" className="mt-10 flex items-center justify-center gap-3">{page > 1 && <Link href={pageHref(page - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black">← 前の30件</Link>}{hasNextPage && <Link href={pageHref(page + 1)} className="flex items-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black text-white">次の30件 <ArrowRight size={16} /></Link>}</nav>}</> : <><section aria-labelledby="top-ranking"><div className="mb-6"><p className="text-xs font-black tracking-widest text-pink-600">TOP PICKS</p><h2 id="top-ranking" className="mt-1 text-2xl font-black">{`発掘${rankingTypes[entityKind!].entityLabel} TOP3`}</h2></div><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{page === 1 && entities.slice(0, 3).map((item) => <EntityTopCard key={item.name} item={item} kind={entityKind!} />)}</div></section><section className="mt-12" aria-labelledby="all-ranking"><div className="mb-5 flex items-end justify-between gap-4"><div><p className="text-xs font-black tracking-widest text-pink-600">DISCOVERY RANKING</p><h2 id="all-ranking" className="mt-1 text-2xl font-black">{page === 1 ? "4位以降" : `${offset + 1}〜${offset + itemCount}位`}</h2></div><span className="shrink-0 text-xs font-bold text-slate-400">全{totalItems}件</span></div><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{(page === 1 ? entities.slice(3) : entities).map((item) => <EntityListCard key={item.name} item={item} kind={entityKind!} />)}</div></section>{(page > 1 || hasNextPage) && <nav aria-label="ランキングのページ送り" className="mt-10 flex items-center justify-center gap-3">{page > 1 && <Link href={pageHref(page - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black">← 前の30件</Link>}{hasNextPage && <Link href={pageHref(page + 1)} className="flex items-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-black text-white">次の30件 <ArrowRight size={16} /></Link>}</nav>}</>}</div>
   </main></>;
 }

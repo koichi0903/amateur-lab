@@ -83,4 +83,11 @@ export const JOB_REGISTRY = {
     method: "POST",
     visible: true,
   },
+  actress_profiles: {
+    title: "👩 女優プロフィール補完",
+    order: 13,
+    api: "/api/actress-profile-update",
+    method: "POST",
+    visible: true,
+  },
 } as const;

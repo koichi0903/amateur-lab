@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const links = [
-  { href: "/about", label: "発掘LABについて" },
   { href: "/editorial-policy", label: "編集・データ更新方針" },
   { href: "/affiliate-disclosure", label: "広告・アフィリエイトについて" },
   { href: "/privacy", label: "プライバシーポリシー" },
@@ -26,12 +25,14 @@ export default function Footer() {
               FANZA作品の価格・レビュー・ランキングなどを独自に分析する、18歳以上向けの情報メディアです。
               発掘LABはFANZA/DMMの公式サイトではありません。
             </p>
-            <div className="mt-5 rounded-2xl border border-pink-400/20 bg-pink-400/10 p-4 text-sm leading-7">
-              <p className="font-black text-pink-300">広告・アフィリエイトについて</p>
-              <p className="mt-1 text-slate-300">
-                当サイトのリンクを経由して商品が購入された場合、運営者に紹介料が支払われることがあります。
-                表示価格・セール期間・販売状況は変わるため、購入前にFANZA公式ページで最新情報をご確認ください。
-              </p>
+            <div className="mt-5 flex flex-col gap-4 rounded-2xl border border-pink-400/20 bg-pink-400/10 p-4 text-sm leading-7 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-black text-pink-300">広告・アフィリエイトについて</p>
+                <p className="mt-1 text-slate-300">当サイトはFANZA(DMM)のアフィリエイトプログラムに参加しています。</p>
+              </div>
+              <a href="https://affiliate.dmm.com/api/" target="_blank" rel="nofollow sponsored noopener noreferrer" className="shrink-0 opacity-90 transition hover:opacity-100">
+                <img src="https://p.dmm.co.jp/p/affiliate/web_service/r18_135_17.gif" width="135" height="17" alt="WEB SERVICE BY FANZA" />
+              </a>
             </div>
           </div>
           <nav aria-label="フッターナビゲーション" className="grid content-start gap-2 sm:grid-cols-2">

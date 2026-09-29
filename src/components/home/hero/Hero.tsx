@@ -1,118 +1,31 @@
+"use client";
+
 import Link from "next/link";
-import type { DailyDiscoveryWithMedia } from "@/lib/getDailyDiscovery";
-import type { HomePriceInsightWork } from "@/lib/getHomePriceInsights";
-import HeroMedia from "./HeroMedia";
-import MiniPriceHistoryChart from "../MiniPriceHistoryChart";
-import { workDetailHref } from "@/lib/affiliateTracking";
+import { Heart, Sparkles } from "lucide-react";
+import { useState } from "react";
 
-const formatPrice = (value: number | null | undefined) =>
-  value && value > 0 ? `¥${value.toLocaleString("ja-JP")}` : "価格未取得";
+export default function Hero() {
+  const [isOpen, setIsOpen] = useState(true);
 
-function HeroPricePanel({ priceInsight }: { priceInsight: HomePriceInsightWork }) {
-  return (
-    <div className="mt-5 max-w-md rounded-xl border border-white/20 bg-white/95 p-3 text-slate-950 shadow-lg backdrop-blur sm:mt-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-black text-pink-600">PRICE WATCH</p>
-          <p className="mt-1 text-xl font-black text-pink-600">{formatPrice(priceInsight.currentPrice)}</p>
-        </div>
-        <span className="rounded-full bg-pink-100 px-2 py-1 text-[11px] font-black text-pink-700">{priceInsight.badge}</span>
-      </div>
-      <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1">
-        <MiniPriceHistoryChart
-          points={priceInsight.priceHistory}
-          windowStartAt={priceInsight.priceWindowStartAt}
-          windowEndAt={priceInsight.priceWindowEndAt}
-          lowPrice={priceInsight.low90Price}
-          currentPrice={priceInsight.currentPrice}
-          variant="hero"
-        />
-      </div>
-      <p className="text-xs font-bold text-slate-500">
-        {priceInsight.previousPrice && priceInsight.dropAmount > 0
-          ? `${formatPrice(priceInsight.previousPrice)}から${priceInsight.dropRate}%OFF`
-          : `90日最安 ${formatPrice(priceInsight.low90Price)}`}
-      </p>
-    </div>
-  );
-}
-
-export default function Hero({
-  work,
-  eyebrow = "TODAY'S PICK",
-  reason,
-  priceInsight,
-}: {
-  work: DailyDiscoveryWithMedia | null;
-  eyebrow?: string;
-  reason?: string;
-  priceInsight?: HomePriceInsightWork | null;
-}) {
-  const hasValidWorkId = work != null && Number.isInteger(work.id) && work.id > 0;
+  if (!isOpen) return null;
 
   return (
-    <section className="px-4 pt-4 sm:px-6 lg:px-8">
-      <div className="relative mx-auto grid min-h-[360px] max-w-[1500px] overflow-hidden rounded-[28px] bg-[#142438] px-6 py-7 shadow-[0_22px_60px_rgba(15,23,42,.18)] sm:px-10 sm:py-9 lg:grid-cols-[1.05fr_.95fr] lg:items-center lg:px-14 lg:py-10">
-        <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-pink-500/20 blur-3xl" />
-        <div className="absolute bottom-[-45%] right-[28%] h-80 w-80 rounded-full bg-cyan-400/15 blur-3xl" />
-
-        <div className="relative z-10 max-w-2xl text-white">
-          <h1 className="whitespace-nowrap text-[clamp(1.625rem,7.5vw,2rem)] font-black leading-tight tracking-[-0.04em] sm:text-5xl lg:text-6xl">
-            AIが毎日名作を発掘
-          </h1>
-          <p className="mt-4 text-base font-bold leading-8 text-slate-200 sm:text-xl">
-            ランキングだけでは見つけにくい作品を、価格推移とレビューから毎日整理。
-            <span className="block text-sm text-pink-100 sm:text-base">迷ったら、まず今日の候補と価格で選べます。</span>
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3 sm:mt-7">
-            <Link
-              href="#daily-discovery"
-              className="rounded-full bg-pink-600 px-7 py-3.5 text-sm font-black text-white transition hover:bg-pink-500"
-            >
-              今日の候補を見る
-            </Link>
-            <Link href="/price-insights" className="rounded-full border border-white/25 px-6 py-3.5 text-sm font-black text-white transition hover:border-white/60 hover:bg-white/10">価格で選ぶ</Link>
-            <Link href="/features" className="rounded-full border border-white/25 px-6 py-3.5 text-sm font-black text-white transition hover:border-white/60 hover:bg-white/10">特集を見る</Link>
-          </div>
-          {priceInsight && <HeroPricePanel priceInsight={priceInsight} />}
+    <section className="border-b border-slate-200 bg-[#f8fafc] px-4 pb-4 pt-5 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1500px]">
+        <div className="px-1 pb-4 sm:px-2">
+          <h1 className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">FANZA作品の価格と買い時を比較</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">現在価格、過去最安値、レビュー、セール終了時期を見ながら、今チェックしたい作品を探せます。</p>
         </div>
-
-        <div className="relative mt-7 min-h-[240px] sm:mt-8 lg:mt-0 lg:min-h-[320px]">
-          <div className="absolute inset-0 overflow-hidden rounded-2xl border border-white/15 bg-gradient-to-br from-white/15 to-white/5 shadow-2xl backdrop-blur-sm">
-            {hasValidWorkId ? (
-              <Link
-                href={workDetailHref(work.id, "home")}
-                className="group relative block h-full cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-pink-300"
-              >
-                <div className="absolute inset-0">
-                <HeroMedia
-                  imageUrl={work.image_url ?? null}
-                  videoUrl={work.sample_movie_allowed ? work.sample_movie_url ?? null : null}
-                  title={work.title}
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#142438] via-[#142438]/20 to-[#142438]/5" />
-                <div className={`absolute inset-x-0 bottom-0 p-5 text-white sm:p-7 ${priceInsight ? "lg:max-w-[55%]" : ""}`}>
-                  <p className="text-xs font-black tracking-[.18em] text-pink-300">{eyebrow}</p>
-                  <p className="mt-2 line-clamp-2 text-lg font-black sm:text-2xl">{work.title}</p>
-                  {reason && <p className="mt-2 line-clamp-2 text-xs font-bold leading-5 text-slate-200 sm:text-sm">選定理由：{reason}</p>}
-                </div>
-                </div>
-              </Link>
-            ) : (
-              <>
-                <HeroMedia imageUrl={work?.image_url ?? null} videoUrl={null} title={work?.title ?? ""} />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#142438] via-[#142438]/20 to-[#142438]/5" />
-                {work && (
-                  <div className="absolute inset-x-0 bottom-0 p-5 text-white sm:p-7">
-                    <p className="text-xs font-black tracking-[.18em] text-pink-300">{eyebrow}</p>
-                    <p className="mt-2 line-clamp-2 text-lg font-black sm:text-2xl">{work.title}</p>
-                    {reason && <p className="mt-2 line-clamp-2 text-xs font-bold leading-5 text-slate-200 sm:text-sm">選定理由：{reason}</p>}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+      <div className="rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-sm sm:px-7">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-sm font-black text-slate-900"><span className="text-amber-500">💡</span>使い方ガイド</div>
+          <button type="button" aria-label="使い方ガイドを閉じる" onClick={() => setIsOpen(false)} className="text-xl leading-none text-slate-400 transition hover:text-slate-700">×</button>
         </div>
+        <div className="mt-4 grid gap-5 lg:grid-cols-2 lg:gap-10">
+          <div className="flex items-center gap-3 text-sm font-bold text-slate-700"><Heart size={19} className="shrink-0 text-pink-600" />気になった作品のハートをタップしてお気に入りに保存できます</div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3 text-sm font-bold text-slate-700"><Sparkles size={19} className="shrink-0 text-violet-600" /><span><strong>好み発掘</strong>がお気に入りを分析して、あなたの好みの作品をおすすめします</span></div><Link href="/personal-pick" className="shrink-0 rounded-lg bg-violet-600 px-4 py-2.5 text-xs font-black text-white transition hover:bg-violet-700">✦ 好みを発掘する</Link></div>
+        </div>
+      </div>
       </div>
     </section>
   );

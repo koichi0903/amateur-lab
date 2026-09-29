@@ -2,9 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import WebSiteStructuredData from "./components/WebSiteStructuredData";
 import OrganizationStructuredData from "./components/OrganizationStructuredData";
-import { SITE_URL } from "@/lib/seo";
-import AgeGate from "@/components/compliance/AgeGate";
-import PublicDisclosure from "@/components/compliance/PublicDisclosure";
+import { DEFAULT_ROBOTS, SITE_URL } from "@/lib/seo";
 import Footer from "@/components/layout/Footer";
 import Analytics from "./components/Analytics";
 
@@ -31,11 +29,9 @@ export const metadata: Metadata = {
   manifest: "/site.webmanifest",
 
   robots: {
-  index: true,
-  follow: true,
+  ...DEFAULT_ROBOTS,
   googleBot: {
-    index: true,
-    follow: true,
+    ...DEFAULT_ROBOTS,
     "max-image-preview": "large",
     "max-snippet": -1,
     "max-video-preview": -1,
@@ -92,9 +88,6 @@ export default function RootLayout({
   <WebSiteStructuredData />
 <OrganizationStructuredData />
 <Analytics />
-<AgeGate />
-<PublicDisclosure />
-
 <div className="flex-1">
   {children}
 </div>
