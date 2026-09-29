@@ -1,7 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { getAllWorks } from "@/lib/supabase/getAllWorks";
 
-export type DiscoveryEntityKind = "actress" | "genre" | "maker" | "series";
+export type DiscoveryEntityKind = "actress" | "genre" | "maker";
 
 type RankingWork = {
   id: number;
@@ -9,7 +9,6 @@ type RankingWork = {
   actress: string | null;
   genre: string | null;
   maker: string | null;
-  series: string | null;
   image_url: string | null;
   score: number | null;
 };
@@ -35,7 +34,6 @@ const minimumWorkCounts: Record<DiscoveryEntityKind, number> = {
   actress: 3,
   genre: 5,
   maker: 3,
-  series: 2,
 };
 
 function entityNames(work: RankingWork, kind: DiscoveryEntityKind) {
@@ -103,7 +101,7 @@ export function calculateDiscoveryEntityRankings(works: RankingWork[], kind: Dis
 }
 
 async function loadDiscoveryEntityRankings(kind: DiscoveryEntityKind) {
-  const works = await getAllWorks<RankingWork>("id,title,actress,genre,maker,series,image_url,score");
+  const works = await getAllWorks<RankingWork>("id,title,actress,genre,maker,image_url,score");
   return calculateDiscoveryEntityRankings(works, kind);
 }
 

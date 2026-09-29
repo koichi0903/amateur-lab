@@ -19,7 +19,6 @@ const rankingTypes = {
   actress: { label: "女優", title: "FANZA作品から見る発掘女優ランキング", description: "FANZA出演作品の発掘スコアと実績を集計し、いま発掘したい女優を紹介します。", entityLabel: "女優" },
   genre: { label: "ジャンル", title: "FANZA作品の発掘ジャンルランキング", description: "FANZA所属作品の発掘スコアと実績を集計し、いま発掘したいジャンルを紹介します。", entityLabel: "ジャンル" },
   maker: { label: "メーカー", title: "FANZA作品の発掘メーカーランキング", description: "FANZA所属作品の発掘スコアと実績を集計し、いま発掘したいメーカーを紹介します。", entityLabel: "メーカー" },
-  series: { label: "シリーズ", title: "FANZA作品の発掘シリーズランキング", description: "FANZA所属作品の発掘スコアと実績を集計し、いま発掘したいシリーズを紹介します。", entityLabel: "シリーズ" },
 } as const;
 
 type RankingType = keyof typeof rankingTypes;
