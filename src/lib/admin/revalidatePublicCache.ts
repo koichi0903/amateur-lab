@@ -5,7 +5,7 @@ const CATALOG_TASKS = new Set(["reserve", "new", "semi-new", "old", "stage"]);
 const PRICE_TASKS = new Set(["sale", "ended-sale", "missing-prices"]);
 const DISCOVERY_TASKS = new Set(["review", "ranking", "score"]);
 
-const ENTITY_PATHS = ["/actress", "/genre", "/maker", "/series"];
+const ENTITY_PATHS = ["/actress", "/genre", "/maker"];
 
 export const PUBLIC_CACHE_TASKS = new Set([
   "reserve",

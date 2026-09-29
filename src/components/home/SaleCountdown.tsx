@@ -16,9 +16,9 @@ function remainingLabel(saleEndAt: string, now: number) {
   const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
   const minutes = totalMinutes % 60;
 
-  if (days > 0) return `終了まで ${days}日${hours}時間`;
-  if (hours > 0) return `終了まで ${hours}時間${minutes}分`;
-  return `終了まで ${minutes}分`;
+  if (days > 0) return `${days}日${hours}時間`;
+  if (hours > 0) return `${hours}時間${minutes}分`;
+  return `${minutes}分`;
 }
 
 export default function SaleCountdown({ saleEndAt }: { saleEndAt: string | null }) {
@@ -37,9 +37,12 @@ export default function SaleCountdown({ saleEndAt }: { saleEndAt: string | null 
   if (!label) return null;
 
   return (
-    <span className="flex items-center gap-1 whitespace-nowrap text-[10px] font-black text-amber-700 sm:text-[11px]">
-      <Clock3 aria-hidden="true" size={12} />
-      {label}
+    <span className="flex shrink-0 flex-col items-end gap-0.5 text-right text-[10px] font-black leading-tight text-amber-700 sm:text-[11px]">
+      <span className="flex items-center gap-1 whitespace-nowrap">
+        <Clock3 aria-hidden="true" size={12} />
+        終了まで
+      </span>
+      <span className="whitespace-nowrap">{label}</span>
     </span>
   );
 }

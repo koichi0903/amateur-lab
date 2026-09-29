@@ -81,7 +81,6 @@ export default function WorkHero({ work, sampleImages, sampleMovieUrl, sourcePag
       <div className="mt-4 flex min-w-0 flex-wrap gap-2">
         {work.actress && <ActressTags actress={work.actress} />}
         {work.maker && <Link href={`/maker/${encodeURIComponent(work.maker)}`} className="max-w-full break-words rounded-full bg-green-100 px-4 py-1.5 text-sm font-semibold leading-5 text-green-700 transition hover:bg-green-200">🏢 {work.maker}</Link>}
-        {work.series && <Link href={`/series/${encodeURIComponent(work.series)}`} className="max-w-full break-words rounded-full bg-yellow-100 px-4 py-1.5 text-sm font-semibold leading-5 text-yellow-700 transition hover:bg-yellow-200">📚 {work.series}</Link>}
         {genres.map((genre, index) => <Link key={`${genre}-${index}`} href={`/genre/${encodeURIComponent(genre)}`} className="max-w-full break-words rounded-full bg-indigo-100 px-4 py-1.5 text-sm font-semibold leading-5 text-indigo-700 transition hover:bg-indigo-200">🏷 {genre}</Link>)}
       </div>
 

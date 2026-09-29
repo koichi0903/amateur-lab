@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { catalogMetadata, decodeCatalogName } from "@/components/catalog/CatalogDetailPage";
+import { catalogMetadata, decodeCatalogName } from "@/components/catalog/CatalogMetadata";
 import GenreDetailContent from "@/components/catalog/GenreDetailPage";
 
 export const revalidate = 86400;

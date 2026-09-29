@@ -49,7 +49,7 @@ const staticEntries: SitemapEntry[] = [
     changeFrequency: "daily" as const,
     priority: 0.9,
   })),
-  ...["actress", "genre", "maker", "series", "features"].map((path) => ({
+  ...["actress", "genre", "maker", "features"].map((path) => ({
     url: `${SITE_URL}/${path}`,
     changeFrequency: "weekly" as const,
     priority: 0.8,
@@ -161,7 +161,7 @@ export async function getWorkSitemapEntries(
 }
 
 export async function getCatalogSitemapEntries(): Promise<SitemapEntry[]> {
-  const kinds: EntityIndexKind[] = ["actress", "genre", "maker", "series"];
+  const kinds: EntityIndexKind[] = ["actress", "genre", "maker"];
   const entries: SitemapEntry[] = [];
 
   // These calls share one cached RPC result. Keeping them sequential also avoids
