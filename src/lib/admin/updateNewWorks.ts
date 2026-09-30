@@ -21,6 +21,7 @@ import { saveDmmItem } from "./save";
 import { restoreDiscontinuedWorks } from "./restoreDiscontinuedWorks";
 import { updateWork } from "./updateWork";
 import { notifySeriesAlertsForProducts } from "@/lib/pushNotifications";
+import { shouldCaptureSampleMovie } from "./sampleMovieCapture";
 
 type NewProduct = Awaited<ReturnType<typeof getNewItems>>["products"][number];
 
@@ -30,6 +31,8 @@ type NewWork = {
   list_price: number | null;
   sale_price: number | null;
   playwright_status: string | null;
+  sample_movie_url: string | null;
+  sample_movie_checked_at: string | null;
 };
 
 async function loadAllProductIds(): Promise<Set<string>> {
@@ -66,7 +69,7 @@ async function loadNewWorks(): Promise<NewWork[]> {
     const { data, error } = await supabase
       .from("works")
       .select(
-        "product_id, release_date, list_price, sale_price, playwright_status",
+        "product_id, release_date, list_price, sale_price, playwright_status, sample_movie_url, sample_movie_checked_at",
       )
       .eq("stage", "NEW")
       .order("product_id")
@@ -212,6 +215,11 @@ export async function updateNewWorks() {
 
           const dbPrice = work.sale_price ?? work.list_price;
           const latestPrice = latest.salePrice ?? latest.listPrice;
+          const captureSampleMovie = shouldCaptureSampleMovie({
+            stage: "NEW",
+            sampleMovieUrl: work.sample_movie_url,
+            sampleMovieCheckedAt: work.sample_movie_checked_at,
+          });
 
           // PENDING means initial Playwright completion is still required even
           // when the headline price already matches the listing page.
@@ -220,7 +228,8 @@ export async function updateNewWorks() {
             !work.playwright_status?.startsWith("UNAVAILABLE_") &&
             dbPrice != null &&
             latestPrice != null &&
-            dbPrice === latestPrice
+            dbPrice === latestPrice &&
+            !captureSampleMovie
           ) {
             console.log(`[SKIP] ${work.product_id} price=${dbPrice}`);
             return;
@@ -236,6 +245,7 @@ export async function updateNewWorks() {
               null,
               browser,
               latest.listPrice,
+              { captureSampleMovie },
             );
             if (changed) updatedWorkIds.push(work.product_id);
           } catch (error) {

@@ -15,6 +15,7 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 import { updateWork } from "./updateWork";
 import { restoreDiscontinuedWorks } from "./restoreDiscontinuedWorks";
+import { shouldCaptureSampleMovie } from "./sampleMovieCapture";
 
 type SemiNewWork = {
   product_id: string;
@@ -23,6 +24,8 @@ type SemiNewWork = {
   sale_price: number | null;
   url: string | null;
   playwright_status: string | null;
+  sample_movie_url: string | null;
+  sample_movie_checked_at: string | null;
 };
 
 async function loadSemiNewWorks(): Promise<SemiNewWork[]> {
@@ -33,7 +36,7 @@ async function loadSemiNewWorks(): Promise<SemiNewWork[]> {
     const { data, error } = await supabase
       .from("works")
       .select(
-        "product_id, price, list_price, sale_price, url, playwright_status",
+        "product_id, price, list_price, sale_price, url, playwright_status, sample_movie_url, sample_movie_checked_at",
       )
       .eq("stage", "SEMI_NEW")
       .order("product_id")
@@ -108,7 +111,13 @@ export async function updateSemiNewWorks() {
           if (!latest) {
             try {
               // Capture the final DMM/Playwright state before archiving it.
-              await updateWork(work.product_id, null, browser, null);
+              await updateWork(work.product_id, null, browser, null, {
+                captureSampleMovie: shouldCaptureSampleMovie({
+                  stage: "SEMI_NEW",
+                  sampleMovieUrl: work.sample_movie_url,
+                  sampleMovieCheckedAt: work.sample_movie_checked_at,
+                }),
+              });
 
               const { error } = await supabase
                 .from("works")
@@ -136,6 +145,11 @@ export async function updateSemiNewWorks() {
           const isUnavailable =
             work.playwright_status?.startsWith("UNAVAILABLE_") ?? false;
           const isMissingData = hasRequiredDataMissing(work);
+          const captureSampleMovie = shouldCaptureSampleMovie({
+            stage: "SEMI_NEW",
+            sampleMovieUrl: work.sample_movie_url,
+            sampleMovieCheckedAt: work.sample_movie_checked_at,
+          });
           const isPriceChanged =
             latestPrice != null && dbPrice !== latestPrice;
 
@@ -145,7 +159,8 @@ export async function updateSemiNewWorks() {
             !isMissingData &&
             dbPrice != null &&
             latestPrice != null &&
-            !isPriceChanged
+            !isPriceChanged &&
+            !captureSampleMovie
           ) {
             console.log(`[SKIP] ${work.product_id} price=${dbPrice}`);
             return;
@@ -169,6 +184,7 @@ export async function updateSemiNewWorks() {
               null,
               browser,
               latest.listPrice,
+              { captureSampleMovie },
             );
             if (changed) updatedWorkIds.push(work.product_id);
           } catch (error) {

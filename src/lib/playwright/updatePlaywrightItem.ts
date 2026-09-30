@@ -16,6 +16,7 @@ import { parsePage } from "./parser";
 import { saveWork } from "./save";
 import { watchSampleMovie } from "./sampleMovie";
 import { advanceUnavailableStatus } from "./unavailableStatus";
+import { sampleMovieUpdateFor } from "@/lib/admin/sampleMovieCapture";
 
 export type PlaywrightUpdateResult =
   | "updated"
@@ -280,6 +281,8 @@ if (!workUrl) {
     }
 
     if (captureSampleMovie && sampleMovieWatcher) {
+      console.log(`[SAMPLE_MOVIE_ATTEMPT] ${productId}`);
+      try {
       const hasOfficialPlayer = await page
         .locator('iframe[src*="/html5_player/"]')
         .first()
@@ -300,12 +303,14 @@ if (!workUrl) {
       const checkedAt = new Date().toISOString();
       let sampleMovieSaved = false;
       if (sampleMovieUrl) {
+        const sampleMovieUpdate = sampleMovieUpdateFor({
+          status: "found",
+          url: sampleMovieUrl,
+          checkedAt,
+        });
         const { data: savedMovie, error: sampleMovieError } = await supabase
           .from("works")
-          .update({
-            sample_movie_url: sampleMovieUrl,
-            sample_movie_checked_at: checkedAt,
-          })
+          .update(sampleMovieUpdate ?? {})
           .eq("product_id", productId)
           .is("sample_movie_url", null)
           .select("product_id")
@@ -321,23 +326,36 @@ if (!workUrl) {
             ? `[SAMPLE_MOVIE_INITIAL_SAVED] ${productId} ${sampleMovieUrl}`
             : `[SAMPLE_MOVIE_INITIAL_PRESERVED] ${productId}`,
         );
+        console.log(`[SAMPLE_MOVIE_RESULT] ${productId} status=found`);
       } else {
+        const sampleMovieUpdate = sampleMovieUpdateFor({
+          status: "confirmed-none",
+          checkedAt,
+        });
         const { error: checkedAtError } = await supabase
           .from("works")
-          .update({ sample_movie_checked_at: checkedAt })
+          .update(sampleMovieUpdate ?? {})
           .eq("product_id", productId)
           .is("sample_movie_url", null);
         if (checkedAtError) throw checkedAtError;
 
         console.log(`[SAMPLE_MOVIE_INITIAL_MISSING] ${productId}`);
+        console.log(`[SAMPLE_MOVIE_RESULT] ${productId} status=confirmed-none`);
       }
 
         if (sampleMovieOnly) {
-        return sampleMovieSaved
-          ? "updated"
-          : sampleMovieUrl
-            ? "unchanged"
-            : "sample_movie_missing";
+          return sampleMovieSaved
+            ? "updated"
+            : sampleMovieUrl
+              ? "unchanged"
+              : "sample_movie_missing";
+        }
+      } catch (error) {
+        console.error(
+          `[SAMPLE_MOVIE_RESULT] ${productId} status=failed-or-unchecked`,
+          error,
+        );
+        throw error;
       }
     }
 
@@ -419,7 +437,7 @@ break;
         setTimeout(resolve, 2000)
       );
     }
-  }
+    }
 }
 
 if (!saved) {

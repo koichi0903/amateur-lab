@@ -208,7 +208,7 @@ async function loadRankingWorkSnapshots(
     const { data, error } = await supabase
       .from("works")
       .select(
-        "product_id,price,list_price,sale_price,url,playwright_status,updated_at",
+        "product_id,price,list_price,sale_price,url,playwright_status,updated_at,stage,sample_movie_url,sample_movie_checked_at",
       )
       .in("product_id", productIds.slice(index, index + DB_BATCH_SIZE));
 
@@ -322,7 +322,9 @@ export async function updateRanking() {
       listingByProductId,
     ).map((target) => ({
       ...target,
-      captureSampleMovie: newlyRegisteredIds.has(target.item.content_id),
+      captureSampleMovie:
+        newlyRegisteredIds.has(target.item.content_id) ||
+        target.reasons.includes("SAMPLE_MOVIE_UNCHECKED"),
     }));
     const skippedCount = rankingTargets.length - playwrightTargets.length;
 

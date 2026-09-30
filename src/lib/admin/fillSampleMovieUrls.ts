@@ -228,8 +228,10 @@ export async function fillSampleMovieUrls() {
         completed: true,
         processedCount: processedBefore,
         totalCount: job.total_count,
+        attempted: 0,
         saved: 0,
         missing: 0,
+        failedOrUnchecked: 0,
         workIds: [] as string[],
       };
     }
@@ -271,6 +273,9 @@ export async function fillSampleMovieUrls() {
       (result) =>
         result.status === "fulfilled" && result.value === "sample_movie_missing",
     ).length;
+    const failedOrUnchecked = results.filter(
+      (result) => result.status === "rejected",
+    ).length;
     const workIds = results.flatMap((result, index) =>
       result.status === "fulfilled" && result.value === "updated"
         ? [targets[index].product_id]
@@ -290,6 +295,10 @@ export async function fillSampleMovieUrls() {
     );
 
     const completed = targets.length < resolveBatchLimit() || processedCount >= totalCount;
+    console.log(
+      `[sample-movie] summary attempted=${targets.length} found=${saved} ` +
+        `confirmed-none=${missing} failed-or-unchecked=${failedOrUnchecked}`,
+    );
     if (completed) {
       await retryDatabaseOperation(
         "動画補完ジョブの完了記録",
@@ -301,8 +310,10 @@ export async function fillSampleMovieUrls() {
       completed,
       processedCount,
       totalCount,
+      attempted: targets.length,
       saved,
       missing,
+      failedOrUnchecked,
       workIds,
     };
   } catch (error) {

@@ -251,6 +251,12 @@ export async function updateReserveWorks() {
               null,
               batchBrowser,
               latest?.listPrice ?? null,
+              // A RESERVED work that leaves the reservation listing is being
+              // promoted to NEW below. Recheck the sample movie even when the
+              // reservation-time check already recorded checked_at.
+              latest
+                ? undefined
+                : { captureSampleMovie: true },
             );
             if (changed) updatedWorkIds.push(work.product_id);
 

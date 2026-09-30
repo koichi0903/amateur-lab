@@ -12,6 +12,9 @@ export type RankingWorkSnapshot = {
   url: string | null;
   playwright_status: string | null;
   updated_at: string | null;
+  stage?: string | null;
+  sample_movie_url?: string | null;
+  sample_movie_checked_at?: string | null;
 };
 
 export type RankingPlaywrightReason =
@@ -19,7 +22,8 @@ export type RankingPlaywrightReason =
   | "UNAVAILABLE"
   | "MISSING_DATA"
   | "PRICE_CHANGED"
-  | "WEEKLY_REFRESH";
+  | "WEEKLY_REFRESH"
+  | "SAMPLE_MOVIE_UNCHECKED";
 
 export type RankingPlaywrightTarget = {
   item: DmmItem;
@@ -90,6 +94,13 @@ export function selectRankingPlaywrightTargets(
     if (hasRequiredDataMissing(work)) reasons.push("MISSING_DATA");
     if (isPriceChanged(work, listing)) reasons.push("PRICE_CHANGED");
     if (isRefreshDue(work.updated_at, now)) reasons.push("WEEKLY_REFRESH");
+    if (
+      (work.stage === "NEW" || work.stage === "SEMI_NEW") &&
+      !work.sample_movie_url &&
+      !work.sample_movie_checked_at
+    ) {
+      reasons.push("SAMPLE_MOVIE_UNCHECKED");
+    }
 
     if (reasons.length > 0) {
       targets.push({
