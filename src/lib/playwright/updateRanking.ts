@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { RANKING_UPDATE_CONFIG } from "@/config/update";
 import { getRealtimeRanking } from "./getRealtimeRanking";
 import { getDailyRanking } from "./getDailyRanking";
@@ -10,11 +10,6 @@ import { getMonthlyRanking } from "./getMonthlyRanking";
 import { generateAndSaveTrendingInsight } from "@/lib/insights/generateAndSaveTrending";
 import type { RankingProduct } from "./getRankingProducts";
 import { buildRankingUpdate } from "./rankingCoverage";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 type PopularityRankingProgress = (
   processed: number,

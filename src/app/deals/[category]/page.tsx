@@ -10,6 +10,7 @@ import { getDeals } from "@/lib/getDeals";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 
 export const revalidate = 900;
+export const dynamic = "force-dynamic";
 const PAGE_SIZE = 30;
 
 function parsePage(value?: string) {

@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getSemiNewItems } from "@/lib/playwright/getSemiNewItems";
 import { UPDATE_CONFIG } from "@/config/update";
 import { saveDmmItem } from "./save";
@@ -12,11 +12,6 @@ import {
   JOBS,
 } from "@/lib/jobs";
 
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function initializeSemiNewWorks() {
   console.log("===== 準新作初期登録開始 =====");

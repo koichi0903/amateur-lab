@@ -9,6 +9,7 @@ import { getEditorialReport } from "@/lib/getEditorialReport";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 
 export const revalidate = 1800;
+export const dynamic = "force-dynamic";
 
 const priceBands = [
   { label: "1,000円未満", min: 0, max: 1000 },

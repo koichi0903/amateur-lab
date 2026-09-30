@@ -9,6 +9,7 @@ import { getDeals } from "@/lib/getDeals";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 
 export const revalidate = 900;
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = pageMetadata({
   title: "お得なFANZA作品を探す | 発掘LAB",

@@ -2,25 +2,12 @@ import dotenv from "dotenv";
 
 dotenv.config({ path: ".env.local" });
 
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import type { ParsedData } from "./parser";
 import { generateAndSaveInsight } from "@/lib/insights/generateAndSave";
 import { saveLowestPriceEvent } from "@/lib/insights/event";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error(
-    "saveWork requires NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"
-  );
-}
-
 // saveWork は管理ジョブ専用。anon key では RLS により更新が0件になる場合がある。
-const supabase = createClient(supabaseUrl, serviceRoleKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
-
 const normalizePriceName = (value: string) =>
   value.normalize("NFKC").replace(/\s+/g, "");
 

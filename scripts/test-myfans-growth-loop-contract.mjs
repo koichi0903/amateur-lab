@@ -7,7 +7,7 @@ const route = fs.readFileSync(new URL("src/app/api/admin/myfans/route.ts", root)
 const refresh = fs.readFileSync(new URL("src/app/api/admin/myfans/quote-refresh/route.ts", root), "utf8");
 
 assert.match(forms, /formData\.set\("quote_x_url", candidate\.quoteXUrl \|\| candidate\.sourceXUrl\)/);
-assert.match(forms, /disabled=\{!selected \|\| pendingId === candidate\.id/);
+assert.match(forms, /disabled=\{savedCandidateIds\.has\(candidate\.id\) \|\| pendingId === candidate\.id \|\| Boolean\(saveBlockReason\)\}/);
 assert.doesNotMatch(forms, /disabled=\{!selected \|\| !candidate\.product \|\| pendingId === candidate\.id/);
 assert.match(route, /p_quote_x_url: post\.quote_x_url \|\| post\.source_x_url/);
 assert.match(route, /recorded_from: "myfans_post_execution"/);

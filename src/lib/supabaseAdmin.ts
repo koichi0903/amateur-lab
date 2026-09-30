@@ -1,7 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_FETCH_ATTEMPTS = 3;
 
 function getErrorCode(error: unknown): string | undefined {
@@ -42,18 +41,37 @@ const fetchWithConnectRetry: typeof fetch = async (input, init) => {
   throw new Error("Supabase request exhausted all connection attempts");
 };
 
-if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error(
-    "Server database access requires NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY",
-  );
+let client: SupabaseClient | undefined;
+
+function getSupabaseAdminClient() {
+  if (client) return client;
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error(
+      "Server database access requires NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY",
+    );
+  }
+
+  client = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+    global: {
+      fetch: fetchWithConnectRetry,
+    },
+  });
+  return client;
 }
 
-export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
-  global: {
-    fetch: fetchWithConnectRetry,
+// Defer env validation until runtime use so importing a route during build is
+// side-effect free and cannot initiate database access.
+export const supabaseAdmin = new Proxy({} as SupabaseClient, {
+  get(_target, property) {
+    const supabaseClient = getSupabaseAdminClient();
+    const value = Reflect.get(supabaseClient, property, supabaseClient);
+    return typeof value === "function" ? value.bind(supabaseClient) : value;
   },
 });

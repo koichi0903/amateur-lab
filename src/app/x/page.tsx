@@ -7,6 +7,7 @@ import { workDetailHref } from "@/lib/affiliateTracking";
 import { pageMetadata } from "@/lib/seo";
 
 export const revalidate = 1800;
+export const dynamic = "force-dynamic";
 
 export const metadata = pageMetadata({
   title: "@hakkutsu_lab発 FANZA作品の価格・買い時メモ | 発掘LAB",

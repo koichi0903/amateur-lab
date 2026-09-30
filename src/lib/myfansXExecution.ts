@@ -1737,8 +1737,15 @@ function jstDateKey(value: string | null | undefined) {
   if (!value) return null;
   const time = new Date(value).getTime();
   if (!Number.isFinite(time)) return null;
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(time));
+  return JST_DATE_KEY_FORMATTER.format(new Date(time));
 }
+
+const JST_DATE_KEY_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Tokyo",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
 function daysSinceIsoAtPlanDate(value: string | null | undefined, planDate: string) {
   const dateKey = jstDateKey(value);
