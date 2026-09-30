@@ -28,6 +28,12 @@ export function recentReleaseDateRange(now = new Date()): ReleaseDateRange {
   return { todayDate, startDate: todayDate, endDate: shiftTokyoDate(todayDate, 7) };
 }
 
+export function isBijyoFutureOperationEligible(stage: string, releaseDate: string, dateRange: ReleaseDateRange) {
+  const date = releaseDate.slice(0, 10);
+  if (date < dateRange.startDate || date > dateRange.endDate) return false;
+  return date === dateRange.todayDate ? ["RESERVED", "NEW"].includes(stage) : stage === "RESERVED";
+}
+
 export type RecentReleaseWork = {
   id: number;
   title: string;
@@ -50,8 +56,7 @@ export function filterRecentReleaseWorks(works: RecentReleaseWork[], jobs: Recen
   return works
     .filter((work) => {
       const releaseDate = work.release_date.slice(0, 10);
-      const stageAllowed = releaseDate === dateRange.todayDate ? ["RESERVED", "NEW"].includes(work.stage) : work.stage === "RESERVED";
-      if (!stageAllowed || !work.sample_movie_url || releaseDate < dateRange.startDate || releaseDate > dateRange.endDate) return false;
+      if (!isBijyoFutureOperationEligible(work.stage, releaseDate, dateRange) || !work.sample_movie_url) return false;
       if (excludedWorkIds.has(work.id) || assignedToday.has(work.id) || manualWorks.has(work.id) || seen.has(work.id)) return false;
       seen.add(work.id);
       return true;

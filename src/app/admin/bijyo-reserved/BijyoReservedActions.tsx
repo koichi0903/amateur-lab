@@ -11,7 +11,7 @@ async function call(payload: Record<string, unknown>) {
 
 function openExternal(url: string) { window.open(url, "_blank", "noopener,noreferrer"); }
 
-export function BijyoReservedActions({ jobId, workId, mainText, replyText, status, sampleMovieUrl, trimStartSeconds, manualLabel = "手動追加投稿" }: { jobId?: number; workId?: number; mainText?: string; replyText?: string; status?: string; sampleMovieUrl?: string; trimStartSeconds?: number; manualLabel?: string }) {
+export function BijyoReservedActions({ jobId, workId, mainText, replyText, status, sampleMovieUrl, trimStartSeconds, manualLabel = "手動追加投稿", allowWorkSkip = false }: { jobId?: number; workId?: number; mainText?: string; replyText?: string; status?: string; sampleMovieUrl?: string; trimStartSeconds?: number; manualLabel?: string; allowWorkSkip?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [trimOpen, setTrimOpen] = useState(false);
@@ -63,6 +63,7 @@ export function BijyoReservedActions({ jobId, workId, mainText, replyText, statu
       </div>}
     </>}
     {workId && <button disabled={busy} onClick={() => run("manual")} className="rounded bg-violet-500 px-3 py-2 text-xs font-black text-white">{manualLabel}</button>}
+    {allowWorkSkip && workId && <button disabled={busy} onClick={() => run("skip")} className="rounded border border-amber-700 px-3 py-2 text-xs font-bold text-amber-200">スキップ</button>}
     {message && <p className="w-full whitespace-pre-wrap text-xs text-amber-200">{message}</p>}
   </div>;
 }

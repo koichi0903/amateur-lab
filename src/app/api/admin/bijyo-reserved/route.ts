@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createBijyoManualJob, excludeBijyoJob, getBijyoDashboard, markBijyoPosted, prepareBijyoVideo, skipBijyoJob } from "@/lib/bijyoReservedAutoPost";
+import { createBijyoManualJob, excludeBijyoJob, getBijyoDashboard, markBijyoPosted, prepareBijyoVideo, skipBijyoFutureWork, skipBijyoJob } from "@/lib/bijyoReservedAutoPost";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
 
 export const dynamic = "force-dynamic";
@@ -16,9 +16,9 @@ export async function POST(request: NextRequest) {
   const jobId = Number(body.jobId);
   const workId = Number(body.workId);
   let result: { ok: boolean; error?: string; jobId?: number; existing?: boolean };
-  if (!Number.isSafeInteger(jobId) && ["posted", "skip", "exclude"].includes(action)) return NextResponse.json({ error: "jobIdが不正です。" }, { status: 400 });
+  if (!Number.isSafeInteger(jobId) && ["posted", "exclude"].includes(action)) return NextResponse.json({ error: "jobIdが不正です。" }, { status: 400 });
   if (action === "posted") result = await markBijyoPosted(jobId);
-  else if (action === "skip") result = await skipBijyoJob(jobId);
+  else if (action === "skip") result = Number.isSafeInteger(jobId) && jobId > 0 ? await skipBijyoJob(jobId) : Number.isSafeInteger(workId) && workId > 0 ? await skipBijyoFutureWork(workId) : { ok: false, error: "jobIdまたはworkIdが不正です。" };
   else if (action === "exclude") result = await excludeBijyoJob(jobId);
   else if (action === "manual") {
     if (!Number.isSafeInteger(workId) || workId <= 0) return NextResponse.json({ error: "workIdが不正です。" }, { status: 400 });

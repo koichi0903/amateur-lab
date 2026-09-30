@@ -2,7 +2,7 @@ import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
 import { analyzeSampleMovie } from "@/lib/xVideoAnalysis";
 import { sourceKindFor } from "@/lib/xMediaAssets";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { allocateTodaySlots, BIJYO_DEFAULT_SLOTS, bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, filterRecentReleaseWorks, recentReleaseDateRange, tokyoDate, todayProgress, type RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
+import { allocateTodaySlots, BIJYO_DEFAULT_SLOTS, bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, filterRecentReleaseWorks, isBijyoFutureOperationEligible, recentReleaseDateRange, tokyoDate, todayProgress, type RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
 import { calculateBijyoTrimStart } from "@/lib/bijyoTrim";
 import { validateTrimStartSeconds } from "@/lib/xMediaAssets";
 
@@ -136,6 +136,21 @@ export async function skipBijyoJob(jobId: number, reason = "手動スキップ")
   return { ok: true };
 }
 
+export async function skipBijyoFutureWork(workId: number, reason = "発売予定一覧から手動スキップ") {
+  const workResult = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("id", workId).maybeSingle();
+  const work = workResult.data as Work | null;
+  const dateRange = recentReleaseDateRange();
+  if (workResult.error || !work || !isBijyoFutureOperationEligible(work.stage, work.release_date, dateRange) || !work.sample_movie_url || sourceKindFor(work.sample_movie_url) !== "official_sample") return { ok: false, error: "今日から1週間の対象作品ではありません。" };
+  const existing = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id,status").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
+  if (existing.error) return { ok: false, error: existing.error.message };
+  if (existing.data) return existing.data.status === "skipped" ? { ok: true, existing: true } : { ok: false, error: "この作品はすでに選択済み、投稿済み、または対象外です。" };
+  const inserted = await supabaseAdmin.from("bijyo_reserved_post_jobs").insert({ account_handle: BIJYO_ACCOUNT, work_id: work.id, kind: "auto", slot_date: work.release_date.slice(0, 10), slot_index: null, scheduled_at: new Date().toISOString(), idempotency_key: `bijyo1010:skip:${work.id}`, status: "skipped", main_text: buildBijyoMainText(work), reply_text: buildBijyoReplyText(work.id), skip_reason: reason }).select("id").single();
+  if (!inserted.error) return { ok: true, existing: false };
+  if (inserted.error.code !== "23505") return { ok: false, error: inserted.error.message };
+  const raced = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id,status").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
+  return raced.data?.status === "skipped" ? { ok: true, existing: true } : { ok: false, error: raced.error?.message ?? "この作品はすでに選択済みです。" };
+}
+
 export async function excludeBijyoJob(jobId: number) {
   const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ status: "excluded", failure_reason: null }).eq("account_handle", BIJYO_ACCOUNT).eq("id", jobId).not("status", "in", "(posted,manual_posted)");
   return result.error ? { ok: false, error: result.error.message } : { ok: true };
@@ -144,7 +159,7 @@ export async function excludeBijyoJob(jobId: number) {
 export async function createBijyoManualJob(workId: number) {
   const workResult = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("id", workId).single();
   const work = workResult.data as Work | null;
-  if (workResult.error || !work || work.stage !== "RESERVED" || !work.sample_movie_url || !work.release_date || sourceKindFor(work.sample_movie_url) !== "official_sample") return { ok: false, error: "手動投稿には予約作品・発売日・FANZA/DMM公式サンプル動画が必要です。" };
+  if (workResult.error || !work || !work.release_date || !isBijyoFutureOperationEligible(work.stage, work.release_date, recentReleaseDateRange()) || !work.sample_movie_url || sourceKindFor(work.sample_movie_url) !== "official_sample") return { ok: false, error: "手動投稿には今日から1週間の対象作品・発売日・FANZA/DMM公式サンプル動画が必要です。" };
   const existing = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
   if (existing.error) return { ok: false, error: existing.error.message };
   if (existing.data) return { ok: true, jobId: Number(existing.data.id), existing: true };
