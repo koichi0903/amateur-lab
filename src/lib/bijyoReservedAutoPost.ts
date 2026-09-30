@@ -129,7 +129,7 @@ export async function markBijyoPosted(jobId: number) {
 }
 
 export async function skipBijyoJob(jobId: number, reason = "手動スキップ") {
-  const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ status: "skipped", skip_reason: reason }).eq("account_handle", BIJYO_ACCOUNT).eq("id", jobId).eq("kind", "auto").eq("status", "pending").select("id").maybeSingle();
+  const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ status: "skipped", skip_reason: reason }).eq("account_handle", BIJYO_ACCOUNT).eq("id", jobId).in("kind", ["auto", "manual"]).eq("status", "pending").select("id").maybeSingle();
   if (result.error) return { ok: false, error: result.error.message };
   if (!result.data) return { ok: false, error: "この枠はスキップできません。" };
   await ensureTodayJobs(tokyoDate());
