@@ -603,8 +603,11 @@ export function TopPickVideoActions({
     extension: mediaType === "sample_movie" ? "mp4" : "png",
     trimStartSeconds,
   }), [intent, mediaType, pickOrder, trimStartSeconds, workId]);
-  const previewUrl = mediaType === "sample_movie" && mediaAsset?.id
-    ? xGrowthMediaPreviewUrl({ workId, mediaType: "sample_movie", mediaAssetId: mediaAsset.id })
+  // Persisted plans may contain the old direct DMM URL and no hydrated asset id.
+  // Playback must still use the authenticated same-origin preview proxy; the
+  // download URL remains separate in ManualPostActions below.
+  const previewUrl = mediaType === "sample_movie"
+    ? xGrowthMediaPreviewUrl({ workId, mediaType: "sample_movie", mediaAssetId: mediaAsset?.id })
     : null;
   const showTrimControls = shouldShowTopPickTrimControls({ mediaType, mediaUrl: previewUrl ?? mediaUrl, assetId: mediaAsset?.id });
 

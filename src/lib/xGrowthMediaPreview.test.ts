@@ -9,6 +9,13 @@ test("sample movie preview URL uses the same-origin preview mode", () => {
   );
 });
 
+test("sample movie preview URL remains proxy-based without an asset id", () => {
+  assert.equal(
+    xGrowthMediaPreviewUrl({ workId: 602, mediaType: "sample_movie" }),
+    "/api/admin/x-growth/media/download?workId=602&mediaType=sample_movie&preview=1",
+  );
+});
+
 test("preview headers keep range metadata and omit attachment", () => {
   const headers = xGrowthMediaResponseHeaders({
     contentType: "video/mp4",
