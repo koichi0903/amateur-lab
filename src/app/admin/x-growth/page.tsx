@@ -4,7 +4,7 @@ import { Suspense, type ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, BarChart3, CheckCircle2, ClipboardList, Copy, ExternalLink, Film, MessageCircle, ShieldCheck, Sparkles, Target, TrendingUp, XCircle } from "lucide-react";
 import { getAffiliateSalesAnalytics } from "@/lib/affiliateSalesAnalytics";
 import { getFanzaXAccountGrowth } from "@/lib/fanzaXAccountGrowth";
-import { buildXGrowthOS, getRightsCheckedMediaCount, type XDailyTopPick, type XGrowthIntent, type XGrowthOpportunity } from "@/lib/xGrowthOS";
+import { buildXGrowthOS, type XDailyTopPick, type XGrowthIntent, type XGrowthOpportunity } from "@/lib/xGrowthOS";
 import { getPersistedTodayTopPicks, type PersistedXDailyPlan } from "@/lib/xGrowthOperations";
 import { getXCreativeLearning, getXPostOutcomes, getRecentXPostLogs } from "@/lib/xPostLogs";
 import { getRightsReviewQueue, isOfficialFanzaDmmSampleUrl } from "@/lib/xMediaAssets";
@@ -426,7 +426,7 @@ function OpportunityCard({ item, persistedId }: { item: XGrowthOpportunity; pers
           <span className="rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] font-bold text-zinc-400">{item.sourceType}</span>
           <span className="rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] font-bold text-zinc-400">{item.eventType}</span>
         <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${item.mediaUsage === "allowed" ? "border-emerald-800 bg-emerald-950/40 text-emerald-300" : "border-amber-800 bg-amber-950/40 text-amber-300"}`}>
-          {item.mediaType === "existing_link_image" ? "既存リンク画像" : item.mediaType === "sample_movie" ? "mp4候補" : "データ素材"} / {item.mediaUsage === "allowed" ? "投稿可" : "権利確認待ち"}
+          {item.mediaType === "existing_link_image" ? "既存リンク画像" : item.mediaType === "sample_movie" ? "mp4候補" : "データ素材"} / {item.mediaUsage === "allowed" ? "technical eligible" : "technical確認待ち"}
         </span>
       </div>
       <h3 className="mt-3 line-clamp-2 text-base font-black text-zinc-100">{item.topic}</h3>
@@ -730,13 +730,12 @@ async function XGrowthPageContent() {
     );
   }
 
-  const [growth, salesAnalytics, logs, outcomes, creativeLearning, rightsMedia] = await Promise.all([
+  const [growth, salesAnalytics, logs, outcomes, creativeLearning] = await Promise.all([
     getFanzaXAccountGrowth(),
     getAffiliateSalesAnalytics(),
     getRecentXPostLogs(),
     getXPostOutcomes(),
     getXCreativeLearning(30),
-    getRightsCheckedMediaCount(),
   ]);
   const os = await buildXGrowthOS({
     growth,
@@ -772,13 +771,13 @@ async function XGrowthPageContent() {
           <Metric label="ボトルネック" value={os.mission.bottleneck} note={os.mission.reason} />
           <Metric label="30日表示" value={growth.impressions30d.toLocaleString("ja-JP")} note={`平均 ${growth.avgImpressionsPerPost?.toLocaleString("ja-JP") ?? "-"} / 投稿`} />
           <Metric label="プロフィール/フォロー" value={`${growth.profileVisits30d}/${growth.newFollows30d}`} note="取得できる範囲は週次入力から反映" />
-          <Metric label="動画供給" value={`mp4 ${os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / 使用可 ${os.mediaSupply.allowed.toLocaleString("ja-JP")}`} note={`同期 ${os.mediaSupply.synced.toLocaleString("ja-JP")} / rights待ち ${(os.mediaSupply.unknown + os.mediaSupply.review).toLocaleString("ja-JP")} / URL失効 ${os.mediaSupply.dead.toLocaleString("ja-JP")}`} />
+          <Metric label="動画供給" value={`mp4 ${os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / technical eligible ${os.mediaSupply.allowed.toLocaleString("ja-JP")}`} note={`同期 ${os.mediaSupply.synced.toLocaleString("ja-JP")} / technical確認待ち ${Math.max(0, os.mediaSupply.synced - os.mediaSupply.allowed - os.mediaSupply.dead).toLocaleString("ja-JP")} / URL失効 ${os.mediaSupply.dead.toLocaleString("ja-JP")}`} />
         </div>
 
         <Panel className="mt-6 border-cyan-800 bg-cyan-950/20">
           <div className="flex items-center gap-2"><Film className="text-cyan-300" size={20} /><h2 className="text-lg font-black">動画供給ステータス</h2></div>
           <p className="mt-2 text-sm leading-6 text-cyan-100/80">
-            mp4候補 {os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / synced {os.mediaSupply.synced.toLocaleString("ja-JP")} / rights確認待ち {(os.mediaSupply.unknown + os.mediaSupply.review).toLocaleString("ja-JP")} / 使用可 {os.mediaSupply.allowed.toLocaleString("ja-JP")} / blocked {os.mediaSupply.blocked.toLocaleString("ja-JP")} / URL失効 {os.mediaSupply.dead.toLocaleString("ja-JP")}
+            mp4候補 {os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / synced {os.mediaSupply.synced.toLocaleString("ja-JP")} / technical eligible {os.mediaSupply.allowed.toLocaleString("ja-JP")} / technical確認待ち {Math.max(0, os.mediaSupply.synced - os.mediaSupply.allowed - os.mediaSupply.dead).toLocaleString("ja-JP")} / URL失効 {os.mediaSupply.dead.toLocaleString("ja-JP")}
           </p>
           <p className="mt-1 text-xs leading-5 text-cyan-100/60">FANZA/DMM公式 sample_movie_url は、無加工投稿と冒頭トリムの両方に使用できます。残るのはURL・取得・品質・公開安全性の確認だけです。</p>
           {os.mediaSupply.error && <p className="mt-2 text-xs font-bold text-rose-200">{os.mediaSupply.error}</p>}
@@ -821,7 +820,6 @@ async function XGrowthPageContent() {
             {os.systemStatus.xReadOnlyConnection.checked && <p>read-only疎通: {os.systemStatus.xReadOnlyConnection.ok ? `@${os.systemStatus.xReadOnlyConnection.username}` : os.systemStatus.xReadOnlyConnection.error}</p>}
             {os.systemStatus.rankingSnapshotsError && <p>ランキング履歴: {os.systemStatus.rankingSnapshotsError}</p>}
             {!os.systemStatus.xPostingConfigured && <p>自動投稿と自動添付は User Access Token が必要です。手動動画投稿は、完成文コピー、mp4一時保存、X投稿画面起動で運用できます。</p>}
-            {rightsMedia.error && <p>x_media_assetsを読めません。権利未確認mp4はAPIでも拒否されます。</p>}
           </div>
           <div className="mt-3 text-xs leading-5 text-amber-100/70">
             {os.systemStatus.requiredForPosting.map((item) => <p key={item}>{item}</p>)}

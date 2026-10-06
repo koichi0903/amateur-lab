@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auditXGrowth } from "@/lib/xGrowthOperations";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { canTrimOfficialSampleMovie, isPostableOfficialSampleMovie, sourceDomain, sourceKindFor } from "@/lib/xMediaAssets";
+import { canTrimFanzaXGrowthSampleMovie, isFanzaXGrowthTechnicalSampleMovie, sourceDomain, sourceKindFor } from "@/lib/xMediaAssets";
 import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
 
 export const dynamic = "force-dynamic";
@@ -113,13 +113,6 @@ function dataCardSvg(work: {
 </svg>`;
 }
 
-function isPreviewableOfficialSampleMovie(asset: Partial<{ source_url: string; source_kind: string | null; fetch_status: string | null }>, sampleMovieUrl?: string | null) {
-  const sourceUrl = asset.source_url ?? sampleMovieUrl;
-  const official = Boolean(sourceUrl) && (asset.source_kind === "official_sample" || sourceKindFor(sourceUrl as string) === "official_sample");
-  const reachable = asset.fetch_status !== "dead" && asset.fetch_status !== "forbidden";
-  return official && reachable;
-}
-
 async function resolveMedia(workId: number, mediaType: string, assetId: number | null, preview: boolean) {
   if (mediaType === "sample_movie") {
     let data: Record<string, unknown> | null = null;
@@ -158,10 +151,10 @@ async function resolveMedia(workId: number, mediaType: string, assetId: number |
     }
     const asset = data as { id?: number; work_id: number | null; source_url: string; media_type: string };
     const allowed = (asset.media_type === "sample_movie" || asset.media_type === "video") && asset.work_id === workId && (
-      preview ? isPreviewableOfficialSampleMovie(data, asset.source_url) : isPostableOfficialSampleMovie(data).usable
+      isFanzaXGrowthTechnicalSampleMovie(data, asset.source_url).usable
     );
     if (!allowed) {
-      await auditXGrowth("media_download_blocked", { workId, mediaType, assetId, reasons: isPostableOfficialSampleMovie(data).reasons });
+      await auditXGrowth("media_download_blocked", { workId, mediaType, assetId, reasons: isFanzaXGrowthTechnicalSampleMovie(data, asset.source_url).reasons });
       return { error: "このmp4はX投稿用に保存できません。", status: 403 as const };
     }
     return { url: asset.source_url, basename: `hakkutsu-${workId}-sample`, fallbackExt: "mp4", asset: data as Record<string, unknown> };
@@ -220,7 +213,7 @@ export async function GET(request: NextRequest) {
   try {
     const trimStartSeconds = "asset" in resolved ? Number((resolved.asset as { trim_start_seconds?: unknown }).trim_start_seconds ?? 0) : 0;
     if (mediaType === "sample_movie" && trimStartSeconds > 0 && !preview) {
-      const trimVerdict = canTrimOfficialSampleMovie(resolved.asset, resolved.url);
+      const trimVerdict = canTrimFanzaXGrowthSampleMovie(resolved.asset, resolved.url);
       if (!trimVerdict.usable) {
         await auditXGrowth("media_trim_download_blocked", { workId, mediaType, assetId, reasons: trimVerdict.reasons });
         return NextResponse.json({ error: `トリムに失敗しました: ${trimVerdict.reasons.join(" / ")}` }, { status: 403 });

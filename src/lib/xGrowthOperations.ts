@@ -2,7 +2,7 @@ import type { AffiliatePerformanceRow } from "@/lib/affiliateSalesAnalytics";
 import type { FanzaXGrowth } from "@/lib/fanzaXAccountGrowth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { cleanupTempVideo, createXPost, downloadTempVideo, fetchXPostPublicMetrics, getXApiCapabilityStatus, verifyXReadOnlyConnection } from "@/lib/xApi";
-import { canTrimOfficialSampleMovie, isPostableOfficialSampleMovie, isUsableXMediaAsset, sourceDomain, sourceKindFor, validateTrimStartSeconds, X_GROWTH_ACCOUNT, type XMediaAsset } from "@/lib/xMediaAssets";
+import { canTrimFanzaXGrowthSampleMovie, isFanzaXGrowthTechnicalSampleMovie, isUsableXMediaAsset, sourceDomain, sourceKindFor, validateTrimStartSeconds, X_GROWTH_ACCOUNT, type XMediaAsset } from "@/lib/xMediaAssets";
 import type { XCreativeLearningRow, XPostLog, XPostLogInput } from "@/lib/xPostLogs";
 import { saveXPostLog } from "@/lib/xPostLogs";
 import { normalizeTopPickCandidates } from "@/lib/xGrowthTopPicks";
@@ -143,8 +143,8 @@ export async function fetchMediaAssets(workIds: number[]) {
   for (const asset of (data ?? []) as XMediaAsset[]) {
     if (!asset.work_id || (asset.media_type !== "sample_movie" && asset.media_type !== "video")) continue;
     const current = map.get(asset.work_id);
-    const currentUsable = isUsableXMediaAsset(current).usable;
-    const nextUsable = isUsableXMediaAsset(asset).usable;
+    const currentUsable = isFanzaXGrowthTechnicalSampleMovie(current, current?.source_url).usable;
+    const nextUsable = isFanzaXGrowthTechnicalSampleMovie(asset, asset.source_url).usable;
     const currentStrong = current?.media_quality === "strong" && (current.manual_tags ?? []).includes("first_seconds_strong");
     const nextStrong = asset.media_quality === "strong" && (asset.manual_tags ?? []).includes("first_seconds_strong");
     if (!current || (nextUsable && !currentUsable) || (nextUsable === currentUsable && nextStrong && !currentStrong)) map.set(asset.work_id, asset);
@@ -168,7 +168,7 @@ export async function analyzeUncachedVideoFacts(assets: Map<number, XMediaAsset>
   return { analyzed, reused, elapsedMs: Date.now() - started, diagnostics };
 }
 
-export function applyMediaRights(opportunities: XGrowthOpportunity[], assets: Map<number, XMediaAsset>) {
+export function applyMediaEligibility(opportunities: XGrowthOpportunity[], assets: Map<number, XMediaAsset>) {
   return opportunities.map((item) => {
     const storedAsset = assets.get(item.workId);
     const asset = storedAsset ?? (item.mediaType === "sample_movie" && item.sampleMovieUrl ? {
@@ -194,15 +194,15 @@ export function applyMediaRights(opportunities: XGrowthOpportunity[], assets: Ma
       notes: "virtual official sample_movie_url candidate",
     } : null);
     const verdict = item.mediaType === "sample_movie"
-      ? isPostableOfficialSampleMovie(asset, item.sampleMovieUrl)
+      ? isFanzaXGrowthTechnicalSampleMovie(asset, item.sampleMovieUrl)
       : isUsableXMediaAsset(asset);
     if (item.mediaType !== "sample_movie") return { ...item, mediaUsage: "allowed" as const, canNativeVideo: verdict.usable, mediaAsset: asset ?? null };
     return {
       ...item,
-      mediaUsage: verdict.usable ? "allowed" as const : "rights_unchecked" as const,
+      mediaUsage: verdict.usable ? "allowed" as const : "not_available" as const,
       canNativeVideo: verdict.usable,
       mediaAsset: asset ?? null,
-      mediaDecision: verdict.usable ? "公式FANZA/DMM sample_movie_urlを無加工投稿用のネイティブ動画として使用可" : `動画は${verdict.reasons.join(" / ") || "安全条件未確認"}のため未使用`,
+      mediaDecision: verdict.usable ? "公式FANZA/DMM sample_movie_url。HTTP/MIME/取得可能性を確認済み" : `動画は${verdict.reasons.join(" / ") || "technical条件未確認"}のため未使用`,
     };
   });
 }
@@ -1107,14 +1107,14 @@ export async function executeOpportunityPost(id: number) {
         asset = assetResult.data as XMediaAsset | null;
         if (assetResult.error || !asset) throw new Error(assetResult.error?.message ?? "Media asset not found.");
       }
-      const verdict = isPostableOfficialSampleMovie(asset, persistedPick?.recommendedMediaUrl ?? undefined);
+      const verdict = isFanzaXGrowthTechnicalSampleMovie(asset, persistedPick?.recommendedMediaUrl ?? undefined);
       if (!verdict.usable) {
-        await auditXGrowth("media_rights_blocked", { opportunityId: id, mediaAssetId: assetId, reasons: verdict.reasons });
-        throw new Error("公式FANZA/DMM sample_movie_urlとして投稿できる安全条件を満たしていません。");
+        await auditXGrowth("media_technical_blocked", { opportunityId: id, mediaAssetId: assetId, reasons: verdict.reasons });
+        throw new Error("公式FANZA/DMM動画のtechnical条件を満たしていません。");
       }
       if (!asset?.source_url) throw new Error("sample_movie_urlが見つかりません。");
       if (Number(asset.trim_start_seconds ?? 0) > 0) {
-        const trimVerdict = canTrimOfficialSampleMovie(asset, persistedPick?.recommendedMediaUrl ?? undefined);
+        const trimVerdict = canTrimFanzaXGrowthSampleMovie(asset, persistedPick?.recommendedMediaUrl ?? undefined);
         if (!trimVerdict.usable) {
           await auditXGrowth("media_trim_blocked", { opportunityId: id, mediaAssetId: assetId, reasons: trimVerdict.reasons });
           throw new Error(`トリム動画は使えません: ${trimVerdict.reasons.join(" / ")}`);

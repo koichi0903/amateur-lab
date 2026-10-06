@@ -6,7 +6,7 @@ import { getXPostCandidates, type XPostCandidate } from "@/lib/xPostPlanner";
 import type { XCreativeLearningRow, XPostLog, XPostOutcome } from "@/lib/xPostLogs";
 import { truncateXText } from "@/lib/xText";
 import {
-  applyMediaRights,
+  applyMediaEligibility,
   buildConversationRadarFromData,
   buildSeriesIdeas,
   buildStrategicMission,
@@ -25,7 +25,7 @@ import {
   upsertDailyPlan,
   type XGrowthSystemStatus,
 } from "@/lib/xGrowthOperations";
-import { getXMediaSupplyStatus, getRightsReviewQueue, isPostableOfficialSampleMovie, type XMediaAsset } from "@/lib/xMediaAssets";
+import { getXMediaSupplyStatus, getRightsReviewQueue, isFanzaXGrowthTechnicalSampleMovie, type XMediaAsset } from "@/lib/xMediaAssets";
 import { isVideoCandidate } from "@/lib/xVideoCandidate";
 import { buildVisualVideoFacts, primaryUsableVisualFact, type XVisualVideoFacts, visualFactScores } from "@/lib/xVisualVideoFacts";
 import { assignSemanticHook, SEMANTIC_CATEGORY_QUOTA } from "./xGrowthSemantic";
@@ -39,10 +39,9 @@ export { assignSemanticHook, SEMANTIC_CATEGORY_QUOTA, semanticHookCategory } fro
 export function isAllowedXGrowthMediaType(mediaType: XGrowthOpportunity["mediaType"]) {
   return mediaType === "sample_movie" || mediaType === "existing_link_image";
 }
-
 function officialSampleVideoAllowed(item: Pick<XGrowthOpportunity, "mediaAsset" | "sampleMovieUrl" | "recommendedMediaUrl">) {
   const sourceUrl = item.mediaAsset?.source_url ?? item.sampleMovieUrl ?? item.recommendedMediaUrl;
-  return Boolean(sourceUrl) && isPostableOfficialSampleMovie(item.mediaAsset, sourceUrl).usable;
+  return Boolean(sourceUrl) && isFanzaXGrowthTechnicalSampleMovie(item.mediaAsset, sourceUrl).usable;
 }
 export type XOpportunityEvent =
   | "price_anomaly"
@@ -81,7 +80,7 @@ export type XGrowthOpportunity = XPostCandidate & {
   authorityScore: number;
   revenueScore: number;
   mediaType: "existing_link_image" | "sample_movie" | "data_card" | "text" | "quote";
-  mediaUsage: "allowed" | "rights_unchecked" | "not_available";
+  mediaUsage: "allowed" | "technical_unchecked" | "not_available";
   canNativeVideo: boolean;
   mediaAsset?: Partial<XMediaAsset> | null;
   visualFacts: XVisualVideoFacts;
@@ -664,7 +663,7 @@ export function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity 
   const intent = intentFor(eventType, revenueScore, reachScore);
   const sourceIntent = forceIntentForSource(candidate.sourceType, intent);
   const mediaType = sourceIntent === "MONEY" ? "existing_link_image" : hasVideo && candidate.sampleMovieUrl ? "sample_movie" : candidate.imageUrl ? "data_card" : "text";
-  const mediaUsage = mediaType === "existing_link_image" ? "allowed" : "rights_unchecked";
+  const mediaUsage = mediaType === "existing_link_image" ? "allowed" : "technical_unchecked";
   const freshness = buildFreshness(candidate, eventType);
 
   const visualFacts = buildVisualVideoFacts({
@@ -695,7 +694,7 @@ export function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity 
     mediaUsage,
     canNativeVideo: mediaType === "sample_movie" && mediaUsage === "allowed",
     recommendedMediaUrl: mediaType === "existing_link_image" ? candidate.imageUrl : mediaType === "sample_movie" ? candidate.sampleMovieUrl : null,
-    mediaDecision: mediaType === "sample_movie" ? "mp4候補は存在。rights reviewで根拠確認後だけ動画投稿に昇格します。" : `${mediaLabel(mediaType)}を仮選択。権利確認後に再評価します。`,
+    mediaDecision: mediaType === "sample_movie" ? "mp4候補は存在。technical probe後に動画供給へ判定します。" : `${mediaLabel(mediaType)}を仮選択。素材状態を再評価します。`,
     visualFacts,
     visualScoring: visualFactScores(visualFacts),
     rankingHistory: {
@@ -1509,7 +1508,7 @@ type MediaSupplyStageDiagnostics = {
   nativeXVoiceVariants: number;
   nativeXVoiceWorks: number;
   videoHookFactWorks: number;
-  rightsUnknownOldGateRejectedWorks: number;
+  technicalGateRejectedWorks: number;
   finalEligibleWorks: number;
   firstDropReasonCounts: Record<string, number>;
 };
@@ -1535,15 +1534,14 @@ function buildMediaSupplyStageDiagnostics(
   let creativeQualityWorks = 0;
   let nativeXVoiceWorks = 0;
   let videoHookFactWorks = 0;
-  let rightsUnknownOldGateRejectedWorks = 0;
+  let technicalGateRejectedWorks = 0;
   let finalEligibleWorks = 0;
   let generatedVariants = 0;
   let creativeQualityVariants = 0;
   let nativeXVoiceVariants = 0;
   for (const [workId, items] of activeByWork) {
-    if (!usable(items)) { addDrop("official_sample_fetchability_or_media_unusable"); continue; }
+    if (!usable(items)) { technicalGateRejectedWorks += 1; addDrop("official_sample_fetchability_or_media_unusable"); continue; }
     usableFetchableWorks += 1;
-    if (mediaType === "sample_movie" && items.some((item) => item.mediaAsset && (item.mediaAsset.rights_status !== "allowed" || item.mediaAsset.x_usage_allowed !== true))) rightsUnknownOldGateRejectedWorks += 1;
     const variants = variantsFor(items);
     generatedVariants += variants.length;
     if (!variants.length) { addDrop("generated_variants"); continue; }
@@ -1581,7 +1579,7 @@ function buildMediaSupplyStageDiagnostics(
     nativeXVoiceVariants,
     nativeXVoiceWorks,
     videoHookFactWorks,
-    rightsUnknownOldGateRejectedWorks,
+    technicalGateRejectedWorks,
     finalEligibleWorks,
     firstDropReasonCounts,
   };
@@ -2273,7 +2271,7 @@ function selectDailyTopPicksLegacy(opportunities: XGrowthOpportunity[], mission:
   for (const item of videoRawItems) {
     const variants = item.creativeVariants.filter((variant) => variant.mediaType === "sample_movie");
     const reason = !isOfficialEligibleVideoCandidate(item)
-      ? "official_rights_or_fetch_gate"
+      ? "official_or_technical_gate"
       : !variants.some((variant) => variant.quality.passed)
         ? "hard_quality_gate"
         : !variants.some((variant) => isSoftQualityEligible(variant))
@@ -3188,8 +3186,8 @@ export async function buildXGrowthOS({
     timings.video_analysis_assets = analysis.analyzed;
     timings.video_analysis_reused = analysis.reused;
   }
-  const rightsApplied = applyMediaRights(scored, media.assets);
-  const rankedOpportunities = applyRankingHistory(rightsApplied, rankingHistories.histories);
+  const mediaEligible = applyMediaEligibility(scored, media.assets);
+  const rankedOpportunities = applyRankingHistory(mediaEligible, rankingHistories.histories);
   const prefilterStarted = Date.now();
   // 90 quality candidates are enough for the three-slot allocator while
   // avoiding Human Voice work on the long tail.
@@ -3323,11 +3321,3 @@ export async function buildXGrowthOS({
   };
 }
 
-export async function getRightsCheckedMediaCount() {
-  const { count, error } = await supabaseAdmin
-    .from("x_media_assets")
-    .select("id", { count: "exact", head: true })
-    .eq("account_handle", "hakkutsu_lab")
-    .eq("x_usage_allowed", true);
-  return { count: count ?? 0, error: error?.message ?? null };
-}

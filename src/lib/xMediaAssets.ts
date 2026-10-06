@@ -65,6 +65,11 @@ export type XMediaUsability = {
   quality: "strong" | "normal" | "weak" | "unreviewed";
 };
 
+export type XFanzaXGrowthTechnicalVerdict = {
+  usable: boolean;
+  reasons: string[];
+};
+
 export function normalizeRightsStatus(status: string | null | undefined): XMediaRightsStatus {
   if (status === "unchecked") return "unknown";
   if (status === "rejected" || status === "expired") return "blocked";
@@ -96,6 +101,25 @@ export function isOfficialSampleMovieAsset(asset: Partial<XMediaAsset> | null | 
   const url = asset?.source_url ?? sampleMovieUrl;
   if (!isOfficialFanzaDmmSampleUrl(url)) return false;
   return asset?.source_kind === "official_sample" || sourceKindFor(url as string) === "official_sample";
+}
+
+/**
+ * FANZA X Growth's media gate is technical and source-based only.
+ * Rights metadata is intentionally not consulted here; it remains available
+ * for the separate review workflow and other consumers.
+ */
+export function isFanzaXGrowthTechnicalSampleMovie(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null): XFanzaXGrowthTechnicalVerdict {
+  const sourceUrl = asset?.source_url ?? sampleMovieUrl;
+  const reasons: string[] = [];
+  if (!isOfficialSampleMovieAsset(asset, sampleMovieUrl)) reasons.push("公式FANZA/DMM sample_movie_urlではない");
+  if (!sourceUrl) reasons.push("sample_movie_urlなし");
+  if (asset?.fetch_status !== "ok") reasons.push(asset?.fetch_status ? `HTTP取得状態=${asset.fetch_status}` : "technical probe未確認");
+  if (asset?.fetch_status_code == null) reasons.push("HTTP status未確認");
+  else if (asset.fetch_status_code < 200 || asset.fetch_status_code >= 300) reasons.push(`HTTP ${asset.fetch_status_code}`);
+  if (!asset?.mime_type) reasons.push("MIME未確認");
+  else if (!asset.mime_type.toLowerCase().split(";", 1)[0].trim().includes("video/mp4")) reasons.push(`MIME=${asset.mime_type}`);
+  if (asset?.content_length != null && asset.content_length <= 0) reasons.push("content-length不正");
+  return { usable: reasons.length === 0, reasons: [...new Set(reasons)] };
 }
 
 export function isUsableXMediaAsset(asset: Partial<XMediaAsset> | null | undefined): XMediaUsability {
@@ -147,6 +171,10 @@ export function canTrimOfficialSampleMovie(asset: Partial<XMediaAsset> | null | 
   return { usable: usability.usable, reasons: [...new Set(usability.reasons)] };
 }
 
+export function canTrimFanzaXGrowthSampleMovie(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null) {
+  return isFanzaXGrowthTechnicalSampleMovie(asset, sampleMovieUrl);
+}
+
 export async function getXMediaSupplyStatus() {
   const [
     works,
@@ -162,7 +190,7 @@ export async function getXMediaSupplyStatus() {
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "unknown"),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "review"),
-    supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "allowed"),
+    supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("fetch_status", "ok").ilike("mime_type", "video/mp4%"),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "blocked"),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).in("fetch_status", ["dead", "forbidden"]),
     supabaseAdmin.from("x_growth_opportunities").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).eq("media_type", "sample_movie").is("recommended_media_asset_id", null),
