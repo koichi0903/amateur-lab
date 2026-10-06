@@ -318,8 +318,7 @@ function isRetryableError(error) {
 
 async function prepareRetry(tabId, item) {
   const url = `${item.creator_x_url}?myfans_creator_id=${item.creator_id}`;
-  await chrome.tabs.update(tabId, { url, active: false });
-  await waitForTabComplete(tabId, 45000);
+  await navigateWorkerTabToProfile(tabId, url, 45000);
   await wait(1500);
   await executeMain(tabId, async () => {
     window.scrollTo({ top: 700, behavior: "instant" });
@@ -1031,6 +1030,64 @@ async function ensureWorkerTab(openerTabId, initialUrl = "about:blank") {
   const tab = await chrome.tabs.create({ url: initialUrl, active: false, openerTabId });
   await chrome.storage.local.set({ [WORKER_TAB_KEY]: tab.id });
   return tab.id;
+}
+
+function workerProfileParts(value) {
+  try {
+    const parsed = new URL(String(value || "").replace(/^https:\/\/twitter\.com\//i, "https://x.com/"));
+    if (parsed.protocol !== "https:" || parsed.hostname.toLowerCase() !== "x.com") return null;
+    const segments = parsed.pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+    const handle = segments[0] || "";
+    return segments.length === 1 && /^[a-z0-9_]{1,15}$/i.test(handle) ? { host: "x.com", handle: handle.toLowerCase() } : null;
+  } catch {
+    return null;
+  }
+}
+
+function isExpectedWorkerProfileUrl(observedUrl, expectedUrl, expectedHandle) {
+  const observed = workerProfileParts(observedUrl);
+  const expected = workerProfileParts(expectedUrl);
+  const handle = String(expectedHandle || expected?.handle || "").replace(/^@/, "").toLowerCase();
+  return Boolean(observed && expected && observed.handle === expected.handle && observed.handle === handle);
+}
+
+async function waitForWorkerProfileNavigation(tabId, expectedUrl, timeoutMs = 45000) {
+  const expected = workerProfileParts(expectedUrl);
+  if (!expected) throw categorizedError(FAILURE_CATEGORY.NAVIGATION_TIMEOUT, "対象XプロフィールURLを解析できませんでした。", { expectedUrl });
+  const startedAt = Date.now();
+  let lastTab = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    lastTab = await chrome.tabs.get(tabId);
+    const observedUrl = String(lastTab.url || "");
+    if (/\/login(?:[/?#]|$)|\/i\/flow\/login(?:[/?#]|$)/i.test(observedUrl)) {
+      throw categorizedError(FAILURE_CATEGORY.LOGIN_OR_CHALLENGE, "Xログイン画面に移動しました。ログイン状態を確認してください。", { expectedUrl, observedUrl });
+    }
+    if (lastTab.status === "complete" && isExpectedWorkerProfileUrl(observedUrl, expectedUrl, expected.handle)) {
+      return { expectedUrl, observedUrl, tabStatus: lastTab.status, committed: true, elapsedMs: Date.now() - startedAt };
+    }
+    await wait(300);
+  }
+  throw categorizedError(
+    FAILURE_CATEGORY.NAVIGATION_TIMEOUT,
+    "対象Xプロフィールへの移動とhandle一致を確認できませんでした。",
+    {
+      expectedUrl,
+      observedUrl: lastTab?.url || "",
+      tabStatus: lastTab?.status || null,
+      committed: false,
+      elapsedMs: Date.now() - startedAt
+    }
+  );
+}
+
+async function navigateWorkerTabToProfile(tabId, expectedUrl, timeoutMs = 45000) {
+  const expected = workerProfileParts(expectedUrl);
+  const current = await chrome.tabs.get(tabId);
+  if (expected && isExpectedWorkerProfileUrl(current.url || "", expectedUrl, expected.handle) && current.status === "complete") {
+    return { navigated: false, expectedUrl, observedUrl: current.url || "", tabStatus: current.status };
+  }
+  await chrome.tabs.update(tabId, { url: expectedUrl, active: false });
+  return { navigated: true, ...(await waitForWorkerProfileNavigation(tabId, expectedUrl, timeoutMs)) };
 }
 
 function buildWorkerProfileUrl(item, jobId) {
@@ -2070,8 +2127,8 @@ async function collectFromWorkerTab(tabId, item, jobId, openerTabId = null) {
   const url = buildWorkerProfileUrl(item, jobId);
   transition("PROFILE_SCAN", { url });
   await assertWorkerTabAlive(tabId);
-  await chrome.tabs.update(tabId, { url, active: false });
-  await waitForTabComplete(tabId, 45000);
+  const profileNavigation = await navigateWorkerTabToProfile(tabId, url, 45000);
+  transition("PROFILE_NAVIGATION_CONFIRMED", profileNavigation);
   const expectedHandle = String(item.creator_x_url || "").match(/^https:\/\/x\.com\/([^/?#]+)/)?.[1] || "";
   await waitForTweetRender(tabId, expectedHandle, 18000);
   const tab = await chrome.tabs.get(tabId);
@@ -2622,4 +2679,4 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-if (globalThis.__MYFANS_COMPANION_TEST__) globalThis.__myfansCompanionTestHooks = { runBulkQuoteRefresh };
+if (globalThis.__MYFANS_COMPANION_TEST__) globalThis.__myfansCompanionTestHooks = { runBulkQuoteRefresh, navigateWorkerTabToProfile, waitForWorkerProfileNavigation };
