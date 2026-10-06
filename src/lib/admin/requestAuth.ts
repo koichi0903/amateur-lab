@@ -1,5 +1,8 @@
 import type { NextRequest } from "next/server";
 
+export const ADMIN_SESSION_COOKIE = "hakkutsu_admin";
+const LEGACY_ADMIN_SESSION_COOKIE = "__Host-hakkutsu_admin";
+
 function same(actual: string, expected: string) {
   if (actual.length !== expected.length) return false;
   let result = 0;
@@ -36,7 +39,9 @@ export async function isAdminRequest(request: NextRequest) {
     } catch { /* invalid header */ }
   }
   const expected = await sessionToken();
-  const cookieName = request.nextUrl.protocol === "https:" ? "__Host-hakkutsu_admin" : "hakkutsu_admin";
-  const actual = request.cookies.get(cookieName)?.value;
+  const actual = [
+    request.cookies.get(ADMIN_SESSION_COOKIE)?.value,
+    request.cookies.get(LEGACY_ADMIN_SESSION_COOKIE)?.value,
+  ].find((value) => Boolean(value));
   return Boolean(expected && actual && same(actual, expected));
 }

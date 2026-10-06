@@ -5,12 +5,12 @@ import { isAdminRequest } from "@/lib/admin/requestAuth";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  if (!(await isAdminRequest(request))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
   return NextResponse.json(await getBijyoDashboard());
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await isAdminRequest(request))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const action = String(body.action ?? "");
   const jobId = Number(body.jobId);

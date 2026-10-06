@@ -2,10 +2,14 @@
 
 import { useRef, useState } from "react";
 
+type BijyoApiResponse = { error?: string; trim?: { ok?: boolean; error?: string; trimStartSeconds?: number }; [key: string]: unknown };
+
 async function call(payload: Record<string, unknown>) {
-  const response = await fetch("/api/admin/bijyo-reserved", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  const data = await response.json();
-  if (!response.ok || data.error) throw new Error(data.error ?? "処理に失敗しました。");
+  const response = await fetch("/api/admin/bijyo-reserved", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  const body = await response.text();
+  let data: BijyoApiResponse = {};
+  try { data = JSON.parse(body) as BijyoApiResponse; } catch { /* proxy errors may be plain text */ }
+  if (!response.ok || data.error) throw new Error(response.status === 401 ? "管理画面の認証が切れています。ページを再読み込みしてから再試行してください。" : data.error ?? "処理に失敗しました。");
   return data;
 }
 

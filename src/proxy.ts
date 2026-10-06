@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ADMIN_SESSION_COOKIE } from "@/lib/admin/requestAuth";
 
 const PUBLIC_API_PATHS = new Set([
   "/api/affiliate-click",
@@ -100,12 +101,6 @@ function hasSignedRevalidationHeaders(request: NextRequest): boolean {
   return /^\d{13}$/.test(timestamp) && /^[a-f0-9]{64}$/i.test(signature);
 }
 
-function adminCookieName(request: NextRequest): string {
-  return request.nextUrl.protocol === "https:"
-    ? "__Host-hakkutsu_admin"
-    : "hakkutsu_admin";
-}
-
 async function adminSessionToken(): Promise<string | null> {
   const username = process.env.ADMIN_USERNAME;
   const password = process.env.ADMIN_PASSWORD;
@@ -124,7 +119,10 @@ async function adminSessionToken(): Promise<string | null> {
 
 async function hasValidAdminSession(request: NextRequest): Promise<boolean> {
   const expected = await adminSessionToken();
-  const actual = request.cookies.get(adminCookieName(request))?.value;
+  const actual = [
+    request.cookies.get(ADMIN_SESSION_COOKIE)?.value,
+    request.cookies.get("__Host-hakkutsu_admin")?.value,
+  ].find((value) => Boolean(value));
   return Boolean(expected && actual && secureCompare(actual, expected));
 }
 
@@ -133,7 +131,7 @@ async function authenticatedAdminResponse(request: NextRequest) {
   if (!token) return unavailable();
 
   const response = NextResponse.next();
-  response.cookies.set(adminCookieName(request), token, {
+  response.cookies.set(ADMIN_SESSION_COOKIE, token, {
     httpOnly: true,
     secure: request.nextUrl.protocol === "https:",
     sameSite: "strict",
