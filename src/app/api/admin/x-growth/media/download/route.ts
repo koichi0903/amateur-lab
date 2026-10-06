@@ -3,6 +3,7 @@ import { auditXGrowth } from "@/lib/xGrowthOperations";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { canTrimFanzaXGrowthSampleMovie, isFanzaXGrowthTechnicalSampleMovie, sourceDomain, sourceKindFor } from "@/lib/xMediaAssets";
 import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
+import { xGrowthMediaResponseHeaders } from "@/lib/xGrowthMediaPreview";
 
 export const dynamic = "force-dynamic";
 
@@ -113,7 +114,7 @@ function dataCardSvg(work: {
 </svg>`;
 }
 
-async function resolveMedia(workId: number, mediaType: string, assetId: number | null, preview: boolean) {
+async function resolveMedia(workId: number, mediaType: string, assetId: number | null) {
   if (mediaType === "sample_movie") {
     let data: Record<string, unknown> | null = null;
     if (assetId) {
@@ -196,7 +197,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "workIdが不正です。" }, { status: 400 });
   }
 
-  const resolved = await resolveMedia(workId, mediaType, assetId && Number.isSafeInteger(assetId) ? assetId : null, preview);
+  const resolved = await resolveMedia(workId, mediaType, assetId && Number.isSafeInteger(assetId) ? assetId : null);
   if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: resolved.status });
   if ("body" in resolved) {
     const contentType = resolved.contentType ?? "image/svg+xml; charset=utf-8";
@@ -244,20 +245,23 @@ export async function GET(request: NextRequest) {
     }
 
     const upstream = await fetchAllowedUpstream(resolved.url, mediaType, range);
-    if (!upstream.ok || !upstream.body) {
+    if ((!upstream.ok && upstream.status !== 416) || (!upstream.body && upstream.status !== 416)) {
       await auditXGrowth("media_download_failed", { workId, mediaType, assetId, status: upstream.status });
       return NextResponse.json({ error: "素材を取得できませんでした。" }, { status: 502 });
     }
     const contentType = upstream.headers.get("content-type") ?? "application/octet-stream";
     const ext = extFromContentType(contentType, resolved.fallbackExt);
-    const headers = new Headers({
-      "Content-Type": contentType,
-      "Content-Disposition": `attachment; filename="${safeFilename(resolved.basename)}.${ext}"`,
-      "Cache-Control": "private, no-store",
+    const headers = xGrowthMediaResponseHeaders({
+      contentType,
+      contentLength: upstream.headers.get("content-length"),
+      contentRange: upstream.headers.get("content-range"),
+      acceptRanges: mediaType === "sample_movie" ? (upstream.headers.get("accept-ranges") ?? "bytes") : upstream.headers.get("accept-ranges"),
+      preview,
+      filename: `${safeFilename(resolved.basename)}.${ext}`,
     });
-    for (const header of ["content-length", "accept-ranges", "content-range"] as const) {
-      const value = upstream.headers.get(header);
-      if (value) headers.set(header, value);
+    if (upstream.status === 416) {
+      await auditXGrowth("media_download_failed", { workId, mediaType, assetId, status: upstream.status });
+      return new NextResponse(null, { status: 416, headers });
     }
     await auditXGrowth("media_download_allowed", { workId, mediaType, assetId, contentType });
     return new NextResponse(upstream.body, {

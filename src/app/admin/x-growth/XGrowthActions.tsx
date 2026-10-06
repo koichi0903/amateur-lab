@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { shouldShowTopPickTrimControls, trimPostButtonLabel } from "@/lib/xGrowthTrimUi";
+import { ensureXGrowthMediaPreviewUrl, xGrowthMediaPreviewUrl } from "@/lib/xGrowthMediaPreview";
 
 type FileSystemPermissionMode = "read" | "readwrite";
 type FileSystemHandlePermissionDescriptor = { mode?: FileSystemPermissionMode };
@@ -448,11 +449,14 @@ export function XVideoTrimControls({
   const [seconds, setSeconds] = useState(Number(initialTrimStartSeconds ?? 0).toFixed(1));
   const [savedSeconds, setSavedSeconds] = useState(Number(initialTrimStartSeconds ?? 0));
   const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [mediaError, setMediaError] = useState(false);
   const [note, setNote] = useState(initialTrimNote ?? "");
   const [modifyConfirmed, setModifyConfirmed] = useState(Boolean(trimModifyConfirmed));
   const [message, setMessage] = useState("");
   const [pending, startTransition] = useTransition();
   const numericSeconds = Number(seconds);
+  const previewSourceUrl = ensureXGrowthMediaPreviewUrl(sourceUrl);
   const dirty = Number.isFinite(numericSeconds) && Math.round(numericSeconds * 10) / 10 !== savedSeconds;
   const save = () => startTransition(async () => {
     setMessage("");
@@ -482,15 +486,23 @@ export function XVideoTrimControls({
       {compact && <p className="text-xs font-black text-cyan-100">動画の最終調整</p>}
       <div className="mx-auto w-full min-w-0 rounded-lg bg-black">
         <video
-          src={sourceUrl}
+          src={previewSourceUrl}
           controls
           preload="metadata"
+          playsInline
+          onLoadedMetadata={(event) => {
+            setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0);
+            setMediaError(false);
+          }}
+          onError={() => setMediaError(true)}
           onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
           className="block aspect-video h-auto w-full min-w-0 object-contain"
         />
       </div>
       <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-cyan-100">
         <span>現在 {currentTime.toFixed(1)}秒</span>
+        <span>動画長 {duration > 0 ? `${duration.toFixed(1)}秒` : "未取得"}</span>
+        {mediaError && <span className="text-rose-200">動画を読み込めません</span>}
         <span>保存済み {savedSeconds.toFixed(1)}秒</span>
         {dirty && <span className="text-amber-200">未保存</span>}
         {savedSeconds > 0 && <span className="text-emerald-200">冒頭トリム: {savedSeconds.toFixed(1)}秒</span>}
@@ -591,7 +603,9 @@ export function TopPickVideoActions({
     extension: mediaType === "sample_movie" ? "mp4" : "png",
     trimStartSeconds,
   }), [intent, mediaType, pickOrder, trimStartSeconds, workId]);
-  const previewUrl = xGrowthMediaUrl({ workId, mediaType, mediaAssetId: mediaAsset?.id ?? null });
+  const previewUrl = mediaType === "sample_movie" && mediaAsset?.id
+    ? xGrowthMediaPreviewUrl({ workId, mediaType: "sample_movie", mediaAssetId: mediaAsset.id })
+    : null;
   const showTrimControls = shouldShowTopPickTrimControls({ mediaType, mediaUrl: previewUrl ?? mediaUrl, assetId: mediaAsset?.id });
 
   if (mediaType !== "sample_movie") {

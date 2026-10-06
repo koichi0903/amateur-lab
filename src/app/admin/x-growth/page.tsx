@@ -9,6 +9,7 @@ import { getPersistedTodayTopPicks, type PersistedXDailyPlan } from "@/lib/xGrow
 import { getXCreativeLearning, getXPostOutcomes, getRecentXPostLogs } from "@/lib/xPostLogs";
 import { getRightsReviewQueue, isOfficialFanzaDmmSampleUrl } from "@/lib/xMediaAssets";
 import { buildTopPickSlotsViewModel } from "@/lib/xGrowthTopPicks";
+import { xGrowthMediaPreviewUrl } from "@/lib/xGrowthMediaPreview";
 import { visualFactBasis, type XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
 import { CandidateSelectAction, DeferredXGrowthSections, MediaPipelineActions, MetricSyncActions, OpportunityActions, RegenerateTopPicksAction, RightsReviewActions, TempFolderStatus, TopPickVideoActions, TrimReviewActions } from "./XGrowthActions";
 
@@ -84,7 +85,7 @@ function mediaName(item: Pick<XGrowthOpportunity, "mediaType">) {
 
 function sampleMoviePreviewUrl(workId: number | null | undefined, assetId?: number | null) {
   if (!workId) return "";
-  return `/api/admin/x-growth/media/download?workId=${encodeURIComponent(String(workId))}&mediaType=sample_movie${assetId ? `&assetId=${encodeURIComponent(String(assetId))}` : ""}&preview=1`;
+  return xGrowthMediaPreviewUrl({ workId, mediaType: "sample_movie", mediaAssetId: assetId });
 }
 
 function videoHookReason(item: Pick<XGrowthOpportunity, "mediaType" | "mediaAsset">) {
