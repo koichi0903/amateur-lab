@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allocateTodaySlots, bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, filterRecentReleaseWorks, isBijyoFutureOperationEligible, recentReleaseDateRange, todayProgress } from "./bijyoReservedWorkflow.ts";
+import { allocateTodaySlots, bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoFutureOperationEligible, recentReleaseDateRange, todayProgress } from "./bijyoReservedWorkflow.ts";
 import { BIJYO_SECTION_ORDER, MANUAL_CANDIDATE_INITIAL_LIMIT, MANUAL_CANDIDATE_PAGE_SIZE, UPCOMING_RELEASE_INITIAL_LIMIT, UPCOMING_RELEASE_PAGE_SIZE, visibleManualCandidateCount, visibleUpcomingReleaseCount } from "../app/admin/bijyo-reserved/ui.ts";
 
 test("手動追加のidempotency keyは同じworkで安定する", () => {
@@ -68,6 +68,17 @@ test("futureの手動追加・スキップ操作ポリシーは今日のNEW/RESE
   assert.equal(isBijyoFutureOperationEligible("NEW", "2026-09-29", range), false);
   assert.equal(isBijyoFutureOperationEligible("OLD", "2026-09-28", range), false);
   assert.equal(isBijyoFutureOperationEligible("SEMI_NEW", "2026-09-28", range), false);
+});
+
+test("JST境界はtoday..today+7 inclusive、todayはNEW/RESERVED、未来はRESERVEDだけ", () => {
+  const range = { todayDate: "2026-10-06", startDate: "2026-10-06", endDate: "2026-10-13" };
+  assert.equal(evaluateBijyoFutureOperation("NEW", "2026-10-06", range).eligible, true);
+  assert.equal(evaluateBijyoFutureOperation("RESERVED", "2026-10-06", range).eligible, true);
+  assert.equal(evaluateBijyoFutureOperation("RESERVED", "2026-10-07", range).eligible, true);
+  assert.equal(evaluateBijyoFutureOperation("NEW", "2026-10-07", range).eligible, false);
+  assert.equal(evaluateBijyoFutureOperation("RESERVED", "2026-10-13", range).eligible, true);
+  assert.equal(evaluateBijyoFutureOperation("RESERVED", "2026-10-14", range).eligible, false);
+  assert.equal(evaluateBijyoFutureOperation("RESERVED", "2026-10-16", range).eligible, false);
 });
 
 test("今日のNEWでも既存除外と今日枠だけを除外し、他の今日NEWは残す", () => {
