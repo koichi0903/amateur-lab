@@ -19,6 +19,8 @@ const TOKYO_DAY_MS = 86_400_000;
 
 export type ReleaseDateRange = { todayDate: string; startDate: string; endDate: string };
 
+export type BijyoFutureEligibility = { eligible: boolean; reason: string | null };
+
 function shiftTokyoDate(date: string, days: number) {
   return tokyoDate(new Date(new Date(`${date}T00:00:00+09:00`).getTime() + days * TOKYO_DAY_MS));
 }
@@ -28,10 +30,18 @@ export function recentReleaseDateRange(now = new Date()): ReleaseDateRange {
   return { todayDate, startDate: todayDate, endDate: shiftTokyoDate(todayDate, 7) };
 }
 
-export function isBijyoFutureOperationEligible(stage: string, releaseDate: string, dateRange: ReleaseDateRange) {
+export function evaluateBijyoFutureOperation(stage: string, releaseDate: string | null | undefined, dateRange: ReleaseDateRange): BijyoFutureEligibility {
+  if (!releaseDate) return { eligible: false, reason: "発売日がありません。" };
   const date = releaseDate.slice(0, 10);
-  if (date < dateRange.startDate || date > dateRange.endDate) return false;
-  return date === dateRange.todayDate ? ["RESERVED", "NEW"].includes(stage) : stage === "RESERVED";
+  if (date < dateRange.startDate) return { eligible: false, reason: "発売日が過去です。" };
+  if (date > dateRange.endDate) return { eligible: false, reason: "発売日が今日から7日後を超えています。" };
+  if (date === dateRange.todayDate && !["RESERVED", "NEW"].includes(stage)) return { eligible: false, reason: "本日の発売作品はNEWまたはRESERVEDだけが対象です。" };
+  if (date !== dateRange.todayDate && stage !== "RESERVED") return { eligible: false, reason: "明日以降の発売作品はRESERVEDだけが対象です。" };
+  return { eligible: true, reason: null };
+}
+
+export function isBijyoFutureOperationEligible(stage: string, releaseDate: string, dateRange: ReleaseDateRange) {
+  return evaluateBijyoFutureOperation(stage, releaseDate, dateRange).eligible;
 }
 
 export type RecentReleaseWork = {
@@ -56,7 +66,7 @@ export function filterRecentReleaseWorks(works: RecentReleaseWork[], jobs: Recen
   return works
     .filter((work) => {
       const releaseDate = work.release_date.slice(0, 10);
-      if (!isBijyoFutureOperationEligible(work.stage, releaseDate, dateRange) || !work.sample_movie_url) return false;
+      if (!evaluateBijyoFutureOperation(work.stage, releaseDate, dateRange).eligible || !work.sample_movie_url) return false;
       if (excludedWorkIds.has(work.id) || assignedToday.has(work.id) || manualWorks.has(work.id) || seen.has(work.id)) return false;
       seen.add(work.id);
       return true;
