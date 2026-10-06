@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Copy, Download, ExternalLink, FileUp, Image as ImageIcon, LoaderCircle, MousePointerClick, Plus, RefreshCw, Save, XCircle } from "lucide-react";
@@ -441,6 +441,7 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
   const [visualBatchSize, setVisualBatchSize] = useState(10);
   const [visualProgress, setVisualProgress] = useState<VisualVerificationProgress | null>(null);
   const [visualQueue, setVisualQueue] = useState<VisualQueueState | null>(null);
+  const visualQueueRequestInFlight = useRef(false);
   const [bridgeStatus, setBridgeStatus] = useState<CompanionBridgeStatus>({
     scriptInjected: false,
     runtimeConnected: false,
@@ -575,11 +576,17 @@ export function QuoteRefreshBatchPanel({ approvedMediaId }: { approvedMediaId: n
   }
 
   const loadVisualQueue = useCallback(async () => {
-    const response = await fetch("/api/admin/myfans/visual-verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "queue_status", approvedMediaId, batchSize: visualBatchSize }), cache: "no-store" });
-    const payload = (await response.json()) as VisualQueueState & { error?: string };
-    if (!response.ok) throw new Error(payload.error ?? "visual確認キューを読み込めませんでした。");
-    setVisualQueue(payload);
-    return payload;
+    if (visualQueueRequestInFlight.current) return null;
+    visualQueueRequestInFlight.current = true;
+    try {
+      const response = await fetch("/api/admin/myfans/visual-verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "queue_status", approvedMediaId, batchSize: visualBatchSize }), cache: "no-store" });
+      const payload = (await response.json()) as VisualQueueState & { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "visual確認キューを読み込めませんでした。");
+      setVisualQueue(payload);
+      return payload;
+    } finally {
+      visualQueueRequestInFlight.current = false;
+    }
   }, [approvedMediaId, visualBatchSize]);
 
   async function controlVisualQueue(queueAction: "pause" | "resume" | "cancel") {
