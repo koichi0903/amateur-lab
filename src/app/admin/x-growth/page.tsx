@@ -98,7 +98,8 @@ function videoHookReason(item: Pick<XGrowthOpportunity, "mediaType" | "mediaAsse
   return "内容断定なし";
 }
 
-function factBasisLabel(facts: XVisualVideoFacts | null | undefined) {
+function factBasisLabel(facts: XVisualVideoFacts | null | undefined, mediaType?: XGrowthOpportunity["mediaType"]) {
+  if (mediaType !== "sample_movie" && !(facts?.usableFacts.length ?? 0)) return "Decision Facts（画像のVisual Factは任意）";
   const basis = visualFactBasis(facts);
   return basis.label;
 }
@@ -236,7 +237,7 @@ function TopPickCard({ item }: { item: XDailyTopPick }) {
           <p className={`rounded-lg border px-3 py-2 ${mediaOk ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-rose-800 bg-rose-950/30 text-rose-200"}`}>使用素材: {mediaName(item)} / {mediaOk ? "使用可" : "不可"}</p>
           <p className={`rounded-lg border px-3 py-2 ${item.intent === "MONEY" ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-sky-800 bg-sky-950/30 text-sky-200"}`}>{linkStrategy.label}</p>
           {hookReason && <p className="rounded-lg border border-cyan-800 bg-cyan-950/30 px-3 py-2 text-cyan-100">動画Hook根拠: {hookReason}</p>}
-          <p className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-300">文面根拠: {factBasisLabel(item.visualFacts)}</p>
+          <p className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-300">文面根拠: {factBasisLabel(item.visualFacts, item.mediaType)}</p>
           <p className="rounded-lg border border-violet-800 bg-violet-950/20 px-3 py-2 text-violet-100">Fact→semantic: {item.setDiversity.signature.primaryFactKind} → {item.setDiversity.signature.semanticHookCategory}{item.setDiversity.signature.semanticMappingReason ? ` / ${item.setDiversity.signature.semanticMappingReason}` : ""}</p>
           {item.mediaType === "sample_movie" && trimStartSeconds > 0 && <p className="rounded-lg border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-emerald-100">冒頭トリム: {trimStartSeconds.toFixed(1)}秒</p>}
         </div>
@@ -339,7 +340,7 @@ function PersistedTopPickCard({ item }: { item: PersistedTopPick }) {
         <p className={`rounded-lg border px-3 py-2 ${mediaOk ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-rose-800 bg-rose-950/30 text-rose-200"}`}>使用素材: {mediaName({ mediaType: item.mediaType })} / {mediaOk ? "使用可" : "不可"}</p>
         <p className={`rounded-lg border px-3 py-2 ${item.role === "MONEY" ? "border-emerald-800 bg-emerald-950/30 text-emerald-200" : "border-sky-800 bg-sky-950/30 text-sky-200"}`}>{linkStrategy.label}</p>
         {hookReason && <p className="rounded-lg border border-cyan-800 bg-cyan-950/30 px-3 py-2 text-cyan-100">動画Hook根拠: {hookReason}</p>}
-        <p className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-300">文面根拠: {factBasisLabel(item.visualFacts)}</p>
+        <p className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-300">文面根拠: {factBasisLabel(item.visualFacts, item.mediaType)}</p>
         <p className="rounded-lg border border-violet-800 bg-violet-950/20 px-3 py-2 text-violet-100">Fact→semantic: {item.setDiversity.signature.primaryFactKind} → {item.setDiversity.signature.semanticHookCategory}{item.setDiversity.signature.semanticMappingReason ? ` / ${item.setDiversity.signature.semanticMappingReason}` : ""}</p>
         {item.mediaType === "sample_movie" && trimStartSeconds > 0 && <p className="rounded-lg border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-emerald-100">冒頭トリム: {trimStartSeconds.toFixed(1)}秒</p>}
       </div>

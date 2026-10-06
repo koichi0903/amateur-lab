@@ -14,4 +14,8 @@ assert.equal(isUsableVisualFact({ kind: "opening_strength", value: "strong", con
 assert.equal(isUsableVisualFact({ kind: "notable_video_hook", value: "opening_change", confidence: 0.95, source: "sample_video", safePhrase: "入り方が少し予想と違う。" }), true);
 assert.equal(isUsableVisualFact({ kind: "notable_video_hook", value: "unsupported_scene", confidence: 0.99, source: "sample_video", safePhrase: "具体的な行為がある。" }), false);
 
+const neutralImage = buildVisualVideoFacts({ imageUrl: "https://pics.dmm.co.jp/digital/video/test/testpl.jpg" });
+assert.equal(neutralImage.usableFacts.length, 0);
+assert.deepEqual(neutralImage.diagnostics, ["画像候補: Visual Factは必須ではなく、本文はDecision Factsで検証"]);
+
 console.log("xVisualVideoFacts tests passed");

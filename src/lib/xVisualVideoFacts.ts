@@ -101,10 +101,13 @@ export function buildVisualVideoFacts(input: XVisualFactInput, generatedAt = new
   const usableFacts = facts.filter((candidate) => candidate.kind === "jacket_sample_mismatch"
     ? hasDualMismatchEvidence && isUsableVisualFact({ ...candidate, kind: "visual_style", value: "jacket_video_mismatch" })
     : isUsableVisualFact(candidate));
+  const imageOnly = Boolean(input.imageUrl && !input.sampleMovieUrl);
   const diagnostics = facts.length === 0
     ? ["画像/動画の確定Factなし。メタデータfallbackを使用"]
     : usableFacts.length < 1
-      ? ["Fact候補はあるがTruth Guardを通過したFactなし"]
+      ? imageOnly
+        ? ["画像候補: Visual Factは必須ではなく、本文はDecision Factsで検証"]
+        : ["Fact候補はあるがTruth Guardを通過したFactなし"]
       : [];
   return { version: "visual-video-facts-v1", generatedAt, facts, usableFacts, diagnostics };
 }

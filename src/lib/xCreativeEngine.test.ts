@@ -148,6 +148,30 @@ const imageVariants = buildXCreativeVariants({ ...baseInput, sampleMovieUrl: nul
 assert.ok(imageVariants.length > 0);
 assert.equal(imageVariants.some((variant) => variant.mediaType === "sample_movie"), false);
 
+const imageDecisionFactVariants = buildXCreativeVariants({
+  ...baseInput,
+  key: "fixed-image-decision-facts-fixture",
+  sampleMovieUrl: null,
+  hasRightsCheckedMovie: false,
+  visualFacts: buildVisualVideoFacts({ imageUrl: baseInput.imageUrl }),
+  decisionFacts: buildDecisionFacts({
+    currentPrice: 150,
+    recordedLowestPrice: 150,
+    discountRate: 50,
+    isOnSale: true,
+    ranking: 185,
+    reviewAverage: 4.8,
+    reviewCount: 65,
+    recordedLowestAt: "2026-10-05T20:00:00.000Z",
+    coverageStart: "2026-07-15T00:00:00.000Z",
+    coverageEnd: "2026-10-05T20:00:00.000Z",
+    priceSeries: { displayName: "HD版ストリーミング", period: "7日間" },
+  }),
+}).filter((variant) => variant.mediaType === "existing_link_image");
+assert.ok(imageDecisionFactVariants.length > 0);
+assert.ok(imageDecisionFactVariants.some((variant) => variant.quality.passed || variant.quality.recommendation === "revise"));
+assert.ok(imageDecisionFactVariants.every((variant) => !variant.bodyText.includes("unsupported_scene")));
+
 const factlessInput = {
   ...baseInput,
   key: "factless-reader-action-fixture",

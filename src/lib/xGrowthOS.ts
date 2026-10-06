@@ -841,10 +841,13 @@ function withCreativeQuality(item: XGrowthOpportunity, logs: XPostLog[]): XGrowt
       : resolvedMediaType === "data_card"
         ? `/api/admin/x-growth/media/download?workId=${item.workId}&mediaType=data_card`
       : null;
+  const resolvedVisualFacts = resolvedMediaType === "sample_movie"
+    ? visualFacts
+    : buildVisualVideoFacts({ imageUrl: item.imageUrl });
   return {
     ...item,
-    visualFacts,
-    visualScoring: visualFactScores(visualFacts),
+    visualFacts: resolvedVisualFacts,
+    visualScoring: visualFactScores(resolvedVisualFacts),
     creativeVariants: realMediaVariants,
     postText: recommended?.bodyText ?? item.postText,
     replyText: recommended?.replyText ?? null,
