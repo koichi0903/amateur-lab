@@ -4,12 +4,16 @@ import { useRef, useState } from "react";
 
 type BijyoApiResponse = { error?: string; trim?: { ok?: boolean; error?: string; trimStartSeconds?: number }; [key: string]: unknown };
 
+class BijyoApiError extends Error {
+  constructor(message: string, readonly code?: string) { super(message); }
+}
+
 async function call(payload: Record<string, unknown>) {
   const response = await fetch("/api/admin/bijyo-reserved", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   const body = await response.text();
   let data: BijyoApiResponse = {};
   try { data = JSON.parse(body) as BijyoApiResponse; } catch { /* proxy errors may be plain text */ }
-  if (!response.ok || data.error) throw new Error(response.status === 401 ? "管理画面の認証が切れています。ページを再読み込みしてから再試行してください。" : data.error ?? "処理に失敗しました。");
+  if (!response.ok || data.error) throw new BijyoApiError(response.status === 401 ? "管理画面の認証が切れています。ページを再読み込みしてから再試行してください。" : data.error ?? "処理に失敗しました。", typeof data.code === "string" ? data.code : undefined);
   return data;
 }
 
@@ -18,6 +22,7 @@ function openExternal(url: string) { window.open(url, "_blank", "noopener,norefe
 export function BijyoReservedActions({ jobId, workId, mainText, replyText, status, sampleMovieUrl, trimStartSeconds, manualLabel = "手動追加投稿", allowWorkSkip = false }: { jobId?: number; workId?: number; mainText?: string; replyText?: string; status?: string; sampleMovieUrl?: string; trimStartSeconds?: number; manualLabel?: string; allowWorkSkip?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [actionBlocked, setActionBlocked] = useState(false);
   const [trimOpen, setTrimOpen] = useState(false);
   const [trimSeconds, setTrimSeconds] = useState(Number(trimStartSeconds ?? 0));
   const [trimMode, setTrimMode] = useState<"manual" | "resetAuto">("manual");
@@ -25,7 +30,7 @@ export function BijyoReservedActions({ jobId, workId, mainText, replyText, statu
   async function run(action: string) {
     setBusy(true); setMessage("");
     try { const result = await call({ action, jobId, workId }); setMessage(action === "posted" ? "投稿済みにしました。" : action === "skip" ? "スキップして候補を補充しました。" : action === "exclude" ? "今後の候補から外しました。" : result.trim?.ok === false ? `手動追加は完了しましたが、trim準備に失敗しました。動画ボタンから再生成できます。\n${result.trim.error}` : "手動追加・trim準備が完了しました。画面を更新します。"); if (["posted", "skip", "exclude", "manual"].includes(action)) window.location.reload(); }
-    catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    catch (error) { if (error instanceof BijyoApiError && error.code === "already_selected") setActionBlocked(true); setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
   async function copy(value: string, label: string) { try { await navigator.clipboard.writeText(value); setMessage(`${label}をコピーしました。`); } catch { setMessage("コピーできませんでした。表示された文面を選択してください。"); } }
@@ -66,8 +71,8 @@ export function BijyoReservedActions({ jobId, workId, mainText, replyText, statu
         <p className="mt-2 text-xs text-zinc-500">現在位置: {trimSeconds.toFixed(1)}秒 / 「自動値に戻す」は自動解析を再実行します。</p>
       </div>}
     </>}
-    {workId && <button disabled={busy} onClick={() => run("manual")} className="rounded bg-violet-500 px-3 py-2 text-xs font-black text-white">{manualLabel}</button>}
-    {allowWorkSkip && workId && <button disabled={busy} onClick={() => run("skip")} className="rounded border border-amber-700 px-3 py-2 text-xs font-bold text-amber-200">スキップ</button>}
+    {workId && <button disabled={busy || actionBlocked} onClick={() => run("manual")} className="rounded bg-violet-500 px-3 py-2 text-xs font-black text-white">{actionBlocked ? "追加済み" : manualLabel}</button>}
+    {allowWorkSkip && workId && <button disabled={busy || actionBlocked} onClick={() => run("skip")} className="rounded border border-amber-700 px-3 py-2 text-xs font-bold text-amber-200">スキップ</button>}
     {message && <p className="w-full whitespace-pre-wrap text-xs text-amber-200">{message}</p>}
   </div>;
 }

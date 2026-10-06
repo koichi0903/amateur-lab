@@ -4,6 +4,11 @@ import { isAdminRequest } from "@/lib/admin/requestAuth";
 
 export const dynamic = "force-dynamic";
 
+function userSafeResult<T extends { error?: string }>(result: T) {
+  if (!result.error || /[\u3040-\u30ff\u3400-\u9fff]/.test(result.error)) return result;
+  return { ...result, error: "処理に失敗しました。画面を更新してから再試行してください。" };
+}
+
 export async function GET(request: NextRequest) {
   if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
   return NextResponse.json(await getBijyoDashboard());
@@ -15,7 +20,7 @@ export async function POST(request: NextRequest) {
   const action = String(body.action ?? "");
   const jobId = Number(body.jobId);
   const workId = Number(body.workId);
-  let result: { ok: boolean; error?: string; jobId?: number; existing?: boolean };
+  let result: { ok: boolean; error?: string; code?: string; state?: string; jobId?: number; existing?: boolean };
   if (!Number.isSafeInteger(jobId) && ["posted", "exclude"].includes(action)) return NextResponse.json({ error: "jobIdが不正です。" }, { status: 400 });
   if (action === "posted") result = await markBijyoPosted(jobId);
   else if (action === "skip") result = Number.isSafeInteger(jobId) && jobId > 0 ? await skipBijyoJob(jobId) : Number.isSafeInteger(workId) && workId > 0 ? await skipBijyoFutureWork(workId) : { ok: false, error: "jobIdまたはworkIdが不正です。" };
@@ -43,5 +48,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status });
     }
   } else return NextResponse.json({ error: "この画面ではX API自動投稿を利用しません。" }, { status: 400 });
-  return NextResponse.json(result, { status: result.ok ? 200 : 409 });
+  const safeResult = userSafeResult(result);
+  return NextResponse.json(safeResult, { status: safeResult.ok ? 200 : 409 });
 }

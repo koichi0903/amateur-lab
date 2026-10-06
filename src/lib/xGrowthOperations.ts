@@ -207,18 +207,24 @@ export function applyMediaRights(opportunities: XGrowthOpportunity[], assets: Ma
   });
 }
 
-export async function syncSampleMovieAssets(batchSize = 250) {
-  const safeLimit = Math.max(1, Math.min(batchSize, 500));
-  const { data, error } = await supabaseAdmin
-    .from("works")
-    .select("id,product_id,sample_movie_url")
-    .not("sample_movie_url", "is", null)
-    .neq("sample_movie_url", "")
-    .order("id", { ascending: true })
-    .limit(safeLimit);
-  if (error) return { error: error.message, scanned: 0, synced: 0 };
-  const rows = ((data ?? []) as Array<{ id: number; product_id: string | null; sample_movie_url: string | null }>)
-    .filter((work) => work.sample_movie_url)
+type SampleMovieWork = { id: number; product_id: string | null; sample_movie_url: string | null };
+
+async function syncSampleMovieAssetRows(works: SampleMovieWork[]) {
+  const candidates = works.filter((work) => work.sample_movie_url);
+  if (!candidates.length) return { error: null, scanned: works.length, synced: 0, created: 0, existing: 0 };
+
+  const ids = candidates.map((work) => work.id);
+  const existingResult = await supabaseAdmin
+    .from("x_media_assets")
+    .select("work_id,source_url")
+    .eq("account_handle", ACCOUNT)
+    .in("work_id", ids)
+    .in("media_type", ["video", "sample_movie"]);
+  if (existingResult.error) return { error: existingResult.error.message, scanned: works.length, synced: 0, created: 0, existing: 0 };
+
+  const existingKeys = new Set((existingResult.data ?? []).map((row) => `${row.work_id}:${row.source_url}`));
+  const rows = candidates
+    .filter((work) => !existingKeys.has(`${work.id}:${work.sample_movie_url}`))
     .map((work) => ({
       account_handle: ACCOUNT,
       work_id: work.id,
@@ -235,10 +241,34 @@ export async function syncSampleMovieAssets(batchSize = 250) {
       commercial_use_allowed: false,
       updated_at: new Date().toISOString(),
     }));
-  if (!rows.length) return { error: null, scanned: 0, synced: 0 };
-  const result = await supabaseAdmin.from("x_media_assets").upsert(rows, { onConflict: "account_handle,work_id,source_url" });
-  if (!result.error) await auditXGrowth("media_assets_synced", { scanned: data?.length ?? 0, synced: rows.length, batchSize: safeLimit });
-  return { error: result.error?.message ?? null, scanned: data?.length ?? 0, synced: result.error ? 0 : rows.length };
+  if (!rows.length) return { error: null, scanned: works.length, synced: 0, created: 0, existing: candidates.length };
+
+  const result = await supabaseAdmin.from("x_media_assets").insert(rows);
+  if (result.error) return { error: result.error.message, scanned: works.length, synced: 0, created: 0, existing: candidates.length - rows.length };
+  await auditXGrowth("media_assets_synced", { scanned: works.length, synced: rows.length, created: rows.length, existing: candidates.length - rows.length });
+  return { error: null, scanned: works.length, synced: rows.length, created: rows.length, existing: candidates.length - rows.length };
+}
+
+export async function syncSampleMovieAssetsForWorkIds(workIds: number[]) {
+  const ids = [...new Set(workIds)].filter((id) => Number.isSafeInteger(id) && id > 0);
+  if (!ids.length) return { error: null, scanned: 0, synced: 0, created: 0, existing: 0 };
+  const result = await supabaseAdmin.from("works").select("id,product_id,sample_movie_url").in("id", ids);
+  if (result.error) return { error: result.error.message, scanned: 0, synced: 0, created: 0, existing: 0 };
+  return syncSampleMovieAssetRows((result.data ?? []) as SampleMovieWork[]);
+}
+
+export async function syncSampleMovieAssets(batchSize = 250) {
+  const safeLimit = Math.max(1, Math.min(batchSize, 500));
+  const { data, error } = await supabaseAdmin
+    .from("works")
+    .select("id,product_id,sample_movie_url")
+    .not("sample_movie_url", "is", null)
+    .neq("sample_movie_url", "")
+    // New works are the operational priority; old rows are handled by later batches.
+    .order("id", { ascending: false })
+    .limit(safeLimit);
+  if (error) return { error: error.message, scanned: 0, synced: 0, created: 0, existing: 0 };
+  return syncSampleMovieAssetRows((data ?? []) as SampleMovieWork[]);
 }
 
 async function probeUrl(url: string) {
@@ -263,26 +293,33 @@ async function probeUrl(url: string) {
   }
 }
 
-export async function checkMediaAssetUrls(batchSize = 50) {
+export async function checkMediaAssetUrlsForWorkIds(workIds: number[], batchSize = 50) {
   const safeLimit = Math.max(1, Math.min(batchSize, 100));
-  const { data, error } = await supabaseAdmin
+  const ids = [...new Set(workIds)].filter((id) => Number.isSafeInteger(id) && id > 0);
+  let query = supabaseAdmin
     .from("x_media_assets")
     .select("id,source_url")
     .eq("account_handle", ACCOUNT)
     .in("media_type", ["video", "sample_movie"])
     .or("last_checked_at.is.null,fetch_status.eq.unknown,fetch_status.eq.unchecked")
-    .order("last_checked_at", { ascending: true, nullsFirst: true })
-    .limit(safeLimit);
+    .order("last_checked_at", { ascending: true, nullsFirst: true });
+  if (ids.length) query = query.in("work_id", ids);
+  const { data, error } = await query.limit(safeLimit);
   if (error) return { error: error.message, checked: 0 };
   const assets = (data ?? []) as Array<{ id: number; source_url: string }>;
   let checked = 0;
   for (const asset of assets) {
     const probe = await probeUrl(asset.source_url);
-    await supabaseAdmin.from("x_media_assets").update(probe).eq("account_handle", ACCOUNT).eq("id", asset.id);
+    const saved = await supabaseAdmin.from("x_media_assets").update({ ...probe, technical_status: probe.fetch_status }).eq("account_handle", ACCOUNT).eq("id", asset.id);
+    if (saved.error) return { error: saved.error.message, checked };
     checked += 1;
   }
   if (checked) await auditXGrowth("media_asset_urls_checked", { checked, batchSize: safeLimit });
   return { error: null, checked };
+}
+
+export async function checkMediaAssetUrls(batchSize = 50) {
+  return checkMediaAssetUrlsForWorkIds([], batchSize);
 }
 
 export async function reviewMediaAsset(input: {

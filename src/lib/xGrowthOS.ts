@@ -14,6 +14,7 @@ import {
   fetchRankingSnapshotHistory,
   fetchMediaAssets,
   analyzeUncachedVideoFacts,
+  syncSampleMovieAssetsForWorkIds,
   getPersistedGrowthTables,
   getXGrowthSystemStatus,
   persistRankingSnapshots,
@@ -948,8 +949,8 @@ export function videoEligibilityReasons(
   const candidate = { ...item, mediaType: variant?.mediaType ?? item.mediaType };
   if (!isVideoCandidate(candidate)) reasons.push("video media/sample_movie_urlなし");
   if (variant?.mediaType !== "sample_movie") reasons.push("creative variantが動画ではない");
-  // rights_status/x_usage_allowed/manual review state is bookkeeping here;
-  // official URL, fetchability, media safety, and copy quality are separate.
+  // Rights and technical review are hard gates. An official URL alone is not
+  // permission to repost it to X.
   if (!officialSampleVideoAllowed(item)) reasons.push("official sample / fetchability / media safety gate NG");
   if (asset?.media_quality === "weak") reasons.push("media_quality=weak");
   // null/undefined and unreviewed are intentionally not weak.
@@ -3164,6 +3165,11 @@ export async function buildXGrowthOS({
   };
   const postedWorkResult = await mark("posted_work_ids_ms", getPostedWorkIds());
   const candidateResult = await mark("candidate_generation_ms", getXPostCandidates(performance, logs, postedWorkResult.workIds));
+  // Candidate generation stays DB-only here: ensure every surfaced official
+  // sample has an asset row before the media gate evaluates it. URL probing is
+  // intentionally kept in the explicit preflight before regeneration.
+  const mediaSync = await mark("media_assets_sync_ms", syncSampleMovieAssetsForWorkIds(candidateResult.candidates.map((item) => item.workId)));
+  if (mediaSync.error) timings.media_assets_sync_error = 1;
   const expandedCandidates = expandCreativeSupply(candidateResult.candidates);
   const scoredAll = expandedCandidates.map(scoreOpportunity).sort((a, b) => {
     const aMax = Math.max(a.reachScore, a.followScore, a.authorityScore, a.revenueScore);

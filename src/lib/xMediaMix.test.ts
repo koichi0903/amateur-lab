@@ -22,6 +22,11 @@ const item = {
     source_url: "https://cc3001.dmm.co.jp/litevideo/freepv/example/example_dmb_w.mp4",
     source_kind: "official_sample",
     fetch_status: "ok",
+    rights_status: "allowed",
+    x_usage_allowed: true,
+    can_reupload: true,
+    quote_only: false,
+    commercial_use_allowed: true,
     media_quality: "strong",
     manual_tags: ["first_seconds_strong"],
   },
@@ -37,12 +42,12 @@ assert.equal(isVideoCandidate({ mediaType: "sample_movie", recommendedMediaUrl: 
 assert.equal(isStrongSafeVideoCandidate({ ...item, mediaAsset: { ...item.mediaAsset, media_quality: null }, mediaType: "sample_movie", recommendedMediaUrl: item.sampleMovieUrl }, variant), true);
 assert.equal(videoEligibilityReasons({ ...item, mediaAsset: { ...item.mediaAsset, media_quality: null }, mediaType: "sample_movie", recommendedMediaUrl: item.sampleMovieUrl }, variant).includes("media_quality=weak"), false);
 assert.equal(isOfficialEligibleVideoCandidate({ ...item, mediaAsset: { ...item.mediaAsset, media_quality: null }, mediaType: "sample_movie" }), true);
-assert.equal(isOfficialEligibleVideoCandidate({ ...item, mediaAsset: { ...item.mediaAsset, rights_status: "blocked", x_usage_allowed: false, can_reupload: false, commercial_use_allowed: false }, mediaType: "sample_movie" }), true);
-assert.equal(isOfficialEligibleVideoCandidate({ ...item, mediaAsset: { ...item.mediaAsset, rights_status: "unknown", x_usage_allowed: false, can_reupload: false, commercial_use_allowed: false }, mediaType: "sample_movie" }), true);
+assert.equal(isOfficialEligibleVideoCandidate({ ...item, mediaAsset: { ...item.mediaAsset, rights_status: "blocked", x_usage_allowed: false, can_reupload: false, commercial_use_allowed: false }, mediaType: "sample_movie" }), false);
+assert.equal(isOfficialEligibleVideoCandidate({ ...item, mediaAsset: { ...item.mediaAsset, rights_status: "unknown", x_usage_allowed: false, can_reupload: false, commercial_use_allowed: false }, mediaType: "sample_movie" }), false);
 assert.equal(isStrongSafeVideoCandidate({ ...item, sampleMovieUrl: "https://example.com/video.mp4", recommendedMediaUrl: "https://example.com/video.mp4", mediaAsset: { ...item.mediaAsset, source_url: "https://example.com/video.mp4", source_kind: "unknown_external" }, mediaType: "sample_movie" }, variant), false);
 assert.equal(isOfficialEligibleVideoCandidate({ ...item, sampleMovieUrl: "https://example.com/video.mp4", recommendedMediaUrl: "https://example.com/video.mp4", mediaAsset: { ...item.mediaAsset, source_url: "https://example.com/video.mp4", source_kind: "unknown_external" }, mediaType: "sample_movie" }), false);
-assert.equal(isOfficialEligibleVideoCandidate({ ...item, sampleMovieUrl: null, recommendedMediaUrl: item.sampleMovieUrl, mediaAsset: null, mediaType: "sample_movie" }), true);
-assert.equal(videoEligibilityReasons({ ...item, canNativeVideo: false, mediaAsset: { ...item.mediaAsset, rights_status: "unknown", x_usage_allowed: false }, mediaType: "sample_movie" }, variant).some((reason) => reason.includes("X使用可否未確認")), false);
+assert.equal(isOfficialEligibleVideoCandidate({ ...item, sampleMovieUrl: null, recommendedMediaUrl: item.sampleMovieUrl, mediaAsset: null, mediaType: "sample_movie" }), false);
+assert.equal(videoEligibilityReasons({ ...item, canNativeVideo: false, mediaAsset: { ...item.mediaAsset, rights_status: "unknown", x_usage_allowed: false }, mediaType: "sample_movie" }, variant).some((reason) => reason.includes("official sample")), true);
 
 const rankedCandidate = (workId: number, mediaType: "sample_movie" | "existing_link_image", score: number, decisionTypes: DecisionType[] = ["RECORD_LOW"]) => ({
   workId,

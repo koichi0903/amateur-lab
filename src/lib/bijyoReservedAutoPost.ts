@@ -17,6 +17,20 @@ export type BijyoJob = {
   main_text: string; reply_text: string; x_post_id: string | null; posted_at: string | null; failure_reason: string | null; skip_reason: string | null; work?: Work | null;
 };
 
+type BijyoActionResult = { ok: boolean; error?: string; code?: string; state?: string; jobId?: number; existing?: boolean };
+
+function conflictResult(state: string): BijyoActionResult {
+  const labels: Record<string, string> = {
+    posted: "この作品は投稿済みです。",
+    manual_posted: "この作品は投稿済みです。",
+    skipped: "この作品はスキップ済みです。",
+    excluded: "この作品は対象外に設定されています。",
+    pending: "この作品はすでに追加済みです。",
+    trim_failed: "この作品はすでに追加済みです。動画を再生成できます。",
+  };
+  return { ok: false, error: labels[state] ?? "この作品はすでに選択済みです。", code: "already_selected", state };
+}
+
 const JOB_SELECT = "id,work_id,kind,slot_date,slot_index,scheduled_at,status,trim_start_seconds,trim_status,trim_reason,trim_failure_reason,main_text,reply_text,x_post_id,posted_at,failure_reason,skip_reason";
 const ACTIVE_CANDIDATE_STATUSES = ["pending", "posted", "manual_posted", "skipped", "excluded", "trim_failed"];
 
@@ -124,14 +138,14 @@ async function loadJob(jobId: number, workId?: number) {
 export async function markBijyoPosted(jobId: number) {
   const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ status: "manual_posted", posted_at: new Date().toISOString(), failure_reason: null }).eq("account_handle", BIJYO_ACCOUNT).eq("id", jobId).in("status", ["pending", "trim_failed"]).select("id").maybeSingle();
   if (result.error) return { ok: false, error: result.error.message };
-  if (!result.data) return { ok: false, error: "この枠はすでに投稿済み、スキップ済み、または対象外です。" };
+  if (!result.data) return { ok: false, error: "この枠は投稿済み、スキップ済み、または対象外です。", code: "invalid_transition" };
   return { ok: true };
 }
 
 export async function skipBijyoJob(jobId: number, reason = "手動スキップ") {
   const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ status: "skipped", skip_reason: reason }).eq("account_handle", BIJYO_ACCOUNT).eq("id", jobId).in("kind", ["auto", "manual"]).eq("status", "pending").select("id").maybeSingle();
   if (result.error) return { ok: false, error: result.error.message };
-  if (!result.data) return { ok: false, error: "この枠はスキップできません。" };
+  if (!result.data) return { ok: false, error: "この枠はスキップ済み、投稿済み、または対象外です。", code: "invalid_transition" };
   await ensureTodayJobs(tokyoDate());
   return { ok: true };
 }
@@ -143,12 +157,12 @@ export async function skipBijyoFutureWork(workId: number, reason = "発売予定
   if (workResult.error || !work || !isBijyoFutureOperationEligible(work.stage, work.release_date, dateRange) || !work.sample_movie_url || sourceKindFor(work.sample_movie_url) !== "official_sample") return { ok: false, error: "今日から1週間の対象作品ではありません。" };
   const existing = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id,status").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
   if (existing.error) return { ok: false, error: existing.error.message };
-  if (existing.data) return existing.data.status === "skipped" ? { ok: true, existing: true } : { ok: false, error: "この作品はすでに選択済み、投稿済み、または対象外です。" };
+  if (existing.data) return existing.data.status === "skipped" ? { ok: true, existing: true } : conflictResult(String(existing.data.status));
   const inserted = await supabaseAdmin.from("bijyo_reserved_post_jobs").insert({ account_handle: BIJYO_ACCOUNT, work_id: work.id, kind: "auto", slot_date: work.release_date.slice(0, 10), slot_index: null, scheduled_at: new Date().toISOString(), idempotency_key: `bijyo1010:skip:${work.id}`, status: "skipped", main_text: buildBijyoMainText(work), reply_text: buildBijyoReplyText(work.id), skip_reason: reason }).select("id").single();
   if (!inserted.error) return { ok: true, existing: false };
   if (inserted.error.code !== "23505") return { ok: false, error: inserted.error.message };
   const raced = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id,status").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
-  return raced.data?.status === "skipped" ? { ok: true, existing: true } : { ok: false, error: raced.error?.message ?? "この作品はすでに選択済みです。" };
+  return raced.data?.status === "skipped" ? { ok: true, existing: true } : raced.data ? conflictResult(String(raced.data.status)) : { ok: false, error: "同時更新を確認できませんでした。もう一度画面を更新してください。", code: "retry_required" };
 }
 
 export async function excludeBijyoJob(jobId: number) {
@@ -156,18 +170,24 @@ export async function excludeBijyoJob(jobId: number) {
   return result.error ? { ok: false, error: result.error.message } : { ok: true };
 }
 
-export async function createBijyoManualJob(workId: number) {
+export async function createBijyoManualJob(workId: number): Promise<BijyoActionResult> {
   const workResult = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("id", workId).single();
   const work = workResult.data as Work | null;
   if (workResult.error || !work || !work.release_date || !isBijyoFutureOperationEligible(work.stage, work.release_date, recentReleaseDateRange()) || !work.sample_movie_url || sourceKindFor(work.sample_movie_url) !== "official_sample") return { ok: false, error: "手動投稿には今日から1週間の対象作品・発売日・FANZA/DMM公式サンプル動画が必要です。" };
-  const existing = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
+  const existing = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id,status").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
   if (existing.error) return { ok: false, error: existing.error.message };
-  if (existing.data) return { ok: true, jobId: Number(existing.data.id), existing: true };
+  if (existing.data) {
+    const status = String(existing.data.status ?? "");
+    if (["pending", "trim_failed"].includes(status)) return { ok: true, jobId: Number(existing.data.id), existing: true };
+    return { ...conflictResult(status), jobId: Number(existing.data.id) };
+  }
   const inserted = await supabaseAdmin.from("bijyo_reserved_post_jobs").insert({ account_handle: BIJYO_ACCOUNT, work_id: work.id, kind: "manual", slot_date: tokyoDate(), scheduled_at: new Date().toISOString(), idempotency_key: bijyoManualIdempotencyKey(work.id), status: "pending", main_text: buildBijyoMainText(work), reply_text: buildBijyoReplyText(work.id) }).select("id").single();
   if (!inserted.error) return { ok: true, jobId: Number(inserted.data.id), existing: false };
   if (inserted.error.code !== "23505") return { ok: false, error: inserted.error.message };
-  const raced = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
-  if (raced.error || !raced.data) return { ok: false, error: raced.error?.message ?? inserted.error.message };
+  const raced = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id,status").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
+  if (raced.error || !raced.data) return { ok: false, error: "同時更新を確認できませんでした。もう一度画面を更新してください。", code: "retry_required" };
+  const status = String(raced.data.status ?? "");
+  if (!["pending", "trim_failed"].includes(status)) return { ...conflictResult(status), jobId: Number(raced.data.id) };
   return { ok: true, jobId: Number(raced.data.id), existing: true };
 }
 

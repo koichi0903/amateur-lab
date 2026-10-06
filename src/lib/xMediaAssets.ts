@@ -65,8 +65,6 @@ export type XMediaUsability = {
   quality: "strong" | "normal" | "weak" | "unreviewed";
 };
 
-const blockedFetchStatuses = new Set(["dead", "forbidden"]);
-
 export function normalizeRightsStatus(status: string | null | undefined): XMediaRightsStatus {
   if (status === "unchecked") return "unknown";
   if (status === "rejected" || status === "expired") return "blocked";
@@ -109,7 +107,7 @@ export function isUsableXMediaAsset(asset: Partial<XMediaAsset> | null | undefin
   if (asset?.can_reupload !== true) reasons.push("reupload不可");
   if (asset?.quote_only === true) reasons.push("quote only");
   if (asset?.commercial_use_allowed !== true) reasons.push("commercial use未確認");
-  if (asset?.fetch_status && blockedFetchStatuses.has(asset.fetch_status)) reasons.push(`URL ${asset.fetch_status}`);
+  if (asset?.fetch_status !== "ok") reasons.push(asset?.fetch_status ? `URL ${asset.fetch_status}` : "technical未確認");
   const quality = asset?.media_quality ?? "unreviewed";
   const tags = asset?.manual_tags ?? [];
   const reachSuitable = !tags.includes("too_explicit_for_reach") && quality !== "weak";
@@ -118,16 +116,12 @@ export function isUsableXMediaAsset(asset: Partial<XMediaAsset> | null | undefin
 }
 
 export function isPostableOfficialSampleMovie(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null): XMediaUsability {
-  const reasons: string[] = [];
   const sourceUrl = asset?.source_url ?? sampleMovieUrl;
-  if (!isOfficialSampleMovieAsset(asset, sampleMovieUrl)) reasons.push("公式sample_movie_urlではない");
-  if (asset?.fetch_status && blockedFetchStatuses.has(asset.fetch_status)) reasons.push(`URL ${asset.fetch_status}`);
-  const quality = asset?.media_quality ?? "unreviewed";
-  const tags = asset?.manual_tags ?? [];
-  const reachSuitable = !tags.includes("too_explicit_for_reach") && quality !== "weak";
-  if (!reachSuitable) reasons.push(tags.includes("too_explicit_for_reach") ? "reach不向き" : "weak video");
+  const reasons = !isOfficialSampleMovieAsset(asset, sampleMovieUrl) ? ["公式sample_movie_urlではない"] : [];
   if (!sourceUrl) reasons.push("sample_movie_urlなし");
-  return { usable: reasons.length === 0, reasons: [...new Set(reasons)], reachSuitable, quality };
+  const reviewed = isUsableXMediaAsset(asset);
+  reasons.push(...reviewed.reasons);
+  return { usable: reasons.length === 0, reasons: [...new Set(reasons)], reachSuitable: reviewed.reachSuitable, quality: reviewed.quality };
 }
 
 export function validateTrimStartSeconds(value: unknown, durationSeconds?: number | null) {

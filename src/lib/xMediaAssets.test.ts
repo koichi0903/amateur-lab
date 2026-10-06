@@ -17,6 +17,7 @@ assert.equal(isUsableXMediaAsset({ ...base, x_usage_allowed: false }).usable, fa
 assert.equal(isUsableXMediaAsset({ ...base, can_reupload: false }).usable, false);
 assert.equal(isUsableXMediaAsset({ ...base, quote_only: true }).usable, false);
 assert.equal(isUsableXMediaAsset({ ...base, fetch_status: "dead" }).usable, false);
+assert.equal(isUsableXMediaAsset({ ...base, fetch_status: "unknown" }).usable, false);
 assert.equal(isUsableXMediaAsset(base).usable, true);
 
 const officialSample: Partial<XMediaAsset> = {
@@ -33,10 +34,12 @@ const officialSample: Partial<XMediaAsset> = {
 };
 
 assert.equal(isUsableXMediaAsset(officialSample).usable, false);
-assert.equal(isPostableOfficialSampleMovie(officialSample).usable, true);
+assert.equal(isPostableOfficialSampleMovie(officialSample).usable, false);
+assert.equal(isPostableOfficialSampleMovie({ ...officialSample, rights_status: "allowed", x_usage_allowed: true, can_reupload: true, quote_only: false, commercial_use_allowed: true }).usable, true);
 assert.equal(isPostableOfficialSampleMovie({ ...officialSample, fetch_status: "dead" }).usable, false);
 assert.equal(isPostableOfficialSampleMovie({ ...officialSample, media_quality: "weak" }).usable, false);
-assert.equal(canTrimOfficialSampleMovie(officialSample).usable, true);
+assert.equal(canTrimOfficialSampleMovie(officialSample).usable, false);
+assert.equal(canTrimOfficialSampleMovie({ ...officialSample, rights_status: "allowed", x_usage_allowed: true, can_reupload: true, quote_only: false, commercial_use_allowed: true }).usable, true);
 assert.equal(canTrimOfficialSampleMovie({ ...officialSample, fetch_status: "forbidden" }).usable, false);
 
 assert.deepEqual(validateTrimStartSeconds(0, 12), { ok: true, value: 0 });
