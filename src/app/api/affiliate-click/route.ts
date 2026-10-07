@@ -1,20 +1,12 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import type { AffiliatePlacement } from "@/app/components/AffiliateLink";
+import { isAffiliatePlacement } from "@/lib/affiliatePlacements";
 import { normalizeAffiliateSource } from "@/lib/affiliateTracking";
 import { normalizeCtaVariant } from "@/lib/ctaExperiment";
 import {
   isOperatorLandingPath,
   normalizeExternalAttribution,
 } from "@/lib/externalAttribution";
-
-const placements = new Set<AffiliatePlacement>([
-  "detail-sidebar",
-  "buy-timing-panel",
-  "mobile-sticky",
-  "compare-card",
-  "sample-movie-fallback",
-]);
 
 function isMissingCtaVariant(error: { code?: string; message?: string }) {
   return error.code === "PGRST204" || error.message?.includes("cta_variant");
@@ -79,8 +71,7 @@ export async function POST(request: Request) {
   if (
     !Number.isSafeInteger(workId) ||
     workId <= 0 ||
-    typeof placement !== "string" ||
-    !placements.has(placement as AffiliatePlacement)
+    !isAffiliatePlacement(placement)
   ) {
     return NextResponse.json({ error: "Invalid event" }, { status: 400 });
   }

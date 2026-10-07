@@ -12,14 +12,7 @@ import {
 import { readExternalAttribution } from "./Analytics";
 import { isOperatorLandingPath } from "@/lib/externalAttribution";
 import type { SampleMovieDeliveryMode } from "@/lib/sampleMovieFallback";
-
-export type AffiliatePlacement =
-  | "listing-card"
-  | "detail-sidebar"
-  | "buy-timing-panel"
-  | "mobile-sticky"
-  | "compare-card"
-  | "sample-movie-fallback";
+import type { AffiliatePlacement } from "@/lib/affiliatePlacements";
 
 type Props = {
   href: string;

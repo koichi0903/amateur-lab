@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { AffiliatePlacement } from "@/app/components/AffiliateLink";
+import type { AffiliatePlacement } from "@/lib/affiliatePlacements";
 import { normalizeAffiliateSource } from "@/lib/affiliateTracking";
 import { normalizeCtaVariant } from "@/lib/ctaExperiment";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
