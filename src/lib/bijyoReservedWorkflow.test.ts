@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allocateTodaySlots, bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoFutureOperationEligible, recentReleaseDateRange, todayProgress } from "./bijyoReservedWorkflow.ts";
-import { BIJYO_SECTION_ORDER, MANUAL_CANDIDATE_INITIAL_LIMIT, MANUAL_CANDIDATE_PAGE_SIZE, UPCOMING_RELEASE_INITIAL_LIMIT, UPCOMING_RELEASE_PAGE_SIZE, visibleManualCandidateCount, visibleUpcomingReleaseCount } from "../app/admin/bijyo-reserved/ui.ts";
+import { bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoFutureOperationEligible, recentReleaseDateRange } from "./bijyoReservedWorkflow.ts";
+import { BIJYO_SECTION_ORDER, HISTORY_PAGE_SIZE, MANUAL_CANDIDATE_INITIAL_LIMIT, MANUAL_CANDIDATE_PAGE_SIZE, UPCOMING_RELEASE_INITIAL_LIMIT, UPCOMING_RELEASE_PAGE_SIZE, historyBlockStart, visibleManualCandidateCount, visibleUpcomingReleaseCount } from "../app/admin/bijyo-reserved/ui.ts";
 
 test("手動追加のidempotency keyは同じworkで安定する", () => {
   assert.equal(bijyoManualIdempotencyKey(283591), "bijyo1010:manual:283591");
@@ -10,23 +10,7 @@ test("手動追加のidempotency keyは同じworkで安定する", () => {
 
 test("本文と自己リプは固定フォーマット", () => {
   assert.equal(buildBijyoMainText({ title: "作品A", release_date: "2026-09-25" }), "【9月25日発売】\n作品A");
-  assert.equal(buildBijyoReplyText(123), "👇続きはこちら\nhttps://amateur-lab.vercel.app/works/123");
-});
-
-test("新着優先で4枠に割り当て、過去7日候補を繰り越す", () => {
-  const slots = allocateTodaySlots({ date: "2026-09-19", candidates: [{ id: 1, created_at: "2026-09-19T00:00:00Z" }, { id: 2, created_at: "2026-09-18T00:00:00Z" }, { id: 3, created_at: "2026-09-17T00:00:00Z" }, { id: 4, created_at: "2026-09-16T00:00:00Z" }, { id: 5, created_at: "2026-09-15T00:00:00Z" }], existingJobs: [] });
-  assert.deepEqual(slots.map((slot) => slot.workId), [1, 5, 4, 3]);
-});
-
-test("投稿済み・重複作品を除外し、空いた枠に補充する", () => {
-  const existingJobs = [{ work_id: 1, status: "posted", slot_index: 0, kind: "auto" as const }, { work_id: 2, status: "skipped", slot_index: 1, kind: "auto" as const }];
-  const slots = allocateTodaySlots({ date: "2026-09-19", candidates: [{ id: 1, created_at: "2026-09-19" }, { id: 2, created_at: "2026-09-19" }, { id: 3, created_at: "2026-09-19" }], existingJobs });
-  assert.deepEqual(slots.map((slot) => slot.workId), [3]);
-});
-
-test("手動追加は本日の4枠に数えず、不足を正直に返す", () => {
-  const progress = todayProgress([{ slot_date: "2026-09-19", kind: "auto", status: "manual_posted" }, { slot_date: "2026-09-19", kind: "manual", status: "manual_posted" }], "2026-09-19");
-  assert.deepEqual(progress, { posted: 1, target: 4, remaining: 3, shortage: 3 });
+  assert.equal(buildBijyoReplyText(123), "👇作品の続き、セール価格推移はこちら\nhttps://amateur-lab.vercel.app/works/123");
 });
 
 test("今日から1週間はJSTの当日から7日後まで", () => {
@@ -117,7 +101,7 @@ test("手動追加ジョブを作成するとfuture一覧から直ちに消え�
 });
 
 test("管理画面のセクション順とfuture初期表示件数を固定する", () => {
-  assert.deepEqual(BIJYO_SECTION_ORDER, ["today", "manual", "upcoming", "history"]);
+  assert.deepEqual(BIJYO_SECTION_ORDER, ["manual", "upcoming", "history"]);
   assert.equal(UPCOMING_RELEASE_INITIAL_LIMIT, 24);
   assert.equal(UPCOMING_RELEASE_PAGE_SIZE, 24);
   assert.equal(visibleUpcomingReleaseCount(222, 24), 24);
@@ -127,4 +111,8 @@ test("管理画面のセクション順とfuture初期表示件数を固定す�
   assert.equal(MANUAL_CANDIDATE_PAGE_SIZE, 24);
   assert.equal(visibleManualCandidateCount(200, 24), 24);
   assert.equal(visibleManualCandidateCount(200, 48), 48);
+  assert.equal(HISTORY_PAGE_SIZE, 20);
+  assert.equal(historyBlockStart(1), 1);
+  assert.equal(historyBlockStart(2), 21);
+  assert.equal(historyBlockStart(3), 41);
 });

@@ -2,11 +2,11 @@ import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
 import { analyzeSampleMovie } from "@/lib/xVideoAnalysis";
 import { sourceKindFor } from "@/lib/xMediaAssets";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { allocateTodaySlots, BIJYO_DEFAULT_SLOTS, bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, recentReleaseDateRange, tokyoDate, todayProgress, type RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
+import { bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, recentReleaseDateRange, tokyoDate, type RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
 import { calculateBijyoTrimStart } from "@/lib/bijyoTrim";
 import { validateTrimStartSeconds } from "@/lib/xMediaAssets";
 
-export { BIJYO_DEFAULT_SLOTS, buildBijyoMainText, buildBijyoReplyText, tokyoDate } from "@/lib/bijyoReservedWorkflow";
+export { buildBijyoMainText, buildBijyoReplyText, tokyoDate } from "@/lib/bijyoReservedWorkflow";
 export const BIJYO_ACCOUNT = "bijyo1010" as const;
 
 type Work = { id: number; title: string; stage: string; created_at: string; release_date: string; image_url?: string | null; sample_movie_url: string; product_id: string | null };
@@ -34,8 +34,14 @@ function conflictResult(state: string): BijyoActionResult {
 const JOB_SELECT = "id,work_id,kind,slot_date,slot_index,scheduled_at,status,trim_start_seconds,trim_status,trim_reason,trim_failure_reason,main_text,reply_text,x_post_id,posted_at,failure_reason,skip_reason";
 const ACTIVE_CANDIDATE_STATUSES = ["pending", "posted", "manual_posted", "skipped", "excluded", "trim_failed"];
 
-async function activeJobs() {
-  const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").select(JOB_SELECT).eq("account_handle", BIJYO_ACCOUNT).order("scheduled_at", { ascending: true });
+const HISTORY_PAGE_SIZE = 20;
+
+async function activeJobs(select = JOB_SELECT, options: { ascending?: boolean; limit?: number; offset?: number; kind?: "auto" | "manual"; statuses?: string[] } = {}) {
+  let query = supabaseAdmin.from("bijyo_reserved_post_jobs").select(select).eq("account_handle", BIJYO_ACCOUNT).order("posted_at", { ascending: options.ascending ?? false, nullsFirst: false }).order("scheduled_at", { ascending: false });
+  if (options.kind) query = query.eq("kind", options.kind);
+  if (options.statuses?.length) query = query.in("status", options.statuses);
+  if (options.limit !== undefined) query = query.range(options.offset ?? 0, (options.offset ?? 0) + options.limit - 1);
+  const result = await query;
   if (result.error) return { jobs: [] as BijyoJob[], error: result.error.message };
   const rows = (result.data ?? []) as unknown as Array<Record<string, unknown>>;
   const workIds = [...new Set(rows.map((row) => Number(row.work_id)).filter((id) => Number.isSafeInteger(id) && id > 0))];
@@ -47,14 +53,12 @@ async function activeJobs() {
   return { jobs: rows.map((row) => ({ ...row, work: worksById.get(Number(row.work_id)) ?? null }) as unknown as BijyoJob), error: null };
 }
 
-export async function getBijyoSettings() {
-  const result = await supabaseAdmin.from("bijyo_reserved_settings").select("account_handle,enabled,schedule_times,timezone").eq("account_handle", BIJYO_ACCOUNT).maybeSingle();
-  if (result.error) return { enabled: false, scheduleTimes: [...BIJYO_DEFAULT_SLOTS], timezone: "Asia/Tokyo", error: result.error.message };
-  const row = result.data as { enabled?: boolean; schedule_times?: string[]; timezone?: string } | null;
-  return { enabled: row?.enabled === true, scheduleTimes: row?.schedule_times?.length === 4 ? row.schedule_times : [...BIJYO_DEFAULT_SLOTS], timezone: row?.timezone ?? "Asia/Tokyo", error: null };
-}
-
 function sevenDaysAgo() { return new Date(Date.now() - 7 * 86_400_000).toISOString(); }
+
+async function jobRefs() {
+  const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("work_id,kind,slot_date,status").eq("account_handle", BIJYO_ACCOUNT);
+  return result.error ? { jobs: [] as Array<{ work_id: number; kind: string; slot_date: string; status: string }>, error: result.error.message } : { jobs: (result.data ?? []) as Array<{ work_id: number; kind: string; slot_date: string; status: string }>, error: null };
+}
 
 export async function getBijyoRecentReleasedWorks(jobs: BijyoJob[], now = new Date()) {
   const dateRange = recentReleaseDateRange(now);
@@ -94,39 +98,26 @@ async function getBijyoManualCandidates(jobs: BijyoJob[], now = new Date()) {
 export async function getBijyoCandidates() {
   const result = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("stage", "RESERVED").gte("created_at", sevenDaysAgo()).not("sample_movie_url", "is", null).neq("sample_movie_url", "").not("release_date", "is", null).order("created_at", { ascending: true }).limit(200);
   if (result.error) return { candidates: [] as Work[], error: result.error.message };
-  const jobs = await activeJobs();
+  const jobs = await jobRefs();
   if (jobs.error) return { candidates: [] as Work[], error: jobs.error };
   const usedWorkIds = new Set(jobs.jobs.filter((job) => ACTIVE_CANDIDATE_STATUSES.includes(job.status)).map((job) => job.work_id));
   return { candidates: (result.data as Work[]).filter((work) => !usedWorkIds.has(work.id) && sourceKindFor(work.sample_movie_url) === "official_sample"), error: null };
 }
 
-async function ensureTodayJobs(date = tokyoDate()) {
-  const settings = await getBijyoSettings();
-  const current = await activeJobs();
-  if (current.error) throw new Error(current.error);
-  const candidatesResult = await getBijyoCandidates();
-  if (candidatesResult.error) throw new Error(candidatesResult.error);
-  const planned = current.jobs.filter((job) => job.slot_date === date && job.kind === "auto" && !["excluded", "skipped"].includes(job.status));
-  const slots = allocateTodaySlots({ date, candidates: candidatesResult.candidates, existingJobs: current.jobs.map((job) => ({ work_id: job.work_id, status: job.status, slot_index: job.slot_index, slot_date: job.slot_date, kind: job.kind })), scheduleTimes: settings.scheduleTimes });
-  for (const slot of slots) {
-    const work = candidatesResult.candidates.find((candidate) => candidate.id === slot.workId);
-    if (!work || planned.some((job) => job.slot_index === slot.slotIndex)) continue;
-    const inserted = await supabaseAdmin.from("bijyo_reserved_post_jobs").insert({ account_handle: BIJYO_ACCOUNT, work_id: work.id, kind: "auto", slot_date: date, slot_index: slot.slotIndex, scheduled_at: slot.scheduledAt, idempotency_key: `${BIJYO_ACCOUNT}:${date}:${slot.slotIndex}`, status: "pending", main_text: buildBijyoMainText(work), reply_text: buildBijyoReplyText(work.id) }).select("id").single();
-    if (inserted.error && inserted.error.code !== "23505") throw new Error(inserted.error.message);
-  }
-}
-
-export async function getBijyoDashboard() {
+export async function getBijyoDashboard(historyPage = 1) {
   const date = tokyoDate();
+  const offset = Math.max(0, historyPage - 1) * HISTORY_PAGE_SIZE;
   try {
-    await ensureTodayJobs(date);
-    const [settings, jobsResult, candidatesResult] = await Promise.all([getBijyoSettings(), activeJobs(), getBijyoCandidates()]);
+    const [jobsResult, candidatesResult, manualJobsResult] = await Promise.all([activeJobs(JOB_SELECT, { limit: HISTORY_PAGE_SIZE, offset }), getBijyoCandidates(), activeJobs(JOB_SELECT, { kind: "manual", statuses: ["pending", "trim_failed"] })]);
     if (jobsResult.error) throw new Error(jobsResult.error);
+    if (manualJobsResult.error) throw new Error(manualJobsResult.error);
     const jobs = jobsResult.jobs;
-    const [recentResult, manualCandidatesResult] = await Promise.all([getBijyoRecentReleasedWorks(jobs), getBijyoManualCandidates(jobs)]);
-    return { ok: true, date, settings, progress: todayProgress(jobs, date), todayJobs: jobs.filter((job) => job.slot_date === date && job.kind === "auto"), candidates: manualCandidatesResult.candidates, recentReleased: recentResult.recentReleased, recentReleaseDateRange: recentResult.dateRange, jobs, error: candidatesResult.error ?? recentResult.error ?? manualCandidatesResult.error };
+    const refs = await jobRefs();
+    if (refs.error) throw new Error(refs.error);
+    const [recentResult, manualCandidatesResult] = await Promise.all([getBijyoRecentReleasedWorks(refs.jobs as BijyoJob[]), getBijyoManualCandidates(refs.jobs as BijyoJob[])]);
+    return { ok: true, date, candidates: manualCandidatesResult.candidates, manualJobs: manualJobsResult.jobs, recentReleased: recentResult.recentReleased, recentReleaseDateRange: recentResult.dateRange, jobs, historyPage, historyPageSize: HISTORY_PAGE_SIZE, historyHasMore: jobs.length === HISTORY_PAGE_SIZE, error: candidatesResult.error ?? recentResult.error ?? manualCandidatesResult.error };
   } catch (error) {
-    return { ok: false, date, settings: await getBijyoSettings(), progress: { posted: 0, target: 4, remaining: 4, shortage: 4 }, todayJobs: [] as BijyoJob[], candidates: [] as BijyoRecentReleasedWork[], recentReleased: [] as BijyoRecentReleasedWork[], recentReleaseDateRange: recentReleaseDateRange(), jobs: [] as BijyoJob[], error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, date, candidates: [] as BijyoRecentReleasedWork[], manualJobs: [] as BijyoJob[], recentReleased: [] as BijyoRecentReleasedWork[], recentReleaseDateRange: recentReleaseDateRange(), jobs: [] as BijyoJob[], historyPage, historyPageSize: HISTORY_PAGE_SIZE, historyHasMore: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -164,7 +155,6 @@ export async function skipBijyoJob(jobId: number, reason = "手動スキップ")
   const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ status: "skipped", skip_reason: reason }).eq("account_handle", BIJYO_ACCOUNT).eq("id", jobId).in("kind", ["auto", "manual"]).eq("status", "pending").select("id").maybeSingle();
   if (result.error) return { ok: false, error: result.error.message };
   if (!result.data) return { ok: false, error: "この枠はスキップ済み、投稿済み、または対象外です。", code: "invalid_transition" };
-  await ensureTodayJobs(tokyoDate());
   return { ok: true };
 }
 
@@ -208,6 +198,9 @@ export async function createBijyoManualJob(workId: number): Promise<BijyoActionR
   if (!["pending", "trim_failed"].includes(status)) return { ...conflictResult(status), jobId: Number(raced.data.id) };
   return { ok: true, jobId: Number(raced.data.id), existing: true };
 }
+
+// Scheduler compatibility entry point. The Bijyo admin page no longer creates daily candidates.
+export async function runBijyoReservedSlot(...args: number[]) { void args; return { ok: true, skipped: true, status: "manual_only" as const }; }
 
 type PrepareBijyoVideoOptions = { mode?: "auto" | "manual"; trimStartSeconds?: unknown };
 
@@ -256,5 +249,3 @@ export async function prepareBijyoVideo(jobId: number, workId?: number, options:
   }
 }
 
-// Legacy scheduler entry point is intentionally disabled. Manual operations never call X API.
-export async function runBijyoReservedSlot(...args: number[]) { void args; return { ok: true, skipped: true, status: "manual_only" as const }; }

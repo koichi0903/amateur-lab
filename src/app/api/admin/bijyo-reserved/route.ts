@@ -11,7 +11,8 @@ function userSafeResult<T extends { error?: string }>(result: T) {
 
 export async function GET(request: NextRequest) {
   if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
-  return NextResponse.json(await getBijyoDashboard());
+  const historyPage = Math.max(1, Number(request.nextUrl.searchParams.get("historyPage") ?? "1") || 1);
+  return NextResponse.json(await getBijyoDashboard(historyPage));
 }
 
 export async function POST(request: NextRequest) {
