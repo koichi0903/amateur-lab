@@ -2,14 +2,14 @@ import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
 import { analyzeSampleMovie } from "@/lib/xVideoAnalysis";
 import { sourceKindFor } from "@/lib/xMediaAssets";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, recentReleaseDateRange, tokyoDate, type RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
+import { bijyoManualIdempotencyKey, bijyoReservedCandidateSince, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoReservedCandidate, recentReleaseDateRange, tokyoDate, type RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
 import { calculateBijyoTrimStart } from "@/lib/bijyoTrim";
 import { validateTrimStartSeconds } from "@/lib/xMediaAssets";
 
 export { buildBijyoMainText, buildBijyoReplyText, tokyoDate } from "@/lib/bijyoReservedWorkflow";
 export const BIJYO_ACCOUNT = "bijyo1010" as const;
 
-type Work = { id: number; title: string; stage: string; created_at: string; release_date: string; image_url?: string | null; sample_movie_url: string; product_id: string | null };
+type Work = { id: number; title: string; stage: string; created_at: string; release_date: string; image_url: string | null; sample_movie_url: string; product_id: string | null };
 export type BijyoRecentReleasedWork = RecentReleaseWork;
 export type BijyoJob = {
   id: number; work_id: number; kind: "auto" | "manual"; slot_date: string; slot_index: number | null; scheduled_at: string;
@@ -53,8 +53,6 @@ async function activeJobs(select = JOB_SELECT, options: { ascending?: boolean; l
   return { jobs: rows.map((row) => ({ ...row, work: worksById.get(Number(row.work_id)) ?? null }) as unknown as BijyoJob), error: null };
 }
 
-function sevenDaysAgo() { return new Date(Date.now() - 7 * 86_400_000).toISOString(); }
-
 async function jobRefs() {
   const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("work_id,kind,slot_date,status").eq("account_handle", BIJYO_ACCOUNT);
   return result.error ? { jobs: [] as Array<{ work_id: number; kind: string; slot_date: string; status: string }>, error: result.error.message } : { jobs: (result.data ?? []) as Array<{ work_id: number; kind: string; slot_date: string; status: string }>, error: null };
@@ -77,47 +75,31 @@ export async function getBijyoRecentReleasedWorks(jobs: BijyoJob[], now = new Da
   return { recentReleased: filterRecentReleaseWorks(works, jobs, dateRange), dateRange, error: null };
 }
 
-async function getBijyoManualCandidates(jobs: BijyoJob[], now = new Date()) {
-  const dateRange = recentReleaseDateRange(now);
-  const result = await supabaseAdmin.from("works")
-    .select("id,title,stage,created_at,release_date,image_url,sample_movie_url,product_id")
-    .in("stage", ["RESERVED", "NEW"])
-    .gte("release_date", dateRange.startDate)
-    .lte("release_date", dateRange.endDate)
-    .not("sample_movie_url", "is", null)
-    .neq("sample_movie_url", "")
-    .not("release_date", "is", null)
-    .order("release_date", { ascending: true })
-    .order("created_at", { ascending: false })
-    .limit(1000);
-  if (result.error) return { candidates: [] as BijyoRecentReleasedWork[], dateRange, error: result.error.message };
-  const works = (result.data ?? []).filter((work) => sourceKindFor(work.sample_movie_url) === "official_sample") as RecentReleaseWork[];
-  return { candidates: filterRecentReleaseWorks(works, jobs, dateRange), dateRange, error: null };
-}
-
-export async function getBijyoCandidates() {
-  const result = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("stage", "RESERVED").gte("created_at", sevenDaysAgo()).not("sample_movie_url", "is", null).neq("sample_movie_url", "").not("release_date", "is", null).order("created_at", { ascending: true }).limit(200);
-  if (result.error) return { candidates: [] as Work[], error: result.error.message };
+export async function getBijyoCandidates(page = 1) {
+  const result = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,image_url,sample_movie_url,product_id").eq("stage", "RESERVED").gte("created_at", bijyoReservedCandidateSince()).not("sample_movie_url", "is", null).neq("sample_movie_url", "").not("release_date", "is", null).order("created_at", { ascending: true }).limit(1000);
+  if (result.error) return { candidates: [] as Work[], candidateTotal: 0, candidateHasMore: false, candidatePage: page, error: result.error.message };
   const jobs = await jobRefs();
-  if (jobs.error) return { candidates: [] as Work[], error: jobs.error };
+  if (jobs.error) return { candidates: [] as Work[], candidateTotal: 0, candidateHasMore: false, candidatePage: page, error: jobs.error };
   const usedWorkIds = new Set(jobs.jobs.filter((job) => ACTIVE_CANDIDATE_STATUSES.includes(job.status)).map((job) => job.work_id));
-  return { candidates: (result.data as Work[]).filter((work) => !usedWorkIds.has(work.id) && sourceKindFor(work.sample_movie_url) === "official_sample"), error: null };
+  const eligible = (result.data as Work[]).filter((work) => !usedWorkIds.has(work.id) && isBijyoReservedCandidate(work) && sourceKindFor(work.sample_movie_url) === "official_sample");
+  const offset = Math.max(0, page - 1) * 20;
+  return { candidates: eligible.slice(offset, offset + 20), candidateTotal: eligible.length, candidateHasMore: offset + 20 < eligible.length, candidatePage: page, error: null };
 }
 
-export async function getBijyoDashboard(historyPage = 1) {
+export async function getBijyoDashboard(historyPage = 1, candidatePage = 1) {
   const date = tokyoDate();
   const offset = Math.max(0, historyPage - 1) * HISTORY_PAGE_SIZE;
   try {
-    const [jobsResult, candidatesResult, manualJobsResult] = await Promise.all([activeJobs(JOB_SELECT, { limit: HISTORY_PAGE_SIZE, offset }), getBijyoCandidates(), activeJobs(JOB_SELECT, { kind: "manual", statuses: ["pending", "trim_failed"] })]);
+    const [jobsResult, candidatesResult, manualJobsResult] = await Promise.all([activeJobs(JOB_SELECT, { limit: HISTORY_PAGE_SIZE, offset }), getBijyoCandidates(candidatePage), activeJobs(JOB_SELECT, { kind: "manual", statuses: ["pending", "trim_failed"] })]);
     if (jobsResult.error) throw new Error(jobsResult.error);
     if (manualJobsResult.error) throw new Error(manualJobsResult.error);
     const jobs = jobsResult.jobs;
     const refs = await jobRefs();
     if (refs.error) throw new Error(refs.error);
-    const [recentResult, manualCandidatesResult] = await Promise.all([getBijyoRecentReleasedWorks(refs.jobs as BijyoJob[]), getBijyoManualCandidates(refs.jobs as BijyoJob[])]);
-    return { ok: true, date, candidates: manualCandidatesResult.candidates, manualJobs: manualJobsResult.jobs, recentReleased: recentResult.recentReleased, recentReleaseDateRange: recentResult.dateRange, jobs, historyPage, historyPageSize: HISTORY_PAGE_SIZE, historyHasMore: jobs.length === HISTORY_PAGE_SIZE, error: candidatesResult.error ?? recentResult.error ?? manualCandidatesResult.error };
+    const recentResult = await getBijyoRecentReleasedWorks(refs.jobs as BijyoJob[]);
+    return { ok: true, date, candidates: candidatesResult.candidates, candidateTotal: candidatesResult.candidateTotal, candidateHasMore: candidatesResult.candidateHasMore, candidatePage, manualJobs: manualJobsResult.jobs, recentReleased: recentResult.recentReleased, recentReleaseDateRange: recentResult.dateRange, jobs, historyPage, historyPageSize: HISTORY_PAGE_SIZE, historyHasMore: jobs.length === HISTORY_PAGE_SIZE, error: candidatesResult.error ?? recentResult.error };
   } catch (error) {
-    return { ok: false, date, candidates: [] as BijyoRecentReleasedWork[], manualJobs: [] as BijyoJob[], recentReleased: [] as BijyoRecentReleasedWork[], recentReleaseDateRange: recentReleaseDateRange(), jobs: [] as BijyoJob[], historyPage, historyPageSize: HISTORY_PAGE_SIZE, historyHasMore: false, error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, date, candidates: [] as Work[], candidateTotal: 0, candidateHasMore: false, candidatePage, manualJobs: [] as BijyoJob[], recentReleased: [] as BijyoRecentReleasedWork[], recentReleaseDateRange: recentReleaseDateRange(), jobs: [] as BijyoJob[], historyPage, historyPageSize: HISTORY_PAGE_SIZE, historyHasMore: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -181,7 +163,7 @@ export async function excludeBijyoJob(jobId: number) {
 export async function createBijyoManualJob(workId: number): Promise<BijyoActionResult> {
   const workResult = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("id", workId).single();
   const work = workResult.data as Work | null;
-  if (workResult.error || !work || !evaluateBijyoFutureOperation(work.stage, work.release_date, recentReleaseDateRange()).eligible || !work.sample_movie_url || sourceKindFor(work.sample_movie_url) !== "official_sample") return { ok: false, error: "手動投稿には今日から1週間の対象作品・発売日・FANZA/DMM公式サンプル動画が必要です。" };
+  if (workResult.error || !work || !isBijyoReservedCandidate(work) || !work.sample_movie_url || sourceKindFor(work.sample_movie_url) !== "official_sample") return { ok: false, error: "手動投稿には過去7日以内に登録されたRESERVED作品とFANZA/DMM公式サンプル動画が必要です。" };
   const existing = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id,status").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
   if (existing.error) return { ok: false, error: existing.error.message };
   if (existing.data) {

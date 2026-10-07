@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoFutureOperationEligible, recentReleaseDateRange } from "./bijyoReservedWorkflow.ts";
+import { bijyoManualIdempotencyKey, bijyoReservedCandidateSince, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoFutureOperationEligible, isBijyoReservedCandidate, recentReleaseDateRange } from "./bijyoReservedWorkflow.ts";
 import { BIJYO_SECTION_ORDER, HISTORY_PAGE_SIZE, MANUAL_CANDIDATE_INITIAL_LIMIT, MANUAL_CANDIDATE_PAGE_SIZE, UPCOMING_RELEASE_INITIAL_LIMIT, UPCOMING_RELEASE_PAGE_SIZE, historyBlockStart, visibleManualCandidateCount, visibleUpcomingReleaseCount } from "../app/admin/bijyo-reserved/ui.ts";
 
 test("手動追加のidempotency keyは同じworkで安定する", () => {
@@ -107,12 +107,25 @@ test("管理画面のセクション順とfuture初期表示件数を固定す�
   assert.equal(visibleUpcomingReleaseCount(222, 24), 24);
   assert.equal(visibleUpcomingReleaseCount(222, 48), 48);
   assert.equal(visibleUpcomingReleaseCount(10, 24), 10);
-  assert.equal(MANUAL_CANDIDATE_INITIAL_LIMIT, 24);
-  assert.equal(MANUAL_CANDIDATE_PAGE_SIZE, 24);
-  assert.equal(visibleManualCandidateCount(200, 24), 24);
-  assert.equal(visibleManualCandidateCount(200, 48), 48);
+  assert.equal(MANUAL_CANDIDATE_INITIAL_LIMIT, 20);
+  assert.equal(MANUAL_CANDIDATE_PAGE_SIZE, 20);
+  assert.equal(visibleManualCandidateCount(0, 20), 0);
+  assert.equal(visibleManualCandidateCount(1, 20), 1);
+  assert.equal(visibleManualCandidateCount(20, 20), 20);
+  assert.equal(visibleManualCandidateCount(21, 20), 20);
+  assert.equal(visibleManualCandidateCount(40, 40), 40);
+  assert.equal(visibleManualCandidateCount(41, 40), 40);
   assert.equal(HISTORY_PAGE_SIZE, 20);
   assert.equal(historyBlockStart(1), 1);
   assert.equal(historyBlockStart(2), 21);
   assert.equal(historyBlockStart(3), 41);
+});
+
+test("予約追加候補はcreated_atの7日窓だけを使い、発売日範囲やNEWを見ない", () => {
+  const now = new Date("2026-10-07T00:00:00+09:00");
+  const since = bijyoReservedCandidateSince(now);
+  assert.equal(since, "2026-09-29T15:00:00.000Z");
+  assert.equal(isBijyoReservedCandidate({ stage: "RESERVED", created_at: since, release_date: "2026-11-30" }, now), true);
+  assert.equal(isBijyoReservedCandidate({ stage: "RESERVED", created_at: "2026-09-29T14:59:59.999Z", release_date: "2026-11-30" }, now), false);
+  assert.equal(isBijyoReservedCandidate({ stage: "NEW", created_at: since, release_date: "2026-11-30" }, now), false);
 });

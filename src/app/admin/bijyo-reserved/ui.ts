@@ -1,7 +1,7 @@
 export const UPCOMING_RELEASE_INITIAL_LIMIT = 24;
 export const UPCOMING_RELEASE_PAGE_SIZE = 24;
-export const MANUAL_CANDIDATE_INITIAL_LIMIT = 24;
-export const MANUAL_CANDIDATE_PAGE_SIZE = 24;
+export const MANUAL_CANDIDATE_INITIAL_LIMIT = 20;
+export const MANUAL_CANDIDATE_PAGE_SIZE = 20;
 export const HISTORY_PAGE_SIZE = 20;
 
 export const BIJYO_SECTION_ORDER = ["manual", "upcoming", "history"] as const;

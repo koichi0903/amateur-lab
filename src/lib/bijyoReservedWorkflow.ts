@@ -14,6 +14,18 @@ export function tokyoDate(date = new Date()) {
 export function tokyoDateFromIso(value: string) { return tokyoDate(new Date(value)); }
 
 const TOKYO_DAY_MS = 86_400_000;
+export const BIJYO_RESERVED_CANDIDATE_WINDOW_MS = 7 * TOKYO_DAY_MS;
+
+export function bijyoReservedCandidateSince(now = new Date()) {
+  return new Date(now.getTime() - BIJYO_RESERVED_CANDIDATE_WINDOW_MS).toISOString();
+}
+
+export function isBijyoReservedCandidate(work: { stage: string; created_at: string; release_date?: string | null }, now = new Date()) {
+  return work.stage === "RESERVED"
+    && Boolean(work.release_date)
+    && Number.isFinite(Date.parse(work.created_at))
+    && Date.parse(work.created_at) >= Date.parse(bijyoReservedCandidateSince(now));
+}
 
 export type ReleaseDateRange = { todayDate: string; startDate: string; endDate: string };
 
