@@ -10,6 +10,7 @@ import { getXCreativeLearning, getXPostOutcomes, getRecentXPostLogs } from "@/li
 import { getRightsReviewQueue, isOfficialFanzaDmmSampleUrl } from "@/lib/xMediaAssets";
 import { buildTopPickSlotsViewModel } from "@/lib/xGrowthTopPicks";
 import { xGrowthMediaPreviewUrl } from "@/lib/xGrowthMediaPreview";
+import { withXPostTracking } from "@/lib/xPostTracking";
 import { visualFactBasis, type XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
 import { CandidateSelectAction, DeferredXGrowthSections, MediaPipelineActions, MetricSyncActions, OpportunityActions, RegenerateTopPicksAction, RightsReviewActions, TempFolderStatus, TopPickVideoActions, TrimReviewActions } from "./XGrowthActions";
 
@@ -131,6 +132,8 @@ function ctaLabel(value?: string | null) {
 function linkStrategyFor(item: {
   role: XGrowthIntent;
   intent?: XGrowthIntent;
+  key?: string;
+  candidateId?: string;
   url?: string;
   postText: string;
   replyText: string | null;
@@ -144,7 +147,10 @@ function linkStrategyFor(item: {
     ? item.selectedVariant
     : item.creativeVariants?.find((variant) => variant.id === item.creativeVariantId) ?? item.creativeVariants?.[0] ?? null;
   const explicitPlan = selected?.linkPlan;
-  const affiliateUrl = item.url ?? selected?.url ?? null;
+  const affiliateUrl = withXPostTracking(
+    item.url ?? selected?.url ?? null,
+    item.key ?? item.candidateId,
+  );
   if (role !== "MONEY") {
     return {
       plan: "none",

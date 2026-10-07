@@ -2,9 +2,10 @@ import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
 import { analyzeSampleMovie } from "@/lib/xVideoAnalysis";
 import { sourceKindFor } from "@/lib/xMediaAssets";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { bijyoManualIdempotencyKey, bijyoReservedCandidateSince, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoReservedCandidate, recentReleaseDateRange, tokyoDate, type RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
+import { bijyoManualIdempotencyKey, bijyoPostTrackingKey, bijyoReservedCandidateSince, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoReservedCandidate, recentReleaseDateRange, tokyoDate, type RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
 import { calculateBijyoTrimStart } from "@/lib/bijyoTrim";
 import { validateTrimStartSeconds } from "@/lib/xMediaAssets";
+import { saveXPostLog } from "@/lib/xPostLogs";
 
 export { buildBijyoMainText, buildBijyoReplyText, tokyoDate } from "@/lib/bijyoReservedWorkflow";
 export const BIJYO_ACCOUNT = "bijyo1010" as const;
@@ -50,7 +51,10 @@ async function activeJobs(select = JOB_SELECT, options: { ascending?: boolean; l
     : { data: [], error: null };
   if (worksResult.error) return { jobs: [] as BijyoJob[], error: worksResult.error.message };
   const worksById = new Map((worksResult.data as Work[]).map((work) => [work.id, work]));
-  return { jobs: rows.map((row) => ({ ...row, work: worksById.get(Number(row.work_id)) ?? null }) as unknown as BijyoJob), error: null };
+  return { jobs: rows.map((row) => {
+    const workId = Number(row.work_id);
+    return { ...row, reply_text: buildBijyoReplyText(workId), work: worksById.get(workId) ?? null } as unknown as BijyoJob;
+  }), error: null };
 }
 
 async function jobRefs() {
@@ -123,10 +127,25 @@ async function loadJob(jobId: number, workId?: number) {
   if (Number.isSafeInteger(workId) && (workId ?? 0) > 0 && job.work_id !== workId) return { job: null, error: "jobIdとworkIdの組み合わせが不正です。" };
   const workResult = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("id", job.work_id).maybeSingle();
   if (workResult.error) return { job: null, error: workResult.error.message };
-  return { job: { ...job, work: (workResult.data as Work | null) ?? null }, error: null };
+  return { job: { ...job, reply_text: buildBijyoReplyText(job.work_id), work: (workResult.data as Work | null) ?? null }, error: null };
 }
 
 export async function markBijyoPosted(jobId: number) {
+  const loaded = await loadJob(jobId);
+  if (loaded.error || !loaded.job || !loaded.job.work) return { ok: false, error: loaded.error ?? "投稿候補が見つかりません。" };
+  if (!["pending", "trim_failed"].includes(loaded.job.status)) return { ok: false, error: "この枠は投稿済み、スキップ済み、または対象外です。", code: "invalid_transition" };
+  const postLog = await saveXPostLog({
+    postKey: bijyoPostTrackingKey(loaded.job.work_id),
+    workId: loaded.job.work_id,
+    category: "new",
+    title: loaded.job.work.title.slice(0, 300),
+    postText: loaded.job.main_text,
+    postDate: tokyoDate(),
+    accountHandle: BIJYO_ACCOUNT,
+    postIntent: "work_link",
+    linkStrategy: "reply_link",
+  });
+  if (postLog.error) return { ok: false, error: postLog.error.message };
   const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ status: "manual_posted", posted_at: new Date().toISOString(), failure_reason: null }).eq("account_handle", BIJYO_ACCOUNT).eq("id", jobId).in("status", ["pending", "trim_failed"]).select("id").maybeSingle();
   if (result.error) return { ok: false, error: result.error.message };
   if (!result.data) return { ok: false, error: "この枠は投稿済み、スキップ済み、または対象外です。", code: "invalid_transition" };

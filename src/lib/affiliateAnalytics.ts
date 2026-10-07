@@ -71,7 +71,7 @@ export type WorkFunnelRow = {
 };
 
 export type XPostCategoryRevenueRow = {
-  category: XPostCandidate["category"] | "unknown";
+  category: XPostCandidate["category"] | "bijyo_reserved" | "unknown";
   label: string;
   posts: number;
   xPageViews: number;
@@ -106,11 +106,12 @@ type WorkPageViewRow = {
 };
 
 export const AFFILIATE_PLACEMENT_LABELS: Record<string, string> = {
-  "detail-sidebar": "PC・詳細サイド",
+  "detail-sidebar": "詳細ページ・サイドCTA",
   "buy-timing-panel": "買い時判定パネル",
-  "mobile-sticky": "スマホ固定バー",
+  "mobile-sticky": "スマホ固定バー配置",
   "compare-card": "比較カード",
   "sample-movie-fallback": "公式サンプル誘導",
+  "listing-card": "一覧カード",
 };
 
 type WorkSummary = {
@@ -378,7 +379,7 @@ async function fetchXPostLogMap(days: number) {
   const cutoff = new Date(Date.now() - safeDays * DAY_MS).toISOString();
   const { data, error } = await supabaseAdmin
     .from("x_post_logs")
-    .select("post_key,work_id,category,posted_at")
+    .select("post_key,work_id,category,posted_at,account_handle")
     .gte("posted_at", cutoff);
 
   if (error) {
@@ -386,7 +387,7 @@ async function fetchXPostLogMap(days: number) {
       logs: new Map<string, {
         postKey: string;
         workId: number;
-        category: XPostCandidate["category"];
+        category: XPostCandidate["category"] | "bijyo_reserved";
         postedAt: string;
       }>(),
       enabled: false,
@@ -400,7 +401,7 @@ async function fetchXPostLogMap(days: number) {
       {
         postKey: row.post_key,
         workId: row.work_id,
-        category: row.category as XPostCandidate["category"],
+        category: (row.account_handle === "bijyo1010" ? "bijyo_reserved" : row.category) as XPostCandidate["category"] | "bijyo_reserved",
         postedAt: row.posted_at,
       },
     ])),
@@ -410,6 +411,7 @@ async function fetchXPostLogMap(days: number) {
 }
 
 const X_CATEGORY_LABELS: Record<XPostCategoryRevenueRow["category"], string> = {
+  bijyo_reserved: "予約作品投稿 / @bijyo1010",
   today_buy: "今日の買い時",
   today_discovery: "今日の発掘",
   market_scan: "市場メモ",

@@ -63,7 +63,7 @@ function XTrafficPanel({ xTraffic }: { xTraffic: XTraffic }) {
           </p>
           <h2 className="mt-2 text-xl font-black">X送客管理</h2>
           <p className="mt-2 text-sm leading-6 text-zinc-400">
-            X投稿リンクの <code className="rounded bg-black/30 px-1.5 py-0.5">?from=x</code> 経由で作品詳細に入り、FANZA公式CTAを押したクリックだけを集計します。
+            X投稿リンクから発掘LABの作品ページへ来た後、FANZA公式CTAが押された回数です。人数や購入数ではなく、同じ人の複数回操作も含むイベント数です。
           </p>
         </div>
         <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[30rem]">
@@ -126,9 +126,9 @@ function XPostCategoryRevenuePanel({
           <p className="text-xs font-black tracking-[0.18em] text-fuchsia-300">
             X CATEGORY FUNNEL
           </p>
-          <h2 className="mt-2 text-xl font-black">投稿カテゴリ別収益ファネル</h2>
+          <h2 className="mt-2 text-xl font-black">X投稿カテゴリ別サイト内イベント</h2>
           <p className="mt-2 text-sm leading-6 text-zinc-400">
-            <code className="rounded bg-black/30 px-1.5 py-0.5">x_post</code> と投稿ログをもとに、X投稿カテゴリごとの作品詳細PV、FANZAクリック、CTRを比較します。
+            X投稿ログとURLの <code className="rounded bg-black/30 px-1.5 py-0.5">x_post</code> キーで投稿別に照合します。PV・CTAは重複を含むイベント数です。キーのない過去クリックは、同じ作品の24時間以内のPVから投稿を推定するため、投稿別の数字は参考値です。販売・報酬は含みません。
           </p>
         </div>
         <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950 p-1 text-sm font-black">
@@ -150,9 +150,9 @@ function XPostCategoryRevenuePanel({
             <tr className="border-b border-zinc-800">
               <th className="pb-3 pr-4">カテゴリ</th>
               <th className="pb-3 pr-4 text-right">投稿数</th>
-              <th className="pb-3 pr-4 text-right">X PV</th>
-              <th className="pb-3 pr-4 text-right">FANZA</th>
-              <th className="pb-3 pr-4 text-right">X経由CTR</th>
+              <th className="pb-3 pr-4 text-right">作品ページPV</th>
+              <th className="pb-3 pr-4 text-right">FANZA CTA回数</th>
+              <th className="pb-3 pr-4 text-right">PV比</th>
               <th className="pb-3 pr-4 text-right">PV/投稿</th>
               <th className="pb-3 pr-4 text-right">クリック/投稿</th>
               <th className="pb-3">上位作品</th>
@@ -240,7 +240,7 @@ export default async function RevenueDashboardPage({
               FANZA送客分析
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
-              発掘LABからFANZA公式へ移動したクリックを集計します。販売件数・報酬額ではありません。
+              FANZA公式レポートの成果と、発掘LAB内で記録したページ表示・CTA操作を確認します。両者は同じ利用者・購入として結び付いたデータではありません。
             </p>
           </div>
           <a
@@ -280,9 +280,9 @@ export default async function RevenueDashboardPage({
           <div className="flex items-start gap-3">
             <CircleDollarSign className="mt-0.5 shrink-0 text-emerald-400" size={23} />
             <div>
-              <h2 className="text-xl font-black">FANZA実売上</h2>
+              <h2 className="text-xl font-black">FANZA公式レポート実績</h2>
               <p className="mt-1 text-sm leading-6 text-zinc-400">
-                FANZAアフィリエイトの商品別レポートを対象月ごとに取り込みます。同じ月のCSVを再取込しても二重計上されません。
+              FANZA公式の商品別レポートのアカウント合計です。発掘LAB内のクリックや個別作品の購入に正確に紐付いた売上ではありません。同じ月のCSVを再取込しても二重計上されません。
               </p>
             </div>
           </div>
@@ -299,7 +299,7 @@ export default async function RevenueDashboardPage({
 
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <MetricCard
-              label={`${salesAnalytics.currentMonth.replace("-", "年")}月 販売件数`}
+              label={`公式レポート ${salesAnalytics.currentMonth.replace("-", "年")}月 販売件数`}
               value={`${salesAnalytics.totals.salesCount.toLocaleString("ja-JP")}件`}
               note="商品別レポートのサイト全体実績"
             />
@@ -364,18 +364,18 @@ export default async function RevenueDashboardPage({
         </section>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <MetricCard label="今日の送客" value={`${analytics.totals.today.toLocaleString("ja-JP")}回`} note="日本時間0:00から" />
-          <MetricCard label="直近7日" value={`${analytics.totals.sevenDays.toLocaleString("ja-JP")}回`} note={growthNote} />
-          <MetricCard label="直近30日" value={`${thirtyDayTotal.toLocaleString("ja-JP")}回`} note={`${analytics.totals.uniqueWorks.toLocaleString("ja-JP")}作品へ送客`} />
-          <MetricCard label="スマホCTA比率" value={`${mobileShare}%`} note={`${mobileClicks.toLocaleString("ja-JP")}回 / 直近30日`} />
+          <MetricCard label="FANZA CTAイベント・今日" value={`${analytics.totals.today.toLocaleString("ja-JP")}回`} note="日本時間0:00から。購入者数ではありません" />
+          <MetricCard label="FANZA CTAイベント・7日" value={`${analytics.totals.sevenDays.toLocaleString("ja-JP")}回`} note={growthNote} />
+          <MetricCard label="FANZA CTAイベント・30日" value={`${thirtyDayTotal.toLocaleString("ja-JP")}回`} note={`${analytics.totals.uniqueWorks.toLocaleString("ja-JP")}作品で発生`} />
+          <MetricCard label="スマホ固定CTAの構成比" value={`${mobileShare}%`} note={`${mobileClicks.toLocaleString("ja-JP")}回 / 30日。端末別比率ではありません`} />
         </div>
 
         <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">
           <div className="flex items-center gap-3">
             <Smartphone className="text-cyan-400" size={21} />
             <div>
-              <h2 className="font-black">流入元ごとのCTA利用</h2>
-              <p className="mt-1 text-xs text-zinc-500">直近30日・特集と買い比べも個別に判定</p>
+              <h2 className="font-black">流入元 × CTA配置のイベント数</h2>
+              <p className="mt-1 text-xs text-zinc-500">30日間。同一訪問者の重複を含む生ログ集計</p>
             </div>
           </div>
           <div className="mt-5 overflow-x-auto">
@@ -384,9 +384,9 @@ export default async function RevenueDashboardPage({
                 <tr className="border-b border-zinc-800">
                   <th className="pb-3 pr-4">流入元</th>
                   <th className="pb-3 pr-4 text-right">合計</th>
-                  <th className="pb-3 pr-4 text-right">PC</th>
-                  <th className="pb-3 pr-4 text-right">スマホ</th>
-                  <th className="pb-3 text-right">スマホ比率</th>
+                  <th className="pb-3 pr-4 text-right">詳細サイド配置</th>
+                  <th className="pb-3 pr-4 text-right">スマホ固定配置</th>
+                  <th className="pb-3 text-right">その他配置</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/80">
@@ -396,7 +396,7 @@ export default async function RevenueDashboardPage({
                     <td className="py-3 pr-4 text-right font-black">{item.total.toLocaleString("ja-JP")}</td>
                     <td className="py-3 pr-4 text-right text-zinc-400">{item.desktop.toLocaleString("ja-JP")}</td>
                     <td className="py-3 pr-4 text-right text-cyan-300">{item.mobile.toLocaleString("ja-JP")}</td>
-                    <td className="py-3 text-right font-black text-cyan-300">{item.mobileShare}%</td>
+                    <td className="py-3 text-right font-black text-zinc-400">{Math.max(item.total - item.desktop - item.mobile, 0).toLocaleString("ja-JP")}</td>
                   </tr>
                 ))}
               </tbody>
@@ -468,8 +468,8 @@ export default async function RevenueDashboardPage({
           <div className="flex items-center gap-3">
             <BarChart3 className="text-emerald-400" size={22} />
             <div>
-              <h2 className="font-black">作品別ファネル</h2>
-              <p className="mt-1 text-xs text-zinc-500">直近30日・作品詳細PV → FANZAクリック → CTR</p>
+              <h2 className="font-black">作品別サイト内イベント</h2>
+              <p className="mt-1 text-xs text-zinc-500">直近30日・重複を含む作品ページ表示 → FANZA CTA操作。CTRはイベント数の比で、購入率ではありません。</p>
             </div>
           </div>
           <div className="mt-5 overflow-x-auto">
@@ -478,9 +478,9 @@ export default async function RevenueDashboardPage({
                 <tr className="border-b border-zinc-800">
                   <th className="pb-3 pr-4">作品</th>
                   <th className="pb-3 pr-4">流入元</th>
-                  <th className="pb-3 pr-4 text-right">PV</th>
-                  <th className="pb-3 pr-4 text-right">FANZA</th>
-                  <th className="pb-3 pr-4 text-right">CTR</th>
+                  <th className="pb-3 pr-4 text-right">ページ表示回数</th>
+                  <th className="pb-3 pr-4 text-right">CTA操作回数</th>
+                  <th className="pb-3 pr-4 text-right">表示比</th>
                   <th className="pb-3 pr-4 text-right">価格</th>
                   <th className="pb-3 pr-4 text-right">割引</th>
                   <th className="pb-3 pr-4 text-right">スコア</th>

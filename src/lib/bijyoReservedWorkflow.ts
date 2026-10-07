@@ -2,6 +2,10 @@ export function bijyoManualIdempotencyKey(workId: number) {
   return `bijyo1010:manual:${workId}`;
 }
 
+export function bijyoPostTrackingKey(workId: number) {
+  return `bijyo1010-${workId}`;
+}
+
 export type BijyoJobStatus = "pending" | "posted" | "manual_posted" | "skipped" | "excluded" | "trim_failed";
 
 export type Candidate = { id: number; created_at: string };
@@ -96,5 +100,6 @@ export function buildBijyoMainText(work: { title: string; release_date: string }
 }
 
 export function buildBijyoReplyText(workId: number) {
-  return `👇作品の続き、セール価格推移はこちら\nhttps://amateur-lab.vercel.app/works/${workId}`;
+  const key = encodeURIComponent(bijyoPostTrackingKey(workId));
+  return `👇作品の続き、セール価格推移はこちら\nhttps://amateur-lab.vercel.app/works/${workId}?from=x&x_post=${key}`;
 }

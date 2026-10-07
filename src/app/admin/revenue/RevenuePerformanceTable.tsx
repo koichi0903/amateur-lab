@@ -6,10 +6,10 @@ import type {
 } from "@/lib/affiliateSalesAnalytics";
 
 const actionLabels: Record<RevenueAction, string> = {
-  scale: "露出強化",
-  improve: "説明改善",
+  scale: "売上あり・参考",
+  improve: "改善候補・参考",
   observe: "様子見",
-  reduce: "掲載縮小",
+  reduce: "売上なし・参考",
 };
 
 const actionStyles: Record<RevenueAction, string> = {
@@ -46,9 +46,9 @@ export default function RevenuePerformanceTable({
       <div className="flex items-start gap-3">
         <Gauge className="mt-0.5 shrink-0 text-amber-400" size={22} />
         <div>
-          <h2 className="font-black">作品別 送客・売上パフォーマンス</h2>
+          <h2 className="font-black">作品別 クリック・売上の参考比較</h2>
           <p className="mt-1 text-xs leading-5 text-zinc-500">
-            当月の発掘LAB内クリックとFANZA商品別レポートを作品単位で比較します。CV率とクリック単価はCookie・計上日の差を含む参考値です。
+            作品IDが一致する当月クリックと公式商品別レポートを並べた参考比較です。購入者単位の照合ではなく、Cookie・計上日・別作品購入の影響を除けません。下の分類もクリック数のしきい値による機械的な参考表示で、掲載停止の判断には使わないでください。
           </p>
         </div>
       </div>
@@ -77,7 +77,7 @@ export default function RevenuePerformanceTable({
           </div>
           <div className="rounded-xl border border-amber-900/70 bg-amber-950/20 p-4">
             <p className="text-xs font-black tracking-widest text-amber-300">改善候補</p>
-            <p className="mt-1 text-xs leading-5 text-zinc-500">販売につながっていない作品。クリック数に応じて改善または掲載縮小を判定します。</p>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">同月売上が未記録の作品をクリック数で機械分類した参考候補です。売上がクリック作品と別の場合もあるため、縮小判断には使えません。</p>
             <div className="mt-3 space-y-2">{improveRows.length ? improveRows.map((row) => <Link key={row.workId} href={`/works/${row.workId}`} className="flex items-center justify-between gap-3 rounded-lg bg-zinc-950/60 px-3 py-2 text-xs font-bold text-zinc-200 hover:text-amber-300"><span className="line-clamp-1">{row.title}</span><span className="shrink-0 text-amber-300">{row.clicks} clicks / 0件</span></Link>) : <p className="text-xs text-zinc-500">現時点で明確な改善候補はありません。</p>}</div>
           </div>
         </div>
@@ -90,7 +90,7 @@ export default function RevenuePerformanceTable({
             <tr className="border-b border-zinc-800">
               <th className="pb-3 pr-4">作品</th>
               <th className="pb-3 pr-4 text-right">クリック</th>
-              <th className="pb-3 pr-4 text-right">販売</th>
+              <th className="pb-3 pr-4 text-right">同月レポート件数</th>
               <th className="pb-3 pr-4 text-right">販売金額</th>
               <th className="pb-3 pr-4 text-right">参考CV率</th>
               <th className="pb-3 pr-4 text-right">報酬</th>

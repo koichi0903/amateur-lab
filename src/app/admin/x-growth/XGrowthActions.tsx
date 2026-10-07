@@ -378,7 +378,7 @@ export function ManualPostActions({
   const deleteTempFile = async () => {
     setMessage("");
     try {
-      await postJson("/api/admin/x-growth/mark-posted", { workId, candidateId, slotId, candidateRank, slotRole, title, postText, intent, mediaAssetId, linkStrategy: linkPlan });
+      await postJson("/api/admin/x-growth/mark-posted", { workId, candidateId, slotId, candidateRank, slotRole, title, postText, trackingUrl: affiliateUrl, intent, mediaAssetId, linkStrategy: linkPlan });
       const handle = await loadDirectoryHandle();
       if (handle && (await ensurePermission(handle))) await handle.removeEntry(tempFilename).catch(() => undefined);
       setMessage(`投稿済みとして記録しました。${tempFilename} を削除しました。`);

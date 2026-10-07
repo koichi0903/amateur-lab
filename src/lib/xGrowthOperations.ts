@@ -5,6 +5,7 @@ import { cleanupTempVideo, createXPost, downloadTempVideo, fetchXPostPublicMetri
 import { canTrimFanzaXGrowthSampleMovie, isFanzaXGrowthTechnicalSampleMovie, isUsableXMediaAsset, sourceDomain, sourceKindFor, validateTrimStartSeconds, X_GROWTH_ACCOUNT, type XMediaAsset } from "@/lib/xMediaAssets";
 import type { XCreativeLearningRow, XPostLog, XPostLogInput } from "@/lib/xPostLogs";
 import { saveXPostLog } from "@/lib/xPostLogs";
+import { withXPostTracking, xPostKeyFromText } from "@/lib/xPostTracking";
 import { normalizeTopPickCandidates } from "@/lib/xGrowthTopPicks";
 import type { XDailyMission, XDailyTopPick, XGrowthIntent, XGrowthOpportunity } from "@/lib/xGrowthOS";
 import { buildVisualVideoFacts, type XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
@@ -48,6 +49,11 @@ const snapshotAges: XSnapshotAge[] = ["1h", "6h", "24h", "72h"];
 
 function todayTokyo() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+function withXPostTrackingText(text: string | null | undefined, postKey: string) {
+  if (!text) return text ?? null;
+  return text.replace(/https?:\/\/[^\s<>]+/g, (url) => withXPostTracking(url, postKey) ?? url);
 }
 
 function scoreBreakdown(item: XGrowthOpportunity) {
@@ -392,7 +398,10 @@ export async function updateMediaAssetTrim(input: {
 
 export async function persistOpportunities(items: XGrowthOpportunity[]) {
   if (!items.length) return { rows: [] as PersistedOpportunity[], error: null as string | null };
-  const rows = items.map((item) => ({
+  const rows = items.map((item) => {
+    const postText = withXPostTrackingText(item.postText, item.key);
+    const replyText = withXPostTrackingText(item.replyText, item.key);
+    return ({
     account_handle: ACCOUNT,
     opportunity_key: item.key,
     work_id: item.workId,
@@ -406,8 +415,8 @@ export async function persistOpportunities(items: XGrowthOpportunity[]) {
     authority_score: item.authorityScore,
     revenue_score: item.revenueScore,
     evidence: item.evidence,
-    post_text: item.postText,
-    reply_text: item.replyText,
+    post_text: postText,
+    reply_text: replyText,
     post_intent: item.postIntent,
     media_type: item.mediaType,
     recommended_media_asset_id: "mediaAsset" in item ? (item.mediaAsset as XMediaAsset | null)?.id ?? null : null,
@@ -431,7 +440,8 @@ export async function persistOpportunities(items: XGrowthOpportunity[]) {
       })) ?? [],
     },
     adoption_reason: item.selectionReason,
-  }));
+    });
+  });
   const { data, error } = await supabaseAdmin
     .from("x_growth_opportunities")
     .upsert(rows, { onConflict: "account_handle,opportunity_key,opportunity_date" })
@@ -728,15 +738,17 @@ export async function recordManualXPost(input: {
   slotRole?: string | null;
   title: string;
   postText: string;
+  trackingUrl?: string | null;
   intent?: string | null;
   mediaAssetId?: number | null;
   linkStrategy?: string | null;
 }) {
   if (!Number.isSafeInteger(input.workId) || input.workId <= 0) return { error: "作品IDが不正です。" };
   const candidateId = input.candidateId?.trim() || `manual-${input.workId}`;
+  const trackedPostKey = xPostKeyFromText(input.postText) ?? xPostKeyFromText(input.trackingUrl);
   const linkStrategy = input.linkStrategy === "reply_link" || input.linkStrategy === "self_reply" ? "reply_link" : input.linkStrategy === "body_link" || input.linkStrategy === "body" ? "body_link" : null;
   const result = await saveXPostLog({
-    postKey: `manual-${todayTokyo()}-${candidateId}`.slice(0, 180), workId: input.workId, category: "score",
+    postKey: trackedPostKey ?? `manual-${todayTokyo()}-${candidateId}`.slice(0, 120), workId: input.workId, category: "score",
     title: input.title.slice(0, 300), postText: input.postText, postDate: todayTokyo(), accountHandle: ACCOUNT,
     postIntent: "work_link", scheduledSlot: input.slotId ?? null, creativeVariantId: candidateId,
     mediaAssetId: input.mediaAssetId ?? null, linkStrategy,
@@ -1019,8 +1031,8 @@ export async function persistDailyTopPicks(input: {
       authority_score: item.authorityScore,
       revenue_score: item.revenueScore,
       evidence: item.whyToday,
-      post_text: item.postText,
-      reply_text: item.replyText,
+      post_text: withXPostTrackingText(item.postText, `daily-pick-${String(item.pickOrder).padStart(2, "0")}-${item.key}`),
+      reply_text: withXPostTrackingText(item.replyText, `daily-pick-${String(item.pickOrder).padStart(2, "0")}-${item.key}`),
       post_intent: item.postIntent,
       media_type: item.mediaType,
       recommended_media_asset_id: item.mediaAsset?.id ?? null,
@@ -1125,7 +1137,7 @@ export async function executeOpportunityPost(id: number) {
     const created = await createXPost({ text: String(opportunity.post_text ?? ""), videoFile: temp?.file, videoContentType: temp?.contentType });
     const postDate = todayTokyo();
     const logInput: XPostLogInput = {
-      postKey: String(opportunity.opportunity_key),
+      postKey: xPostKeyFromText(String(opportunity.post_text)) ?? String(opportunity.opportunity_key),
      workId: Number(opportunity.work_id),
       category: "score",
       title: String(opportunity.topic).slice(0, 300),

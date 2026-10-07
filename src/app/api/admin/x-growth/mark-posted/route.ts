@@ -8,6 +8,7 @@ export async function POST(request: Request) {
     slotId: typeof payload?.slotId === "string" ? payload.slotId : null, candidateRank: typeof payload?.candidateRank === "string" ? payload.candidateRank : null,
     slotRole: typeof payload?.slotRole === "string" ? payload.slotRole : null, title: typeof payload?.title === "string" ? payload.title : "FANZA X Growth投稿",
     postText: typeof payload?.postText === "string" ? payload.postText : "", intent: typeof payload?.intent === "string" ? payload.intent : null,
+    trackingUrl: typeof payload?.trackingUrl === "string" ? payload.trackingUrl : null,
     mediaAssetId: Number.isSafeInteger(Number(payload?.mediaAssetId)) ? Number(payload?.mediaAssetId) : null,
     linkStrategy: typeof payload?.linkStrategy === "string" ? payload.linkStrategy : null,
   });
