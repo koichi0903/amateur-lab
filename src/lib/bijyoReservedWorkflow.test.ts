@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 import { bijyoManualIdempotencyKey, bijyoReservedCandidateSince, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoFutureOperationEligible, isBijyoReservedCandidate, recentReleaseDateRange } from "./bijyoReservedWorkflow.ts";
 import { BIJYO_SECTION_ORDER, HISTORY_PAGE_SIZE, MANUAL_CANDIDATE_INITIAL_LIMIT, MANUAL_CANDIDATE_PAGE_SIZE, UPCOMING_RELEASE_INITIAL_LIMIT, UPCOMING_RELEASE_PAGE_SIZE, historyBlockStart, visibleManualCandidateCount, visibleUpcomingReleaseCount } from "../app/admin/bijyo-reserved/ui.ts";
@@ -10,7 +11,7 @@ test("手動追加のidempotency keyは同じworkで安定する", () => {
 
 test("本文と自己リプは固定フォーマット", () => {
   assert.equal(buildBijyoMainText({ title: "作品A", release_date: "2026-09-25" }), "【9月25日発売】\n作品A");
-  assert.equal(buildBijyoReplyText(123), "👇作品の続き、セール価格推移はこちら\nhttps://amateur-lab.vercel.app/works/123");
+  assert.equal(buildBijyoReplyText(123), "👇作品の続き、セール価格推移はこちら\nhttps://amateur-lab.vercel.app/works/123?from=x&x_post=bijyo1010-123");
 });
 
 test("今日から1週間はJSTの当日から7日後まで", () => {
@@ -128,4 +129,13 @@ test("予約追加候補はcreated_atの7日窓だけを使い、発売日範囲
   assert.equal(isBijyoReservedCandidate({ stage: "RESERVED", created_at: since, release_date: "2026-11-30" }, now), true);
   assert.equal(isBijyoReservedCandidate({ stage: "RESERVED", created_at: "2026-09-29T14:59:59.999Z", release_date: "2026-11-30" }, now), false);
   assert.equal(isBijyoReservedCandidate({ stage: "NEW", created_at: since, release_date: "2026-11-30" }, now), false);
+});
+
+test("手動追加カードは内部条件の長文を表示せず、サーバー側のeligible再検証を維持する", () => {
+  const actions = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedActions.tsx", "utf8");
+  const server = fs.readFileSync("src/lib/bijyoReservedAutoPost.ts", "utf8");
+  assert.doesNotMatch(actions, /手動投稿には過去7日以内に登録されたRESERVED作品とFANZA\/DMM公式サンプル動画が必要です/);
+  assert.match(server, /!isBijyoReservedCandidate\(work\)\s*\|\|\s*!work\.sample_movie_url\s*\|\|\s*sourceKindFor\(work\.sample_movie_url\) !== "official_sample"/);
+  assert.match(server, /code: "candidate_unavailable"/);
+  assert.match(server, /ACTIVE_CANDIDATE_STATUSES = \["pending", "posted", "manual_posted", "skipped", "excluded", "trim_failed"\]/);
 });

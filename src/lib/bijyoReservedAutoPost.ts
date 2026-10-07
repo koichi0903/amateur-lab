@@ -182,7 +182,7 @@ export async function excludeBijyoJob(jobId: number) {
 export async function createBijyoManualJob(workId: number): Promise<BijyoActionResult> {
   const workResult = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("id", workId).single();
   const work = workResult.data as Work | null;
-  if (workResult.error || !work || !isBijyoReservedCandidate(work) || !work.sample_movie_url || sourceKindFor(work.sample_movie_url) !== "official_sample") return { ok: false, error: "手動投稿には過去7日以内に登録されたRESERVED作品とFANZA/DMM公式サンプル動画が必要です。" };
+  if (workResult.error || !work || !isBijyoReservedCandidate(work) || !work.sample_movie_url || sourceKindFor(work.sample_movie_url) !== "official_sample") return { ok: false, error: "この候補は手動追加できません。画面を更新してください。", code: "candidate_unavailable" };
   const existing = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id,status").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
   if (existing.error) return { ok: false, error: existing.error.message };
   if (existing.data) {
