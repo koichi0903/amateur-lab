@@ -6,6 +6,7 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import type { ParsedData } from "./parser";
 import { generateAndSaveInsight } from "@/lib/insights/generateAndSave";
 import { saveLowestPriceEvent } from "@/lib/insights/event";
+import { resolveListPriceToSave } from "./saveListPrice";
 
 // saveWork は管理ジョブ専用。anon key では RLS により更新が0件になる場合がある。
 const normalizePriceName = (value: string) =>
@@ -288,6 +289,15 @@ const fallbackActress =
     ? data.actressLinks.join(" / ")
     : null;
 
+// Existing rows may have a missing list_price even though the FANZA detail
+// page exposes the regular price. Fill only that gap; never replace an
+// already stored value unless the caller explicitly supplies one.
+const listPriceToSave = resolveListPriceToSave(
+  listPrice,
+  currentWork?.list_price,
+  mainPrice?.normalPrice,
+);
+
 const discontinuedStageMatch = currentWork?.playwright_status?.match(
   /^DISCONTINUED_[0-9]{8}_(RESERVED|NEW|SEMI_NEW|OLD)$/,
 );
@@ -312,8 +322,8 @@ const workUpdate = {
 
   price,
 
-...(listPrice !== undefined
-  ? { list_price: listPrice }
+...(listPriceToSave !== undefined
+  ? { list_price: listPriceToSave }
   : {}),
 
 sale_price: salePrice,
@@ -344,8 +354,8 @@ const changed =
 
   currentWork.price !== price ||
 
-  (listPrice !== undefined &&
-  currentWork.list_price !== listPrice) ||
+  (listPriceToSave !== undefined &&
+  currentWork.list_price !== listPriceToSave) ||
 
   currentWork.sale_price !== salePrice ||
 
