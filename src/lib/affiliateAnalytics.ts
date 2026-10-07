@@ -855,6 +855,7 @@ export async function getAffiliateAnalytics(categoryDays = 7) {
       today,
       sevenDays: lastSevenDays,
       thirtyDays: reportingRows.length,
+      workPageViewsThirtyDays: pageViewResult.rows.length,
       uniqueWorks: new Set(reportingRows.map((row) => row.work_id)).size,
       growthRate,
     },

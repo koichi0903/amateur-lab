@@ -50,6 +50,42 @@ function MetricCard({
   );
 }
 
+function FunnelStage({
+  number,
+  title,
+  value,
+  period,
+  definition,
+  status,
+}: {
+  number: number;
+  title: string;
+  value: string;
+  period: string;
+  definition: string;
+  status: "measured" | "unavailable" | "account-total";
+}) {
+  const statusLabel = status === "measured"
+    ? "サイト内実測"
+    : status === "account-total"
+      ? "公式・月次合計"
+      : "未接続／未計測";
+  const statusStyle = status === "measured"
+    ? "text-emerald-300"
+    : status === "account-total"
+      ? "text-sky-300"
+      : "text-amber-300";
+
+  return (
+    <div className="min-w-0 rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+      <p className="text-xs font-black text-zinc-500">{number}. {title}</p>
+      <p className="mt-3 text-2xl font-black text-white">{value}</p>
+      <p className={`mt-1 text-[11px] font-black ${statusStyle}`}>{statusLabel} · {period}</p>
+      <p className="mt-2 text-xs leading-5 text-zinc-500">{definition}</p>
+    </div>
+  );
+}
+
 type XTraffic = Awaited<ReturnType<typeof getAffiliateAnalytics>>["xTraffic"];
 type XPostCategoryRevenue = Awaited<ReturnType<typeof getAffiliateAnalytics>>["xPostCategoryRevenue"];
 
@@ -240,7 +276,7 @@ export default async function RevenueDashboardPage({
               FANZA送客分析
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
-              FANZA公式レポートの成果と、発掘LAB内で記録したページ表示・CTA操作を確認します。両者は同じ利用者・購入として結び付いたデータではありません。
+              公式成果・サイト内の実測イベント・推定を含む参考分析を分けて表示します。データのない段階は0ではなく「未接続」として示します。
             </p>
           </div>
           <a
@@ -276,13 +312,20 @@ export default async function RevenueDashboardPage({
           </section>
         )}
 
-        <section className="mt-8 rounded-2xl border border-emerald-900/80 bg-emerald-950/20 p-5 sm:p-6">
+        <nav aria-label="分析セクション" className="mt-6 flex flex-wrap gap-2">
+          <a href="#official-results" className="rounded-full border border-emerald-900 bg-emerald-950/40 px-4 py-2 text-xs font-black text-emerald-200">① FANZA公式成果</a>
+          <a href="#measured-events" className="rounded-full border border-cyan-900 bg-cyan-950/40 px-4 py-2 text-xs font-black text-cyan-200">② サイト内実測</a>
+          <a href="#reference-analysis" className="rounded-full border border-violet-900 bg-violet-950/40 px-4 py-2 text-xs font-black text-violet-200">③ 参考分析・推定</a>
+        </nav>
+
+        <section id="official-results" className="mt-8 rounded-2xl border border-emerald-900/80 bg-emerald-950/20 p-5 sm:p-6">
           <div className="flex items-start gap-3">
             <CircleDollarSign className="mt-0.5 shrink-0 text-emerald-400" size={23} />
             <div>
-              <h2 className="text-xl font-black">FANZA公式レポート実績</h2>
+              <p className="text-xs font-black tracking-[0.16em] text-emerald-300">① FANZA公式の成果</p>
+              <h2 className="mt-1 text-xl font-black">販売・報酬（公式CSV）</h2>
               <p className="mt-1 text-sm leading-6 text-zinc-400">
-              FANZA公式の商品別レポートのアカウント合計です。発掘LAB内のクリックや個別作品の購入に正確に紐付いた売上ではありません。同じ月のCSVを再取込しても二重計上されません。
+              FANZA公式の商品別レポートに記録されたアカウント合計です。発掘LAB内のクリックや個別投稿に紐付いた購入ではありません。期間は下記の対象月です。
               </p>
             </div>
           </div>
@@ -319,6 +362,10 @@ export default async function RevenueDashboardPage({
             <p className="mt-4 text-xs text-zinc-500">
               最終取込: {formatDateTime(salesAnalytics.latestImport.importedAt)} / {salesAnalytics.latestImport.file}
             </p>
+          )}
+
+          {!salesAnalytics.currentMonthHasRows && !salesAnalytics.error && (
+            <p className="mt-4 text-xs leading-5 text-amber-300">対象月の成果データ行がありません。CSV未取込と販売0件をこの画面だけでは区別できないため、上の0を確定成果として扱わないでください。</p>
           )}
 
           <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
@@ -363,11 +410,31 @@ export default async function RevenueDashboardPage({
           </div>
         </section>
 
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section id="measured-events" className="mt-10">
+          <div className="mb-4">
+            <p className="text-xs font-black tracking-[0.16em] text-cyan-300">② 発掘LAB内で実測したPV・クリック</p>
+            <h2 className="mt-1 text-2xl font-black">集客ファネルの現在地</h2>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-zinc-400">
+              数字はイベント回数で、同じ人の再訪・再操作を含みます。サイト訪問者単位で各段階を結び付けた転換率ではありません。検索表示とサイト訪問はこの画面に計測連携がないため、0ではなく未接続と表示しています。
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <FunnelStage number={1} title="検索表示" value="未接続" period="Search Console" definition="検索結果に表示された回数。現在この画面に連携データなし。" status="unavailable" />
+            <FunnelStage number={2} title="サイト訪問" value="未計測" period="訪問者数" definition="発掘LABを訪れた人数・セッション数。この画面では取得していません。" status="unavailable" />
+            <FunnelStage number={3} title="作品ページPV" value={analytics.pageViewTrackingEnabled ? `${analytics.totals.workPageViewsThirtyDays.toLocaleString("ja-JP")}回` : "未計測"} period="直近30日" definition={analytics.pageViewTrackingEnabled ? "記録された作品詳細ページ表示イベント。ユニーク訪問者数ではありません。" : "ページ表示計測が有効ではないため、この期間の数字を出せません。"} status={analytics.pageViewTrackingEnabled ? "measured" : "unavailable"} />
+            <FunnelStage number={4} title="FANZA CTA" value={`${thirtyDayTotal.toLocaleString("ja-JP")}回`} period="直近30日" definition="サイト内で記録したFANZAリンク操作。購入・購入者数ではありません。" status="measured" />
+            <FunnelStage number={5} title="公式成果" value={salesAnalytics.currentMonthHasRows ? `${salesAnalytics.totals.salesCount.toLocaleString("ja-JP")}件 / ¥${salesAnalytics.totals.commissionAmount.toLocaleString("ja-JP")}` : "未確認"} period={`${salesAnalytics.currentMonth} 対象月`} definition="公式CSVの月次アカウント合計。対象月に保存済みの成果行がない場合、未取込と0件を判別できません。" status={salesAnalytics.currentMonthHasRows ? "account-total" : "unavailable"} />
+          </div>
+          <p className="mt-3 rounded-xl border border-amber-900/70 bg-amber-950/20 px-4 py-3 text-xs leading-5 text-amber-200">
+            期間と帰属範囲が異なる段階を並べた全体像です。現在は厳密な一続きのCVファネルや各段階の転換率として比較できません。
+          </p>
+        </section>
+
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard label="FANZA CTAイベント・今日" value={`${analytics.totals.today.toLocaleString("ja-JP")}回`} note="日本時間0:00から。購入者数ではありません" />
           <MetricCard label="FANZA CTAイベント・7日" value={`${analytics.totals.sevenDays.toLocaleString("ja-JP")}回`} note={growthNote} />
           <MetricCard label="FANZA CTAイベント・30日" value={`${thirtyDayTotal.toLocaleString("ja-JP")}回`} note={`${analytics.totals.uniqueWorks.toLocaleString("ja-JP")}作品で発生`} />
-          <MetricCard label="スマホ固定CTAの構成比" value={`${mobileShare}%`} note={`${mobileClicks.toLocaleString("ja-JP")}回 / 30日。端末別比率ではありません`} />
+          <MetricCard label="スマホ固定CTA配置の構成比" value={`${mobileShare}%`} note={`${mobileClicks.toLocaleString("ja-JP")}回 / 30日。端末別比率ではありません`} />
         </div>
 
         <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">
@@ -430,39 +497,7 @@ export default async function RevenueDashboardPage({
           </div>
         </section>
 
-        <TrafficImprovementPanel
-          externalChannelInsights={analytics.externalChannelInsights}
-          organicLandingInsights={analytics.organicLandingInsights}
-          sourceInsights={analytics.sourceInsights}
-          placementInsights={analytics.placementInsights}
-          ctaVariantInsights={analytics.ctaVariantInsights}
-          ctaExperimentEnabled={analytics.ctaExperimentEnabled}
-          ctaVariantPerformance={analytics.ctaVariantPerformance}
-          ctaImpressionTrackingEnabled={analytics.ctaImpressionTrackingEnabled}
-        />
-
         <XTrafficPanel xTraffic={analytics.xTraffic} />
-
-        {analytics.xPostLogError && (
-          <section className="mt-6 rounded-2xl border border-amber-800 bg-amber-950/30 p-5 text-sm leading-6 text-amber-200">
-            X投稿ログを読み込めませんでした。投稿カテゴリ別ファネルはログテーブルの適用後に有効になります。
-          </section>
-        )}
-
-        <XPostCategoryRevenuePanel
-          days={analytics.categoryDays}
-          rows={analytics.xPostCategoryRevenue}
-        />
-
-        <section className="mt-6 rounded-2xl border border-emerald-800/80 bg-emerald-950/20 p-5 sm:p-6">
-          <h2 className="text-xl font-black">X運用はGrowth OSへ移動しました</h2>
-          <p className="mt-2 text-sm leading-6 text-zinc-400">
-            この画面はFANZA送客と収益分析に集中します。投稿候補、Daily Mission、Creative Learning、媒体権利確認は新しい司令塔で管理します。
-          </p>
-          <Link href="/admin/x-growth" className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-emerald-500 px-4 text-sm font-black text-black">
-            X Growth OSを開く
-          </Link>
-        </section>
 
         <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">
           <div className="flex items-center gap-3">
@@ -605,9 +640,41 @@ export default async function RevenueDashboardPage({
           </div>
         </section>
 
+        <section id="reference-analysis" className="mt-10 mb-4">
+          <div className="mb-4">
+            <p className="text-xs font-black tracking-[0.16em] text-violet-300">③ 推定を含む参考分析</p>
+            <h2 className="mt-1 text-2xl font-black">傾向・改善候補</h2>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-zinc-400">
+              投稿キーのない過去クリックの投稿別帰属や、少数イベントからの改善判定を含みます。売上の確定帰属や掲載停止の根拠には使わず、仮説を立てる材料として確認してください。
+            </p>
+          </div>
+        </section>
+
+        <TrafficImprovementPanel
+          externalChannelInsights={analytics.externalChannelInsights}
+          organicLandingInsights={analytics.organicLandingInsights}
+          sourceInsights={analytics.sourceInsights}
+          placementInsights={analytics.placementInsights}
+          ctaVariantInsights={analytics.ctaVariantInsights}
+          ctaExperimentEnabled={analytics.ctaExperimentEnabled}
+          ctaVariantPerformance={analytics.ctaVariantPerformance}
+          ctaImpressionTrackingEnabled={analytics.ctaImpressionTrackingEnabled}
+        />
+
+        {analytics.xPostLogError && (
+          <section className="mt-6 rounded-2xl border border-amber-800 bg-amber-950/30 p-5 text-sm leading-6 text-amber-200">
+            X投稿ログを読み込めませんでした。投稿カテゴリ別ファネルはログテーブルの適用後に有効になります。
+          </section>
+        )}
+
+        <XPostCategoryRevenuePanel
+          days={analytics.categoryDays}
+          rows={analytics.xPostCategoryRevenue}
+        />
         <RevenuePerformanceTable
           rows={salesAnalytics.performance}
           clickError={salesAnalytics.performanceClickError}
+          period={salesAnalytics.currentMonth}
         />
 
         <p className="mt-6 text-xs leading-6 text-zinc-600">

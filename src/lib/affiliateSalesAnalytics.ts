@@ -97,6 +97,7 @@ export async function getAffiliateSalesAnalytics() {
       return {
         error: error.message,
         currentMonth,
+        currentMonthHasRows: false,
         totals: { salesCount: 0, salesAmount: 0, commissionAmount: 0 },
         monthly: monthKeys.map((key) => ({ key, salesCount: 0, salesAmount: 0, commissionAmount: 0 })),
         topProducts: [] as Array<AffiliateSaleRow & { rank: number }>,
@@ -200,6 +201,7 @@ export async function getAffiliateSalesAnalytics() {
   return {
     error: null as string | null,
     currentMonth,
+    currentMonthHasRows: currentRows.length > 0,
     totals,
     monthly,
     topProducts: [...currentRows]

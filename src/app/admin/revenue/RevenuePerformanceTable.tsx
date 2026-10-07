@@ -22,9 +22,11 @@ const actionStyles: Record<RevenueAction, string> = {
 export default function RevenuePerformanceTable({
   rows,
   clickError,
+  period,
 }: {
   rows: AffiliatePerformanceRow[];
   clickError: string | null;
+  period: string;
 }) {
   const actionCounts = (Object.keys(actionLabels) as RevenueAction[]).map(
     (action) => ({
@@ -48,7 +50,7 @@ export default function RevenuePerformanceTable({
         <div>
           <h2 className="font-black">作品別 クリック・売上の参考比較</h2>
           <p className="mt-1 text-xs leading-5 text-zinc-500">
-            作品IDが一致する当月クリックと公式商品別レポートを並べた参考比較です。購入者単位の照合ではなく、Cookie・計上日・別作品購入の影響を除けません。下の分類もクリック数のしきい値による機械的な参考表示で、掲載停止の判断には使わないでください。
+            対象: {period}。作品IDが一致する当月クリックと公式商品別レポートを並べた参考比較です。購入者単位の照合ではなく、Cookie・計上日・別作品購入の影響を除けません。下の分類もクリック数のしきい値による機械的な参考表示で、掲載停止の判断には使わないでください。
           </p>
         </div>
       </div>
@@ -89,7 +91,7 @@ export default function RevenuePerformanceTable({
           <thead className="text-xs text-zinc-500">
             <tr className="border-b border-zinc-800">
               <th className="pb-3 pr-4">作品</th>
-              <th className="pb-3 pr-4 text-right">クリック</th>
+              <th className="pb-3 pr-4 text-right">{period}クリック</th>
               <th className="pb-3 pr-4 text-right">同月レポート件数</th>
               <th className="pb-3 pr-4 text-right">販売金額</th>
               <th className="pb-3 pr-4 text-right">参考CV率</th>
