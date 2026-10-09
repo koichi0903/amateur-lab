@@ -134,9 +134,11 @@ export default function Analytics() {
     if (!GA_MEASUREMENT_ID) return;
 
     window.dataLayer = window.dataLayer || [];
-    window.gtag = window.gtag || ((...args: unknown[]) => {
-      window.dataLayer?.push(args);
-    });
+    window.gtag = window.gtag || function gtag() {
+      // gtag.js consumes Arguments objects from dataLayer, as in Google's snippet.
+      // eslint-disable-next-line prefer-rest-params
+      window.dataLayer?.push(arguments);
+    };
     if (!window.__hakkutsuGaInitialized) {
       window.gtag("js", new Date());
       window.gtag("config", GA_MEASUREMENT_ID, { send_page_view: false });
