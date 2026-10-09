@@ -18,17 +18,15 @@ export function tokyoDate(date = new Date()) {
 export function tokyoDateFromIso(value: string) { return tokyoDate(new Date(value)); }
 
 const TOKYO_DAY_MS = 86_400_000;
-export const BIJYO_RESERVED_CANDIDATE_WINDOW_MS = 7 * TOKYO_DAY_MS;
-
-export function bijyoReservedCandidateSince(now = new Date()) {
-  return new Date(now.getTime() - BIJYO_RESERVED_CANDIDATE_WINDOW_MS).toISOString();
-}
-
-export function isBijyoReservedCandidate(work: { stage: string; created_at: string; release_date?: string | null }, now = new Date()) {
-  return work.stage === "RESERVED"
+export function isBijyoManualCandidate(
+  work: { stage: string; release_date?: string | null },
+  eligibility: { officialSample: boolean; hasExistingJob: boolean },
+) {
+  return ["NEW", "RESERVED"].includes(work.stage)
     && Boolean(work.release_date)
-    && Number.isFinite(Date.parse(work.created_at))
-    && Date.parse(work.created_at) >= Date.parse(bijyoReservedCandidateSince(now));
+    && Number.isFinite(Date.parse(work.release_date ?? ""))
+    && eligibility.officialSample
+    && !eligibility.hasExistingJob;
 }
 
 export type ReleaseDateRange = { todayDate: string; startDate: string; endDate: string };
@@ -73,16 +71,13 @@ export type RecentReleaseWork = {
 export type RecentReleaseJob = { work_id: number; kind: string; slot_date: string; status: string };
 
 export function filterRecentReleaseWorks(works: RecentReleaseWork[], jobs: RecentReleaseJob[], dateRange: ReleaseDateRange) {
-  const excludedStatuses = new Set(["posted", "manual_posted", "skipped", "excluded"]);
-  const excludedWorkIds = new Set(jobs.filter((job) => excludedStatuses.has(job.status)).map((job) => job.work_id));
-  const assignedToday = new Set(jobs.filter((job) => job.kind === "auto" && job.slot_date === dateRange.todayDate).map((job) => job.work_id));
-  const manualWorks = new Set(jobs.filter((job) => job.kind === "manual").map((job) => job.work_id));
+  const assignedWorkIds = new Set(jobs.map((job) => job.work_id));
   const seen = new Set<number>();
   return works
     .filter((work) => {
       const releaseDate = work.release_date.slice(0, 10);
       if (!evaluateBijyoFutureOperation(work.stage, releaseDate, dateRange).eligible || !work.sample_movie_url) return false;
-      if (excludedWorkIds.has(work.id) || assignedToday.has(work.id) || manualWorks.has(work.id) || seen.has(work.id)) return false;
+      if (assignedWorkIds.has(work.id) || seen.has(work.id)) return false;
       seen.add(work.id);
       return true;
     })

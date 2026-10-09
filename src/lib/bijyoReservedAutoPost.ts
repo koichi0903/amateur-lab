@@ -2,7 +2,7 @@ import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
 import { analyzeSampleMovie } from "@/lib/xVideoAnalysis";
 import { sourceKindFor } from "@/lib/xMediaAssets";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { bijyoManualIdempotencyKey, bijyoPostTrackingKey, bijyoReservedCandidateSince, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoReservedCandidate, recentReleaseDateRange, tokyoDate, type RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
+import { bijyoManualIdempotencyKey, bijyoPostTrackingKey, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoManualCandidate, recentReleaseDateRange, tokyoDate, type RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
 import { calculateBijyoTrimStart } from "@/lib/bijyoTrim";
 import { validateTrimStartSeconds } from "@/lib/xMediaAssets";
 import { saveXPostLog } from "@/lib/xPostLogs";
@@ -33,8 +33,6 @@ function conflictResult(state: string): BijyoActionResult {
 }
 
 const JOB_SELECT = "id,work_id,kind,slot_date,slot_index,scheduled_at,status,trim_start_seconds,trim_status,trim_reason,trim_failure_reason,main_text,reply_text,x_post_id,posted_at,failure_reason,skip_reason";
-const ACTIVE_CANDIDATE_STATUSES = ["pending", "posted", "manual_posted", "skipped", "excluded", "trim_failed"];
-
 const HISTORY_PAGE_SIZE = 20;
 
 async function activeJobs(select = JOB_SELECT, options: { ascending?: boolean; limit?: number; offset?: number; kind?: "auto" | "manual"; statuses?: string[] } = {}) {
@@ -57,12 +55,17 @@ async function activeJobs(select = JOB_SELECT, options: { ascending?: boolean; l
   }), error: null };
 }
 
-async function jobRefs() {
-  const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("work_id,kind,slot_date,status").eq("account_handle", BIJYO_ACCOUNT);
-  return result.error ? { jobs: [] as Array<{ work_id: number; kind: string; slot_date: string; status: string }>, error: result.error.message } : { jobs: (result.data ?? []) as Array<{ work_id: number; kind: string; slot_date: string; status: string }>, error: null };
+async function jobRefs(workIds: number[]) {
+  const batches: number[][] = [];
+  for (let index = 0; index < workIds.length; index += 200) batches.push(workIds.slice(index, index + 200));
+  const results = await Promise.all(batches.map((workIdBatch) => supabaseAdmin.from("bijyo_reserved_post_jobs").select("work_id,kind,slot_date,status").eq("account_handle", BIJYO_ACCOUNT).in("work_id", workIdBatch)));
+  const failed = results.find((result) => result.error);
+  return failed?.error
+    ? { jobs: [] as Array<{ work_id: number; kind: string; slot_date: string; status: string }>, error: failed.error.message }
+    : { jobs: results.flatMap((result) => (result.data ?? []) as Array<{ work_id: number; kind: string; slot_date: string; status: string }>), error: null };
 }
 
-export async function getBijyoRecentReleasedWorks(jobs: BijyoJob[], now = new Date()) {
+export async function getBijyoRecentReleasedWorks(now = new Date()) {
   const dateRange = recentReleaseDateRange(now);
   const result = await supabaseAdmin.from("works")
     .select("id,title,stage,created_at,release_date,image_url,sample_movie_url,product_id")
@@ -76,20 +79,22 @@ export async function getBijyoRecentReleasedWorks(jobs: BijyoJob[], now = new Da
     .limit(1000);
   if (result.error) return { recentReleased: [] as BijyoRecentReleasedWork[], dateRange, error: result.error.message };
   const works = (result.data ?? []).filter((work) => sourceKindFor(work.sample_movie_url) === "official_sample") as RecentReleaseWork[];
-  const recentReleased = filterRecentReleaseWorks(works, jobs, dateRange).map((work) => ({
+  const refs = await jobRefs(works.map((work) => work.id));
+  if (refs.error) return { recentReleased: [] as BijyoRecentReleasedWork[], dateRange, error: refs.error };
+  const recentReleased = filterRecentReleaseWorks(works, refs.jobs, dateRange).map((work) => ({
     ...work,
-    manualEligible: isBijyoReservedCandidate(work, now),
+    manualEligible: isBijyoManualCandidate(work, { officialSample: sourceKindFor(work.sample_movie_url) === "official_sample", hasExistingJob: false }),
   }));
   return { recentReleased, dateRange, error: null };
 }
 
 export async function getBijyoCandidates(page = 1) {
-  const result = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,image_url,sample_movie_url,product_id").eq("stage", "RESERVED").gte("created_at", bijyoReservedCandidateSince()).not("sample_movie_url", "is", null).neq("sample_movie_url", "").not("release_date", "is", null).order("created_at", { ascending: true }).limit(1000);
+  const result = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,image_url,sample_movie_url,product_id").in("stage", ["NEW", "RESERVED"]).not("sample_movie_url", "is", null).neq("sample_movie_url", "").not("release_date", "is", null).order("created_at", { ascending: false }).limit(1000);
   if (result.error) return { candidates: [] as Work[], candidateTotal: 0, candidateHasMore: false, candidatePage: page, error: result.error.message };
-  const jobs = await jobRefs();
+  const jobs = await jobRefs((result.data as Work[]).map((work) => work.id));
   if (jobs.error) return { candidates: [] as Work[], candidateTotal: 0, candidateHasMore: false, candidatePage: page, error: jobs.error };
-  const usedWorkIds = new Set(jobs.jobs.filter((job) => ACTIVE_CANDIDATE_STATUSES.includes(job.status)).map((job) => job.work_id));
-  const eligible = (result.data as Work[]).filter((work) => !usedWorkIds.has(work.id) && isBijyoReservedCandidate(work) && sourceKindFor(work.sample_movie_url) === "official_sample");
+  const usedWorkIds = new Set(jobs.jobs.map((job) => job.work_id));
+  const eligible = (result.data as Work[]).filter((work) => isBijyoManualCandidate(work, { officialSample: sourceKindFor(work.sample_movie_url) === "official_sample", hasExistingJob: usedWorkIds.has(work.id) }));
   const offset = Math.max(0, page - 1) * 20;
   return { candidates: eligible.slice(offset, offset + 20), candidateTotal: eligible.length, candidateHasMore: offset + 20 < eligible.length, candidatePage: page, error: null };
 }
@@ -102,9 +107,7 @@ export async function getBijyoDashboard(historyPage = 1, candidatePage = 1) {
     if (jobsResult.error) throw new Error(jobsResult.error);
     if (manualJobsResult.error) throw new Error(manualJobsResult.error);
     const jobs = jobsResult.jobs;
-    const refs = await jobRefs();
-    if (refs.error) throw new Error(refs.error);
-    const recentResult = await getBijyoRecentReleasedWorks(refs.jobs as BijyoJob[]);
+    const recentResult = await getBijyoRecentReleasedWorks();
     return { ok: true, date, candidates: candidatesResult.candidates, candidateTotal: candidatesResult.candidateTotal, candidateHasMore: candidatesResult.candidateHasMore, candidatePage, manualJobs: manualJobsResult.jobs, recentReleased: recentResult.recentReleased, recentReleaseDateRange: recentResult.dateRange, jobs, historyPage, historyPageSize: HISTORY_PAGE_SIZE, historyHasMore: jobs.length === HISTORY_PAGE_SIZE, error: candidatesResult.error ?? recentResult.error };
   } catch (error) {
     return { ok: false, date, candidates: [] as Work[], candidateTotal: 0, candidateHasMore: false, candidatePage, manualJobs: [] as BijyoJob[], recentReleased: [] as BijyoRecentReleasedWork[], recentReleaseDateRange: recentReleaseDateRange(), jobs: [] as BijyoJob[], historyPage, historyPageSize: HISTORY_PAGE_SIZE, historyHasMore: false, error: error instanceof Error ? error.message : String(error) };
@@ -186,7 +189,7 @@ export async function excludeBijyoJob(jobId: number) {
 export async function createBijyoManualJob(workId: number): Promise<BijyoActionResult> {
   const workResult = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("id", workId).single();
   const work = workResult.data as Work | null;
-  if (workResult.error || !work || !isBijyoReservedCandidate(work) || !work.sample_movie_url || sourceKindFor(work.sample_movie_url) !== "official_sample") return { ok: false, error: "この候補は手動追加できません。画面を更新してください。", code: "candidate_unavailable" };
+  if (workResult.error || !work || !isBijyoManualCandidate(work, { officialSample: Boolean(work.sample_movie_url) && sourceKindFor(work.sample_movie_url) === "official_sample", hasExistingJob: false })) return { ok: false, error: "この候補は手動追加できません。画面を更新してください。", code: "candidate_unavailable" };
   const existing = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id,status").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
   if (existing.error) return { ok: false, error: existing.error.message };
   if (existing.data) {

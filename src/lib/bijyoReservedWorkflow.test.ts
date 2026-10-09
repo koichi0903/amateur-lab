@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
-import { bijyoManualIdempotencyKey, bijyoReservedCandidateSince, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoFutureOperationEligible, isBijyoReservedCandidate, recentReleaseDateRange } from "./bijyoReservedWorkflow.ts";
+import { bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoFutureOperationEligible, isBijyoManualCandidate, recentReleaseDateRange } from "./bijyoReservedWorkflow.ts";
 import { BIJYO_SECTION_ORDER, HISTORY_PAGE_SIZE, MANUAL_CANDIDATE_INITIAL_LIMIT, MANUAL_CANDIDATE_PAGE_SIZE, UPCOMING_RELEASE_INITIAL_LIMIT, UPCOMING_RELEASE_PAGE_SIZE, historyBlockStart, visibleManualCandidateCount, visibleUpcomingReleaseCount } from "../app/admin/bijyo-reserved/ui.ts";
 
 test("手動追加のidempotency keyは同じworkで安定する", () => {
@@ -122,29 +122,63 @@ test("管理画面のセクション順とfuture初期表示件数を固定す�
   assert.equal(historyBlockStart(3), 41);
 });
 
-test("予約追加候補はcreated_atの7日窓だけを使い、発売日範囲やNEWを見ない", () => {
-  const now = new Date("2026-10-07T00:00:00+09:00");
-  const since = bijyoReservedCandidateSince(now);
-  assert.equal(since, "2026-09-29T15:00:00.000Z");
-  assert.equal(isBijyoReservedCandidate({ stage: "RESERVED", created_at: since, release_date: "2026-11-30" }, now), true);
-  assert.equal(isBijyoReservedCandidate({ stage: "RESERVED", created_at: "2026-09-29T14:59:59.999Z", release_date: "2026-11-30" }, now), false);
-  assert.equal(isBijyoReservedCandidate({ stage: "NEW", created_at: since, release_date: "2026-11-30" }, now), false);
+test("手動追加候補はNEW/RESERVEDと登録日数を問わず、公式動画・発売日・未使用で判定する", () => {
+  const oldNewWork = { stage: "NEW", created_at: "2024-01-01T00:00:00Z", release_date: "2026-10-09" };
+  const oldReservedWork = { stage: "RESERVED", created_at: "2024-01-01T00:00:00Z", release_date: "2026-10-10" };
+  assert.equal(isBijyoManualCandidate(oldNewWork, { officialSample: true, hasExistingJob: false }), true);
+  assert.equal(isBijyoManualCandidate(oldReservedWork, { officialSample: true, hasExistingJob: false }), true);
+  assert.equal(isBijyoManualCandidate({ stage: "OLD", release_date: "2026-10-09" }, { officialSample: true, hasExistingJob: false }), false);
+  assert.equal(isBijyoManualCandidate(oldNewWork, { officialSample: false, hasExistingJob: false }), false);
+  assert.equal(isBijyoManualCandidate(oldNewWork, { officialSample: true, hasExistingJob: true }), false);
+  assert.equal(isBijyoManualCandidate({ stage: "NEW", release_date: null }, { officialSample: true, hasExistingJob: false }), false);
+  assert.equal(isBijyoManualCandidate({ stage: "NEW", release_date: "invalid" }, { officialSample: true, hasExistingJob: false }), false);
 });
 
-test("発売予定一覧の手動追加ボタンはサーバー側のRESERVED・7日条件に従う", () => {
+test("発売予定一覧は投稿済み・追加済み・スキップ・除外を含む既存ジョブをすべて隠す", () => {
+  const range = { todayDate: "2026-10-09", startDate: "2026-10-09", endDate: "2026-10-16" };
+  const work = (id: number) => ({ id, title: `作品${id}`, stage: "RESERVED", created_at: "2026-10-01T00:00:00Z", release_date: "2026-10-12", image_url: null, sample_movie_url: "https://www.dmm.co.jp/sample.mp4", product_id: null });
+  const statuses = ["pending", "posted", "manual_posted", "skipped", "excluded", "trim_failed"];
+  const jobs = statuses.map((status, index) => ({ work_id: index + 1, kind: "auto", slot_date: "2026-10-12", status }));
+  assert.deepEqual(filterRecentReleaseWorks([...jobs.map((job) => work(job.work_id)), work(7)], jobs, range).map((item) => item.id), [7]);
+});
+
+test("work_id 382555/382554相当の発売当日NEW作品は古い登録日でも手動追加候補になる", () => {
+  const work = (id: number) => ({ id, stage: "NEW", created_at: "2026-08-01T00:00:00Z", release_date: "2026-10-09" });
+  for (const id of [382555, 382554]) {
+    assert.equal(isBijyoManualCandidate(work(id), { officialSample: true, hasExistingJob: false }), true);
+  }
+});
+
+test("NEWの発売日範囲制限は発売予定一覧だけに適用し、手動追加は翌日以降も許可する", () => {
+  const range = { todayDate: "2026-10-09", startDate: "2026-10-09", endDate: "2026-10-16" };
+  assert.equal(evaluateBijyoFutureOperation("NEW", "2026-10-10", range).eligible, false);
+  assert.equal(isBijyoManualCandidate({ stage: "NEW", release_date: "2026-10-10" }, { officialSample: true, hasExistingJob: false }), true);
+  assert.equal(isBijyoManualCandidate({ stage: "RESERVED", release_date: "2026-10-10" }, { officialSample: true, hasExistingJob: false }), true);
+});
+
+test("公式動画・投稿/追加/スキップ/除外・重複状態を候補/APIで共通判定する", () => {
   const workflow = fs.readFileSync("src/lib/bijyoReservedAutoPost.ts", "utf8");
   const actions = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedActions.tsx", "utf8");
   const upcoming = fs.readFileSync("src/app/admin/bijyo-reserved/UpcomingBijyoReleases.tsx", "utf8");
-  assert.match(workflow, /manualEligible: isBijyoReservedCandidate\(work, now\)/);
+  const candidate = { stage: "RESERVED", release_date: "2026-10-10" };
+  assert.equal(isBijyoManualCandidate(candidate, { officialSample: true, hasExistingJob: false }), true);
+  for (const status of ["pending", "posted", "manual_posted", "skipped", "excluded", "trim_failed"]) {
+    assert.equal(isBijyoManualCandidate(candidate, { officialSample: true, hasExistingJob: true }), false, `${status} は候補に出さない`);
+  }
+  assert.match(workflow, /manualEligible: isBijyoManualCandidate\(work,/);
+  assert.match(workflow, /\.in\("stage", \["NEW", "RESERVED"\]\).*\.limit\(1000\)/);
+  assert.match(workflow, /filter\(\(work\) => isBijyoManualCandidate\(work,/);
+  assert.match(workflow, /!isBijyoManualCandidate\(work,/);
   assert.match(upcoming, /allowWorkManualAdd=\{work\.manualEligible === true\}/);
   assert.match(actions, /workId && allowWorkManualAdd && <button[^\n]*run\("manual"\)/);
+  assert.match(upcoming, /NEW\/RESERVEDや登録日数による制限はありません/);
 });
 
 test("手動追加カードは内部条件の長文を表示せず、サーバー側のeligible再検証を維持する", () => {
   const actions = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedActions.tsx", "utf8");
   const server = fs.readFileSync("src/lib/bijyoReservedAutoPost.ts", "utf8");
   assert.doesNotMatch(actions, /手動投稿には過去7日以内に登録されたRESERVED作品とFANZA\/DMM公式サンプル動画が必要です/);
-  assert.match(server, /!isBijyoReservedCandidate\(work\)\s*\|\|\s*!work\.sample_movie_url\s*\|\|\s*sourceKindFor\(work\.sample_movie_url\) !== "official_sample"/);
+  assert.match(server, /!isBijyoManualCandidate\(work,/);
   assert.match(server, /code: "candidate_unavailable"/);
-  assert.match(server, /ACTIVE_CANDIDATE_STATUSES = \["pending", "posted", "manual_posted", "skipped", "excluded", "trim_failed"\]/);
+  assert.match(server, /new Set\(jobs\.jobs\.map\(\(job\) => job\.work_id\)\)/);
 });
