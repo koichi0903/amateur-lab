@@ -131,6 +131,15 @@ test("予約追加候補はcreated_atの7日窓だけを使い、発売日範囲
   assert.equal(isBijyoReservedCandidate({ stage: "NEW", created_at: since, release_date: "2026-11-30" }, now), false);
 });
 
+test("発売予定一覧の手動追加ボタンはサーバー側のRESERVED・7日条件に従う", () => {
+  const workflow = fs.readFileSync("src/lib/bijyoReservedAutoPost.ts", "utf8");
+  const actions = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedActions.tsx", "utf8");
+  const upcoming = fs.readFileSync("src/app/admin/bijyo-reserved/UpcomingBijyoReleases.tsx", "utf8");
+  assert.match(workflow, /manualEligible: isBijyoReservedCandidate\(work, now\)/);
+  assert.match(upcoming, /allowWorkManualAdd=\{work\.manualEligible === true\}/);
+  assert.match(actions, /workId && allowWorkManualAdd && <button[^\n]*run\("manual"\)/);
+});
+
 test("手動追加カードは内部条件の長文を表示せず、サーバー側のeligible再検証を維持する", () => {
   const actions = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedActions.tsx", "utf8");
   const server = fs.readFileSync("src/lib/bijyoReservedAutoPost.ts", "utf8");

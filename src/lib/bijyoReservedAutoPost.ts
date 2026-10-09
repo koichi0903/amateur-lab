@@ -76,7 +76,11 @@ export async function getBijyoRecentReleasedWorks(jobs: BijyoJob[], now = new Da
     .limit(1000);
   if (result.error) return { recentReleased: [] as BijyoRecentReleasedWork[], dateRange, error: result.error.message };
   const works = (result.data ?? []).filter((work) => sourceKindFor(work.sample_movie_url) === "official_sample") as RecentReleaseWork[];
-  return { recentReleased: filterRecentReleaseWorks(works, jobs, dateRange), dateRange, error: null };
+  const recentReleased = filterRecentReleaseWorks(works, jobs, dateRange).map((work) => ({
+    ...work,
+    manualEligible: isBijyoReservedCandidate(work, now),
+  }));
+  return { recentReleased, dateRange, error: null };
 }
 
 export async function getBijyoCandidates(page = 1) {

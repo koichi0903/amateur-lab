@@ -19,7 +19,7 @@ async function call(payload: Record<string, unknown>) {
 
 function openExternal(url: string) { window.open(url, "_blank", "noopener,noreferrer"); }
 
-export function BijyoReservedActions({ jobId, workId, mainText, replyText, status, sampleMovieUrl, trimStartSeconds, manualLabel = "手動追加投稿", allowWorkSkip = false }: { jobId?: number; workId?: number; mainText?: string; replyText?: string; status?: string; sampleMovieUrl?: string; trimStartSeconds?: number; manualLabel?: string; allowWorkSkip?: boolean }) {
+export function BijyoReservedActions({ jobId, workId, mainText, replyText, status, sampleMovieUrl, trimStartSeconds, manualLabel = "手動追加投稿", allowWorkSkip = false, allowWorkManualAdd = true }: { jobId?: number; workId?: number; mainText?: string; replyText?: string; status?: string; sampleMovieUrl?: string; trimStartSeconds?: number; manualLabel?: string; allowWorkSkip?: boolean; allowWorkManualAdd?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [actionBlocked, setActionBlocked] = useState(false);
@@ -71,7 +71,8 @@ export function BijyoReservedActions({ jobId, workId, mainText, replyText, statu
         <p className="mt-2 text-xs text-zinc-500">現在位置: {trimSeconds.toFixed(1)}秒 / 「自動値に戻す」は自動解析を再実行します。</p>
       </div>}
     </>}
-    {workId && <button disabled={busy || actionBlocked} onClick={() => run("manual")} className="rounded bg-violet-500 px-3 py-2 text-xs font-black text-white">{actionBlocked ? "追加済み" : manualLabel}</button>}
+    {workId && allowWorkManualAdd && <button disabled={busy || actionBlocked} onClick={() => run("manual")} className="rounded bg-violet-500 px-3 py-2 text-xs font-black text-white">{actionBlocked ? "追加済み" : manualLabel}</button>}
+    {workId && !allowWorkManualAdd && <span className="self-center text-xs text-zinc-500">手動追加対象外</span>}
     {allowWorkSkip && workId && <button disabled={busy || actionBlocked} onClick={() => run("skip")} className="rounded border border-amber-700 px-3 py-2 text-xs font-bold text-amber-200">スキップ</button>}
     {message && <p className="w-full whitespace-pre-wrap text-xs text-amber-200">{message}</p>}
   </div>;

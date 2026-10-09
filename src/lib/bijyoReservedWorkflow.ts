@@ -67,6 +67,7 @@ export type RecentReleaseWork = {
   image_url: string | null;
   sample_movie_url: string;
   product_id: string | null;
+  manualEligible?: boolean;
 };
 
 export type RecentReleaseJob = { work_id: number; kind: string; slot_date: string; status: string };
