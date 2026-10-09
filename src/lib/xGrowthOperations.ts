@@ -8,8 +8,7 @@ import { saveXPostLog } from "@/lib/xPostLogs";
 import { withXPostTracking, xPostKeyFromText } from "@/lib/xPostTracking";
 import { normalizeTopPickCandidates } from "@/lib/xGrowthTopPicks";
 import type { XDailyMission, XDailyTopPick, XGrowthIntent, XGrowthOpportunity } from "@/lib/xGrowthOS";
-import { buildVisualVideoFacts, type XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
-import { analyzeSampleMovie, videoSourceFingerprint, VIDEO_ANALYSIS_VERSION } from "@/lib/xVideoAnalysis";
+import type { XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
 import type { DecisionFacts } from "@/lib/domain/decisionFacts";
 
 export type XDailyPlanStatus = "draft" | "confirmed" | "completed" | "regenerated";
@@ -158,22 +157,6 @@ export async function fetchMediaAssets(workIds: number[]) {
   return { assets: map, error: null };
 }
 
-export async function analyzeUncachedVideoFacts(assets: Map<number, XMediaAsset>, limit = 24) {
-  const started = Date.now(); let analyzed = 0; let reused = 0; const diagnostics: Array<{ workId: number | null; sourceUrl: string; status: string; detail?: string }> = [];
-  for (const asset of [...assets.values()].slice(0, limit)) {
-    if (!asset.work_id || !asset.source_url || (asset.media_type !== "video" && asset.media_type !== "sample_movie")) continue;
-    if (asset.video_analysis_version === VIDEO_ANALYSIS_VERSION && asset.video_analysis_source_fingerprint === videoSourceFingerprint(asset.source_url) && asset.visual_video_facts) { reused += 1; continue; }
-    const jacketResult = asset.work_id ? await supabaseAdmin.from("works").select("image_url").eq("id", asset.work_id).maybeSingle() : { data: null };
-    const result = await analyzeSampleMovie({ sourceUrl: asset.source_url, trimStartSeconds: asset.trim_start_seconds ?? 0, jacketUrl: (jacketResult.data as { image_url?: string | null } | null)?.image_url });
-    const facts = buildVisualVideoFacts({ sampleMovieUrl: asset.source_url, videoEvidence: result.videoEvidence, jacketEvidence: result.jacketEvidence });
-    const update = { visual_video_facts: facts, video_analysis_version: result.version, video_analysis_source_fingerprint: result.sourceFingerprint, video_analyzed_at: result.analyzedAt, video_raw_metrics: result.rawMetrics, video_analysis_diagnostics: result.diagnostics };
-    const saved = await supabaseAdmin.from("x_media_assets").update(update).eq("account_handle", ACCOUNT).eq("id", asset.id);
-    if (saved.error) diagnostics.push({ workId: asset.work_id, sourceUrl: asset.source_url, status: "persist_failed", detail: saved.error.message });
-    else { Object.assign(asset, update); analyzed += 1; diagnostics.push({ workId: asset.work_id, sourceUrl: asset.source_url, status: result.videoEvidence.length ? "analyzed" : "no_usable_video_evidence", detail: result.diagnostics.join(" / ") }); }
-  }
-  return { analyzed, reused, elapsedMs: Date.now() - started, diagnostics };
-}
-
 export function applyMediaEligibility(opportunities: XGrowthOpportunity[], assets: Map<number, XMediaAsset>) {
   return opportunities.map((item) => {
     const storedAsset = assets.get(item.workId);
@@ -208,7 +191,7 @@ export function applyMediaEligibility(opportunities: XGrowthOpportunity[], asset
       mediaUsage: verdict.usable ? "allowed" as const : "not_available" as const,
       canNativeVideo: verdict.usable,
       mediaAsset: asset ?? null,
-      mediaDecision: verdict.usable ? "公式FANZA/DMM sample_movie_url。HTTP/MIME/取得可能性を確認済み" : `動画は${verdict.reasons.join(" / ") || "technical条件未確認"}のため未使用`,
+      mediaDecision: verdict.usable ? "公式FANZA/DMM sample_movie_urlあり。再生・編集時に動画を取得します" : `動画は${verdict.reasons.join(" / ") || "公式URL条件未確認"}のため未使用`,
     };
   });
 }
@@ -275,57 +258,6 @@ export async function syncSampleMovieAssets(batchSize = 250) {
     .limit(safeLimit);
   if (error) return { error: error.message, scanned: 0, synced: 0, created: 0, existing: 0 };
   return syncSampleMovieAssetRows((data ?? []) as SampleMovieWork[]);
-}
-
-async function probeUrl(url: string) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
-  try {
-    let response = await fetch(url, { method: "HEAD", redirect: "manual", signal: controller.signal });
-    if (response.status === 405) response = await fetch(url, { method: "GET", headers: { Range: "bytes=0-2047" }, redirect: "manual", signal: controller.signal });
-    const status = response.status;
-    const fetchStatus = status >= 300 && status < 400 ? "redirect" : status === 401 || status === 403 ? "forbidden" : status >= 200 && status < 300 ? "ok" : status >= 400 ? "dead" : "unknown";
-    return {
-      fetch_status: fetchStatus,
-      fetch_status_code: status,
-      mime_type: response.headers.get("content-type"),
-      content_length: Number(response.headers.get("content-length")) || null,
-      last_checked_at: new Date().toISOString(),
-    };
-  } catch {
-    return { fetch_status: "unknown", fetch_status_code: null, mime_type: null, content_length: null, last_checked_at: new Date().toISOString() };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-export async function checkMediaAssetUrlsForWorkIds(workIds: number[], batchSize = 50) {
-  const safeLimit = Math.max(1, Math.min(batchSize, 100));
-  const ids = [...new Set(workIds)].filter((id) => Number.isSafeInteger(id) && id > 0);
-  let query = supabaseAdmin
-    .from("x_media_assets")
-    .select("id,source_url")
-    .eq("account_handle", ACCOUNT)
-    .in("media_type", ["video", "sample_movie"])
-    .or("last_checked_at.is.null,fetch_status.eq.unknown,fetch_status.eq.unchecked")
-    .order("last_checked_at", { ascending: true, nullsFirst: true });
-  if (ids.length) query = query.in("work_id", ids);
-  const { data, error } = await query.limit(safeLimit);
-  if (error) return { error: error.message, checked: 0 };
-  const assets = (data ?? []) as Array<{ id: number; source_url: string }>;
-  let checked = 0;
-  for (const asset of assets) {
-    const probe = await probeUrl(asset.source_url);
-    const saved = await supabaseAdmin.from("x_media_assets").update({ ...probe, technical_status: probe.fetch_status }).eq("account_handle", ACCOUNT).eq("id", asset.id);
-    if (saved.error) return { error: saved.error.message, checked };
-    checked += 1;
-  }
-  if (checked) await auditXGrowth("media_asset_urls_checked", { checked, batchSize: safeLimit });
-  return { error: null, checked };
-}
-
-export async function checkMediaAssetUrls(batchSize = 50) {
-  return checkMediaAssetUrlsForWorkIds([], batchSize);
 }
 
 export async function reviewMediaAsset(input: {

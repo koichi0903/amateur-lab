@@ -13,8 +13,6 @@ import {
   checkXReadOnlyConnectionStatus,
   fetchRankingSnapshotHistory,
   fetchMediaAssets,
-  analyzeUncachedVideoFacts,
-  checkMediaAssetUrlsForWorkIds,
   syncSampleMovieAssetsForWorkIds,
   getPersistedGrowthTables,
   getXGrowthSystemStatus,
@@ -28,7 +26,7 @@ import {
 } from "@/lib/xGrowthOperations";
 import { getXMediaSupplyStatus, getRightsReviewQueue, isFanzaXGrowthTechnicalSampleMovie, type XMediaAsset } from "@/lib/xMediaAssets";
 import { isVideoCandidate } from "@/lib/xVideoCandidate";
-import { syncAndProbeCandidateMedia } from "./xGrowthMediaPreflight";
+import { syncCandidateMediaAssets } from "./xGrowthMediaPreflight";
 import { buildVisualVideoFacts, primaryUsableVisualFact, type XVisualVideoFacts, visualFactScores } from "@/lib/xVisualVideoFacts";
 import { assignSemanticHook, SEMANTIC_CATEGORY_QUOTA } from "./xGrowthSemantic";
 import { decisionFactProofLine, type DecisionFacts, type DecisionType } from "@/lib/domain/decisionFacts";
@@ -696,7 +694,7 @@ export function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity 
     mediaUsage,
     canNativeVideo: mediaType === "sample_movie" && mediaUsage === "allowed",
     recommendedMediaUrl: mediaType === "existing_link_image" ? candidate.imageUrl : mediaType === "sample_movie" ? candidate.sampleMovieUrl : null,
-    mediaDecision: mediaType === "sample_movie" ? "mp4候補は存在。technical probe後に動画供給へ判定します。" : `${mediaLabel(mediaType)}を仮選択。素材状態を再評価します。`,
+    mediaDecision: mediaType === "sample_movie" ? "公式sample_movie_urlあり。再生・編集時に動画を取得します。" : `${mediaLabel(mediaType)}を仮選択。素材状態を再評価します。`,
     visualFacts,
     visualScoring: visualFactScores(visualFacts),
     rankingHistory: {
@@ -955,7 +953,7 @@ export function videoEligibilityReasons(
   if (variant?.mediaType !== "sample_movie") reasons.push("creative variantが動画ではない");
   // Rights and technical review are hard gates. An official URL alone is not
   // permission to repost it to X.
-  if (!officialSampleVideoAllowed(item)) reasons.push("official sample / fetchability / media safety gate NG");
+  if (!officialSampleVideoAllowed(item)) reasons.push("official sample URL / media safety gate NG");
   if (asset?.media_quality === "weak") reasons.push("media_quality=weak");
   // null/undefined and unreviewed are intentionally not weak.
   if (tags.includes("too_explicit_for_reach")) reasons.push("too_explicit_for_reach");
@@ -1505,7 +1503,7 @@ type MediaSupplyStageDiagnostics = {
   rawWorks: number;
   postedExcludedWorks: number;
   afterPostedWorks: number;
-  usableFetchableWorks: number;
+  officialUrlWorks: number;
   generatedVariants: number;
   generatedVariantWorks: number;
   creativeQualityVariants: number;
@@ -1513,7 +1511,7 @@ type MediaSupplyStageDiagnostics = {
   nativeXVoiceVariants: number;
   nativeXVoiceWorks: number;
   videoHookFactWorks: number;
-  technicalGateRejectedWorks: number;
+  officialUrlRejectedWorks: number;
   finalEligibleWorks: number;
   firstDropReasonCounts: Record<string, number>;
 };
@@ -1534,19 +1532,19 @@ function buildMediaSupplyStageDiagnostics(
   const usable = (items: XGrowthOpportunity[]) => items.some((item) => mediaType === "sample_movie" ? officialSampleVideoAllowed(item) : Boolean(item.imageUrl));
   const firstDropReasonCounts: Record<string, number> = {};
   const addDrop = (reason: string) => { firstDropReasonCounts[reason] = (firstDropReasonCounts[reason] ?? 0) + 1; };
-  let usableFetchableWorks = 0;
+  let officialUrlWorks = 0;
   let generatedVariantWorks = 0;
   let creativeQualityWorks = 0;
   let nativeXVoiceWorks = 0;
   let videoHookFactWorks = 0;
-  let technicalGateRejectedWorks = 0;
+  let officialUrlRejectedWorks = 0;
   let finalEligibleWorks = 0;
   let generatedVariants = 0;
   let creativeQualityVariants = 0;
   let nativeXVoiceVariants = 0;
   for (const [workId, items] of activeByWork) {
-    if (!usable(items)) { technicalGateRejectedWorks += 1; addDrop("official_sample_fetchability_or_media_unusable"); continue; }
-    usableFetchableWorks += 1;
+    if (!usable(items)) { officialUrlRejectedWorks += 1; addDrop("official_sample_url_or_media_unusable"); continue; }
+    officialUrlWorks += 1;
     const variants = variantsFor(items);
     generatedVariants += variants.length;
     if (!variants.length) { addDrop("generated_variants"); continue; }
@@ -1576,7 +1574,7 @@ function buildMediaSupplyStageDiagnostics(
     rawWorks: byWork.size,
     postedExcludedWorks: byWork.size - activeByWork.size,
     afterPostedWorks: activeByWork.size,
-    usableFetchableWorks,
+    officialUrlWorks,
     generatedVariants,
     generatedVariantWorks,
     creativeQualityVariants,
@@ -1584,7 +1582,7 @@ function buildMediaSupplyStageDiagnostics(
     nativeXVoiceVariants,
     nativeXVoiceWorks,
     videoHookFactWorks,
-    technicalGateRejectedWorks,
+    officialUrlRejectedWorks,
     finalEligibleWorks,
     firstDropReasonCounts,
   };
@@ -2726,7 +2724,7 @@ function semanticSupplyDiagnostics(opportunities: XGrowthOpportunity[], picks: X
 function rawVideoEligibilityReasons(item: XGrowthOpportunity) {
   const reasons: string[] = [];
   if (!isVideoCandidate({ ...item, mediaType: "sample_movie" })) reasons.push("video media/sample_movie_urlなし");
-  if (!officialSampleVideoAllowed(item)) reasons.push("official sample / fetchability / media safety gate NG");
+  if (!officialSampleVideoAllowed(item)) reasons.push("official sample URL / media safety gate NG");
   return [...new Set(reasons)];
 }
 
@@ -3168,22 +3166,17 @@ export async function buildXGrowthOS({
   };
   const postedWorkResult = await mark("posted_work_ids_ms", getPostedWorkIds());
   const candidateResult = await mark("candidate_generation_ms", getXPostCandidates(performance, logs, postedWorkResult.workIds));
-  // Probe the actual video candidates after syncing them. A broad preflight
-  // before candidate generation cannot guarantee that these works are checked.
+  // Reconcile URL metadata for the actual video candidates without contacting
+  // the official sample URLs.
   const videoWorkIds = candidateResult.candidates
     .filter((item) => Boolean(item.sampleMovieUrl))
     .map((item) => item.workId);
-  const mediaPreflight = await syncAndProbeCandidateMedia(
+  const mediaSync = await syncCandidateMediaAssets(
     videoWorkIds,
     syncSampleMovieAssetsForWorkIds,
-    checkMediaAssetUrlsForWorkIds,
-    100,
   );
-  timings.media_assets_sync_ms = mediaPreflight.syncElapsedMs;
-  timings.media_assets_probe_ms = mediaPreflight.probeElapsedMs;
-  timings.media_assets_probe_checked = mediaPreflight.probe.checked;
-  if (mediaPreflight.sync.error) timings.media_assets_sync_error = 1;
-  if (mediaPreflight.probe.error) timings.media_assets_probe_error = 1;
+  timings.media_assets_sync_ms = mediaSync.syncElapsedMs;
+  if (mediaSync.sync.error) timings.media_assets_sync_error = 1;
   const expandedCandidates = expandCreativeSupply(candidateResult.candidates);
   const scoredAll = expandedCandidates.map(scoreOpportunity).sort((a, b) => {
     const aMax = Math.max(a.reachScore, a.followScore, a.authorityScore, a.revenueScore);
@@ -3197,11 +3190,6 @@ export async function buildXGrowthOS({
     mark("media_assets_ms", fetchMediaAssets(scored.map((item) => item.workId))),
     mark("ranking_history_ms", fetchRankingSnapshotHistory(scored.map((item) => item.workId))),
   ]);
-  if (includeDeferred) {
-    const analysis = await mark("video_analysis_ms", analyzeUncachedVideoFacts(media.assets, 24));
-    timings.video_analysis_assets = analysis.analyzed;
-    timings.video_analysis_reused = analysis.reused;
-  }
   const mediaEligible = applyMediaEligibility(scored, media.assets);
   const rankedOpportunities = applyRankingHistory(mediaEligible, rankingHistories.histories);
   const prefilterStarted = Date.now();
@@ -3291,7 +3279,7 @@ export async function buildXGrowthOS({
     { opportunities: [], snapshots: [], migrationError: null },
     null,
     { error: null },
-    { error: null, mp4Candidates: 0, synced: 0, unknown: 0, review: 0, allowed: 0, blocked: 0, dead: 0, topPickRightsWaiting: 0 },
+    { error: null, mp4Candidates: 0, synced: 0, unknown: 0, review: 0, officialUrlCandidates: 0, blocked: 0, historicalHttpFailures: 0, topPickRightsWaiting: 0 },
     { rows: [], error: null },
   ];
   const xReadOnlyConnection = includeDeferred

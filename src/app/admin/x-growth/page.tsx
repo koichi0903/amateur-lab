@@ -433,8 +433,8 @@ function OpportunityCard({ item, persistedId }: { item: XGrowthOpportunity; pers
           <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${intentStyle[item.intent]}`}>{item.intent}</span>
           <span className="rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] font-bold text-zinc-400">{item.sourceType}</span>
           <span className="rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] font-bold text-zinc-400">{item.eventType}</span>
-        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${item.mediaUsage === "allowed" ? "border-emerald-800 bg-emerald-950/40 text-emerald-300" : "border-amber-800 bg-amber-950/40 text-amber-300"}`}>
-          {item.mediaType === "existing_link_image" ? "既存リンク画像" : item.mediaType === "sample_movie" ? "mp4候補" : "データ素材"} / {item.mediaUsage === "allowed" ? "technical eligible" : "technical確認待ち"}
+        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${item.mediaType !== "sample_movie" && item.mediaUsage === "allowed" ? "border-emerald-800 bg-emerald-950/40 text-emerald-300" : "border-amber-800 bg-amber-950/40 text-amber-300"}`}>
+          {item.mediaType === "existing_link_image" ? "既存リンク画像" : item.mediaType === "sample_movie" ? "公式動画URLあり" : "データ素材"} / {item.mediaType === "sample_movie" ? "再生・取得は未確認" : item.mediaUsage === "allowed" ? "使用可能" : "確認待ち"}
         </span>
       </div>
       <h3 className="mt-3 line-clamp-2 text-base font-black text-zinc-100">{item.topic}</h3>
@@ -779,15 +779,15 @@ async function XGrowthPageContent() {
           <Metric label="ボトルネック" value={os.mission.bottleneck} note={os.mission.reason} />
           <Metric label="30日表示" value={growth.impressions30d.toLocaleString("ja-JP")} note={`平均 ${growth.avgImpressionsPerPost?.toLocaleString("ja-JP") ?? "-"} / 投稿`} />
           <Metric label="プロフィール/フォロー" value={`${growth.profileVisits30d}/${growth.newFollows30d}`} note="取得できる範囲は週次入力から反映" />
-          <Metric label="動画供給" value={`mp4 ${os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / technical eligible ${os.mediaSupply.allowed.toLocaleString("ja-JP")}`} note={`同期 ${os.mediaSupply.synced.toLocaleString("ja-JP")} / technical確認待ち ${Math.max(0, os.mediaSupply.synced - os.mediaSupply.allowed - os.mediaSupply.dead).toLocaleString("ja-JP")} / URL失効 ${os.mediaSupply.dead.toLocaleString("ja-JP")}`} />
+          <Metric label="動画供給" value={`作品URL ${os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / 公式URL資産 ${os.mediaSupply.officialUrlCandidates.toLocaleString("ja-JP")}`} note={`同期 ${os.mediaSupply.synced.toLocaleString("ja-JP")} / 過去のHTTP失敗記録 ${os.mediaSupply.historicalHttpFailures.toLocaleString("ja-JP")}（候補判定には不使用）`} />
         </div>
 
         <Panel className="mt-6 border-cyan-800 bg-cyan-950/20">
           <div className="flex items-center gap-2"><Film className="text-cyan-300" size={20} /><h2 className="text-lg font-black">動画供給ステータス</h2></div>
           <p className="mt-2 text-sm leading-6 text-cyan-100/80">
-            mp4候補 {os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / synced {os.mediaSupply.synced.toLocaleString("ja-JP")} / technical eligible {os.mediaSupply.allowed.toLocaleString("ja-JP")} / technical確認待ち {Math.max(0, os.mediaSupply.synced - os.mediaSupply.allowed - os.mediaSupply.dead).toLocaleString("ja-JP")} / URL失効 {os.mediaSupply.dead.toLocaleString("ja-JP")}
+            作品 sample_movie_url {os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / 公式URL資産 {os.mediaSupply.officialUrlCandidates.toLocaleString("ja-JP")} / 同期 {os.mediaSupply.synced.toLocaleString("ja-JP")} / 過去のHTTP失敗記録 {os.mediaSupply.historicalHttpFailures.toLocaleString("ja-JP")}（動画候補判定には不使用）
           </p>
-          <p className="mt-1 text-xs leading-5 text-cyan-100/60">FANZA/DMM公式 sample_movie_url は、無加工投稿と冒頭トリムの両方に使用できます。残るのはURL・取得・品質・公開安全性の確認だけです。</p>
+          <p className="mt-1 text-xs leading-5 text-cyan-100/60">公式sample_movie_urlは動画候補に使います。実際の再生・取得成功はプレビュー/編集時に確認してください。X掲載の許可とトリム条件は別途確認が必要です。</p>
           {os.mediaSupply.error && <p className="mt-2 text-xs font-bold text-rose-200">{os.mediaSupply.error}</p>}
           <MediaPipelineActions />
         </Panel>

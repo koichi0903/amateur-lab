@@ -21,10 +21,10 @@ const item = {
     id: 101,
     source_url: "https://cc3001.dmm.co.jp/litevideo/freepv/example/example_dmb_w.mp4",
     source_kind: "official_sample",
-    fetch_status: "ok",
-    fetch_status_code: 200,
-    mime_type: "video/mp4",
-    content_length: 123456,
+    fetch_status: "forbidden",
+    fetch_status_code: 403,
+    mime_type: "text/html",
+    content_length: 919,
     rights_status: "allowed",
     x_usage_allowed: true,
     can_reupload: true,
@@ -49,7 +49,7 @@ assert.equal(isOfficialEligibleVideoCandidate({ ...item, mediaAsset: { ...item.m
 assert.equal(isOfficialEligibleVideoCandidate({ ...item, mediaAsset: { ...item.mediaAsset, rights_status: "unknown", x_usage_allowed: false, can_reupload: false, commercial_use_allowed: false }, mediaType: "sample_movie" }), true);
 assert.equal(isStrongSafeVideoCandidate({ ...item, sampleMovieUrl: "https://example.com/video.mp4", recommendedMediaUrl: "https://example.com/video.mp4", mediaAsset: { ...item.mediaAsset, source_url: "https://example.com/video.mp4", source_kind: "unknown_external" }, mediaType: "sample_movie" }, variant), false);
 assert.equal(isOfficialEligibleVideoCandidate({ ...item, sampleMovieUrl: "https://example.com/video.mp4", recommendedMediaUrl: "https://example.com/video.mp4", mediaAsset: { ...item.mediaAsset, source_url: "https://example.com/video.mp4", source_kind: "unknown_external" }, mediaType: "sample_movie" }), false);
-assert.equal(isOfficialEligibleVideoCandidate({ ...item, sampleMovieUrl: null, recommendedMediaUrl: item.sampleMovieUrl, mediaAsset: null, mediaType: "sample_movie" }), false);
+assert.equal(isOfficialEligibleVideoCandidate({ ...item, sampleMovieUrl: null, recommendedMediaUrl: null, mediaAsset: null, mediaType: "sample_movie" }), false);
 assert.equal(videoEligibilityReasons({ ...item, canNativeVideo: false, mediaAsset: { ...item.mediaAsset, rights_status: "unknown", x_usage_allowed: false }, mediaType: "sample_movie" }, variant).some((reason) => reason.includes("official sample")), false);
 
 const rankedCandidate = (workId: number, mediaType: "sample_movie" | "existing_link_image", score: number, decisionTypes: DecisionType[] = ["RECORD_LOW"]) => ({

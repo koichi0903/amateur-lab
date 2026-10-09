@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { canTrimOfficialSampleMovie, isPostableOfficialSampleMovie, isUsableXMediaAsset, type XMediaAsset, type XMediaManualTag, validateTrimStartSeconds } from "./xMediaAssets";
+import { canTrimOfficialSampleMovie, isFanzaXGrowthTechnicalSampleMovie, isPostableOfficialSampleMovie, isUsableXMediaAsset, type XMediaAsset, type XMediaManualTag, validateTrimStartSeconds } from "./xMediaAssets";
 
 const base: Partial<XMediaAsset> = {
   rights_status: "allowed",
@@ -41,6 +41,8 @@ assert.equal(isPostableOfficialSampleMovie({ ...officialSample, media_quality: "
 assert.equal(canTrimOfficialSampleMovie(officialSample).usable, false);
 assert.equal(canTrimOfficialSampleMovie({ ...officialSample, rights_status: "allowed", x_usage_allowed: true, can_reupload: true, quote_only: false, commercial_use_allowed: true }).usable, true);
 assert.equal(canTrimOfficialSampleMovie({ ...officialSample, fetch_status: "forbidden" }).usable, false);
+assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "forbidden", fetch_status_code: 403, mime_type: "text/html", content_length: 919 }).usable, true);
+assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "dead", fetch_status_code: 404 }).usable, true);
 
 assert.deepEqual(validateTrimStartSeconds(0, 12), { ok: true, value: 0 });
 assert.equal(validateTrimStartSeconds(-0.1, 12).ok, false);

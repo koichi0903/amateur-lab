@@ -257,7 +257,7 @@ export function OpportunityActions({ id, canNativeVideo }: { id: number | null; 
     <div className="mt-3 flex flex-wrap gap-2">
       <button disabled={pending} onClick={() => run("adopted")} className="h-9 rounded-lg bg-emerald-600 px-3 text-xs font-black text-white disabled:opacity-50">採用</button>
       <button disabled={pending} onClick={() => run("posted")} className="h-9 rounded-lg bg-sky-600 px-3 text-xs font-black text-white disabled:opacity-50">
-        {canNativeVideo ? "mp4投稿実行" : "投稿/記録実行"}
+        {canNativeVideo ? "動画を取得して投稿" : "投稿/記録実行"}
       </button>
       <button disabled={pending} onClick={() => run("rejected")} className="h-9 rounded-lg border border-zinc-700 px-3 text-xs font-black text-zinc-300 disabled:opacity-50">却下</button>
       {message && <p className="basis-full text-[11px] font-bold text-amber-200">{message}</p>}
@@ -765,7 +765,6 @@ export function MediaPipelineActions() {
   return (
     <div className="mt-3 flex flex-wrap gap-2">
       <button disabled={pending} onClick={() => run("/api/admin/x-growth/media/sync", "同期", 250)} className="h-9 rounded-lg bg-emerald-500 px-3 text-xs font-black text-black disabled:opacity-50">動画候補を同期</button>
-      <button disabled={pending} onClick={() => run("/api/admin/x-growth/media/check", "URL確認", 50)} className="h-9 rounded-lg border border-sky-700 px-3 text-xs font-black text-sky-100 disabled:opacity-50">URL状態を確認</button>
       {message && <p className="basis-full text-[11px] font-bold text-amber-200">{message}</p>}
     </div>
   );
