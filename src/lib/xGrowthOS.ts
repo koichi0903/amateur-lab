@@ -14,6 +14,7 @@ import {
   fetchRankingSnapshotHistory,
   fetchMediaAssets,
   analyzeUncachedVideoFacts,
+  checkMediaAssetUrlsForWorkIds,
   syncSampleMovieAssetsForWorkIds,
   getPersistedGrowthTables,
   getXGrowthSystemStatus,
@@ -27,6 +28,7 @@ import {
 } from "@/lib/xGrowthOperations";
 import { getXMediaSupplyStatus, getRightsReviewQueue, isFanzaXGrowthTechnicalSampleMovie, type XMediaAsset } from "@/lib/xMediaAssets";
 import { isVideoCandidate } from "@/lib/xVideoCandidate";
+import { syncAndProbeCandidateMedia } from "./xGrowthMediaPreflight";
 import { buildVisualVideoFacts, primaryUsableVisualFact, type XVisualVideoFacts, visualFactScores } from "@/lib/xVisualVideoFacts";
 import { assignSemanticHook, SEMANTIC_CATEGORY_QUOTA } from "./xGrowthSemantic";
 import { decisionFactProofLine, type DecisionFacts, type DecisionType } from "@/lib/domain/decisionFacts";
@@ -3166,11 +3168,22 @@ export async function buildXGrowthOS({
   };
   const postedWorkResult = await mark("posted_work_ids_ms", getPostedWorkIds());
   const candidateResult = await mark("candidate_generation_ms", getXPostCandidates(performance, logs, postedWorkResult.workIds));
-  // Candidate generation stays DB-only here: ensure every surfaced official
-  // sample has an asset row before the media gate evaluates it. URL probing is
-  // intentionally kept in the explicit preflight before regeneration.
-  const mediaSync = await mark("media_assets_sync_ms", syncSampleMovieAssetsForWorkIds(candidateResult.candidates.map((item) => item.workId)));
-  if (mediaSync.error) timings.media_assets_sync_error = 1;
+  // Probe the actual video candidates after syncing them. A broad preflight
+  // before candidate generation cannot guarantee that these works are checked.
+  const videoWorkIds = candidateResult.candidates
+    .filter((item) => Boolean(item.sampleMovieUrl))
+    .map((item) => item.workId);
+  const mediaPreflight = await syncAndProbeCandidateMedia(
+    videoWorkIds,
+    syncSampleMovieAssetsForWorkIds,
+    checkMediaAssetUrlsForWorkIds,
+    100,
+  );
+  timings.media_assets_sync_ms = mediaPreflight.syncElapsedMs;
+  timings.media_assets_probe_ms = mediaPreflight.probeElapsedMs;
+  timings.media_assets_probe_checked = mediaPreflight.probe.checked;
+  if (mediaPreflight.sync.error) timings.media_assets_sync_error = 1;
+  if (mediaPreflight.probe.error) timings.media_assets_probe_error = 1;
   const expandedCandidates = expandCreativeSupply(candidateResult.candidates);
   const scoredAll = expandedCandidates.map(scoreOpportunity).sort((a, b) => {
     const aMax = Math.max(a.reachScore, a.followScore, a.authorityScore, a.revenueScore);
