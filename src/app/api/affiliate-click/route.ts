@@ -26,6 +26,11 @@ function isMissingXPostKey(error: { code?: string; message?: string }) {
 }
 
 export async function POST(request: Request) {
+  // Preview deployments share the production Supabase project; never persist QA traffic.
+  if (process.env.VERCEL_ENV === "preview") {
+    return new NextResponse(null, { status: 204 });
+  }
+
   let payload: unknown;
 
   try {

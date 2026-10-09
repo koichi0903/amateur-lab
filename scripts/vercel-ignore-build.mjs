@@ -8,6 +8,11 @@ if (!env) {
   process.exit(1);
 }
 
+if (env === "preview" && ref === "codex/ga4-preview-verify") {
+  console.log(`Allowing requested GA4 verification preview for ${ref}.`);
+  process.exit(1);
+}
+
 if (env !== "production") {
   console.log(`Skipping ${env} deployment for ${ref ?? "unknown branch"}.`);
   process.exit(0);
