@@ -21,11 +21,25 @@ export async function syncAndProbeCandidateMedia<TSync extends CandidateMediaSyn
     };
   }
 
+  // The DB probe clamps each query to 100 assets. Split the candidate IDs into
+  // matching-sized batches so large candidate pools are not silently left
+  // unchecked before media eligibility runs.
+  const safeBatchSize = Math.max(1, Math.min(100, Math.floor(batchSize) || 100));
   const probeStarted = Date.now();
-  const probeResult = await probe(candidateWorkIds, batchSize);
+  let checked = 0;
+  let probeError: string | null = null;
+  for (let offset = 0; offset < candidateWorkIds.length; offset += safeBatchSize) {
+    const batch = candidateWorkIds.slice(offset, offset + safeBatchSize);
+    const result = await probe(batch, safeBatchSize);
+    checked += result.checked;
+    if (result.error) {
+      probeError = result.error;
+      break;
+    }
+  }
   return {
     sync: syncResult,
-    probe: probeResult,
+    probe: { error: probeError, checked },
     syncElapsedMs,
     probeElapsedMs: Date.now() - probeStarted,
   };
