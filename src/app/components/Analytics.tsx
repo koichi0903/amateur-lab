@@ -1,6 +1,5 @@
 "use client";
 
-import Script from "next/script";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -13,12 +12,14 @@ declare global {
   interface Window {
     dataLayer?: unknown[];
     gtag?: (...args: unknown[]) => void;
+    __hakkutsuGaInitialized?: boolean;
   }
 }
 
 const ATTRIBUTION_STORAGE_KEY = "hakkutsu-lab:external-attribution:v1";
 const SESSION_ATTRIBUTION_STORAGE_KEY = "hakkutsu-lab:session-attribution:v1";
 const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
+const GA_SCRIPT_ID = "hakkutsu-google-analytics";
 
 const searchHosts = [
   "google.",
@@ -136,8 +137,23 @@ export default function Analytics() {
     window.gtag = window.gtag || ((...args: unknown[]) => {
       window.dataLayer?.push(args);
     });
-    window.gtag("js", new Date());
-    window.gtag("config", GA_MEASUREMENT_ID, { send_page_view: false });
+    if (!window.__hakkutsuGaInitialized) {
+      window.gtag("js", new Date());
+      window.gtag("config", GA_MEASUREMENT_ID, { send_page_view: false });
+      window.__hakkutsuGaInitialized = true;
+    }
+
+    // Queue the GA config before loading gtag.js. Loading it through next/script
+    // in parallel with this effect can let the library arrive before the queue
+    // exists, which silently loses the initial page view on fast connections.
+    if (!document.getElementById(GA_SCRIPT_ID)) {
+      const script = document.createElement("script");
+      script.id = GA_SCRIPT_ID;
+      script.async = true;
+      script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
+      document.head.appendChild(script);
+    }
+
     setAnalyticsReady(true);
   }, [pathname]);
 
@@ -156,12 +172,5 @@ export default function Analytics() {
     });
   }, [analyticsReady, pathname]);
 
-  if (!GA_MEASUREMENT_ID || pathname.startsWith("/admin")) return null;
-
-  return (
-    <Script
-      src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
-      strategy="afterInteractive"
-    />
-  );
+  return null;
 }
