@@ -7,8 +7,8 @@ import MiniPriceHistoryChart from "@/components/home/MiniPriceHistoryChart";
 import AffiliateLink from "@/app/components/AffiliateLink";
 import FavoriteButton from "@/components/favorites/FavoriteButton";
 import type { HomePriceInsightWork } from "@/lib/getHomePriceInsights";
+import TrackedWorkLink from "@/app/components/TrackedWorkLink";
 
-const priceOf = (work: Work) => work.sale_price > 0 ? work.sale_price : work.price;
 const releaseDateOf = (work: Work) => {
   const value = work.release_date ?? work.product_release_date;
   if (!value) return null;
@@ -29,17 +29,18 @@ const tagsOf = (work: Work) => {
     : genres.slice(0, 4).map((genre) => ({ label: genre, href: `/genre/${encodeURIComponent(genre)}` }));
 };
 
-export default function FanzaStyleWorkCard({ work, sourcePage = "direct", insight, rank, compact = false, showChart = true, dark = false }: { work: Work; sourcePage?: "home" | "ranking" | "sale" | "search" | "new" | "direct"; insight?: HomePriceInsightWork; rank?: number; compact?: boolean; showChart?: boolean; dark?: boolean }) {
-  const price = priceOf(work);
+export default function FanzaStyleWorkCard({ work, sourcePage = "direct", itemListName, insight, rank, compact = false, showChart = true, dark = false }: { work: Work; sourcePage?: "home" | "ranking" | "sale" | "search" | "new" | "direct"; itemListName?: string; insight?: HomePriceInsightWork; rank?: number; compact?: boolean; showChart?: boolean; dark?: boolean }) {
+  const price = work.sale_price > 0 ? work.sale_price : work.price;
   const isSale = work.sale_price > 0 && work.price > work.sale_price;
   const discountRate = discountRateOf(work);
+  const selectionListName = itemListName ?? sourcePage;
   return (
     <article className={`group flex h-full min-w-0 flex-col rounded-2xl border p-2.5 shadow-sm transition hover:-translate-y-1 ${dark ? "border-zinc-800 bg-zinc-900 hover:border-pink-500" : "border-slate-200 bg-white hover:border-pink-200 hover:shadow-lg"} ${compact ? "sm:p-2" : "sm:p-3"}`}>
       <div className="min-w-0">
         <div className={`relative -mx-2.5 -mt-2.5 aspect-[4/3] overflow-hidden rounded-t-2xl sm:-mx-3 sm:-mt-3 ${dark ? "bg-zinc-950" : "bg-slate-100"}`}>
-          <Link href={workDetailHref(work.id, sourcePage)} className="absolute inset-0">
+          <TrackedWorkLink href={workDetailHref(work.id, sourcePage)} workId={work.id} title={work.title} itemListName={selectionListName} index={rank} className="absolute inset-0">
             <WorkImage src={work.image_url} alt={work.title} sizes="(max-width: 640px) 45vw, (max-width: 1280px) 22vw, 240px" className="object-cover transition duration-300 group-hover:scale-105" />
-          </Link>
+          </TrackedWorkLink>
           <FavoriteButton workId={work.id} iconOnly className={`absolute bottom-2 right-2 z-10 flex h-7 w-7 items-center justify-center rounded-full text-lg leading-none shadow-sm transition ${dark ? "bg-zinc-800/90 text-zinc-200 hover:bg-zinc-700 hover:text-pink-400" : "bg-white/90 text-slate-700 hover:bg-white hover:text-pink-600"}`} />
           {rank != null && <span className="absolute left-2 top-2 rounded-md bg-white/95 px-2 py-1 text-xs font-black text-slate-900 shadow-sm">{rank}位</span>}
           {isSale && discountRate > 0 && <span className="absolute bottom-2 left-2 rounded-full bg-pink-600 px-2 py-1 text-[10px] font-black text-white shadow-sm">{discountRate}%OFF</span>}
@@ -59,7 +60,7 @@ export default function FanzaStyleWorkCard({ work, sourcePage = "direct", insigh
       </div>
       <div className={`mt-2 flex min-h-5 items-center justify-between text-[11px] font-bold ${dark ? "text-zinc-500" : "text-slate-500"}`}><span className="text-amber-500">★ {work.review_average > 0 ? work.review_average.toFixed(1) : "-"}</span><span>({work.review_count ?? 0})</span></div>
       {showChart && insight && <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1"><MiniPriceHistoryChart points={insight.priceHistory} windowStartAt={insight.priceWindowStartAt} windowEndAt={insight.priceWindowEndAt} lowPrice={insight.low90Price} currentPrice={insight.currentPrice} variant="compact" /></div>}
-      <div className="mt-auto flex flex-col gap-1.5 pt-2"><>{work.affiliate_url ? <AffiliateLink href={work.affiliate_url} workId={work.id} placement="listing-card" sourcePage={sourcePage} className="flex min-h-9 w-full items-center justify-center rounded-lg bg-pink-600 px-2 text-[11px] font-black text-white hover:bg-pink-700">FANZAで見る</AffiliateLink> : <span className={`flex min-h-9 w-full items-center justify-center rounded-lg px-2 text-[11px] font-black ${dark ? "bg-zinc-800 text-zinc-500" : "bg-slate-100 text-slate-400"}`}>FANZAで見る</span>}</><Link href={workDetailHref(work.id, sourcePage)} className={`flex min-h-8 w-full items-center justify-center rounded-lg border px-2 text-[10px] font-black ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-pink-200 text-pink-700 hover:bg-pink-50"}`}>詳細を見る</Link></div>
+      <div className="mt-auto flex flex-col gap-1.5 pt-2"><>{work.affiliate_url ? <AffiliateLink href={work.affiliate_url} workId={work.id} placement="listing-card" sourcePage={sourcePage} className="flex min-h-9 w-full items-center justify-center rounded-lg bg-pink-600 px-2 text-[11px] font-black text-white hover:bg-pink-700">FANZAで見る</AffiliateLink> : <span className={`flex min-h-9 w-full items-center justify-center rounded-lg px-2 text-[11px] font-black ${dark ? "bg-zinc-800 text-zinc-500" : "bg-slate-100 text-slate-400"}`}>FANZAで見る</span>}</><TrackedWorkLink href={workDetailHref(work.id, sourcePage)} workId={work.id} title={work.title} itemListName={selectionListName} index={rank} className={`flex min-h-8 w-full items-center justify-center rounded-lg border px-2 text-[10px] font-black ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-pink-200 text-pink-700 hover:bg-pink-50"}`}>詳細を見る</TrackedWorkLink></div>
     </article>
   );
 }

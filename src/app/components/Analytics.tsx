@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   isOperatorLandingPath,
   type ExternalAttribution,
@@ -18,6 +18,8 @@ declare global {
 
 const ATTRIBUTION_STORAGE_KEY = "hakkutsu-lab:external-attribution:v1";
 const SESSION_ATTRIBUTION_STORAGE_KEY = "hakkutsu-lab:session-attribution:v1";
+const SESSION_X_POST_KEY = "hakkutsu-lab:session-x-post:v1";
+const MAX_X_POST_KEY_LENGTH = 120;
 const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
 const GA_SCRIPT_ID = "hakkutsu-google-analytics";
 
@@ -70,10 +72,21 @@ function classifyReferrer(referrer: string): {
 }
 
 function currentLandingPath() {
-  return `${window.location.pathname}${window.location.search}`.slice(0, 255);
+  const params = new URLSearchParams(window.location.search);
+  // Keep the post key in session storage instead of the long-lived fallback.
+  params.delete("x_post");
+  const search = params.toString();
+  return `${window.location.pathname}${search ? `?${search}` : ""}`.slice(0, 255);
 }
 
-function storeFirstPartyAttribution() {
+function currentXPostKey() {
+  return new URLSearchParams(window.location.search)
+    .get("x_post")
+    ?.trim()
+    .slice(0, MAX_X_POST_KEY_LENGTH) || null;
+}
+
+function storeFirstPartyAttribution(isInitialPageLoad: boolean) {
   try {
     if (isOperatorLandingPath(window.location.pathname)) {
       window.sessionStorage.removeItem(SESSION_ATTRIBUTION_STORAGE_KEY);
@@ -89,6 +102,15 @@ function storeFirstPartyAttribution() {
     }
 
     const referrer = classifyReferrer(document.referrer);
+    const urlXPostKey = currentXPostKey();
+    if (urlXPostKey) {
+      window.sessionStorage.setItem(SESSION_X_POST_KEY, urlXPostKey);
+    } else if (isInitialPageLoad && referrer.channel !== "internal") {
+      // A fresh external/direct landing starts a new acquisition. Internal
+      // navigation and reloads retain the current session's X post key.
+      window.sessionStorage.removeItem(SESSION_X_POST_KEY);
+    }
+
     if (referrer.channel === "internal") return;
 
     const attribution: ExternalAttribution = {
@@ -113,6 +135,14 @@ function storeFirstPartyAttribution() {
   }
 }
 
+export function readXPostKey(): string | null {
+  try {
+    return currentXPostKey() ?? window.sessionStorage.getItem(SESSION_X_POST_KEY);
+  } catch {
+    return currentXPostKey();
+  }
+}
+
 export function readExternalAttribution(): ExternalAttribution | null {
   try {
     const stored =
@@ -124,13 +154,47 @@ export function readExternalAttribution(): ExternalAttribution | null {
   }
 }
 
+export function trackWorkSelection({
+  workId,
+  title,
+  itemListName,
+  index,
+}: {
+  workId: number;
+  title: string;
+  itemListName: string;
+  index?: number;
+}) {
+  window.gtag?.("event", "select_item", {
+    item_list_name: itemListName,
+    source_page: window.location.pathname,
+    page_path: `${window.location.pathname}${window.location.search}`,
+    x_post_key: readXPostKey() ?? "unknown",
+    items: [{
+      item_id: String(workId),
+      item_name: title,
+      index,
+    }],
+    transport_type: "beacon",
+  });
+}
+
 export default function Analytics() {
   const pathname = usePathname();
   const [analyticsReady, setAnalyticsReady] = useState(false);
+  const initializedPageRef = useRef(false);
 
   useEffect(() => {
-    if (pathname.startsWith("/admin")) return;
-    storeFirstPartyAttribution();
+    if (pathname.startsWith("/admin")) {
+      try {
+        window.sessionStorage.removeItem(SESSION_X_POST_KEY);
+      } catch {
+        // Session storage is optional and must not affect admin navigation.
+      }
+      return;
+    }
+    storeFirstPartyAttribution(!initializedPageRef.current);
+    initializedPageRef.current = true;
     if (!GA_MEASUREMENT_ID) return;
 
     window.dataLayer = window.dataLayer || [];
@@ -171,6 +235,7 @@ export default function Analytics() {
       traffic_channel: attribution?.channel ?? "unknown",
       traffic_source: attribution?.source ?? "unknown",
       landing_path: attribution?.landingPath ?? "unknown",
+      x_post_key: readXPostKey() ?? "unknown",
     });
   }, [analyticsReady, pathname]);
 
