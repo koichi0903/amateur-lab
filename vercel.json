@@ -1,10 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "node scripts/vercel-ignore-build.mjs",
-  "crons": [
-    {
-      "path": "/api/cron/fanza-x-metrics",
-      "schedule": "0 * * * *"
-    }
-  ]
+  "ignoreCommand": "node scripts/vercel-ignore-build.mjs"
 }

@@ -1,7 +1,7 @@
 import type { AffiliatePerformanceRow } from "@/lib/affiliateSalesAnalytics";
 import type { FanzaXGrowth } from "@/lib/fanzaXAccountGrowth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { cleanupTempVideo, createXPost, downloadTempVideo, fetchXPostMetrics, getXApiCapabilityStatus, hasXPostMetricsAccess, verifyXReadOnlyConnection } from "@/lib/xApi";
+import { cleanupTempVideo, createXPost, downloadTempVideo, getXApiCapabilityStatus } from "@/lib/xApi";
 import { canTrimFanzaXGrowthSampleMovie, isFanzaXGrowthTechnicalSampleMovie, isUsableXMediaAsset, sourceDomain, sourceKindFor, validateTrimStartSeconds, X_GROWTH_ACCOUNT, type XMediaAsset } from "@/lib/xMediaAssets";
 import type { XCreativeLearningRow, XPostLog, XPostLogInput } from "@/lib/xPostLogs";
 import { saveXPostLog } from "@/lib/xPostLogs";
@@ -13,7 +13,6 @@ import type { DecisionFacts } from "@/lib/domain/decisionFacts";
 
 export type XDailyPlanStatus = "draft" | "confirmed" | "completed" | "regenerated";
 export type XOpportunityStatus = "candidate" | "adopted" | "rejected" | "posted" | "expired";
-export type XSnapshotAge = "1h" | "6h" | "24h" | "72h";
 
 export type PersistedOpportunity = {
   id: number;
@@ -32,19 +31,11 @@ export type XGrowthSystemStatus = {
   xUserAccessTokenConfigured: boolean;
   xPostingConfigured: boolean;
   xMediaUploadConfigured: boolean;
-  xMetricsConfigured: boolean;
-  xReadOnlyConnection: {
-    checked: boolean;
-    ok: boolean;
-    username: string | null;
-    error: string | null;
-  };
   requiredForPosting: string[];
   notes: string[];
 };
 
 const ACCOUNT = X_GROWTH_ACCOUNT;
-const snapshotAges: XSnapshotAge[] = ["1h", "6h", "24h", "72h"];
 
 function todayTokyo() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -88,34 +79,9 @@ export function getXGrowthSystemStatus(error: string | null, rankingSnapshotsErr
     xUserAccessTokenConfigured: capability.hasUserAccessToken,
     xPostingConfigured: capability.postingConfigured,
     xMediaUploadConfigured: capability.mediaUploadConfigured,
-    xMetricsConfigured: capability.metricsConfigured,
-    xReadOnlyConnection: { checked: false, ok: false, username: null, error: null },
     requiredForPosting: capability.requiredForPosting,
     notes: capability.notes,
   };
-}
-
-export async function checkXReadOnlyConnectionStatus() {
-  const capability = getXApiCapabilityStatus();
-  if (!capability.metricsConfigured) {
-    return { checked: false, ok: false, username: null, error: "X_BEARER_TOKEN or X_USER_ACCESS_TOKEN is not configured." };
-  }
-  try {
-    const identity = await verifyXReadOnlyConnection();
-    return {
-      checked: true,
-      ok: identity.username === ACCOUNT,
-      username: identity.username,
-      error: identity.username === ACCOUNT ? null : `Connected X API identity lookup returned ${identity.username ?? "unknown"}.`,
-    };
-  } catch (error) {
-    return {
-      checked: true,
-      ok: false,
-      username: null,
-      error: error instanceof Error ? error.message : "X read-only connection failed.",
-    };
-  }
 }
 
 export async function auditXGrowth(action: string, detail: Record<string, unknown>) {
@@ -1100,87 +1066,6 @@ export async function executeOpportunityPost(id: number) {
   } finally {
     if (temp) await cleanupTempVideo(temp.dir);
   }
-}
-
-export async function syncMetricSnapshots(age: XSnapshotAge) {
-  if (!snapshotAges.includes(age)) return { error: "Invalid snapshot age", saved: 0, skippedReason: null as string | null };
-  const { data, error } = await supabaseAdmin
-    .from("x_post_logs")
-    .select("id,account_handle,post_key,work_id,posted_at,x_post_id")
-    .in("account_handle", [ACCOUNT, "bijyo1010"])
-    .not("x_post_id", "is", null)
-    .gte("posted_at", new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString())
-    .order("posted_at", { ascending: false })
-    .limit(100);
-  if (error) return { error: error.message, saved: 0, skippedReason: null as string | null };
-  const logs = (data ?? []) as Array<{ id: number; account_handle: string; post_key: string; work_id: number; posted_at: string; x_post_id: string | null }>;
-  if (!logs.length) return { error: null, saved: 0, skippedReason: null as string | null };
-  const postKeys = logs.map((log) => log.post_key);
-  const existingResult = await supabaseAdmin
-    .from("x_metric_snapshots")
-    .select("post_key")
-    .eq("snapshot_age", age)
-    .in("post_key", postKeys);
-  if (existingResult.error) return { error: existingResult.error.message, saved: 0, skippedReason: null as string | null };
-  const existing = new Set((existingResult.data ?? []).map((row) => row.post_key as string));
-  const hours = { "1h": 1, "6h": 6, "24h": 24, "72h": 72 }[age];
-  const eligibleLogs = logs.filter((log) => {
-    const ageHours = (Date.now() - new Date(log.posted_at).getTime()) / (60 * 60 * 1000);
-    return !existing.has(log.post_key) && ageHours >= hours && ageHours < hours + 3;
-  });
-  if (!eligibleLogs.length) return { error: null, saved: 0, skippedReason: null as string | null };
-  const metrics = new Map<string, { impressions: number | null; likes: number; replies: number; reposts: number }>();
-  const skippedAccounts = new Set<string>();
-  for (const accountHandle of ["hakkutsu_lab", "bijyo1010"] as const) {
-    const accountLogs = eligibleLogs.filter((log) => log.account_handle === accountHandle && log.x_post_id);
-    if (!accountLogs.length) continue;
-    if (!hasXPostMetricsAccess(accountHandle)) {
-      skippedAccounts.add(accountHandle);
-      continue;
-    }
-    try {
-      const accountMetrics = await fetchXPostMetrics(accountLogs.map((log) => log.x_post_id as string), accountHandle);
-      for (const [id, value] of accountMetrics) metrics.set(id, value);
-    } catch {
-      skippedAccounts.add(accountHandle);
-    }
-  }
-  const rows = [];
-  for (const log of eligibleLogs) {
-    const postedAt = new Date(log.posted_at).getTime();
-    const since = new Date(postedAt).toISOString();
-    const until = new Date(postedAt + hours * 60 * 60 * 1000).toISOString();
-    const [views, clicks] = await Promise.all([
-      supabaseAdmin.from("work_page_views").select("id", { count: "exact", head: true }).eq("source_page", "x").eq("x_post_key", log.post_key).gte("viewed_at", since).lte("viewed_at", until),
-      supabaseAdmin.from("affiliate_clicks").select("id", { count: "exact", head: true }).eq("source_page", "x").eq("x_post_key", log.post_key).gte("clicked_at", since).lte("clicked_at", until),
-    ]);
-    const publicMetric = log.x_post_id ? metrics.get(log.x_post_id) : null;
-    if (!publicMetric || typeof publicMetric.impressions !== "number") {
-      skippedAccounts.add(log.account_handle);
-      continue;
-    }
-    rows.push({
-      account_handle: log.account_handle,
-      x_post_log_id: log.id,
-      post_key: log.post_key,
-      snapshot_age: age,
-      source: "x_api",
-      impressions: publicMetric.impressions,
-      likes: publicMetric.likes,
-      replies: publicMetric.replies,
-      reposts: publicMetric.reposts,
-      site_visits: views.count ?? 0,
-      affiliate_clicks: clicks.count ?? 0,
-      notes: "",
-      captured_at: new Date().toISOString(),
-    });
-  }
-  const skippedReason = skippedAccounts.size
-    ? `X本人認証の表示数を取得できないアカウント: ${[...skippedAccounts].join(", ")}`
-    : null;
-  if (!rows.length) return { error: null, saved: 0, skippedReason };
-  const result = await supabaseAdmin.from("x_metric_snapshots").upsert(rows, { onConflict: "post_key,snapshot_age" });
-  return { error: result.error?.message ?? null, saved: result.error ? 0 : rows.length, skippedReason };
 }
 
 export async function persistCreativeLearning(rows: XCreativeLearningRow[]) {

@@ -10,7 +10,6 @@ import {
   buildConversationRadarFromData,
   buildSeriesIdeas,
   buildStrategicMission,
-  checkXReadOnlyConnectionStatus,
   fetchRankingSnapshotHistory,
   fetchMediaAssets,
   syncSampleMovieAssetsForWorkIds,
@@ -3282,14 +3281,10 @@ export async function buildXGrowthOS({
     { error: null, mp4Candidates: 0, synced: 0, unknown: 0, review: 0, officialUrlCandidates: 0, blocked: 0, historicalHttpFailures: 0, topPickRightsWaiting: 0 },
     { rows: [], error: null },
   ];
-  const xReadOnlyConnection = includeDeferred
-    ? await mark("x_readonly_check_ms", checkXReadOnlyConnectionStatus())
-    : { checked: false, ok: false, username: null, error: "Fast Pathでは後追い確認" };
   const systemStatus = getXGrowthSystemStatus(
     media.error ?? rankingHistories.error ?? persistedTopPicks.error ?? persistedResult.error ?? radarResult.error ?? persistedTables.migrationError ?? rankingSnapshotResult.error ?? planResult.error,
     rankingHistories.error ?? rankingSnapshotResult.error,
   );
-  systemStatus.xReadOnlyConnection = xReadOnlyConnection;
 
   return {
     opportunities: opportunities.slice(0, 16).map((item) => ({

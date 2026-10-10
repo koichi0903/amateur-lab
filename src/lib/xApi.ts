@@ -14,7 +14,6 @@ export type XApiCapabilityStatus = {
   hasUserAccessToken: boolean;
   postingConfigured: boolean;
   mediaUploadConfigured: boolean;
-  metricsConfigured: boolean;
   requiredForPosting: string[];
   notes: string[];
 };
@@ -29,7 +28,6 @@ export function getXApiCapabilityStatus(): XApiCapabilityStatus {
     hasUserAccessToken,
     postingConfigured,
     mediaUploadConfigured: postingConfigured,
-    metricsConfigured: hasBearerToken || hasUserAccessToken,
     requiredForPosting: [
       "Approved X Developer App",
       "User Access Token for @hakkutsu_lab",
@@ -49,14 +47,6 @@ function userAccessToken() {
   const value = process.env.X_USER_ACCESS_TOKEN;
   if (!value) {
     throw new Error("X_USER_ACCESS_TOKEN is required for X posting/media upload. X Premium is not required, but a @hakkutsu_lab User Access Token with tweet.write, tweet.read, and users.read scopes is required.");
-  }
-  return value;
-}
-
-function readToken() {
-  const value = process.env.X_USER_ACCESS_TOKEN ?? process.env.X_BEARER_TOKEN;
-  if (!value) {
-    throw new Error("X_USER_ACCESS_TOKEN or X_BEARER_TOKEN is required for X API read-only checks.");
   }
   return value;
 }
@@ -146,59 +136,4 @@ export async function createXPost(input: { text: string; videoFile?: string; vid
   }) as { data?: { id?: string; text?: string } };
   if (!created.data?.id) throw new Error("X post creation did not return a post id.");
   return { id: created.data.id, text: created.data.text ?? input.text, mediaId };
-}
-
-export async function verifyXReadOnlyConnection() {
-  const body = await xFetch("/2/users/by/username/hakkutsu_lab?user.fields=id,username,name", { method: "GET" }, readToken()) as {
-    data?: { id?: string; username?: string; name?: string };
-  };
-  return {
-    id: body.data?.id ?? null,
-    username: body.data?.username ?? null,
-    name: body.data?.name ?? null,
-  };
-}
-
-export type XPostMetrics = { impressions: number | null; likes: number; replies: number; reposts: number };
-
-function metricAuthForAccount(accountHandle: "hakkutsu_lab" | "bijyo1010") {
-  if (accountHandle === "bijyo1010") {
-    const userToken = process.env.X_BIJO_USER_ACCESS_TOKEN;
-    return { token: userToken ?? process.env.X_BEARER_TOKEN, hasUserContext: Boolean(userToken) };
-  }
-  const userToken = process.env.X_USER_ACCESS_TOKEN;
-  return { token: userToken ?? process.env.X_BEARER_TOKEN, hasUserContext: Boolean(userToken) };
-}
-
-export function hasXPostMetricsAccess(accountHandle: "hakkutsu_lab" | "bijyo1010") {
-  return Boolean(metricAuthForAccount(accountHandle).token);
-}
-
-export async function fetchXPostMetrics(ids: string[], accountHandle: "hakkutsu_lab" | "bijyo1010") {
-  const empty = new Map<string, XPostMetrics>();
-  if (!ids.length) return empty;
-  const auth = metricAuthForAccount(accountHandle);
-  if (!auth.token) return empty;
-  const fields = auth.hasUserContext
-    ? "public_metrics,non_public_metrics,organic_metrics"
-    : "public_metrics";
-  const body = await xFetch(`/2/tweets?ids=${encodeURIComponent(ids.join(","))}&tweet.fields=${encodeURIComponent(fields)}`, {
-    method: "GET",
-  }, auth.token) as { data?: Array<{
-    id: string;
-    public_metrics?: { like_count?: number; reply_count?: number; retweet_count?: number };
-    non_public_metrics?: { impression_count?: number };
-    organic_metrics?: { impression_count?: number };
-  }> };
-  return new Map((body.data ?? []).map((row) => [row.id, {
-    // Impressions are account-owner analytics, not a public metric. Never infer 0 when unavailable.
-    impressions: typeof row.organic_metrics?.impression_count === "number"
-      ? row.organic_metrics.impression_count
-      : typeof row.non_public_metrics?.impression_count === "number"
-        ? row.non_public_metrics.impression_count
-        : null,
-    likes: row.public_metrics?.like_count ?? 0,
-    replies: row.public_metrics?.reply_count ?? 0,
-    reposts: row.public_metrics?.retweet_count ?? 0,
-  }]));
 }

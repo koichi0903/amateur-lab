@@ -12,7 +12,8 @@ import { buildTopPickSlotsViewModel } from "@/lib/xGrowthTopPicks";
 import { xGrowthMediaPreviewUrl } from "@/lib/xGrowthMediaPreview";
 import { withXPostTracking } from "@/lib/xPostTracking";
 import { visualFactBasis, type XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
-import { CandidateSelectAction, DeferredXGrowthSections, MediaPipelineActions, MetricSyncActions, OpportunityActions, RegenerateTopPicksAction, RightsReviewActions, TempFolderStatus, TopPickVideoActions, TrimReviewActions } from "./XGrowthActions";
+import { CandidateSelectAction, DeferredXGrowthSections, MediaPipelineActions, OpportunityActions, RegenerateTopPicksAction, RightsReviewActions, TempFolderStatus, TopPickVideoActions, TrimReviewActions } from "./XGrowthActions";
+import XDailyImpressionTasks from "./XDailyImpressionTasks";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -809,23 +810,22 @@ async function XGrowthPageContent() {
           </div>
         </Panel>
 
+        <XDailyImpressionTasks />
+
         <Panel className="mt-6 border-amber-800 bg-amber-950/20">
           <h2 className="text-lg font-black text-amber-200">運用前チェック</h2>
           <div className="mt-3 flex flex-wrap gap-2">
             <StatusPill label="Supabase migration" ok={os.systemStatus.migrationApplied} />
             <StatusPill label="X無料アカウント前提" ok={os.systemStatus.accountSubscription === "free"} />
-            <StatusPill label="X read-only" ok={os.systemStatus.xReadOnlyConnection.ok} />
             <StatusPill label="X投稿" ok={os.systemStatus.xPostingConfigured} />
             <StatusPill label="Media upload" ok={os.systemStatus.xMediaUploadConfigured} />
-            <StatusPill label="Metric取得" ok={os.systemStatus.xMetricsConfigured} />
+            <StatusPill label="X閲覧数は手入力" ok />
             <StatusPill label="Ranking History" ok={os.systemStatus.rankingSnapshotsReady} />
             <StatusPill label="Conversation Radar外部検索" ok={false} />
           </div>
           <div className="mt-3 grid gap-2 text-sm leading-6 text-amber-100/80 md:grid-cols-2">
             {!os.systemStatus.migrationApplied && <p>Migration未適用の可能性があります: {os.systemStatus.migrationError}</p>}
-            <p>X Premiumは前提にしていません。必要なのはX Developer/API側の利用権限と、@hakkutsu_lab のUser Access Tokenです。</p>
-            <p>Bearer token: {os.systemStatus.xBearerConfigured ? "設定あり" : "未設定"} / User Access Token: {os.systemStatus.xUserAccessTokenConfigured ? "設定あり" : "未設定"}</p>
-            {os.systemStatus.xReadOnlyConnection.checked && <p>read-only疎通: {os.systemStatus.xReadOnlyConnection.ok ? `@${os.systemStatus.xReadOnlyConnection.username}` : os.systemStatus.xReadOnlyConnection.error}</p>}
+            <p>X閲覧数はAPIを呼ばず、投稿24時間後にX画面から手入力します。</p>
             {os.systemStatus.rankingSnapshotsError && <p>ランキング履歴: {os.systemStatus.rankingSnapshotsError}</p>}
             {!os.systemStatus.xPostingConfigured && <p>自動投稿と自動添付は User Access Token が必要です。手動動画投稿は、完成文コピー、mp4一時保存、X投稿画面起動で運用できます。</p>}
           </div>
@@ -1050,9 +1050,8 @@ async function XGrowthPageContent() {
               <div><p className="font-black text-rose-300">廃止</p>{os.audit.retire.map((item) => <p key={item} className="mt-2">{item}</p>)}</div>
             </div>
             <p className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs leading-5 text-zinc-500">
-              1h/6h/24h/72h の Metric Snapshots は取得できる数値だけ自動連携し、bookmarks/profile_visits/follows などAPI権限がない値は手入力前提です。
+              X APIによる閲覧数取得は停止しています。投稿24〜27時間後のX画面表示数と、同じ投稿キーの作品PV・FANZAクリックを並べます。
             </p>
-            <MetricSyncActions />
           </Panel>
         </div>
       </div>

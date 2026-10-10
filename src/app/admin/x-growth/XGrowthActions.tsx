@@ -738,26 +738,6 @@ export function CandidateSelectAction({
   );
 }
 
-export function MetricSyncActions() {
-  const [message, setMessage] = useState("");
-  const [pending, startTransition] = useTransition();
-  return (
-    <div className="mt-3 flex flex-wrap gap-2">
-      {(["1h", "6h", "24h", "72h"] as const).map((age) => (
-        <button key={age} disabled={pending} onClick={() => startTransition(async () => {
-          try {
-            const result = await postJson("/api/admin/x-growth/metrics", { age });
-            setMessage(`${age}: ${String(result.saved)}件保存`);
-          } catch (error) {
-            setMessage(error instanceof Error ? error.message : "取得に失敗しました。");
-          }
-        })} className="h-9 rounded-lg border border-zinc-700 px-3 text-xs font-black text-zinc-200 disabled:opacity-50">{age}</button>
-      ))}
-      {message && <p className="basis-full text-[11px] font-bold text-amber-200">{message}</p>}
-    </div>
-  );
-}
-
 export function MediaPipelineActions() {
   const [message, setMessage] = useState("");
   const [pending, startTransition] = useTransition();
