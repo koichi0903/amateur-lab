@@ -15,7 +15,7 @@ export default async function FanzaDailyPostFunnel() {
         <p className="text-xs font-black tracking-[0.16em] text-violet-300">X POST → SITE → FANZA</p>
         <h3 className="mt-1 text-lg font-black">投稿別ファネル（直近30日投稿）</h3>
         <p className="mt-2 text-xs leading-5 text-zinc-400">
-          投稿IDに紐付くX表示数と、同じ投稿キーの作品PV・FANZA CTAを並べます。主数値は投稿後24時間、補足は7日間。いずれもイベント数で、購入数ではありません。
+          X表示数はX Growth OSの日次タスクで記録します（API不使用）。入力時刻までの作品PV・FANZA CTAを同じ投稿キーで照合します。表示数は入力時点の累計、PV・CTAはイベント数です。
         </p>
       </div>
       {result.error ? (
@@ -29,9 +29,9 @@ export default async function FanzaDailyPostFunnel() {
               <tr className="border-b border-zinc-800">
                 <th className="px-3 py-3">入口 / 投稿</th>
                 <th className="px-3 py-3">投稿日時</th>
-                <th className="px-3 py-3 text-right">X表示・24h</th>
-                <th className="px-3 py-3 text-right">作品PV</th>
-                <th className="px-3 py-3 text-right">FANZA CTA</th>
+                <th className="px-3 py-3 text-right">X表示数（入力時点）</th>
+                <th className="px-3 py-3 text-right">作品PV（同期間）</th>
+                <th className="px-3 py-3 text-right">FANZA CTA（同期間）</th>
               </tr>
             </thead>
             <tbody>
@@ -41,18 +41,18 @@ export default async function FanzaDailyPostFunnel() {
                     <p className="text-[11px] font-black text-violet-300">@{row.account}</p>
                     <Link href={`/works/${row.workId}`} className="mt-1 block truncate font-bold text-zinc-200 hover:text-violet-300">{row.title}</Link>
                     <p className="mt-1 truncate font-mono text-[10px] text-zinc-600">{row.postKey}</p>
-                    {row.xPostId ? <a href={`https://x.com/${row.account}/status/${row.xPostId}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[10px] text-cyan-400 hover:underline">X投稿を開く</a> : <p className="mt-1 text-[10px] text-amber-300">X投稿ID未登録</p>}
+                    {row.xPostId ? <a href={`https://x.com/${row.account}/status/${row.xPostId}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[10px] text-cyan-400 hover:underline">X投稿を開く</a> : <Link href="/admin/x-growth#x-daily-impression-tasks" className="mt-1 inline-block text-[10px] text-amber-300 hover:underline">X Growth OSで投稿URLを登録</Link>}
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-xs text-zinc-400">{dateTime(row.postedAt)}</td>
                   <td className="px-3 py-3 text-right font-black text-white">
-                    {row.impressions24h === null ? <span className="text-amber-300">未取得</span> : row.impressions24h.toLocaleString("ja-JP")}
-                    {row.impressionCapturedAt && <span className="mt-1 block text-[10px] font-normal text-zinc-600">取得 {dateTime(row.impressionCapturedAt)}</span>}
+                    {row.impressionsAtCapture === null ? <span className="text-amber-300">未取得</span> : row.impressionsAtCapture.toLocaleString("ja-JP")}
+                    {row.impressionCapturedAt && <span className="mt-1 block text-[10px] font-normal text-zinc-600">投稿 {row.impressionCaptureAgeHours?.toFixed(1)}時間後 / {dateTime(row.impressionCapturedAt)}</span>}
                   </td>
                   <td className="px-3 py-3 text-right font-black text-cyan-300">
-                    {row.siteViews24h.toLocaleString("ja-JP")}<span className="mt-1 block text-[10px] font-normal text-zinc-600">7日 {row.siteViews7d.toLocaleString("ja-JP")}</span>
+                    {(row.impressionsAtCapture === null ? row.siteViews24h : row.siteViewsAtImpressionCapture).toLocaleString("ja-JP")}<span className="mt-1 block text-[10px] font-normal text-zinc-600">7日 {row.siteViews7d.toLocaleString("ja-JP")}</span>
                   </td>
                   <td className="px-3 py-3 text-right font-black text-emerald-300">
-                    {row.fanzaClicks24h.toLocaleString("ja-JP")}<span className="mt-1 block text-[10px] font-normal text-zinc-600">7日 {row.fanzaClicks7d.toLocaleString("ja-JP")}</span>
+                    {(row.impressionsAtCapture === null ? row.fanzaClicks24h : row.fanzaClicksAtImpressionCapture).toLocaleString("ja-JP")}<span className="mt-1 block text-[10px] font-normal text-zinc-600">7日 {row.fanzaClicks7d.toLocaleString("ja-JP")}</span>
                   </td>
                 </tr>
               ))}
