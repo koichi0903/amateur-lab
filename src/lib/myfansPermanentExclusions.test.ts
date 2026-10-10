@@ -41,3 +41,7 @@ test("manual rejection can fall back to the quote candidate identity", () => {
   const sets = buildPermanentExclusionSets([{ ...exclusions[0], id: 3, entity_type: "source", entity_key: quoteCandidateExclusionKey(22), product_id: null, quote_candidate_id: 22 }]);
   assert.equal(isPermanentlyExcluded({ productId: 10, quoteCandidateId: 22, quoteXUrl: "", sourceXUrl: "", sets }), true);
 });
+
+test("manual rejection rejects a candidate without a source identity", () => {
+  assert.equal(manualCandidateExclusionTarget({}), null);
+});
