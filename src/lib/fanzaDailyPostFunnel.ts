@@ -26,10 +26,12 @@ export type FanzaDailyPostFunnelRow = {
   title: string;
   postedAt: string;
   xPostId: string | null;
-  impressions24h: number | null;
+  impressionsAtCapture: number | null;
   impressionCapturedAt: string | null;
   impressionSource: "manual" | "x_api" | null;
   impressionCaptureAgeHours: number | null;
+  siteViewsAtImpressionCapture: number;
+  fanzaClicksAtImpressionCapture: number;
   canRecordImpressions: boolean;
   siteViews24h: number;
   fanzaClicks24h: number;
@@ -93,25 +95,8 @@ export async function getFanzaDailyPostFunnel(days = 30) {
   const clicks = new Map<string, number>();
   const views24h = new Map<string, number>();
   const clicks24h = new Map<string, number>();
-  for (const row of viewsResult.rows) {
-    const key = row.x_post_key;
-    const post = key ? postByKey.get(key) : null;
-    const viewedAt = Date.parse(row.viewed_at);
-    if (key && post && viewedAt >= Date.parse(post.posted_at) && viewedAt <= Date.parse(post.posted_at) + 7 * DAY_MS) {
-      views.set(key, (views.get(key) ?? 0) + 1);
-      if (viewedAt <= Date.parse(post.posted_at) + DAY_MS) views24h.set(key, (views24h.get(key) ?? 0) + 1);
-    }
-  }
-  for (const row of clicksResult.rows) {
-    const key = row.x_post_key;
-    const post = key ? postByKey.get(key) : null;
-    const clickedAt = Date.parse(row.clicked_at);
-    if (key && post && clickedAt >= Date.parse(post.posted_at) && clickedAt <= Date.parse(post.posted_at) + 7 * DAY_MS) {
-      clicks.set(key, (clicks.get(key) ?? 0) + 1);
-      if (clickedAt <= Date.parse(post.posted_at) + DAY_MS) clicks24h.set(key, (clicks24h.get(key) ?? 0) + 1);
-    }
-  }
-
+  const viewsAtCapture = new Map<string, number>();
+  const clicksAtCapture = new Map<string, number>();
   const snapshots = new Map<string, { impressions: number | null; capturedAt: string; source: "manual" | "x_api"; captureAgeHours: number }>();
   for (const snapshot of snapshotsResult.data ?? []) {
     const key = snapshot.post_key;
@@ -121,7 +106,7 @@ export async function getFanzaDailyPostFunnel(days = 30) {
     const captureAgeHours = post
       ? (Date.parse(capturedAt) - Date.parse(post.posted_at)) / (60 * 60 * 1000)
       : Number.NaN;
-    if (captureAgeHours < 24 || captureAgeHours >= 27) continue;
+    if (captureAgeHours < 24 || captureAgeHours >= 30 * 24) continue;
     const notes = String(snapshot.notes ?? "");
     snapshots.set(key, {
       impressions: notes && snapshot.source !== "manual" ? null : Number(snapshot.impressions ?? 0),
@@ -129,6 +114,28 @@ export async function getFanzaDailyPostFunnel(days = 30) {
       source: snapshot.source === "manual" ? "manual" : "x_api",
       captureAgeHours,
     });
+  }
+  for (const row of viewsResult.rows) {
+    const key = row.x_post_key;
+    const post = key ? postByKey.get(key) : null;
+    const viewedAt = Date.parse(row.viewed_at);
+    if (key && post && viewedAt >= Date.parse(post.posted_at) && viewedAt <= Date.parse(post.posted_at) + 7 * DAY_MS) {
+      views.set(key, (views.get(key) ?? 0) + 1);
+      if (viewedAt <= Date.parse(post.posted_at) + DAY_MS) views24h.set(key, (views24h.get(key) ?? 0) + 1);
+      const snapshot = snapshots.get(key);
+      if (snapshot && viewedAt <= Date.parse(snapshot.capturedAt)) viewsAtCapture.set(key, (viewsAtCapture.get(key) ?? 0) + 1);
+    }
+  }
+  for (const row of clicksResult.rows) {
+    const key = row.x_post_key;
+    const post = key ? postByKey.get(key) : null;
+    const clickedAt = Date.parse(row.clicked_at);
+    if (key && post && clickedAt >= Date.parse(post.posted_at) && clickedAt <= Date.parse(post.posted_at) + 7 * DAY_MS) {
+      clicks.set(key, (clicks.get(key) ?? 0) + 1);
+      if (clickedAt <= Date.parse(post.posted_at) + DAY_MS) clicks24h.set(key, (clicks24h.get(key) ?? 0) + 1);
+      const snapshot = snapshots.get(key);
+      if (snapshot && clickedAt <= Date.parse(snapshot.capturedAt)) clicksAtCapture.set(key, (clicksAtCapture.get(key) ?? 0) + 1);
+    }
   }
 
   return {
@@ -141,13 +148,15 @@ export async function getFanzaDailyPostFunnel(days = 30) {
         title: post.title,
         postedAt: post.posted_at,
         xPostId: post.x_post_id,
-        impressions24h: snapshot?.impressions ?? null,
+        impressionsAtCapture: snapshot?.impressions ?? null,
         impressionCapturedAt: snapshot?.capturedAt ?? null,
         impressionSource: snapshot?.source ?? null,
         impressionCaptureAgeHours: snapshot?.captureAgeHours ?? null,
+        siteViewsAtImpressionCapture: snapshot ? viewsAtCapture.get(post.post_key) ?? 0 : views24h.get(post.post_key) ?? 0,
+        fanzaClicksAtImpressionCapture: snapshot ? clicksAtCapture.get(post.post_key) ?? 0 : clicks24h.get(post.post_key) ?? 0,
         canRecordImpressions: !snapshot && Boolean(post.x_post_id) && (() => {
           const ageHours = (now - Date.parse(post.posted_at)) / (60 * 60 * 1000);
-          return ageHours >= 24 && ageHours < 27;
+          return ageHours >= 24 && ageHours < 30 * 24;
         })(),
         siteViews24h: views24h.get(post.post_key) ?? 0,
         fanzaClicks24h: clicks24h.get(post.post_key) ?? 0,
