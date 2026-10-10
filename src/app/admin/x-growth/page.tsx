@@ -692,6 +692,8 @@ async function XGrowthPageContent() {
             )}
           </Panel>
 
+          <XDailyImpressionTasks />
+
           <Panel className="mt-6">
             <details>
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
