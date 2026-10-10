@@ -47,7 +47,7 @@ export default function ManualXImpressionInput({
 
   return (
     <div className={compact ? "mt-2" : "mt-3 rounded-lg border border-emerald-900 bg-zinc-950 p-3"}>
-      {!compact && <p className="text-xs leading-5 text-zinc-400">X投稿を開き、表示されている閲覧数を入力してください。投稿から24〜27時間の間に記録します。</p>}
+      {!compact && <p className="text-xs leading-5 text-zinc-400">投稿から24時間以上たったら、X画面に表示された閲覧数を入力してください。投稿後30日以内なら記録できます。遅れて入力した場合は、その入力時点の数値として保存します。</p>}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <label className="sr-only" htmlFor={`x-impressions-${postKey}`}>X閲覧数</label>
         <input

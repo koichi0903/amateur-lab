@@ -49,8 +49,8 @@ export async function POST(request: NextRequest) {
   if (ageHours < 24) {
     return NextResponse.json({ error: `投稿からまだ${ageHours.toFixed(1)}時間です。24時間後に記録してください。` }, { status: 400 });
   }
-  if (ageHours >= 27) {
-    return NextResponse.json({ error: `投稿から${ageHours.toFixed(1)}時間経過しています。24時間時点の記録期限（24〜27時間）を過ぎています。今回は未取得として残します。` }, { status: 400 });
+  if (ageHours >= 30 * 24) {
+    return NextResponse.json({ error: `投稿から${ageHours.toFixed(1)}時間経過しています。閲覧数の記録期限（投稿後30日以内）を過ぎています。` }, { status: 400 });
   }
 
   const existing = await supabaseAdmin
@@ -65,13 +65,13 @@ export async function POST(request: NextRequest) {
   }
 
   const postedAt = new Date(post.posted_at);
-  const windowEnd = new Date(postedAt.getTime() + 24 * HOUR_MS).toISOString();
+  const windowEnd = capturedAt.toISOString();
   const [views, clicks] = await Promise.all([
     supabaseAdmin.from("work_page_views").select("id", { count: "exact", head: true }).eq("source_page", "x").eq("x_post_key", postKey).gte("viewed_at", postedAt.toISOString()).lte("viewed_at", windowEnd),
     supabaseAdmin.from("affiliate_clicks").select("id", { count: "exact", head: true }).eq("source_page", "x").eq("x_post_key", postKey).gte("clicked_at", postedAt.toISOString()).lte("clicked_at", windowEnd),
   ]);
   const countError = views.error ?? clicks.error;
-  if (countError) return NextResponse.json({ error: "サイト側の24時間イベントを確認できませんでした。もう一度お試しください。" }, { status: 500 });
+  if (countError) return NextResponse.json({ error: "サイト側の投稿後イベントを確認できませんでした。もう一度お試しください。" }, { status: 500 });
 
   const rows: ManualSnapshotInsert[] = [];
   rows.push({
