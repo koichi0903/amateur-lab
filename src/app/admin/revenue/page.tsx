@@ -435,7 +435,7 @@ export default async function RevenueDashboardPage({
                 <h3 className="mt-1 text-lg font-black">検索表示とサイト訪問</h3>
               </div>
               <p className="text-xs text-zinc-500">
-                共通期間: {googleAnalytics.period.startDate}〜{googleAnalytics.period.endDate} · Search Consoleの反映遅延を考慮して3日前まで
+                Search Console: {googleAnalytics.period.startDate}〜{googleAnalytics.period.endDate}（3日前まで） · GA4: {googleAnalytics.analyticsPeriod.startDate}〜{googleAnalytics.analyticsPeriod.endDate}（前日まで・速報値は後日変わる場合があります）
               </p>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -465,9 +465,9 @@ export default async function RevenueDashboardPage({
                 {googleAnalytics.analytics.available ? (
                   <>
                     <div className="mt-3 grid grid-cols-3 gap-3">
-                      <MetricCard label="訪問ユーザー" value={`${googleAnalytics.analytics.activeUsers?.toLocaleString("ja-JP")}人`} note="GA4のアクティブユーザー" />
-                      <MetricCard label="セッション" value={`${googleAnalytics.analytics.sessions?.toLocaleString("ja-JP")}回`} note="訪問セッション数" />
-                      <MetricCard label="全ページ表示" value={`${googleAnalytics.analytics.pageViews?.toLocaleString("ja-JP")}回`} note="作品以外も含むPV" />
+                      <MetricCard label="訪問ユーザー" value={`${googleAnalytics.analytics.activeUsers?.toLocaleString("ja-JP")}人`} note={`GA4のアクティブユーザー · ${googleAnalytics.analyticsPeriod.startDate}〜${googleAnalytics.analyticsPeriod.endDate}`} />
+                      <MetricCard label="セッション" value={`${googleAnalytics.analytics.sessions?.toLocaleString("ja-JP")}回`} note={`訪問セッション数 · ${googleAnalytics.analyticsPeriod.startDate}〜${googleAnalytics.analyticsPeriod.endDate}`} />
+                      <MetricCard label="全ページ表示" value={`${googleAnalytics.analytics.pageViews?.toLocaleString("ja-JP")}回`} note={`作品以外も含むPV · ${googleAnalytics.analyticsPeriod.startDate}〜${googleAnalytics.analyticsPeriod.endDate}`} />
                     </div>
                     <p className="mt-3 text-[11px] text-zinc-500">訪問ユーザーはGA4の集計値です。Cookie拒否等により実人数と一致しない場合があります。</p>
                   </>
@@ -484,7 +484,7 @@ export default async function RevenueDashboardPage({
           </section>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <FunnelStage number={1} title="Google検索表示" value={googleAnalytics.searchConsole.available ? `${googleAnalytics.searchConsole.impressions?.toLocaleString("ja-JP")}回` : "未接続"} period={`${googleAnalytics.period.startDate}〜${googleAnalytics.period.endDate}`} definition="Search Consoleの表示回数。検索結果に表示された回数で、サイト訪問ではありません。" status={googleAnalytics.searchConsole.available ? "google-measured" : "unavailable"} />
-            <FunnelStage number={2} title="サイト訪問ユーザー" value={googleAnalytics.analytics.available ? `${googleAnalytics.analytics.activeUsers?.toLocaleString("ja-JP")}人` : "未接続"} period={`${googleAnalytics.period.startDate}〜${googleAnalytics.period.endDate}`} definition="GA4のアクティブユーザー数。検索経由に限らない全流入のユーザーです。" status={googleAnalytics.analytics.available ? "google-measured" : "unavailable"} />
+            <FunnelStage number={2} title="サイト訪問ユーザー" value={googleAnalytics.analytics.available ? `${googleAnalytics.analytics.activeUsers?.toLocaleString("ja-JP")}人` : "未接続"} period={`${googleAnalytics.analyticsPeriod.startDate}〜${googleAnalytics.analyticsPeriod.endDate}`} definition="GA4のアクティブユーザー数。検索経由に限らない全流入のユーザーです。前日までの速報値で、後日変わる場合があります。" status={googleAnalytics.analytics.available ? "google-measured" : "unavailable"} />
             <FunnelStage number={3} title="作品ページPV" value={analytics.pageViewTrackingEnabled ? `${analytics.totals.workPageViewsThirtyDays.toLocaleString("ja-JP")}回` : "未計測"} period="直近30日" definition={analytics.pageViewTrackingEnabled ? "記録された作品詳細ページ表示イベント。ユニーク訪問者数ではありません。" : "ページ表示計測が有効ではないため、この期間の数字を出せません。"} status={analytics.pageViewTrackingEnabled ? "measured" : "unavailable"} />
             <FunnelStage number={4} title="FANZA CTA" value={`${thirtyDayTotal.toLocaleString("ja-JP")}回`} period="直近30日" definition="サイト内で記録したFANZAリンク操作。購入・購入者数ではありません。" status="measured" />
             <FunnelStage number={5} title="公式成果（ID990）" value={salesAnalytics.currentMonthHasRows ? `${salesAnalytics.totals.salesCount.toLocaleString("ja-JP")}件 / ¥${salesAnalytics.totals.commissionAmount.toLocaleString("ja-JP")}` : "未確認"} period={`${salesAnalytics.currentMonth} 対象月`} definition="公式商品CSVのID990指定分。投稿別購入ではなく、クリック計測とも期間・対象を照合して見る必要があります。" status={salesAnalytics.currentMonthHasRows ? "account-total" : "unavailable"} />
