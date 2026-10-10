@@ -1,7 +1,7 @@
 import type { AffiliatePerformanceRow } from "@/lib/affiliateSalesAnalytics";
 import type { FanzaXGrowth } from "@/lib/fanzaXAccountGrowth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { cleanupTempVideo, createXPost, downloadTempVideo, fetchXPostPublicMetrics, getXApiCapabilityStatus, verifyXReadOnlyConnection } from "@/lib/xApi";
+import { cleanupTempVideo, createXPost, downloadTempVideo, fetchXPostMetrics, getXApiCapabilityStatus, hasXPostMetricsAccess, verifyXReadOnlyConnection } from "@/lib/xApi";
 import { canTrimFanzaXGrowthSampleMovie, isFanzaXGrowthTechnicalSampleMovie, isUsableXMediaAsset, sourceDomain, sourceKindFor, validateTrimStartSeconds, X_GROWTH_ACCOUNT, type XMediaAsset } from "@/lib/xMediaAssets";
 import type { XCreativeLearningRow, XPostLog, XPostLogInput } from "@/lib/xPostLogs";
 import { saveXPostLog } from "@/lib/xPostLogs";
@@ -664,6 +664,7 @@ async function invalidateTodayPlanWork(workId: number) {
 
 export async function recordManualXPost(input: {
   workId: number;
+  xPostId: string;
   candidateId?: string | null;
   slotId?: string | null;
   candidateRank?: string | null;
@@ -676,12 +677,14 @@ export async function recordManualXPost(input: {
   linkStrategy?: string | null;
 }) {
   if (!Number.isSafeInteger(input.workId) || input.workId <= 0) return { error: "作品IDが不正です。" };
+  if (!/^\d{8,25}$/.test(input.xPostId)) return { error: "X投稿URLから投稿IDを確認できませんでした。" };
   const candidateId = input.candidateId?.trim() || `manual-${input.workId}`;
   const trackedPostKey = xPostKeyFromText(input.postText) ?? xPostKeyFromText(input.trackingUrl);
   const linkStrategy = input.linkStrategy === "reply_link" || input.linkStrategy === "self_reply" ? "reply_link" : input.linkStrategy === "body_link" || input.linkStrategy === "body" ? "body_link" : null;
   const result = await saveXPostLog({
     postKey: trackedPostKey ?? `manual-${todayTokyo()}-${candidateId}`.slice(0, 120), workId: input.workId, category: "score",
     title: input.title.slice(0, 300), postText: input.postText, postDate: todayTokyo(), accountHandle: ACCOUNT,
+    xPostId: input.xPostId,
     postIntent: "work_link", scheduledSlot: input.slotId ?? null, creativeVariantId: candidateId,
     mediaAssetId: input.mediaAssetId ?? null, linkStrategy,
     creativeGenome: { candidate_id: candidateId, slot_id: input.slotId ?? null, slot_role: input.slotRole ?? null, candidate_rank: input.candidateRank ?? null, intent: input.intent ?? null, completion_source: "admin_manual_posted_button" },
@@ -1100,21 +1103,51 @@ export async function executeOpportunityPost(id: number) {
 }
 
 export async function syncMetricSnapshots(age: XSnapshotAge) {
-  if (!snapshotAges.includes(age)) return { error: "Invalid snapshot age", saved: 0 };
+  if (!snapshotAges.includes(age)) return { error: "Invalid snapshot age", saved: 0, skippedReason: null as string | null };
   const { data, error } = await supabaseAdmin
     .from("x_post_logs")
-    .select("id,post_key,work_id,posted_at,x_post_id")
-    .eq("account_handle", ACCOUNT)
+    .select("id,account_handle,post_key,work_id,posted_at,x_post_id")
+    .in("account_handle", [ACCOUNT, "bijyo1010"])
     .not("x_post_id", "is", null)
+    .gte("posted_at", new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString())
+    .order("posted_at", { ascending: false })
     .limit(100);
-  if (error) return { error: error.message, saved: 0 };
-  const logs = (data ?? []) as Array<{ id: number; post_key: string; work_id: number; posted_at: string; x_post_id: string | null }>;
-  const metrics = await fetchXPostPublicMetrics(logs.map((log) => log.x_post_id).filter((id): id is string => Boolean(id)));
+  if (error) return { error: error.message, saved: 0, skippedReason: null as string | null };
+  const logs = (data ?? []) as Array<{ id: number; account_handle: string; post_key: string; work_id: number; posted_at: string; x_post_id: string | null }>;
+  if (!logs.length) return { error: null, saved: 0, skippedReason: null as string | null };
+  const postKeys = logs.map((log) => log.post_key);
+  const existingResult = await supabaseAdmin
+    .from("x_metric_snapshots")
+    .select("post_key")
+    .eq("snapshot_age", age)
+    .in("post_key", postKeys);
+  if (existingResult.error) return { error: existingResult.error.message, saved: 0, skippedReason: null as string | null };
+  const existing = new Set((existingResult.data ?? []).map((row) => row.post_key as string));
+  const hours = { "1h": 1, "6h": 6, "24h": 24, "72h": 72 }[age];
+  const eligibleLogs = logs.filter((log) => {
+    const ageHours = (Date.now() - new Date(log.posted_at).getTime()) / (60 * 60 * 1000);
+    return !existing.has(log.post_key) && ageHours >= hours && ageHours < hours + 3;
+  });
+  if (!eligibleLogs.length) return { error: null, saved: 0, skippedReason: null as string | null };
+  const metrics = new Map<string, { impressions: number | null; likes: number; replies: number; reposts: number }>();
+  const skippedAccounts = new Set<string>();
+  for (const accountHandle of ["hakkutsu_lab", "bijyo1010"] as const) {
+    const accountLogs = eligibleLogs.filter((log) => log.account_handle === accountHandle && log.x_post_id);
+    if (!accountLogs.length) continue;
+    if (!hasXPostMetricsAccess(accountHandle)) {
+      skippedAccounts.add(accountHandle);
+      continue;
+    }
+    try {
+      const accountMetrics = await fetchXPostMetrics(accountLogs.map((log) => log.x_post_id as string), accountHandle);
+      for (const [id, value] of accountMetrics) metrics.set(id, value);
+    } catch {
+      skippedAccounts.add(accountHandle);
+    }
+  }
   const rows = [];
-  for (const log of logs) {
+  for (const log of eligibleLogs) {
     const postedAt = new Date(log.posted_at).getTime();
-    const hours = { "1h": 1, "6h": 6, "24h": 24, "72h": 72 }[age];
-    if (Date.now() < postedAt + hours * 60 * 60 * 1000) continue;
     const since = new Date(postedAt).toISOString();
     const until = new Date(postedAt + hours * 60 * 60 * 1000).toISOString();
     const [views, clicks] = await Promise.all([
@@ -1122,24 +1155,32 @@ export async function syncMetricSnapshots(age: XSnapshotAge) {
       supabaseAdmin.from("affiliate_clicks").select("id", { count: "exact", head: true }).eq("source_page", "x").eq("x_post_key", log.post_key).gte("clicked_at", since).lte("clicked_at", until),
     ]);
     const publicMetric = log.x_post_id ? metrics.get(log.x_post_id) : null;
+    if (!publicMetric || typeof publicMetric.impressions !== "number") {
+      skippedAccounts.add(log.account_handle);
+      continue;
+    }
     rows.push({
-      account_handle: ACCOUNT,
+      account_handle: log.account_handle,
       x_post_log_id: log.id,
       post_key: log.post_key,
       snapshot_age: age,
       source: "x_api",
-      impressions: publicMetric?.impressions ?? 0,
-      likes: publicMetric?.likes ?? 0,
-      replies: publicMetric?.replies ?? 0,
-      reposts: publicMetric?.reposts ?? 0,
+      impressions: publicMetric.impressions,
+      likes: publicMetric.likes,
+      replies: publicMetric.replies,
+      reposts: publicMetric.reposts,
       site_visits: views.count ?? 0,
       affiliate_clicks: clicks.count ?? 0,
+      notes: "",
       captured_at: new Date().toISOString(),
     });
   }
-  if (!rows.length) return { error: null, saved: 0 };
+  const skippedReason = skippedAccounts.size
+    ? `X本人認証の表示数を取得できないアカウント: ${[...skippedAccounts].join(", ")}`
+    : null;
+  if (!rows.length) return { error: null, saved: 0, skippedReason };
   const result = await supabaseAdmin.from("x_metric_snapshots").upsert(rows, { onConflict: "post_key,snapshot_age" });
-  return { error: result.error?.message ?? null, saved: result.error ? 0 : rows.length };
+  return { error: result.error?.message ?? null, saved: result.error ? 0 : rows.length, skippedReason };
 }
 
 export async function persistCreativeLearning(rows: XCreativeLearningRow[]) {

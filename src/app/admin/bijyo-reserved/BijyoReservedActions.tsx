@@ -29,7 +29,16 @@ export function BijyoReservedActions({ jobId, workId, mainText, replyText, statu
   const videoRef = useRef<HTMLVideoElement>(null);
   async function run(action: string) {
     setBusy(true); setMessage("");
-    try { const result = await call({ action, jobId, workId }); setMessage(action === "posted" ? "投稿済みにしました。" : action === "skip" ? "スキップして候補を補充しました。" : action === "exclude" ? "今後の候補から外しました。" : result.trim?.ok === false ? `手動追加は完了しましたが、trim準備に失敗しました。動画ボタンから再生成できます。\n${result.trim.error}` : "手動追加・trim準備が完了しました。画面を更新します。"); if (["posted", "skip", "exclude", "manual"].includes(action)) window.location.reload(); }
+    try {
+      const xPostUrl = action === "posted" ? window.prompt("投稿済みのX投稿URLを貼り付けてください。") : null;
+      if (action === "posted" && !xPostUrl?.trim()) {
+        setMessage("計測に必要なX投稿URLがないため、投稿済み登録を中止しました。");
+        return;
+      }
+      const result = await call({ action, jobId, workId, ...(xPostUrl ? { xPostUrl } : {}) });
+      setMessage(action === "posted" ? "投稿済みにしました。X投稿URLを計測に紐付けました。" : action === "skip" ? "スキップして候補を補充しました。" : action === "exclude" ? "今後の候補から外しました。" : result.trim?.ok === false ? `手動追加は完了しましたが、trim準備に失敗しました。動画ボタンから再生成できます。\n${result.trim.error}` : "手動追加・trim準備が完了しました。画面を更新します。");
+      if (["posted", "skip", "exclude", "manual"].includes(action)) window.location.reload();
+    }
     catch (error) { if (error instanceof BijyoApiError && error.code === "already_selected") setActionBlocked(true); setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }

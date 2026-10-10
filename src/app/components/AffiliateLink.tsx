@@ -9,7 +9,7 @@ import {
   normalizeCtaVariant,
   type CtaVariant,
 } from "@/lib/ctaExperiment";
-import { readExternalAttribution } from "./Analytics";
+import { readExternalAttribution, readXPostKey } from "./Analytics";
 import { isOperatorLandingPath } from "@/lib/externalAttribution";
 import type { SampleMovieDeliveryMode } from "@/lib/sampleMovieFallback";
 import type { AffiliatePlacement } from "@/lib/affiliatePlacements";
@@ -29,8 +29,6 @@ type Props = {
 
 const STORAGE_PREFIX = "hakkutsu-lab:cta-variant:v1";
 const IMPRESSION_STORAGE_PREFIX = "hakkutsu-lab:cta-impression:v1";
-const MAX_X_POST_KEY_LENGTH = 120;
-
 function getStoredVariant(placement: AffiliatePlacement): CtaVariant {
   if (typeof window === "undefined") return "control";
   try {
@@ -65,8 +63,7 @@ function readUrlAttribution(fallbackSourcePage?: AffiliateSource) {
   }
 
   const params = new URLSearchParams(window.location.search);
-  const xPostKey =
-    params.get("x_post")?.trim().slice(0, MAX_X_POST_KEY_LENGTH) || null;
+  const xPostKey = readXPostKey();
 
   return {
     sourcePage: normalizeAffiliateSource(params.get("from") ?? fallbackSourcePage),

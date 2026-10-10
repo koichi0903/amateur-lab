@@ -14,9 +14,9 @@ function normalizeProductId(value: string) {
   return value.normalize("NFKC").trim().toLowerCase();
 }
 
-function stableRowKey(reportMonth: string, productId: string, title: string) {
+function stableRowKey(reportMonth: string, affiliateScope: string, productId: string, title: string) {
   return createHash("sha256")
-    .update(`${reportMonth}|${productId || title.normalize("NFKC").trim()}`)
+    .update(`${reportMonth}|${affiliateScope}|${productId || title.normalize("NFKC").trim()}`)
     .digest("hex");
 }
 
@@ -25,6 +25,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get("file");
     const monthValue = String(formData.get("reportMonth") ?? "");
+    const affiliateScope = String(formData.get("affiliateScope") ?? "");
 
     if (!(file instanceof File) || file.size === 0) {
       return NextResponse.json({ error: "CSVファイルを選択してください。" }, { status: 400 });
@@ -34,6 +35,9 @@ export async function POST(request: Request) {
     }
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(monthValue)) {
       return NextResponse.json({ error: "対象月を選択してください。" }, { status: 400 });
+    }
+    if (!["990", "026", "account-wide"].includes(affiliateScope)) {
+      return NextResponse.json({ error: "レポートのアフィリエイトIDを選択してください。" }, { status: 400 });
     }
 
     const reportMonth = `${monthValue}-01`;
@@ -85,8 +89,8 @@ export async function POST(request: Request) {
       sales_count: row.salesCount,
       sales_amount: row.salesAmount,
       commission_amount: row.commissionAmount,
-      source_file: file.name.slice(0, 255),
-      row_key: stableRowKey(reportMonth, row.productId, row.title),
+      source_file: `scope:${affiliateScope}|${file.name}`.slice(0, 255),
+      row_key: stableRowKey(reportMonth, affiliateScope, row.productId, row.title),
       imported_at: now,
     }));
 
@@ -110,6 +114,7 @@ export async function POST(request: Request) {
       matched,
       unmatched: records.length - matched,
       totalCommission: records.reduce((sum, row) => sum + row.commission_amount, 0),
+      scopeLabel: affiliateScope === "990" ? "ID990" : affiliateScope === "026" ? "ID026" : "全体・ID不明",
     });
   } catch (error) {
     console.error("FANZA report import failed", error);

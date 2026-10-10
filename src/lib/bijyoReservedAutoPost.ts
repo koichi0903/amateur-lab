@@ -137,7 +137,7 @@ async function loadJob(jobId: number, workId?: number) {
   return { job: { ...job, reply_text: buildBijyoReplyText(job.work_id), work: (workResult.data as Work | null) ?? null }, error: null };
 }
 
-export async function markBijyoPosted(jobId: number) {
+export async function markBijyoPosted(jobId: number, xPostId: string) {
   const loaded = await loadJob(jobId);
   if (loaded.error || !loaded.job || !loaded.job.work) return { ok: false, error: loaded.error ?? "投稿候補が見つかりません。" };
   if (!["pending", "trim_failed"].includes(loaded.job.status)) return { ok: false, error: "この枠は投稿済み、スキップ済み、または対象外です。", code: "invalid_transition" };
@@ -149,6 +149,7 @@ export async function markBijyoPosted(jobId: number) {
     postText: loaded.job.main_text,
     postDate: tokyoDate(),
     accountHandle: BIJYO_ACCOUNT,
+    xPostId,
     postIntent: "work_link",
     linkStrategy: "reply_link",
   });
@@ -256,4 +257,3 @@ export async function prepareBijyoVideo(jobId: number, workId?: number, options:
     throw new Error(reason);
   }
 }
-
