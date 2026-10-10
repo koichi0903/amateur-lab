@@ -6,6 +6,7 @@ import { bijyoManualIdempotencyKey, bijyoPostTrackingKey, buildBijyoMainText, bu
 import { calculateBijyoTrimStart } from "@/lib/bijyoTrim";
 import { validateTrimStartSeconds } from "@/lib/xMediaAssets";
 import { saveXPostLog } from "@/lib/xPostLogs";
+import { runBijyoPreparationOnce } from "@/lib/bijyoPreparationGate";
 
 export { buildBijyoMainText, buildBijyoReplyText, tokyoDate } from "@/lib/bijyoReservedWorkflow";
 export const BIJYO_ACCOUNT = "bijyo1010" as const;
@@ -212,7 +213,7 @@ export async function runBijyoReservedSlot(...args: number[]) { void args; retur
 
 type PrepareBijyoVideoOptions = { mode?: "auto" | "manual"; trimStartSeconds?: unknown };
 
-export async function prepareBijyoVideo(jobId: number, workId?: number, options: PrepareBijyoVideoOptions = {}) {
+async function performBijyoVideoPreparation(jobId: number, workId?: number, options: PrepareBijyoVideoOptions = {}) {
   let loaded = await loadJob(jobId, workId);
   const resolvedWorkId = Number.isSafeInteger(workId) && (workId ?? 0) > 0 ? workId : undefined;
   if (!loaded.job && !loaded.error && resolvedWorkId !== undefined) {
@@ -224,8 +225,14 @@ export async function prepareBijyoVideo(jobId: number, workId?: number, options:
   const job = loaded.job;
   const work = job.work as Work;
   const previousTrimStatus = job.trim_status;
-  const preparing = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_status: "preparing", trim_failure_reason: null }).eq("account_handle", BIJYO_ACCOUNT).eq("id", job.id);
+  const preparing = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_status: "preparing", trim_failure_reason: null })
+    .eq("account_handle", BIJYO_ACCOUNT).eq("id", job.id).in("trim_status", ["not_ready", "trim_failed", "ready"]).select("id").maybeSingle();
   if (preparing.error) throw new Error(preparing.error.message);
+  if (!preparing.data) {
+    const latest = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("trim_status").eq("account_handle", BIJYO_ACCOUNT).eq("id", job.id).maybeSingle();
+    if (latest.data?.trim_status === "preparing") throw new Error("動画準備はすでに実行中です。完了後に画面を更新してください。");
+    throw new BijyoVideoNotFoundError("動画準備の対象ジョブが見つかりません。画面を更新してください。");
+  }
   try {
     let trimStartSeconds: number;
     let reason: string;
@@ -255,5 +262,9 @@ export async function prepareBijyoVideo(jobId: number, workId?: number, options:
     if (reason.includes("開始秒")) throw new BijyoTrimValidationError(reason);
     throw new Error(reason);
   }
+}
+
+export function prepareBijyoVideo(jobId: number, workId?: number, options: PrepareBijyoVideoOptions = {}) {
+  return runBijyoPreparationOnce(jobId, () => performBijyoVideoPreparation(jobId, workId, options));
 }
 
