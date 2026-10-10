@@ -19,6 +19,7 @@ import { getGoogleAcquisitionAnalytics } from "@/lib/googleAcquisitionAnalytics"
 import RevenueImportForm from "./RevenueImportForm";
 import RevenuePerformanceTable from "./RevenuePerformanceTable";
 import TrafficImprovementPanel from "./TrafficImprovementPanel";
+import FanzaDailyPostFunnel from "./FanzaDailyPostFunnel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -331,7 +332,7 @@ export default async function RevenueDashboardPage({
               <p className="text-xs font-black tracking-[0.16em] text-emerald-300">① FANZA公式の成果</p>
               <h2 className="mt-1 text-xl font-black">販売・報酬（公式CSV）</h2>
               <p className="mt-1 text-sm leading-6 text-zinc-400">
-              FANZA公式の商品別レポートに記録されたアカウント合計です。発掘LAB内のクリックや個別投稿に紐付いた購入ではありません。期間は下記の対象月です。
+              FANZA公式の商品別CSVをアフィリエイトID別に記録します。ここでは発掘LAB用の990だけを表示し、全体CSVや026は混ぜません。作品・投稿への購入帰属はできません。
               </p>
             </div>
           </div>
@@ -348,14 +349,14 @@ export default async function RevenueDashboardPage({
 
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <MetricCard
-              label={`公式レポート ${salesAnalytics.currentMonth.replace("-", "年")}月 販売件数`}
+              label={`ID990 ${salesAnalytics.currentMonth.replace("-", "年")}月 販売件数`}
               value={`${salesAnalytics.totals.salesCount.toLocaleString("ja-JP")}件`}
-              note="商品別レポートのサイト全体実績"
+              note="990を選択して取り込んだ公式CSVのみ"
             />
             <MetricCard
               label="販売金額"
               value={`¥${salesAnalytics.totals.salesAmount.toLocaleString("ja-JP")}`}
-              note="対象月の取込済み合計"
+              note="ID990・対象月の取込済み合計"
             />
             <MetricCard
               label="発生報酬"
@@ -371,7 +372,10 @@ export default async function RevenueDashboardPage({
           )}
 
           {!salesAnalytics.currentMonthHasRows && !salesAnalytics.error && (
-            <p className="mt-4 text-xs leading-5 text-amber-300">対象月の成果データ行がありません。CSV未取込と販売0件をこの画面だけでは区別できないため、上の0を確定成果として扱わないでください。</p>
+            <p className="mt-4 text-xs leading-5 text-amber-300">対象月のID990成果行は未取得です。CSV未取込と販売0件を区別できないため、0件とは判定しません。DMM公式のID990レポートも確認してください。</p>
+          )}
+          {salesAnalytics.non990Totals.rows > 0 && (
+            <p className="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-xs leading-5 text-amber-200">ID990以外またはID範囲が不明な明細が {salesAnalytics.non990Totals.rows.toLocaleString("ja-JP")} 行あります。これらは発掘LABの990成果・クリック分析に含めていません。</p>
           )}
 
           <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
@@ -483,7 +487,7 @@ export default async function RevenueDashboardPage({
             <FunnelStage number={2} title="サイト訪問ユーザー" value={googleAnalytics.analytics.available ? `${googleAnalytics.analytics.activeUsers?.toLocaleString("ja-JP")}人` : "未接続"} period={`${googleAnalytics.period.startDate}〜${googleAnalytics.period.endDate}`} definition="GA4のアクティブユーザー数。検索経由に限らない全流入のユーザーです。" status={googleAnalytics.analytics.available ? "google-measured" : "unavailable"} />
             <FunnelStage number={3} title="作品ページPV" value={analytics.pageViewTrackingEnabled ? `${analytics.totals.workPageViewsThirtyDays.toLocaleString("ja-JP")}回` : "未計測"} period="直近30日" definition={analytics.pageViewTrackingEnabled ? "記録された作品詳細ページ表示イベント。ユニーク訪問者数ではありません。" : "ページ表示計測が有効ではないため、この期間の数字を出せません。"} status={analytics.pageViewTrackingEnabled ? "measured" : "unavailable"} />
             <FunnelStage number={4} title="FANZA CTA" value={`${thirtyDayTotal.toLocaleString("ja-JP")}回`} period="直近30日" definition="サイト内で記録したFANZAリンク操作。購入・購入者数ではありません。" status="measured" />
-            <FunnelStage number={5} title="公式成果" value={salesAnalytics.currentMonthHasRows ? `${salesAnalytics.totals.salesCount.toLocaleString("ja-JP")}件 / ¥${salesAnalytics.totals.commissionAmount.toLocaleString("ja-JP")}` : "未確認"} period={`${salesAnalytics.currentMonth} 対象月`} definition="公式CSVの月次アカウント合計。対象月に保存済みの成果行がない場合、未取込と0件を判別できません。" status={salesAnalytics.currentMonthHasRows ? "account-total" : "unavailable"} />
+            <FunnelStage number={5} title="公式成果（ID990）" value={salesAnalytics.currentMonthHasRows ? `${salesAnalytics.totals.salesCount.toLocaleString("ja-JP")}件 / ¥${salesAnalytics.totals.commissionAmount.toLocaleString("ja-JP")}` : "未確認"} period={`${salesAnalytics.currentMonth} 対象月`} definition="公式商品CSVのID990指定分。投稿別購入ではなく、クリック計測とも期間・対象を照合して見る必要があります。" status={salesAnalytics.currentMonthHasRows ? "account-total" : "unavailable"} />
           </div>
           <p className="mt-3 rounded-xl border border-amber-900/70 bg-amber-950/20 px-4 py-3 text-xs leading-5 text-amber-200">
             期間と帰属範囲が異なる段階を並べた全体像です。現在は厳密な一続きのCVファネルや各段階の転換率として比較できません。
@@ -558,6 +562,8 @@ export default async function RevenueDashboardPage({
         </section>
 
         <XTrafficPanel xTraffic={analytics.xTraffic} />
+
+        <FanzaDailyPostFunnel />
 
         <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">
           <div className="flex items-center gap-3">

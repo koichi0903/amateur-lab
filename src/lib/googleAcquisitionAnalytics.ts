@@ -310,8 +310,11 @@ export async function getGoogleAcquisitionAnalytics(): Promise<GoogleAcquisition
   const period = reportPeriod();
   const report = emptyReport(period);
   if (!report.configured) {
-    report.searchConsole.error = "VercelにGoogle読み取り用サービスアカウントの設定が必要です。";
-    report.analytics.error = "VercelにGoogle読み取り用サービスアカウントの設定が必要です。";
+    const message = process.env.VERCEL
+      ? "このVercel環境にGoogle読み取り用サービスアカウントが設定されていません。Production環境変数と、設定後に作成されたデプロイか確認してください。"
+      : "ローカル環境にGoogle読み取り用サービスアカウントが設定されていません。Vercel Productionの設定はlocalhostには共有されません。公開サイトでご確認ください。";
+    report.searchConsole.error = message;
+    report.analytics.error = message;
     return report;
   }
 

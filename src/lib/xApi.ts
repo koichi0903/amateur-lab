@@ -159,13 +159,44 @@ export async function verifyXReadOnlyConnection() {
   };
 }
 
-export async function fetchXPostPublicMetrics(ids: string[]) {
-  if (!ids.length) return new Map<string, { impressions: number; likes: number; replies: number; reposts: number }>();
-  const body = await xFetch(`/2/tweets?ids=${encodeURIComponent(ids.join(","))}&tweet.fields=public_metrics`, {
+export type XPostMetrics = { impressions: number | null; likes: number; replies: number; reposts: number };
+
+function metricAuthForAccount(accountHandle: "hakkutsu_lab" | "bijyo1010") {
+  if (accountHandle === "bijyo1010") {
+    const userToken = process.env.X_BIJO_USER_ACCESS_TOKEN;
+    return { token: userToken ?? process.env.X_BEARER_TOKEN, hasUserContext: Boolean(userToken) };
+  }
+  const userToken = process.env.X_USER_ACCESS_TOKEN;
+  return { token: userToken ?? process.env.X_BEARER_TOKEN, hasUserContext: Boolean(userToken) };
+}
+
+export function hasXPostMetricsAccess(accountHandle: "hakkutsu_lab" | "bijyo1010") {
+  return Boolean(metricAuthForAccount(accountHandle).token);
+}
+
+export async function fetchXPostMetrics(ids: string[], accountHandle: "hakkutsu_lab" | "bijyo1010") {
+  const empty = new Map<string, XPostMetrics>();
+  if (!ids.length) return empty;
+  const auth = metricAuthForAccount(accountHandle);
+  if (!auth.token) return empty;
+  const fields = auth.hasUserContext
+    ? "public_metrics,non_public_metrics,organic_metrics"
+    : "public_metrics";
+  const body = await xFetch(`/2/tweets?ids=${encodeURIComponent(ids.join(","))}&tweet.fields=${encodeURIComponent(fields)}`, {
     method: "GET",
-  }, readToken()) as { data?: Array<{ id: string; public_metrics?: { like_count?: number; reply_count?: number; retweet_count?: number; impression_count?: number } }> };
+  }, auth.token) as { data?: Array<{
+    id: string;
+    public_metrics?: { like_count?: number; reply_count?: number; retweet_count?: number };
+    non_public_metrics?: { impression_count?: number };
+    organic_metrics?: { impression_count?: number };
+  }> };
   return new Map((body.data ?? []).map((row) => [row.id, {
-    impressions: row.public_metrics?.impression_count ?? 0,
+    // Impressions are account-owner analytics, not a public metric. Never infer 0 when unavailable.
+    impressions: typeof row.organic_metrics?.impression_count === "number"
+      ? row.organic_metrics.impression_count
+      : typeof row.non_public_metrics?.impression_count === "number"
+        ? row.non_public_metrics.impression_count
+        : null,
     likes: row.public_metrics?.like_count ?? 0,
     replies: row.public_metrics?.reply_count ?? 0,
     reposts: row.public_metrics?.retweet_count ?? 0,

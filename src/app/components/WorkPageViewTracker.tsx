@@ -5,7 +5,7 @@ import {
   normalizeAffiliateSource,
   type AffiliateSource,
 } from "@/lib/affiliateTracking";
-import { readExternalAttribution } from "./Analytics";
+import { readExternalAttribution, readXPostKey } from "./Analytics";
 
 type Props = {
   workId: number;
@@ -18,8 +18,6 @@ type Props = {
 };
 
 const PAGE_VIEW_STORAGE_PREFIX = "hakkutsu-lab:work-page-view:v1";
-const MAX_X_POST_KEY_LENGTH = 120;
-
 function shouldRecordPageView(key: string) {
   try {
     if (window.sessionStorage.getItem(key)) return false;
@@ -32,8 +30,7 @@ function shouldRecordPageView(key: string) {
 
 function readUrlAttribution(fallbackSourcePage?: AffiliateSource) {
   const params = new URLSearchParams(window.location.search);
-  const xPostKey =
-    params.get("x_post")?.trim().slice(0, MAX_X_POST_KEY_LENGTH) || null;
+  const xPostKey = readXPostKey();
 
   return {
     sourcePage: normalizeAffiliateSource(params.get("from") ?? fallbackSourcePage),

@@ -103,10 +103,10 @@ export default function MiniPriceHistoryChart({
         viewBox={`0 0 ${size.width} ${size.height}`}
         className={`w-full ${size.className}`}
         role="img"
-        aria-label={`過去90日の価格推移。履歴${historyCount}点、現在価格${price(currentPrice)}`}
+        aria-label={`取得できた最大90日分の価格履歴。履歴${historyCount}点、現在価格${price(currentPrice)}`}
       >
-        <title>過去90日の価格推移</title>
-        <desc>保存されたすべての価格変更点を実際の日時に合わせて表示しています。</desc>
+        <title>取得できた最大90日分の価格履歴</title>
+        <desc>取得できた価格記録のみを実際の日時に合わせて表示しています。</desc>
 
         {axisFractions.map((fraction) => {
           const x = geometry.plotLeft + fraction * (geometry.plotRight - geometry.plotLeft);
@@ -214,7 +214,7 @@ export default function MiniPriceHistoryChart({
 
       <div className="mt-0.5 flex items-center justify-between gap-2 text-[9px] font-bold text-slate-500 sm:text-[10px]">
         <span>履歴 {historyCount}点</span>
-        <span className="text-emerald-700">90日最安 {price(lowPrice)}</span>
+        <span className="text-emerald-700">記録最安 {price(lowPrice)}</span>
       </div>
     </div>
   );

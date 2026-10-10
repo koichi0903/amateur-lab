@@ -24,7 +24,12 @@ export async function POST(request: NextRequest) {
   const workId = Number(body.workId);
   let result: { ok: boolean; error?: string; code?: string; state?: string; jobId?: number; existing?: boolean };
   if (!Number.isSafeInteger(jobId) && ["posted", "exclude"].includes(action)) return NextResponse.json({ error: "jobIdが不正です。" }, { status: 400 });
-  if (action === "posted") result = await markBijyoPosted(jobId);
+  if (action === "posted") {
+    const xPostUrl = typeof body.xPostUrl === "string" ? body.xPostUrl.trim() : "";
+    const match = xPostUrl.match(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/[^/]+\/status\/(\d+)(?:[/?#].*)?$/i);
+    if (!match) return NextResponse.json({ error: "有効なX投稿URLが必要です。" }, { status: 400 });
+    result = await markBijyoPosted(jobId, match[1]);
+  }
   else if (action === "skip") result = Number.isSafeInteger(jobId) && jobId > 0 ? await skipBijyoJob(jobId) : Number.isSafeInteger(workId) && workId > 0 ? await skipBijyoFutureWork(workId) : { ok: false, error: "jobIdまたはworkIdが不正です。" };
   else if (action === "exclude") result = await excludeBijyoJob(jobId);
   else if (action === "manual") {

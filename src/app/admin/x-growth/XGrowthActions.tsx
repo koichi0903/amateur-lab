@@ -378,7 +378,14 @@ export function ManualPostActions({
   const deleteTempFile = async () => {
     setMessage("");
     try {
-      await postJson("/api/admin/x-growth/mark-posted", { workId, candidateId, slotId, candidateRank, slotRole, title, postText, trackingUrl: affiliateUrl, intent, mediaAssetId, linkStrategy: linkPlan });
+      const xPostUrl = window.prompt(linkPlan === "self_reply"
+        ? "作品ページのリンクを含む自己リプのX投稿URLを貼り付けてください。"
+        : "作品ページのリンクを含むX投稿URLを貼り付けてください。");
+      if (!xPostUrl?.trim()) {
+        setMessage("計測に必要なX投稿URLがないため、投稿済み登録を中止しました。");
+        return;
+      }
+      await postJson("/api/admin/x-growth/mark-posted", { workId, candidateId, slotId, candidateRank, slotRole, title, postText, trackingUrl: affiliateUrl, intent, mediaAssetId, linkStrategy: linkPlan, xPostUrl });
       const handle = await loadDirectoryHandle();
       if (handle && (await ensurePermission(handle))) await handle.removeEntry(tempFilename).catch(() => undefined);
       setMessage(`投稿済みとして記録しました。${tempFilename} を削除しました。`);

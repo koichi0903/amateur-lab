@@ -29,6 +29,13 @@ export type AffiliatePerformanceRow = {
   actionReason: string;
 };
 
+type AffiliateSalesScope = "990" | "026" | "account-wide" | "unassigned";
+
+function rowScope(row: Pick<AffiliateSaleRow, "source_file">): AffiliateSalesScope {
+  const match = row.source_file.match(/^scope:(990|026|account-wide)\|/);
+  return (match?.[1] as AffiliateSalesScope | undefined) ?? "unassigned";
+}
+
 const PAGE_SIZE = 1000;
 const MAX_ROWS = 50_000;
 
@@ -99,6 +106,7 @@ export async function getAffiliateSalesAnalytics() {
         currentMonth,
         currentMonthHasRows: false,
         totals: { salesCount: 0, salesAmount: 0, commissionAmount: 0 },
+        non990Totals: { salesCount: 0, salesAmount: 0, commissionAmount: 0, rows: 0 },
         monthly: monthKeys.map((key) => ({ key, salesCount: 0, salesAmount: 0, commissionAmount: 0 })),
         topProducts: [] as Array<AffiliateSaleRow & { rank: number }>,
         performance: [] as AffiliatePerformanceRow[],
@@ -112,7 +120,9 @@ export async function getAffiliateSalesAnalytics() {
     if (page.length < PAGE_SIZE) break;
   }
 
-  const currentRows = rows.filter((row) => row.report_month.slice(0, 7) === currentMonth);
+  const currentMonthRows = rows.filter((row) => row.report_month.slice(0, 7) === currentMonth);
+  const currentRows = currentMonthRows.filter((row) => rowScope(row) === "990");
+  const non990Rows = currentMonthRows.filter((row) => rowScope(row) !== "990");
   const clickResult = await fetchAffiliateClicks(35);
   const currentMonthClicks = clickResult.rows.filter(
     (row) => monthKey(new Date(row.clicked_at)) === currentMonth,
@@ -182,8 +192,17 @@ export async function getAffiliateSalesAnalytics() {
     }),
     { salesCount: 0, salesAmount: 0, commissionAmount: 0 },
   );
+  const non990Totals = non990Rows.reduce(
+    (sum, row) => ({
+      salesCount: sum.salesCount + row.sales_count,
+      salesAmount: sum.salesAmount + row.sales_amount,
+      commissionAmount: sum.commissionAmount + row.commission_amount,
+      rows: sum.rows + 1,
+    }),
+    { salesCount: 0, salesAmount: 0, commissionAmount: 0, rows: 0 },
+  );
   const monthly = monthKeys.map((key) => {
-    const monthRows = rows.filter((row) => row.report_month.slice(0, 7) === key);
+    const monthRows = rows.filter((row) => row.report_month.slice(0, 7) === key && rowScope(row) === "990");
     return monthRows.reduce(
       (sum, row) => ({
         key,
@@ -203,6 +222,7 @@ export async function getAffiliateSalesAnalytics() {
     currentMonth,
     currentMonthHasRows: currentRows.length > 0,
     totals,
+    non990Totals,
     monthly,
     topProducts: [...currentRows]
       .sort((a, b) => b.commission_amount - a.commission_amount)
