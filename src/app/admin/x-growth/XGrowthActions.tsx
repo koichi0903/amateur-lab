@@ -458,6 +458,7 @@ export function XVideoTrimControls({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [mediaError, setMediaError] = useState(false);
+  const [previewRequested, setPreviewRequested] = useState(false);
   const [note, setNote] = useState(initialTrimNote ?? "");
   const [modifyConfirmed, setModifyConfirmed] = useState(Boolean(trimModifyConfirmed));
   const [message, setMessage] = useState("");
@@ -492,19 +493,26 @@ export function XVideoTrimControls({
     <div className="mt-3 grid min-w-0 gap-2 rounded-lg border border-cyan-900 bg-cyan-950/10 p-3">
       {compact && <p className="text-xs font-black text-cyan-100">動画の最終調整</p>}
       <div className="mx-auto w-full min-w-0 rounded-lg bg-black">
-        <video
-          src={previewSourceUrl}
-          controls
-          preload="metadata"
-          playsInline
-          onLoadedMetadata={(event) => {
-            setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0);
-            setMediaError(false);
-          }}
-          onError={() => setMediaError(true)}
-          onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-          className="block aspect-video h-auto w-full min-w-0 object-contain"
-        />
+        {previewRequested ? (
+          <video
+            src={previewSourceUrl}
+            controls
+            preload="metadata"
+            playsInline
+            onLoadedMetadata={(event) => {
+              setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0);
+              setMediaError(false);
+            }}
+            onError={() => setMediaError(true)}
+            onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+            className="block aspect-video h-auto w-full min-w-0 object-contain"
+          />
+        ) : (
+          <button type="button" onClick={() => setPreviewRequested(true)} className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-4 text-center hover:border-cyan-700">
+            <span className="text-sm font-black text-cyan-100">動画を読み込んでプレビュー</span>
+            <span className="text-xs text-zinc-500">押すと公式サンプル動画を取得します</span>
+          </button>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-cyan-100">
         <span>現在 {currentTime.toFixed(1)}秒</span>

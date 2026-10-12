@@ -6,23 +6,28 @@ export default function ManualXImpressionInput({
   postKey,
   account,
   initialValue,
+  draftValue,
+  onDraftChange,
   compact = false,
 }: {
   postKey: string;
   account: "hakkutsu_lab" | "bijyo1010";
   initialValue?: number | null;
+  draftValue?: string;
+  onDraftChange?: (value: string) => void;
   compact?: boolean;
 }) {
   const [value, setValue] = useState(initialValue == null ? "" : String(initialValue));
+  const currentValue = draftValue ?? value;
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
 
   const save = async () => {
-    if (!/^\d+$/.test(value)) {
+    if (!/^\d+$/.test(currentValue)) {
       setMessage("Xに表示された閲覧数を整数で入力してください。");
       return;
     }
-    const impressions = Number(value);
+    const impressions = Number(currentValue);
     if (!Number.isSafeInteger(impressions) || impressions < 0 || impressions > 1_000_000_000) {
       setMessage("0以上の閲覧数を入力してください。");
       return;
@@ -56,14 +61,14 @@ export default function ManualXImpressionInput({
           inputMode="numeric"
           min="0"
           step="1"
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
+          value={currentValue}
+          onChange={(event) => onDraftChange ? onDraftChange(event.target.value) : setValue(event.target.value)}
           placeholder="閲覧数"
           className="h-10 w-32 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm font-bold text-white outline-none focus:border-emerald-400"
         />
         <button
           type="button"
-          disabled={pending || value === ""}
+          disabled={pending || currentValue === ""}
           onClick={() => void save()}
           className="h-10 rounded-lg bg-emerald-500 px-3 text-xs font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
         >

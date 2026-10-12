@@ -598,13 +598,19 @@ async function hydratePersistedTopPickMediaAssets(plan: PersistedXDailyPlan | nu
   };
 }
 
-export async function getPostedWorkIds() {
-  const { data, error } = await supabaseAdmin
+export async function getPostedWorkIds(workIds?: readonly number[]) {
+  const scopedWorkIds = workIds === undefined
+    ? undefined
+    : [...new Set(workIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (scopedWorkIds && !scopedWorkIds.length) return { workIds: new Set<number>(), error: null as string | null };
+
+  const baseQuery = supabaseAdmin
     .from("x_post_logs")
     .select("work_id")
     .eq("account_handle", ACCOUNT)
-    .not("work_id", "is", null)
-    .limit(10_000);
+    .not("work_id", "is", null);
+  const query = scopedWorkIds ? baseQuery.in("work_id", scopedWorkIds) : baseQuery;
+  const { data, error } = await query.limit(10_000);
   if (error) return { workIds: new Set<number>(), error: error.message };
   return {
     workIds: new Set((data ?? []).map((row) => Number((row as { work_id?: unknown }).work_id)).filter((id) => Number.isSafeInteger(id) && id > 0)),
@@ -614,7 +620,8 @@ export async function getPostedWorkIds() {
 
 async function normalizePersistedPlan(plan: PersistedXDailyPlan | null) {
   if (!plan) return plan;
-  const posted = await getPostedWorkIds();
+  const workIds = plan.top_picks.map((pick) => pick.workId).filter((id): id is number => Number.isSafeInteger(id) && id > 0);
+  const posted = await getPostedWorkIds(workIds);
   const topPicks = normalizeTopPickCandidates(plan.top_picks, posted.workIds) as SerializedTopPick[];
   return { ...plan, top_picks: topPicks, stale_reason: posted.error ? posted.error : plan.stale_reason };
 }

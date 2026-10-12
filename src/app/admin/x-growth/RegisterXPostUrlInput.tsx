@@ -5,13 +5,23 @@ import { useState } from "react";
 export default function RegisterXPostUrlInput({
   postKey,
   account,
+  draftValue,
+  onDraftChange,
 }: {
   postKey: string;
   account: "hakkutsu_lab" | "bijyo1010";
+  draftValue?: string;
+  onDraftChange?: (value: string) => void;
 }) {
-  const [url, setUrl] = useState("");
+  const [localUrl, setLocalUrl] = useState("");
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
+  const url = draftValue ?? localUrl;
+
+  function updateUrl(value: string) {
+    if (onDraftChange) onDraftChange(value);
+    else setLocalUrl(value);
+  }
 
   async function save() {
     setPending(true);
@@ -37,13 +47,13 @@ export default function RegisterXPostUrlInput({
       <label className="block text-[11px] font-bold leading-5 text-amber-100" htmlFor={`x-post-url-${account}-${postKey}`}>
         この投稿のX URLを登録
       </label>
-      <p className="mt-1 text-[10px] leading-4 text-zinc-500">投稿を開いたときの x.com/.../status/... URLを貼り付けます。</p>
+      <p className="mt-1 text-[10px] leading-4 text-zinc-500">投稿本文ではなく、投稿を開いたときの `x.com/.../status/...` URLを貼り付けます。</p>
       <div className="mt-2 flex flex-wrap gap-2">
         <input
           id={`x-post-url-${account}-${postKey}`}
           type="url"
           value={url}
-          onChange={(event) => setUrl(event.target.value)}
+          onChange={(event) => updateUrl(event.target.value)}
           placeholder="https://x.com/アカウント/status/..."
           className="h-10 min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-xs text-white outline-none focus:border-amber-400"
         />

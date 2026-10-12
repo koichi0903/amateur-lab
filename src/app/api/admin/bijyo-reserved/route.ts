@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createBijyoManualJob, excludeBijyoJob, getBijyoDashboard, markBijyoPosted, prepareBijyoVideo, skipBijyoFutureWork, skipBijyoJob } from "@/lib/bijyoReservedAutoPost";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
+import { getBijyoHistoryPage, getBijyoReservedQueueWorks } from "@/lib/bijyoReadPages";
+import { getBijyoManualJobsPage } from "@/lib/bijyoManualJobs";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +13,26 @@ function userSafeResult<T extends { error?: string }>(result: T) {
 
 export async function GET(request: NextRequest) {
   if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
-  const historyPage = Math.max(1, Number(request.nextUrl.searchParams.get("historyPage") ?? "1") || 1);
-  const candidatePage = Math.max(1, Number(request.nextUrl.searchParams.get("candidatePage") ?? "1") || 1);
+  const params = request.nextUrl.searchParams;
+  const historyValue = params.get("historyPage");
+  const reservedValue = params.get("reservedPage");
+  const manualValue = params.get("manualPage");
+  if (historyValue !== null && reservedValue === null) {
+    const page = Math.max(1, Number(historyValue) || 1);
+    const result = await getBijyoHistoryPage(page);
+    return NextResponse.json({ ...result, historyPage: result.page, historyHasMore: result.hasMore }, { headers: { "Cache-Control": "no-store" } });
+  }
+  if (reservedValue !== null && historyValue === null) {
+    const page = Math.max(1, Number(reservedValue) || 1);
+    const result = await getBijyoReservedQueueWorks(page);
+    return NextResponse.json({ reservedWorks: result.works, reservedHasMore: result.hasMore, error: result.error }, { headers: { "Cache-Control": "no-store" } });
+  }
+  if (manualValue !== null) {
+    const page = Math.max(1, Number(manualValue) || 1);
+    return NextResponse.json(await getBijyoManualJobsPage(page), { headers: { "Cache-Control": "no-store" } });
+  }
+  const historyPage = Math.max(1, Number(historyValue ?? "1") || 1);
+  const candidatePage = Math.max(1, Number(params.get("candidatePage") ?? "1") || 1);
   return NextResponse.json(await getBijyoDashboard(historyPage, candidatePage));
 }
 

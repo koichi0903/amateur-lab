@@ -160,6 +160,7 @@ test("公式動画・投稿/追加/スキップ/除外・重複状態を候補/A
   const workflow = fs.readFileSync("src/lib/bijyoReservedAutoPost.ts", "utf8");
   const actions = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedActions.tsx", "utf8");
   const upcoming = fs.readFileSync("src/app/admin/bijyo-reserved/UpcomingBijyoReleases.tsx", "utf8");
+  const workCard = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedWorkCard.tsx", "utf8");
   const candidate = { stage: "RESERVED", release_date: "2026-10-10" };
   assert.equal(isBijyoManualCandidate(candidate, { officialSample: true, hasExistingJob: false }), true);
   for (const status of ["pending", "posted", "manual_posted", "skipped", "excluded", "trim_failed"]) {
@@ -169,7 +170,7 @@ test("公式動画・投稿/追加/スキップ/除外・重複状態を候補/A
   assert.match(workflow, /\.in\("stage", \["NEW", "RESERVED"\]\).*\.limit\(1000\)/);
   assert.match(workflow, /filter\(\(work\) => isBijyoManualCandidate\(work,/);
   assert.match(workflow, /!isBijyoManualCandidate\(work,/);
-  assert.match(upcoming, /allowWorkManualAdd=\{work\.manualEligible === true\}/);
+  assert.match(workCard, /allowWorkManualAdd=\{work\.manualEligible === true\}/);
   assert.match(actions, /workId && allowWorkManualAdd && <button[^\n]*run\("manual"\)/);
   assert.match(upcoming, /NEW\/RESERVEDや登録日数による制限はありません/);
 });

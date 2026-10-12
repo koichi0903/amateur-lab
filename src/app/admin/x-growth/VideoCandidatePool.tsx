@@ -38,11 +38,14 @@ type SavedSelection = {
 
 type ApiResponse = { ok: boolean; selection: SavedSelection | null; error?: string; selectedCandidates?: VideoCandidate[] };
 
+const CANDIDATES_PER_PAGE = 20;
+
 export default function VideoCandidatePool() {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [selection, setSelection] = useState<SavedSelection | null>(null);
   const [error, setError] = useState("");
+  const [candidatePage, setCandidatePage] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -65,7 +68,24 @@ export default function VideoCandidatePool() {
   const selectedIds = selection?.selected_work_ids ?? [];
   const selectedSet = new Set(selectedIds);
   const candidates = snapshot?.candidates ?? [];
-  const visibleCandidates = candidates.filter((candidate, index) => index < 20 || selectedSet.has(candidate.workId));
+  const pageCount = Math.max(1, Math.ceil(candidates.length / CANDIDATES_PER_PAGE));
+  const currentPage = Math.min(candidatePage, pageCount - 1);
+  const visibleCandidates = candidates.slice(currentPage * CANDIDATES_PER_PAGE, (currentPage + 1) * CANDIDATES_PER_PAGE);
+
+  function candidatePager() {
+    if (candidates.length <= CANDIDATES_PER_PAGE) return null;
+    const first = currentPage * CANDIDATES_PER_PAGE + 1;
+    const last = Math.min((currentPage + 1) * CANDIDATES_PER_PAGE, candidates.length);
+    return (
+      <nav aria-label="動画候補ページ" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2">
+        <p aria-live="polite" className="text-xs font-bold text-zinc-300">{candidates.length}作品中 {first}〜{last}件を表示（{currentPage + 1}/{pageCount}ページ）</p>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setCandidatePage((page) => Math.max(0, page - 1))} disabled={currentPage === 0} className="rounded border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-200 disabled:opacity-40">前へ</button>
+          <button type="button" onClick={() => setCandidatePage((page) => Math.min(pageCount - 1, page + 1))} disabled={currentPage >= pageCount - 1} className="rounded border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-200 disabled:opacity-40">次へ</button>
+        </div>
+      </nav>
+    );
+  }
 
   async function save(action: "refresh" | "override" | "reset", selectedWorkIds?: number[]) {
     setLoading(true);
@@ -111,10 +131,11 @@ export default function VideoCandidatePool() {
             品質評価 {snapshot.evaluatedWorks}作品 / Hard Gate通過 {snapshot.hardGatePassedWorks}作品 / 保存中 {selectedIds.length}/5
           </p>
           <p className="mt-1 text-xs text-zinc-400">
-            候補 {snapshot.pipeline.candidateWorks ?? 0} → 品質評価 {snapshot.pipeline.qualityEvaluatedWorks ?? 0} / 画面には上位20作品と選択中の作品を表示 / 最終評価 {new Date(snapshot.computedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
+            候補 {snapshot.pipeline.candidateWorks ?? 0} → 品質評価 {snapshot.pipeline.qualityEvaluatedWorks ?? 0} / 最終評価 {new Date(snapshot.computedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
           </p>
           {snapshot.shortageReason && <p className="mt-2 text-sm font-bold text-amber-200">{snapshot.shortageReason} 品質基準は維持しています。</p>}
           {snapshot.hardGatePassedWorks < 10 && Object.keys(snapshot.failureCounts).length > 0 && <p className="mt-1 text-xs text-zinc-400">Gateの主な不合格理由: {Object.entries(snapshot.failureCounts).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([reason, count]) => `${reason} ${count}`).join(" / ")}</p>}
+          {candidatePager()}
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {visibleCandidates.map((candidate) => {
               const checked = selectedSet.has(candidate.workId);
@@ -137,6 +158,7 @@ export default function VideoCandidatePool() {
               );
             })}
           </div>
+          {candidatePager()}
           {selection?.manual_override_work_ids.length || selection?.excluded_work_ids.length ? (
             <button type="button" onClick={() => void save("reset")} disabled={loading} className="mt-3 rounded border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-300 disabled:opacity-50">手動入替を解除して自動選定に戻す</button>
           ) : null}

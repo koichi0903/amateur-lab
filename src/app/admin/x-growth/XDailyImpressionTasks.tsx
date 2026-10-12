@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { getFanzaDailyPostFunnel } from "@/lib/fanzaDailyPostFunnel";
-import ManualXImpressionInput from "./ManualXImpressionInput";
-import RegisterXPostUrlInput from "./RegisterXPostUrlInput";
+import XDailyTaskQueue from "./XDailyTaskQueue";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -75,35 +74,10 @@ export default async function XDailyImpressionTasks() {
         {!!unlinked.length && <details className="mt-3 rounded-lg border border-amber-800 bg-zinc-950 p-3" open>
           <summary className="cursor-pointer text-xs font-black text-amber-100">先にX投稿URLを登録する（{unlinked.length}件）</summary>
           <p className="mt-2 text-[11px] leading-5 text-zinc-400">投稿を実際に公開した後、投稿URLを1回登録してください。登録した投稿は24時間経過後に「今すぐ表示数を入力」へ移ります。</p>
-          <div className="mt-3 space-y-3">
-            {unlinked.map((row) => (
-              <article key={`${row.account}:${row.postKey}`} className="rounded-xl border border-amber-900/70 bg-black p-4">
-                <p className="text-xs font-black text-amber-200">@{row.account} / URL未登録</p>
-                <p className="mt-1 font-bold text-white">{row.title}</p>
-                <p className="mt-1 text-[11px] text-zinc-500">投稿 {formatJst(row.postedAt)}</p>
-                <RegisterXPostUrlInput postKey={row.postKey} account={row.account} />
-              </article>
-            ))}
-          </div>
+          <XDailyTaskQueue kind="unlinked" rows={unlinked.map((row) => ({ postKey: row.postKey, account: row.account, title: row.title, postedAt: row.postedAt }))} />
         </details>}
         {due.length ? (
-        <div className="mt-4 grid gap-3 xl:grid-cols-2">
-          {due.map((row) => (
-            <article key={`${row.account}:${row.postKey}`} className="rounded-xl border border-emerald-700 bg-zinc-950 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-black text-emerald-300">@{row.account} / 今すぐ記録</p>
-                  <p className="mt-1 font-bold text-white">{row.title}</p>
-                  <p className="mt-1 text-[11px] text-zinc-500">投稿 {formatJst(row.postedAt)} / キー {row.postKey}</p>
-                </div>
-                <a href={`https://x.com/${row.account}/status/${row.xPostId}`} target="_blank" rel="noreferrer" className="rounded-lg bg-zinc-800 px-3 py-2 text-xs font-black text-cyan-200 hover:bg-zinc-700">
-                  X投稿を開く ↗
-                </a>
-              </div>
-              <ManualXImpressionInput postKey={row.postKey} account={row.account} />
-            </article>
-          ))}
-        </div>
+        <XDailyTaskQueue kind="due" rows={due.map((row) => ({ postKey: row.postKey, account: row.account, title: row.title, postedAt: row.postedAt, xPostId: row.xPostId }))} />
         ) : (
         <p className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-sm text-zinc-400">今すぐ記録する投稿はありません。X投稿URLを登録済みなら、投稿から24時間後にここへ表示されます。</p>
         )}
@@ -139,4 +113,3 @@ export default async function XDailyImpressionTasks() {
     </section>
   );
 }
-
