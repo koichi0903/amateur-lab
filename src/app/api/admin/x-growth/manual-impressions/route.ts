@@ -50,16 +50,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `投稿からまだ${ageHours.toFixed(1)}時間です。24時間後に記録してください。` }, { status: 400 });
   }
   if (ageHours >= 30 * 24) {
-    return NextResponse.json({ error: `投稿から${ageHours.toFixed(1)}時間経過しています。閲覧数の記録期限（投稿後30日以内）を過ぎています。` }, { status: 400 });
+    return NextResponse.json({ error: `投稿から${ageHours.toFixed(1)}時間経過しています。手入力は投稿後30日以内に行ってください。` }, { status: 400 });
   }
 
   const existing = await supabaseAdmin
     .from("x_metric_snapshots")
-    .select("id,source")
+    .select("id,source,account_handle")
     .eq("post_key", postKey)
     .eq("snapshot_age", "24h")
     .maybeSingle();
   if (existing.error) return NextResponse.json({ error: "既存の記録を確認できませんでした。" }, { status: 500 });
+  if (existing.data && existing.data.account_handle !== account) {
+    return NextResponse.json({ error: "この投稿キーは別のアカウントの表示数に使われています。" }, { status: 409 });
+  }
   if (existing.data && existing.data.source !== "manual") {
     return NextResponse.json({ error: "すでに別の方法で記録されています。上書きしませんでした。" }, { status: 409 });
   }
@@ -71,7 +74,7 @@ export async function POST(request: NextRequest) {
     supabaseAdmin.from("affiliate_clicks").select("id", { count: "exact", head: true }).eq("source_page", "x").eq("x_post_key", postKey).gte("clicked_at", postedAt.toISOString()).lte("clicked_at", windowEnd),
   ]);
   const countError = views.error ?? clicks.error;
-  if (countError) return NextResponse.json({ error: "サイト側の投稿後イベントを確認できませんでした。もう一度お試しください。" }, { status: 500 });
+  if (countError) return NextResponse.json({ error: "サイト側の24時間イベントを確認できませんでした。もう一度お試しください。" }, { status: 500 });
 
   const rows: ManualSnapshotInsert[] = [];
   rows.push({
@@ -87,8 +90,20 @@ export async function POST(request: NextRequest) {
     notes: `X画面の閲覧数を手入力。投稿から${ageHours.toFixed(2)}時間後に取得。X APIは使用していません。`,
   });
   // The generated Supabase type has not yet declared this existing table.
-  const saveResult = await supabaseAdmin.from("x_metric_snapshots").upsert(rows as never[], { onConflict: "post_key,snapshot_age" });
-  if (saveResult.error) return NextResponse.json({ error: "記録を保存できませんでした。" }, { status: 500 });
+  const saveResult = await supabaseAdmin
+    .from("x_metric_snapshots")
+    .upsert(rows as never[], { onConflict: "post_key,snapshot_age" })
+    .select("id,account_handle,post_key,snapshot_age,captured_at,impressions,site_visits,affiliate_clicks")
+    .single();
+  if (saveResult.error || !saveResult.data) return NextResponse.json({ error: "記録を保存できませんでした。保存結果を確認できないため、再読み込みして状態を確認してください。" }, { status: 500 });
 
-  return NextResponse.json({ ok: true, capturedAt: capturedAt.toISOString(), ageHours: Number(ageHours.toFixed(2)) });
+  return NextResponse.json({
+    ok: true,
+    capturedAt: saveResult.data.captured_at,
+    ageHours: Number(ageHours.toFixed(2)),
+    impressions: saveResult.data.impressions,
+    siteVisits: saveResult.data.site_visits,
+    affiliateClicks: saveResult.data.affiliate_clicks,
+  });
 }
+
