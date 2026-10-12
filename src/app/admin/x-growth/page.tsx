@@ -14,6 +14,7 @@ import { withXPostTracking } from "@/lib/xPostTracking";
 import { visualFactBasis, type XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
 import { CandidateSelectAction, DeferredXGrowthSections, MediaPipelineActions, OpportunityActions, RegenerateTopPicksAction, RightsReviewActions, TempFolderStatus, TopPickVideoActions, TrimReviewActions } from "./XGrowthActions";
 import XDailyImpressionTasks from "./XDailyImpressionTasks";
+import VideoCandidatePool from "./VideoCandidatePool";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -542,6 +543,7 @@ function TopPicksSkeleton() {
           <p className="text-xs font-black tracking-[0.18em] text-emerald-300">HAKKUTSU X GROWTH OS</p>
           <h1 className="mt-2 text-3xl font-black sm:text-5xl">@hakkutsu_lab 司令塔</h1>
         </div>
+        <VideoCandidatePool />
         <Panel className="mt-8 border-emerald-700 bg-emerald-950/10">
           <div className="flex items-center gap-2"><Sparkles className="text-emerald-300" size={20} /><h2 className="text-2xl font-black">今日の投稿</h2></div>
           <p className="mt-2 text-sm leading-6 text-emerald-100/80">Top Picksを先に読み込んでいます。重い管理情報は後追いで表示します。</p>
@@ -611,6 +613,7 @@ async function XGrowthPageContent() {
             </Link>
           </div>
           <TempFolderStatus />
+          <VideoCandidatePool />
 
           <Panel className="mt-6 border-emerald-800 bg-emerald-950/20">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -777,6 +780,7 @@ async function XGrowthPageContent() {
           </Link>
         </div>
         <TempFolderStatus />
+        <VideoCandidatePool />
 
         <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Metric label="ボトルネック" value={os.mission.bottleneck} note={os.mission.reason} />
