@@ -37,3 +37,22 @@ test("スコアが高くても購入判断シグナルがなければ対象外�
     false,
   );
 });
+
+test("Search Consoleで需要が確認できた作品だけ、レビュー品質条件付きで例外掲載する", () => {
+  const evidencedWork = {
+    ...qualityWork,
+    id: 39697,
+    score: 51,
+    review_count: 12,
+    review_average: 4.92,
+    price: 315,
+    discount_rate: 0,
+  };
+  assert.equal(isWorkIndexable(evidencedWork), true);
+  assert.equal(isWorkIndexable({ ...evidencedWork, id: 39698 }), false);
+  assert.equal(isWorkIndexable({ ...evidencedWork, review_count: 9 }), false);
+  assert.equal(isWorkIndexable({ ...evidencedWork, review_average: 4.49 }), false);
+  assert.equal(isWorkIndexable({ ...evidencedWork, stage: "DISCONTINUED" }), false);
+  assert.equal(isWorkIndexable({ ...evidencedWork, image_url: null }), false);
+  assert.equal(isWorkIndexable({ ...evidencedWork, affiliate_url: null }), false);
+});

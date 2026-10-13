@@ -5,7 +5,10 @@ import {
   type EntityIndexKind,
 } from "@/lib/catalog/entityIndexSummaries";
 import { SITE_URL } from "@/lib/seo";
-import { isWorkIndexable } from "@/lib/seoQuality";
+import {
+  isWorkIndexable,
+  SEARCH_DEMAND_WORK_INDEX_EXCEPTION_IDS,
+} from "@/lib/seoQuality";
 import { supabase } from "@/lib/supabase";
 import { editorialGuides, reportDefinitions } from "@/lib/editorialContent";
 
@@ -41,6 +44,9 @@ type SitemapWork = {
 
 const PAGE_SIZE = 1000;
 const CACHE_CONTROL = "public, s-maxage=3600, stale-while-revalidate=86400";
+const SEARCH_DEMAND_WORK_ID_FILTER = SEARCH_DEMAND_WORK_INDEX_EXCEPTION_IDS
+  .map((id) => `id.eq.${id}`)
+  .join(",");
 
 const staticEntries: SitemapEntry[] = [
   { url: SITE_URL, changeFrequency: "daily", priority: 1 },
@@ -114,7 +120,7 @@ const getQualityWorks = unstable_cache(
         .from("works")
         .select(QUALITY_WORK_COLUMNS)
         .neq("stage", "DISCONTINUED")
-        .or("review_count.gte.20,discount_rate.gte.50,is_bottom_price.eq.true,is_lowest_price.eq.true,ranking.lte.100,realtime_rank.lte.100,daily_rank.lte.100,weekly_rank.lte.100,monthly_rank.lte.100,long_hit_rank.lte.100")
+        .or(`${SEARCH_DEMAND_WORK_ID_FILTER},review_count.gte.20,discount_rate.gte.50,is_bottom_price.eq.true,is_lowest_price.eq.true,ranking.lte.100,realtime_rank.lte.100,daily_rank.lte.100,weekly_rank.lte.100,monthly_rank.lte.100,long_hit_rank.lte.100`)
         .not("image_url", "is", null)
         .neq("image_url", "")
         .not("affiliate_url", "is", null)
@@ -130,7 +136,7 @@ const getQualityWorks = unstable_cache(
 
     return candidates.filter(isWorkIndexable);
   },
-  ["seo-sitemap-quality-works-v5-purchase-signals"],
+  ["seo-sitemap-quality-works-v6-search-demand-exceptions"],
   { revalidate: 3600 },
 );
 

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import WebSiteStructuredData from "./components/WebSiteStructuredData";
 import OrganizationStructuredData from "./components/OrganizationStructuredData";
@@ -87,7 +88,7 @@ export default function RootLayout({
 
   <WebSiteStructuredData />
 <OrganizationStructuredData />
-<Analytics />
+<Suspense fallback={null}><Analytics /></Suspense>
 <div className="flex-1">
   {children}
 </div>

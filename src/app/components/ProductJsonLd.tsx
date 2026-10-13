@@ -1,3 +1,5 @@
+import { buildWorkMetaDescription } from "@/lib/workMetadata";
+
 type Work = {
   title: string;
   image_url: string | null;
@@ -24,7 +26,7 @@ export default function ProductJsonLd({
 
     name: work.title,
 
-    description: `${work.title}のレビュー・評価・現在価格・価格推移を掲載しています。`,
+    description: buildWorkMetaDescription(work),
 
     sku: work.product_id,
 

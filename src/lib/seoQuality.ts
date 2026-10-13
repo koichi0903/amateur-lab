@@ -7,8 +7,17 @@ export const WORK_INDEX_MIN_PRICE = 1;
 export const WORK_INDEX_MIN_DISCOUNT_RATE = 50;
 export const WORK_INDEX_MAX_RANK = 100;
 export const WORK_INDEX_MAX_BOTTOM_PRICE = 2000;
+// A single page with verified Search Console demand and strong on-page review
+// evidence. This exception is deliberately separate from the site-wide gate.
+export const SEARCH_DEMAND_WORK_INDEX_EXCEPTIONS = [
+  { id: 39697, minScore: 50, minReviewCount: 10, minReviewAverage: 4.5 },
+] as const;
+export const SEARCH_DEMAND_WORK_INDEX_EXCEPTION_IDS = SEARCH_DEMAND_WORK_INDEX_EXCEPTIONS.map(
+  ({ id }) => id,
+);
 
 export type WorkIndexabilityInput = {
+  id?: number | null;
   stage?: string | null;
   score: number | null;
   review_count: number | null;
@@ -47,14 +56,23 @@ export function isWorkIndexable(work: WorkIndexabilityInput): boolean {
     ((work.is_bottom_price === true || work.is_lowest_price === true) && currentPrice <= WORK_INDEX_MAX_BOTTOM_PRICE) ||
     (work.discount_rate ?? 0) >= WORK_INDEX_MIN_DISCOUNT_RATE ||
     ranks.some((rank) => rank <= WORK_INDEX_MAX_RANK);
+  const searchDemandException = SEARCH_DEMAND_WORK_INDEX_EXCEPTIONS.find(
+    (exception) => exception.id === work.id,
+  );
+  const hasSearchDemandEvidence = Boolean(
+    searchDemandException &&
+      (work.score ?? 0) >= searchDemandException.minScore &&
+      (work.review_count ?? 0) >= searchDemandException.minReviewCount &&
+      (work.review_average ?? 0) >= searchDemandException.minReviewAverage,
+  );
 
   return (
     work.stage !== "DISCONTINUED" &&
-    (work.score ?? 0) >= WORK_INDEX_MIN_SCORE &&
-    (work.review_count ?? 0) >= WORK_INDEX_MIN_REVIEW_COUNT &&
+    (work.score ?? 0) >= (searchDemandException?.minScore ?? WORK_INDEX_MIN_SCORE) &&
+    (work.review_count ?? 0) >= (searchDemandException?.minReviewCount ?? WORK_INDEX_MIN_REVIEW_COUNT) &&
     (work.price ?? 0) >= WORK_INDEX_MIN_PRICE &&
     hasValue(work.image_url) &&
     hasValue(work.affiliate_url) &&
-    hasStablePurchaseSignal
+    (hasStablePurchaseSignal || hasSearchDemandEvidence)
   );
 }
