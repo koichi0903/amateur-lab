@@ -9,6 +9,7 @@ import {
 } from "@/lib/catalog/entityIndexSummaries";
 import { pageMetadata } from "@/lib/seo";
 import { getActressProfiles, type ActressProfile } from "@/lib/catalog/actressProfiles";
+import WorkCategorySwitch from "@/components/catalog/WorkCategorySwitch";
 
 export const revalidate = 86400;
 
@@ -98,6 +99,7 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
         <section className="border-b border-slate-200 bg-white">
           <div className="mx-auto max-w-[1500px] px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+            <WorkCategorySwitch active="actress" />
             <div>
               <div className="flex items-center gap-3"><UserRound size={24} /><h1 className="text-2xl font-black sm:text-3xl">AV女優検索</h1></div>
               <p className="mt-2 text-sm text-sky-300">出演作品数やプロフィールを見ながら女優を探せます。</p>
