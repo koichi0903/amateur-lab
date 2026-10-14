@@ -29,6 +29,11 @@ const menus = [
     href: "/admin/revenue",
   },
   {
+    title: "🎞️ 素人API全作品取得",
+    description: "FANZA素人作品のAPI生データを全件保存",
+    href: "/admin/amateur-api-catalog",
+  },
+  {
     title: "𝕏 myfans X運用",
     description: "ID1 Source / ID5 Market WinnerのDaily Growth Command Centerを開く",
     href: "/admin/myfans?media=1",

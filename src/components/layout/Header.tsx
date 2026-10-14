@@ -12,6 +12,7 @@ const primaryMenus = [
   { href: "/guides", label: "ガイド" },
   { href: "/search", label: "詳細検索" },
   { href: "/actress", label: "女優検索" },
+  { href: "/amateur", label: "素人作品" },
   { href: "/genre", label: "ジャンル検索" },
   { href: "/maker", label: "メーカー検索" },
   { href: "/personal-pick", label: "好み発掘" },
