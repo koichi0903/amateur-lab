@@ -137,7 +137,11 @@ export async function POST(request: Request) {
       placement,
       sourcePage,
       ctaVariant,
+      externalChannel: externalAttribution?.channel,
       code: error.code,
+      message: error.message?.slice(0, 240),
+      details: error.details?.slice(0, 240),
+      hint: error.hint?.slice(0, 240),
     });
     // Tracking must never turn a valid customer click into a UI error.
   }
