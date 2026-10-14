@@ -22,3 +22,4 @@ create index if not exists fanza_id990_daily_official_metrics_date_idx
 
 alter table public.fanza_id990_daily_official_metrics enable row level security;
 revoke all on table public.fanza_id990_daily_official_metrics from anon, authenticated;
+grant all on table public.fanza_id990_daily_official_metrics to service_role;
