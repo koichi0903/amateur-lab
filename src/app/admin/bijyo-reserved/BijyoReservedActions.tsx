@@ -32,7 +32,16 @@ export function BijyoReservedActions({ jobId, workId, mainText, replyText, statu
   useEffect(() => () => { if (preparedVideoUrl) URL.revokeObjectURL(preparedVideoUrl); }, [preparedVideoUrl]);
   async function run(action: string) {
     setBusy(true); setMessage("");
-    try { await call({ action, jobId, workId }); setMessage(action === "posted" ? "投稿済みにしました。" : action === "skip" ? "スキップして候補を補充しました。" : action === "exclude" ? "今後の候補から外しました。" : "手動追加しました。動画はまだ取得していません。"); if (["posted", "skip", "exclude", "manual"].includes(action)) window.location.reload(); }
+    try {
+      let xPostUrl: string | undefined;
+      if (action === "posted") {
+        xPostUrl = window.prompt("投稿別の表示数を取得するため、投稿したXポストのURLを貼り付けてください。")?.trim();
+        if (!xPostUrl) { setMessage("X投稿URLを入力しないと投稿済みにできません。投稿URLが不明ならXの投稿を開き、共有からコピーしてください。"); return; }
+      }
+      await call({ action, jobId, workId, xPostUrl });
+      setMessage(action === "posted" ? "投稿済みにしました。X投稿URLを計測ログに紐付けました。" : action === "skip" ? "スキップして候補を補充しました。" : action === "exclude" ? "今後の候補から外しました。" : "手動追加しました。動画はまだ取得していません。");
+      if (["posted", "skip", "exclude", "manual"].includes(action)) window.location.reload();
+    }
     catch (error) { if (error instanceof BijyoApiError && error.code === "already_selected") setActionBlocked(true); setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
@@ -69,11 +78,23 @@ export function BijyoReservedActions({ jobId, workId, mainText, replyText, statu
       setMessage(errorMessage);
     } finally { setBusy(false); }
   }
+  async function savePreparedVideo() {
+    if (!jobId || !workId) return;
+    setBusy(true); setMessage("");
+    try {
+      const response = await fetch("/api/admin/bijyo-reserved/save", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId, workId }) });
+      const result = await response.json().catch(() => ({})) as { error?: string; path?: string };
+      if (!response.ok) throw new Error(result.error ?? "トリム済み動画を保存できませんでした。");
+      setMessage(`保存しました: ${result.path ?? `Desktop\\Bijyo一時動画\\bijyo_${workId}.mp4`}`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
+  }
   function setCurrentTime() { setTrimSeconds(Number((videoRef.current?.currentTime ?? 0).toFixed(1))); setTrimMode("manual"); }
   function openTrim() { setTrimMode("manual"); setTrimOpen(true); }
   return <div className="flex flex-wrap gap-2">
     {jobId && <>
       <button disabled={busy || currentTrimStatus === "preparing"} onClick={prepareVideo} className="rounded bg-emerald-400 px-3 py-2 text-xs font-black text-black">{busy ? "動画準備中…" : currentTrimStatus === "ready" ? "動画を再準備" : currentTrimStatus === "trim_failed" ? "動画準備を再試行" : "動画準備"}</button>
+      {currentTrimStatus === "ready" && <button disabled={busy} onClick={savePreparedVideo} className="rounded border border-emerald-700 px-3 py-2 text-xs font-bold text-emerald-200">トリム済み動画を保存</button>}
       <button disabled={busy} onClick={openTrim} className="rounded bg-orange-400 px-3 py-2 text-xs font-black text-black">手動トリム</button>
       {preparedVideoUrl && <video controls playsInline preload="metadata" className="basis-full max-h-80 rounded-lg bg-black" src={preparedVideoUrl}><track kind="captions" /></video>}
       <span className="self-center text-xs text-zinc-400">{currentTrimStatus === "ready" ? "動画準備済み" : currentTrimStatus === "preparing" ? "動画準備中" : currentTrimStatus === "trim_failed" ? "動画準備失敗" : "動画未準備"}</span>

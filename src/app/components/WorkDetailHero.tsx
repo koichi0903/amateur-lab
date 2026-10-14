@@ -85,7 +85,7 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
   const currentLabel = displayPrice != null && displayPrice > 0 ? `¥${displayPrice.toLocaleString("ja-JP")}` : "価格未取得";
   const hasDiscount = Boolean(displayPrice && regularPrice && regularPrice > displayPrice);
   const priceCheckedAt = formatDate(priceHistory[0]?.changed_at);
-  const isCurrentLowest = Boolean(displayPrice && work.lowest_price && displayPrice <= work.lowest_price) || work.is_bottom_price;
+  const isCurrentLowest = Boolean(displayPrice && work.lowest_price && displayPrice <= work.lowest_price);
   const durationLabel = formatDuration(work.duration);
   const priceStatus = hasDiscount
     ? `現在セール中：通常${regularPrice?.toLocaleString("ja-JP")}円が${displayPrice?.toLocaleString("ja-JP")}円（${discountRate}%OFF）`

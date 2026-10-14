@@ -14,7 +14,6 @@ export type XApiCapabilityStatus = {
   hasUserAccessToken: boolean;
   postingConfigured: boolean;
   mediaUploadConfigured: boolean;
-  metricsConfigured: boolean;
   requiredForPosting: string[];
   notes: string[];
 };
@@ -29,7 +28,6 @@ export function getXApiCapabilityStatus(): XApiCapabilityStatus {
     hasUserAccessToken,
     postingConfigured,
     mediaUploadConfigured: postingConfigured,
-    metricsConfigured: hasBearerToken || hasUserAccessToken,
     requiredForPosting: [
       "Approved X Developer App",
       "User Access Token for @hakkutsu_lab",
@@ -49,14 +47,6 @@ function userAccessToken() {
   const value = process.env.X_USER_ACCESS_TOKEN;
   if (!value) {
     throw new Error("X_USER_ACCESS_TOKEN is required for X posting/media upload. X Premium is not required, but a @hakkutsu_lab User Access Token with tweet.write, tweet.read, and users.read scopes is required.");
-  }
-  return value;
-}
-
-function readToken() {
-  const value = process.env.X_USER_ACCESS_TOKEN ?? process.env.X_BEARER_TOKEN;
-  if (!value) {
-    throw new Error("X_USER_ACCESS_TOKEN or X_BEARER_TOKEN is required for X API read-only checks.");
   }
   return value;
 }
@@ -146,28 +136,4 @@ export async function createXPost(input: { text: string; videoFile?: string; vid
   }) as { data?: { id?: string; text?: string } };
   if (!created.data?.id) throw new Error("X post creation did not return a post id.");
   return { id: created.data.id, text: created.data.text ?? input.text, mediaId };
-}
-
-export async function verifyXReadOnlyConnection() {
-  const body = await xFetch("/2/users/by/username/hakkutsu_lab?user.fields=id,username,name", { method: "GET" }, readToken()) as {
-    data?: { id?: string; username?: string; name?: string };
-  };
-  return {
-    id: body.data?.id ?? null,
-    username: body.data?.username ?? null,
-    name: body.data?.name ?? null,
-  };
-}
-
-export async function fetchXPostPublicMetrics(ids: string[]) {
-  if (!ids.length) return new Map<string, { impressions: number; likes: number; replies: number; reposts: number }>();
-  const body = await xFetch(`/2/tweets?ids=${encodeURIComponent(ids.join(","))}&tweet.fields=public_metrics`, {
-    method: "GET",
-  }, readToken()) as { data?: Array<{ id: string; public_metrics?: { like_count?: number; reply_count?: number; retweet_count?: number; impression_count?: number } }> };
-  return new Map((body.data ?? []).map((row) => [row.id, {
-    impressions: row.public_metrics?.impression_count ?? 0,
-    likes: row.public_metrics?.like_count ?? 0,
-    replies: row.public_metrics?.reply_count ?? 0,
-    reposts: row.public_metrics?.retweet_count ?? 0,
-  }]));
 }

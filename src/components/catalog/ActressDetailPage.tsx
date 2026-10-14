@@ -40,9 +40,12 @@ function costPerformanceScore(work: Work) {
 export async function ActressDetailPage({ actressName, currentPage }: { actressName: string; currentPage: number }) {
   const [summary, pageResult, contextResult, profiles] = await Promise.all([
     getEntityIndexSummary("actress", actressName).catch(() => null),
-    getActressWorksPage(actressName, currentPage),
-    getActressContext(actressName),
-    getActressProfiles([actressName]),
+    getActressWorksPage(actressName, currentPage).catch(() => ({
+      error: { code: "UPSTREAM_UNAVAILABLE", message: "一時的に作品データを取得できません", details: "", hint: "" },
+      works: [],
+    })),
+    getActressContext(actressName).catch(() => ({ error: null, works: [] })),
+    getActressProfiles([actressName]).catch(() => []),
   ]);
   const works = [...pageResult.works as Work[]].sort(
     (a, b) => releaseDate(b.release_date ?? b.product_release_date) - releaseDate(a.release_date ?? a.product_release_date) || b.id - a.id,

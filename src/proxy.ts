@@ -188,20 +188,17 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (pathname === "/api/cron/fanza-x-metrics") {
+    return NextResponse.json(
+      { error: "X APIによる閲覧数取得は停止中です。X Growth OSの手入力タスクを使ってください。" },
+      { status: 410, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   if (pathname === "/api/admin/revalidate") {
     // HMAC signatures are verified against the exact request body in the route.
     // The proxy can only recognize the signed request shape without consuming it.
     if (hasSignedRevalidationHeaders(request)) return NextResponse.next();
-    if (!process.env.CRON_SECRET) return unavailable();
-    return hasValidCronSecret(request)
-      ? NextResponse.next()
-      : NextResponse.json(
-          { error: "Unauthorized" },
-          { status: 401, headers: { "Cache-Control": "no-store" } },
-        );
-  }
-
-  if (pathname === "/api/cron") {
     if (!process.env.CRON_SECRET) return unavailable();
     return hasValidCronSecret(request)
       ? NextResponse.next()

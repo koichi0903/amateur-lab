@@ -225,14 +225,14 @@ export default function TrafficImprovementPanel({
     <div className="mt-6 space-y-6">
       <div className="grid gap-6 xl:grid-cols-2">
         <InsightTable
-          title="外部流入別のFANZAクリック"
-          description="自然検索・SNS・参照サイトなど、サイトへ来た経路別にFANZA送客まで到達した数を比較します。"
+          title="保存された流入元別のFANZAクリック"
+          description="ブラウザーに保存された流入元を、FANZAクリックイベントに関連づけた集計です。再訪時に過去の流入元が使われる場合があるため、当該期間のGoogle検索訪問数・GSCクリック数・購入数とは一致しません。"
           insights={externalChannelInsights}
           kind="external"
         />
         <InsightTable
-          title="自然検索の流入ページ別"
-          description="Google等の自然検索から入り、FANZAクリックまで到達した最初のページを表示します。"
+          title="保存された検索流入のページ候補"
+          description="保存値で「検索流入」と分類されたFANZAクリックを、流入元として記録されたページごとに表示します。実際のGoogle検索訪問やSearch Consoleのクリック数とは限りません。"
           insights={organicLandingInsights}
           kind="external"
         />

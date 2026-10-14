@@ -28,7 +28,7 @@ async function main() {
   const hasPublic = bodyText.includes("Xに投稿する本文");
   const hasCommandCenter = bodyText.includes("Daily Growth Command Center");
   const hasHorizontalScroll = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 2);
-  await page.screenshot({ path: "C:/Users/DELL/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an-10/outputs/myfans-daily-growth-command-center-v4.png", fullPage: true });
+  await page.screenshot({ path: "F:/HakkutsuLAB/workspace/Users/DELL/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an-10/outputs/myfans-daily-growth-command-center-v4.png", fullPage: true });
   await browser.close();
   console.log(JSON.stringify({
     status: response?.status() ?? null,

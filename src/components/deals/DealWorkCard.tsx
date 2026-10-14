@@ -17,12 +17,11 @@ export type DealWork = Pick<
   | "list_price"
   | "discount_rate"
   | "is_on_sale"
-  | "score"
   | "review_average"
   | "review_count"
   | "sale_end_at"
   | "lowest_price"
-  | "is_bottom_price"
+  | "is_lowest_price"
 > & { sample_movie_url?: string | null };
 
 function formatSaleEnd(value: string | null) {
@@ -42,6 +41,7 @@ export default function DealWorkCard({
   const hasDiscountRate = work.discount_rate > 0;
   const isSale = work.is_on_sale || hasSalePrice || hasDiscountRate;
   const currentPrice = hasSalePrice ? work.sale_price : work.price;
+  const isRecordedLow = work.is_lowest_price === true;
   const regularPrice = isSale && work.list_price && work.list_price > currentPrice
     ? work.list_price
     : null;
@@ -52,7 +52,7 @@ export default function DealWorkCard({
       : 0;
   const saleEnd = formatSaleEnd(work.sale_end_at);
   const purchaseReasons = [
-    work.is_bottom_price ? "取得期間内の最安" : null,
+    isRecordedLow ? "取得期間内の最安" : null,
     discountRate >= 50 ? "半額以上" : null,
     work.review_average >= 4 && work.review_count >= 20 ? "レビュー根拠あり" : null,
     work.sample_movie_url ? "購入前にサンプル可" : null,
@@ -79,7 +79,7 @@ export default function DealWorkCard({
             <PlayCircle size={12} /> サンプルあり
           </span>
         )}
-        {work.is_bottom_price && (
+        {isRecordedLow && (
           <span className="absolute bottom-2 right-2 rounded-full bg-emerald-600 px-2.5 py-1 text-[10px] font-black text-white">
             過去最安
           </span>
@@ -96,7 +96,6 @@ export default function DealWorkCard({
             <Star size={11} fill="currentColor" /> {work.review_average.toFixed(2)}（{work.review_count}件）
           </span>
         )}
-        {work.score > 0 && <span className="rounded-full bg-pink-50 px-2 py-1 text-pink-700">発掘 {work.score}</span>}
       </div>
       {purchaseReasons.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{purchaseReasons.map((reason) => <span key={reason} className="rounded-md bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">✓ {reason}</span>)}</div>}
 

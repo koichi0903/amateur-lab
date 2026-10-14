@@ -16,6 +16,29 @@ test("掲載情報が揃った作品はインデックス対象にする", () =>
   assert.equal(isWorkIndexable(qualityWork), true);
 });
 
+test("7日レンタルの安さだけでは過去最安の購入判断シグナルにしない", () => {
+  assert.equal(
+    isWorkIndexable({
+      ...qualityWork,
+      review_count: 5,
+      review_average: 3.5,
+      discount_rate: 0,
+      is_bottom_price: true,
+    }),
+    false,
+  );
+  assert.equal(
+    isWorkIndexable({
+      ...qualityWork,
+      review_count: 5,
+      review_average: 3.5,
+      discount_rate: 0,
+      is_lowest_price: true,
+    }),
+    true,
+  );
+});
+
 test("需要シグナル、購入判断シグナル、価格、画像、紹介先が不足した作品は対象外にする", () => {
   for (const work of [
     { ...qualityWork, stage: "DISCONTINUED" },

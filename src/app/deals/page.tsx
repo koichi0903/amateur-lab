@@ -69,7 +69,7 @@ export default async function DealsPage() {
         <section className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
           <div className="mb-12 grid gap-3 rounded-2xl border border-emerald-100 bg-white p-5 text-sm font-bold leading-6 text-slate-600 sm:grid-cols-3">
             <p className="flex gap-2"><ShieldCheck className="shrink-0 text-emerald-600" size={20} />代表価格は各販売形式の最安値を使用</p>
-            <p className="flex gap-2"><Sparkles className="shrink-0 text-pink-600" size={20} />発掘スコアとレビューを併記</p>
+            <p className="flex gap-2"><Sparkles className="shrink-0 text-pink-600" size={20} />レビュー・サンプル・価格情報を併記</p>
             <p className="flex gap-2"><BadgeJapaneseYen className="shrink-0 text-indigo-600" size={20} />購入前にFANZA公式の最終価格を確認</p>
           </div>
 

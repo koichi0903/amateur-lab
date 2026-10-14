@@ -344,7 +344,7 @@ export function ManualPostActions({
       context.drawImage(bitmap, 0, 0);
       const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("PNG変換に失敗しました")), "image/png"));
       await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
-      setMessage("画像をコピーしました。X投稿画面で貼り付けできます。");
+      setMessage(mediaType === "data_card" ? "価格カードをコピーしました。X投稿画面で画像として貼り付けてください。" : "画像をコピーしました。X投稿画面で貼り付けできます。");
     } catch {
       setMessage("画像コピーに失敗しました。画像を開くか保存して添付してください。");
     }
@@ -378,7 +378,11 @@ export function ManualPostActions({
   const deleteTempFile = async () => {
     setMessage("");
     try {
-      await postJson("/api/admin/x-growth/mark-posted", { workId, candidateId, slotId, candidateRank, slotRole, title, postText, trackingUrl: affiliateUrl, intent, mediaAssetId, linkStrategy: linkPlan });
+      const xPostUrl = window.prompt(linkPlan === "self_reply"
+        ? "作品ページのリンクを含む自己リプのX投稿URLを貼り付けてください。"
+        : "作品ページのリンクを含むX投稿URLを貼り付けてください。");
+      if (!xPostUrl?.trim()) { setMessage("計測に必要なX投稿URLがないため、投稿済み登録を中止しました。"); return; }
+      await postJson("/api/admin/x-growth/mark-posted", { workId, candidateId, slotId, candidateRank, slotRole, title, postText, trackingUrl: affiliateUrl, intent, mediaAssetId, linkStrategy: linkPlan, xPostUrl });
       const handle = await loadDirectoryHandle();
       if (handle && (await ensurePermission(handle))) await handle.removeEntry(tempFilename).catch(() => undefined);
       setMessage(`投稿済みとして記録しました。${tempFilename} を削除しました。`);
@@ -387,7 +391,8 @@ export function ManualPostActions({
     }
   };
   const materialLabel = mediaType === "sample_movie" ? "動画を保存"
-    : mediaType === "existing_link_image" || mediaType === "data_card" ? "画像を開く"
+    : mediaType === "data_card" ? "価格カードをプレビュー"
+      : mediaType === "existing_link_image" ? "画像を開く"
       : mediaType === "quote" ? "引用元を開く"
         : "";
   return (
@@ -401,13 +406,13 @@ export function ManualPostActions({
           <button type="button" onClick={copyReply} className="h-10 rounded-lg border border-emerald-700 bg-emerald-950/40 px-3 text-xs font-black text-emerald-100">自己リプをコピー</button>
         )}
         {mediaUrl && downloadUrl && (mediaType === "existing_link_image" || mediaType === "data_card") && (
-          <button type="button" onClick={copyImage} className="h-10 rounded-lg bg-cyan-400 px-3 text-xs font-black text-black">画像をコピー</button>
+          <button type="button" onClick={copyImage} className="h-10 rounded-lg bg-cyan-400 px-3 text-xs font-black text-black">{mediaType === "data_card" ? "価格カードをコピー" : "画像をコピー"}</button>
         )}
         {mediaUrl && downloadUrl && mediaType === "sample_movie" && (
           <button type="button" onClick={useVideoForX} className="h-10 rounded-lg bg-cyan-400 px-3 text-xs font-black text-black">{trimPostButtonLabel(trimStartSeconds)}</button>
         )}
         {mediaUrl && downloadUrl && materialLabel && (
-          <a href={downloadUrl} className="inline-flex h-10 items-center justify-center rounded-lg border border-cyan-700 bg-cyan-950/40 px-3 text-xs font-black text-cyan-100">
+          <a href={mediaType === "data_card" ? `${downloadUrl}&preview=1` : downloadUrl} target={mediaType === "data_card" ? "_blank" : undefined} rel={mediaType === "data_card" ? "noreferrer" : undefined} className="inline-flex h-10 items-center justify-center rounded-lg border border-cyan-700 bg-cyan-950/40 px-3 text-xs font-black text-cyan-100">
             {materialLabel}
           </a>
         )}
@@ -418,7 +423,7 @@ export function ManualPostActions({
         <button type="button" onClick={deleteTempFile} className="h-10 rounded-lg border border-rose-700 bg-rose-950/30 px-3 text-xs font-black text-rose-100">{mediaType === "sample_movie" ? "投稿済み・一時ファイル削除" : "投稿済みとして記録"}</button>
       </div>
       <p className="mt-2 text-[11px] leading-5 text-zinc-500">
-        {linkPlan === "self_reply" ? "順序: 本投稿を投稿 → 投稿後に自己リプを付ける。画像はコピー優先です。動画は一時フォルダへ保存してXで手動添付します。" : linkPlan === "body" ? "この投稿の本文にリンクを入れる。完成文コピーにはURLも含まれます。画像はコピー優先です。動画は一時フォルダへ保存してXで手動添付します。" : "この投稿にはリンクを入れない。画像はコピー優先です。動画は一時フォルダへ保存してXで手動添付します。"}
+        {mediaType === "data_card" ? "投稿本文をコピー → 価格カードをコピー → X投稿画面で本文と画像を貼り付けて投稿します。価格カードは作品ページの現在価格と発掘LABの記録値を表示します。" : linkPlan === "self_reply" ? "順序: 本投稿を投稿 → 投稿後に自己リプを付ける。画像はコピー優先です。動画は一時フォルダへ保存してXで手動添付します。" : linkPlan === "body" ? "この投稿の本文にリンクを入れる。完成文コピーにはURLも含まれます。画像はコピー優先です。動画は一時フォルダへ保存してXで手動添付します。" : "この投稿にはリンクを入れない。画像はコピー優先です。動画は一時フォルダへ保存してXで手動添付します。"}
       </p>
       {message && <p className="mt-2 text-[11px] font-bold text-emerald-200">{message}</p>}
     </div>
@@ -451,6 +456,8 @@ export function XVideoTrimControls({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [mediaError, setMediaError] = useState(false);
+  const [previewRequested, setPreviewRequested] = useState(false);
+  const [playOnLoad, setPlayOnLoad] = useState(false);
   const [note, setNote] = useState(initialTrimNote ?? "");
   const [modifyConfirmed, setModifyConfirmed] = useState(Boolean(trimModifyConfirmed));
   const [message, setMessage] = useState("");
@@ -485,23 +492,35 @@ export function XVideoTrimControls({
     <div className="mt-3 grid min-w-0 gap-2 rounded-lg border border-cyan-900 bg-cyan-950/10 p-3">
       {compact && <p className="text-xs font-black text-cyan-100">動画の最終調整</p>}
       <div className="mx-auto w-full min-w-0 rounded-lg bg-black">
-        <video
-          src={previewSourceUrl}
-          controls
-          preload="metadata"
-          playsInline
-          onLoadedMetadata={(event) => {
-            setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0);
-            setMediaError(false);
-          }}
-          onError={() => setMediaError(true)}
-          onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-          className="block aspect-video h-auto w-full min-w-0 object-contain"
-        />
+        {previewRequested ? (
+          <video
+            src={previewSourceUrl}
+            controls
+            preload="metadata"
+            playsInline
+            onLoadedMetadata={(event) => {
+              setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0);
+              setMediaError(false);
+              if (playOnLoad) {
+                event.currentTarget.currentTime = Number(seconds) || 0;
+                void event.currentTarget.play().catch(() => undefined);
+                setPlayOnLoad(false);
+              }
+            }}
+            onError={() => setMediaError(true)}
+            onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+            className="block aspect-video h-auto w-full min-w-0 object-contain"
+          />
+        ) : (
+          <button type="button" onClick={() => setPreviewRequested(true)} className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-4 text-center hover:border-cyan-700">
+            <span className="text-sm font-black text-cyan-100">動画を読み込んでプレビュー</span>
+            <span className="text-xs text-zinc-500">押すと公式サンプル動画を取得します</span>
+          </button>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-cyan-100">
         <span>現在 {currentTime.toFixed(1)}秒</span>
-        <span>動画長 {duration > 0 ? `${duration.toFixed(1)}秒` : "未取得"}</span>
+        <span>動画長 {duration > 0 ? `${duration.toFixed(1)}秒` : previewRequested ? "未取得" : "未読み込み"}</span>
         {mediaError && <span className="text-rose-200">動画を読み込めません</span>}
         <span>保存済み {savedSeconds.toFixed(1)}秒</span>
         {dirty && <span className="text-amber-200">未保存</span>}
@@ -541,11 +560,14 @@ export function XVideoTrimControls({
           if (video) {
             video.currentTime = Number(seconds) || 0;
             void video.play().catch(() => undefined);
+          } else {
+            setPlayOnLoad(true);
+            setPreviewRequested(true);
           }
         }}
         className="h-9 w-fit rounded-lg border border-cyan-700 px-3 text-xs font-black text-cyan-100"
       >
-        この位置から確認
+        {previewRequested ? "この位置から確認" : "動画を読み込んでこの位置から確認"}
       </button>
       {message && <p className="text-[11px] font-bold text-emerald-200">{message}</p>}
     </div>
@@ -731,26 +753,6 @@ export function CandidateSelectAction({
   );
 }
 
-export function MetricSyncActions() {
-  const [message, setMessage] = useState("");
-  const [pending, startTransition] = useTransition();
-  return (
-    <div className="mt-3 flex flex-wrap gap-2">
-      {(["1h", "6h", "24h", "72h"] as const).map((age) => (
-        <button key={age} disabled={pending} onClick={() => startTransition(async () => {
-          try {
-            const result = await postJson("/api/admin/x-growth/metrics", { age });
-            setMessage(`${age}: ${String(result.saved)}件保存`);
-          } catch (error) {
-            setMessage(error instanceof Error ? error.message : "取得に失敗しました。");
-          }
-        })} className="h-9 rounded-lg border border-zinc-700 px-3 text-xs font-black text-zinc-200 disabled:opacity-50">{age}</button>
-      ))}
-      {message && <p className="basis-full text-[11px] font-bold text-amber-200">{message}</p>}
-    </div>
-  );
-}
-
 export function MediaPipelineActions() {
   const [message, setMessage] = useState("");
   const [pending, startTransition] = useTransition();
@@ -765,7 +767,6 @@ export function MediaPipelineActions() {
   return (
     <div className="mt-3 flex flex-wrap gap-2">
       <button disabled={pending} onClick={() => run("/api/admin/x-growth/media/sync", "同期", 250)} className="h-9 rounded-lg bg-emerald-500 px-3 text-xs font-black text-black disabled:opacity-50">動画候補を同期</button>
-      <button disabled={pending} onClick={() => run("/api/admin/x-growth/media/check", "URL確認", 50)} className="h-9 rounded-lg border border-sky-700 px-3 text-xs font-black text-sky-100 disabled:opacity-50">URL状態を確認</button>
       {message && <p className="basis-full text-[11px] font-bold text-amber-200">{message}</p>}
     </div>
   );

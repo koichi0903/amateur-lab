@@ -16,7 +16,7 @@ export async function POST(request: Request) {
 
   const { data, error } = await supabase
     .from("works")
-    .select("id,title,image_url,actress,genre,maker,series,score,price,sale_price,list_price,discount_rate,review_average,review_count,release_date,sample_movie_url,is_bottom_price,sale_end_at,affiliate_url")
+    .select("id,title,image_url,actress,genre,maker,series,score,price,sale_price,list_price,discount_rate,review_average,review_count,release_date,sample_movie_url,is_lowest_price,sale_end_at,affiliate_url")
     .in("id", ids);
 
   if (error) {

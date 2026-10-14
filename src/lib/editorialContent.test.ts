@@ -10,8 +10,8 @@ import {
 test("publishes the planned editorial content set without duplicate slugs", () => {
   assert.equal(editorialGuides.length, 6);
   assert.equal(new Set(editorialGuides.map((guide) => guide.slug)).size, 6);
-  assert.equal(reportDefinitions.length, 3);
-  assert.equal(new Set(reportDefinitions.map((report) => report.slug)).size, 3);
+  assert.equal(reportDefinitions.length, 4);
+  assert.equal(new Set(reportDefinitions.map((report) => report.slug)).size, 4);
 });
 
 test("keeps every guide substantial and internally connected", () => {

@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { fetchAffiliateClicks } from "@/lib/affiliateAnalytics";
+import { buildXGrowthSalesEvaluation, calculateXGrowthSalesSignal } from "@/lib/xGrowthSalesSignal";
 
 export type AffiliateSaleRow = {
   id: number;
@@ -21,6 +22,10 @@ export type AffiliatePerformanceRow = {
   title: string;
   clicks: number;
   salesCount: number;
+  currentMonthSalesCount: number;
+  prior90DaySalesCount: number;
+  salesScoreBonus: number;
+  salesReason: string;
   salesAmount: number;
   commissionAmount: number;
   conversionRate: number | null;
@@ -28,6 +33,13 @@ export type AffiliatePerformanceRow = {
   action: RevenueAction;
   actionReason: string;
 };
+
+type AffiliateSalesScope = "990" | "026" | "account-wide" | "unassigned";
+
+function rowScope(row: Pick<AffiliateSaleRow, "source_file">): AffiliateSalesScope {
+  const match = row.source_file.match(/^scope:(990|026|account-wide)\|/);
+  return (match?.[1] as AffiliateSalesScope | undefined) ?? "unassigned";
+}
 
 const PAGE_SIZE = 1000;
 const MAX_ROWS = 50_000;
@@ -99,9 +111,11 @@ export async function getAffiliateSalesAnalytics() {
         currentMonth,
         currentMonthHasRows: false,
         totals: { salesCount: 0, salesAmount: 0, commissionAmount: 0 },
+        non990Totals: { salesCount: 0, salesAmount: 0, commissionAmount: 0, rows: 0 },
         monthly: monthKeys.map((key) => ({ key, salesCount: 0, salesAmount: 0, commissionAmount: 0 })),
         topProducts: [] as Array<AffiliateSaleRow & { rank: number }>,
         performance: [] as AffiliatePerformanceRow[],
+        salesEvaluation: buildXGrowthSalesEvaluation([], now).evaluation,
         performanceClickError: null as string | null,
         latestImport: null as null | { file: string; importedAt: string },
       };
@@ -112,7 +126,10 @@ export async function getAffiliateSalesAnalytics() {
     if (page.length < PAGE_SIZE) break;
   }
 
-  const currentRows = rows.filter((row) => row.report_month.slice(0, 7) === currentMonth);
+  const currentMonthRows = rows.filter((row) => row.report_month.slice(0, 7) === currentMonth);
+  const currentRows = currentMonthRows.filter((row) => rowScope(row) === "990");
+  const non990Rows = currentMonthRows.filter((row) => rowScope(row) !== "990");
+  const { byWork: xGrowthSalesByWork, evaluation: salesEvaluation } = buildXGrowthSalesEvaluation(rows, now);
   const clickResult = await fetchAffiliateClicks(35);
   const currentMonthClicks = clickResult.rows.filter(
     (row) => monthKey(new Date(row.clicked_at)) === currentMonth,
@@ -174,6 +191,18 @@ export async function getAffiliateSalesAnalytics() {
     current.commissionAmount += row.commission_amount;
     performanceByWork.set(row.work_id, current);
   }
+  for (const [workId, signal] of xGrowthSalesByWork) {
+    if (performanceByWork.has(workId)) continue;
+    const title = rows.find((row) => row.work_id === workId && rowScope(row) === "990")?.title ?? `作品ID ${workId}`;
+    performanceByWork.set(workId, {
+      workId,
+      title,
+      clicks: clickCountByWork.get(workId) ?? 0,
+      salesCount: signal.currentMonthSalesCount,
+      salesAmount: 0,
+      commissionAmount: 0,
+    });
+  }
   const totals = currentRows.reduce(
     (sum, row) => ({
       salesCount: sum.salesCount + row.sales_count,
@@ -182,8 +211,17 @@ export async function getAffiliateSalesAnalytics() {
     }),
     { salesCount: 0, salesAmount: 0, commissionAmount: 0 },
   );
+  const non990Totals = non990Rows.reduce(
+    (sum, row) => ({
+      salesCount: sum.salesCount + row.sales_count,
+      salesAmount: sum.salesAmount + row.sales_amount,
+      commissionAmount: sum.commissionAmount + row.commission_amount,
+      rows: sum.rows + 1,
+    }),
+    { salesCount: 0, salesAmount: 0, commissionAmount: 0, rows: 0 },
+  );
   const monthly = monthKeys.map((key) => {
-    const monthRows = rows.filter((row) => row.report_month.slice(0, 7) === key);
+    const monthRows = rows.filter((row) => row.report_month.slice(0, 7) === key && rowScope(row) === "990");
     return monthRows.reduce(
       (sum, row) => ({
         key,
@@ -203,6 +241,7 @@ export async function getAffiliateSalesAnalytics() {
     currentMonth,
     currentMonthHasRows: currentRows.length > 0,
     totals,
+    non990Totals,
     monthly,
     topProducts: [...currentRows]
       .sort((a, b) => b.commission_amount - a.commission_amount)
@@ -218,10 +257,21 @@ export async function getAffiliateSalesAnalytics() {
             ? Math.round(row.commissionAmount / row.clicks)
             : null,
         };
-        return { ...row, ...metrics, ...classifyPerformance(row) };
+        const salesSignal = xGrowthSalesByWork.get(row.workId) ?? { currentMonthSalesCount: 0, prior90DaySalesCount: 0 };
+        const evaluatedSignal = calculateXGrowthSalesSignal(salesSignal.currentMonthSalesCount, salesSignal.prior90DaySalesCount);
+        return {
+          ...row,
+          ...metrics,
+          ...classifyPerformance(row),
+          currentMonthSalesCount: evaluatedSignal.currentMonthSalesCount,
+          prior90DaySalesCount: evaluatedSignal.prior90DaySalesCount,
+          salesScoreBonus: evaluatedSignal.scoreBonus,
+          salesReason: evaluatedSignal.reason,
+        };
       })
-      .sort((a, b) => b.commissionAmount - a.commissionAmount || b.clicks - a.clicks)
-      .slice(0, 50),
+      .sort((a, b) => b.salesScoreBonus - a.salesScoreBonus || b.commissionAmount - a.commissionAmount || b.clicks - a.clicks)
+      .slice(0, 500),
+    salesEvaluation,
     performanceClickError: clickResult.error,
     latestImport: latest
       ? { file: latest.source_file, importedAt: latest.imported_at }

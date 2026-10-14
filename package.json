@@ -15,6 +15,7 @@
     "test:myfans-persistence": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfansDailySnapshotView.test.ts",
     "test:myfans-source-text": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfansSourceText.test.ts",
     "test:myfans-growth-loop": "node scripts/test-myfans-growth-loop-contract.mjs",
+    "test:bijyo-trim-video-store": "node --experimental-strip-types --test src/lib/bijyoTrimmedVideoStore.test.ts",
     "test:myfans-account-scope": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfansAccountScope.test.ts && node scripts/test-myfans-multi-account-contract.mjs",
     "test:myfans-market-winner-ui": "node scripts/test-myfans-market-winner-ui-contract.mjs",
     "test:x-growth-semantic-diversity": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/xGrowthSemanticDiversity.test.ts",

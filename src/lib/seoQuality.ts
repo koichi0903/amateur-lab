@@ -16,6 +16,7 @@ export type WorkIndexabilityInput = {
   price: number | null;
   sale_price?: number | null;
   discount_rate?: number | null;
+  /** Legacy rental-price threshold; intentionally not a historical-low signal. */
   is_bottom_price?: boolean | null;
   is_lowest_price?: boolean | null;
   ranking?: number | null;
@@ -44,7 +45,7 @@ export function isWorkIndexable(work: WorkIndexabilityInput): boolean {
   ].filter((rank): rank is number => typeof rank === "number" && rank > 0);
   const hasStablePurchaseSignal =
     ((work.review_count ?? 0) >= 20 && (work.review_average ?? 0) >= 4.2) ||
-    ((work.is_bottom_price === true || work.is_lowest_price === true) && currentPrice <= WORK_INDEX_MAX_BOTTOM_PRICE) ||
+    (work.is_lowest_price === true && currentPrice <= WORK_INDEX_MAX_BOTTOM_PRICE) ||
     (work.discount_rate ?? 0) >= WORK_INDEX_MIN_DISCOUNT_RATE ||
     ranks.some((rank) => rank <= WORK_INDEX_MAX_RANK);
 

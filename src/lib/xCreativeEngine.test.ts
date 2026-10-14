@@ -38,7 +38,10 @@ const variants = buildXCreativeVariants(baseInput);
 const videoVariants = variants.filter((variant) => variant.mediaType === "sample_movie");
 assert.deepEqual(buildXCreativeVariants(baseInput), variants);
 assert.ok(videoVariants.length > 0);
-assert.ok(videoVariants.every((variant) => variant.bodyText.includes("冒頭の展開が予想と少し違う")));
+const openingFactPhrases = ["冒頭の展開が予想と少し違う", "再生してすぐ、想像していた流れと変わった", "冒頭の入り方が、思っていた流れと少し違う"];
+assert.ok(videoVariants.every((variant) => openingFactPhrases.some((phrase) => variant.bodyText.includes(phrase))));
+assert.ok(new Set(videoVariants.flatMap((variant) => openingFactPhrases.filter((phrase) => variant.bodyText.includes(phrase)))).size >= 2);
+assert.ok(videoVariants.filter((variant) => variant.intent === "AUTHORITY").every((variant) => variant.quality.dimensions.replyability >= 58));
 assert.ok(videoVariants.every((variant) => variant.quality.lastMile.humanVoice.checks.readerAction));
 assert.ok(videoVariants.every((variant) => variant.weightedLength <= 280));
 assert.ok(videoVariants.every((variant) => validateXCopyGrammar(baseInput, variant.bodyText).passed));
@@ -46,7 +49,7 @@ assert.ok(videoVariants.some((variant) => variant.quality.lastMile.humanVoice.ch
 assert.ok(videoVariants.some((variant) => variant.quality.lastMile.humanVoice.checks.concreteVisualFact));
 assert.ok(videoVariants.some((variant) => variant.quality.lastMile.nativeXVoice.checks.noTemplateReuse));
 assert.ok(new Set(videoVariants.map((variant) => variant.bodyText.split("\n")[1])).size >= 2);
-assert.ok(videoVariants.some((variant) => variant.bodyText.split("\n").some((line) => line.includes("評価4.7") && line.includes("気になる"))));
+assert.ok(videoVariants.some((variant) => variant.bodyText.split("\n").some((line) => line.includes("評価4.7") && /少し気になった|サンプルを見たい|決めず/.test(line))));
 assert.deepEqual(buildXCreativeVariants(baseInput), buildXCreativeVariants(baseInput));
 
 const genericVisualFact = {

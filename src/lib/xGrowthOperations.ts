@@ -1,7 +1,7 @@
 import type { AffiliatePerformanceRow } from "@/lib/affiliateSalesAnalytics";
 import type { FanzaXGrowth } from "@/lib/fanzaXAccountGrowth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { cleanupTempVideo, createXPost, downloadTempVideo, fetchXPostPublicMetrics, getXApiCapabilityStatus, verifyXReadOnlyConnection } from "@/lib/xApi";
+import { cleanupTempVideo, createXPost, downloadTempVideo, getXApiCapabilityStatus } from "@/lib/xApi";
 import { canTrimFanzaXGrowthSampleMovie, isFanzaXGrowthTechnicalSampleMovie, isUsableXMediaAsset, sourceDomain, sourceKindFor, validateTrimStartSeconds, X_GROWTH_ACCOUNT, type XMediaAsset } from "@/lib/xMediaAssets";
 import type { XCreativeLearningRow, XPostLog, XPostLogInput } from "@/lib/xPostLogs";
 import { saveXPostLog } from "@/lib/xPostLogs";
@@ -14,7 +14,6 @@ import type { DecisionFacts } from "@/lib/domain/decisionFacts";
 
 export type XDailyPlanStatus = "draft" | "confirmed" | "completed" | "regenerated";
 export type XOpportunityStatus = "candidate" | "adopted" | "rejected" | "posted" | "expired";
-export type XSnapshotAge = "1h" | "6h" | "24h" | "72h";
 
 export type PersistedOpportunity = {
   id: number;
@@ -33,19 +32,11 @@ export type XGrowthSystemStatus = {
   xUserAccessTokenConfigured: boolean;
   xPostingConfigured: boolean;
   xMediaUploadConfigured: boolean;
-  xMetricsConfigured: boolean;
-  xReadOnlyConnection: {
-    checked: boolean;
-    ok: boolean;
-    username: string | null;
-    error: string | null;
-  };
   requiredForPosting: string[];
   notes: string[];
 };
 
 const ACCOUNT = X_GROWTH_ACCOUNT;
-const snapshotAges: XSnapshotAge[] = ["1h", "6h", "24h", "72h"];
 
 function todayTokyo() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -89,34 +80,9 @@ export function getXGrowthSystemStatus(error: string | null, rankingSnapshotsErr
     xUserAccessTokenConfigured: capability.hasUserAccessToken,
     xPostingConfigured: capability.postingConfigured,
     xMediaUploadConfigured: capability.mediaUploadConfigured,
-    xMetricsConfigured: capability.metricsConfigured,
-    xReadOnlyConnection: { checked: false, ok: false, username: null, error: null },
     requiredForPosting: capability.requiredForPosting,
     notes: capability.notes,
   };
-}
-
-export async function checkXReadOnlyConnectionStatus() {
-  const capability = getXApiCapabilityStatus();
-  if (!capability.metricsConfigured) {
-    return { checked: false, ok: false, username: null, error: "X_BEARER_TOKEN or X_USER_ACCESS_TOKEN is not configured." };
-  }
-  try {
-    const identity = await verifyXReadOnlyConnection();
-    return {
-      checked: true,
-      ok: identity.username === ACCOUNT,
-      username: identity.username,
-      error: identity.username === ACCOUNT ? null : `Connected X API identity lookup returned ${identity.username ?? "unknown"}.`,
-    };
-  } catch (error) {
-    return {
-      checked: true,
-      ok: false,
-      username: null,
-      error: error instanceof Error ? error.message : "X read-only connection failed.",
-    };
-  }
 }
 
 export async function auditXGrowth(action: string, detail: Record<string, unknown>) {
@@ -275,57 +241,6 @@ export async function syncSampleMovieAssets(batchSize = 250) {
     .limit(safeLimit);
   if (error) return { error: error.message, scanned: 0, synced: 0, created: 0, existing: 0 };
   return syncSampleMovieAssetRows((data ?? []) as SampleMovieWork[]);
-}
-
-async function probeUrl(url: string) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
-  try {
-    let response = await fetch(url, { method: "HEAD", redirect: "manual", signal: controller.signal });
-    if (response.status === 405) response = await fetch(url, { method: "GET", headers: { Range: "bytes=0-2047" }, redirect: "manual", signal: controller.signal });
-    const status = response.status;
-    const fetchStatus = status >= 300 && status < 400 ? "redirect" : status === 401 || status === 403 ? "forbidden" : status >= 200 && status < 300 ? "ok" : status >= 400 ? "dead" : "unknown";
-    return {
-      fetch_status: fetchStatus,
-      fetch_status_code: status,
-      mime_type: response.headers.get("content-type"),
-      content_length: Number(response.headers.get("content-length")) || null,
-      last_checked_at: new Date().toISOString(),
-    };
-  } catch {
-    return { fetch_status: "unknown", fetch_status_code: null, mime_type: null, content_length: null, last_checked_at: new Date().toISOString() };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-export async function checkMediaAssetUrlsForWorkIds(workIds: number[], batchSize = 50) {
-  const safeLimit = Math.max(1, Math.min(batchSize, 100));
-  const ids = [...new Set(workIds)].filter((id) => Number.isSafeInteger(id) && id > 0);
-  let query = supabaseAdmin
-    .from("x_media_assets")
-    .select("id,source_url")
-    .eq("account_handle", ACCOUNT)
-    .in("media_type", ["video", "sample_movie"])
-    .or("last_checked_at.is.null,fetch_status.eq.unknown,fetch_status.eq.unchecked")
-    .order("last_checked_at", { ascending: true, nullsFirst: true });
-  if (ids.length) query = query.in("work_id", ids);
-  const { data, error } = await query.limit(safeLimit);
-  if (error) return { error: error.message, checked: 0 };
-  const assets = (data ?? []) as Array<{ id: number; source_url: string }>;
-  let checked = 0;
-  for (const asset of assets) {
-    const probe = await probeUrl(asset.source_url);
-    const saved = await supabaseAdmin.from("x_media_assets").update({ ...probe, technical_status: probe.fetch_status }).eq("account_handle", ACCOUNT).eq("id", asset.id);
-    if (saved.error) return { error: saved.error.message, checked };
-    checked += 1;
-  }
-  if (checked) await auditXGrowth("media_asset_urls_checked", { checked, batchSize: safeLimit });
-  return { error: null, checked };
-}
-
-export async function checkMediaAssetUrls(batchSize = 50) {
-  return checkMediaAssetUrlsForWorkIds([], batchSize);
 }
 
 export async function reviewMediaAsset(input: {
@@ -700,13 +615,19 @@ async function hydratePersistedTopPickMediaAssets(plan: PersistedXDailyPlan | nu
   };
 }
 
-export async function getPostedWorkIds() {
-  const { data, error } = await supabaseAdmin
+export async function getPostedWorkIds(workIds?: readonly number[]) {
+  const scopedWorkIds = workIds === undefined
+    ? undefined
+    : [...new Set(workIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (scopedWorkIds && !scopedWorkIds.length) return { workIds: new Set<number>(), error: null as string | null };
+
+  const baseQuery = supabaseAdmin
     .from("x_post_logs")
     .select("work_id")
     .eq("account_handle", ACCOUNT)
-    .not("work_id", "is", null)
-    .limit(10_000);
+    .not("work_id", "is", null);
+  const query = scopedWorkIds ? baseQuery.in("work_id", scopedWorkIds) : baseQuery;
+  const { data, error } = await query.limit(10_000);
   if (error) return { workIds: new Set<number>(), error: error.message };
   return {
     workIds: new Set((data ?? []).map((row) => Number((row as { work_id?: unknown }).work_id)).filter((id) => Number.isSafeInteger(id) && id > 0)),
@@ -716,7 +637,8 @@ export async function getPostedWorkIds() {
 
 async function normalizePersistedPlan(plan: PersistedXDailyPlan | null) {
   if (!plan) return plan;
-  const posted = await getPostedWorkIds();
+  const workIds = plan.top_picks.map((pick) => pick.workId).filter((id): id is number => Number.isSafeInteger(id) && id > 0);
+  const posted = await getPostedWorkIds(workIds);
   const topPicks = normalizeTopPickCandidates(plan.top_picks, posted.workIds) as SerializedTopPick[];
   return { ...plan, top_picks: topPicks, stale_reason: posted.error ? posted.error : plan.stale_reason };
 }
@@ -738,18 +660,21 @@ export async function recordManualXPost(input: {
   slotRole?: string | null;
   title: string;
   postText: string;
+  xPostId: string;
   trackingUrl?: string | null;
   intent?: string | null;
   mediaAssetId?: number | null;
   linkStrategy?: string | null;
 }) {
   if (!Number.isSafeInteger(input.workId) || input.workId <= 0) return { error: "作品IDが不正です。" };
+  if (!/^\d{8,25}$/.test(input.xPostId)) return { error: "X投稿URLから投稿IDを確認できませんでした。" };
   const candidateId = input.candidateId?.trim() || `manual-${input.workId}`;
   const trackedPostKey = xPostKeyFromText(input.postText) ?? xPostKeyFromText(input.trackingUrl);
   const linkStrategy = input.linkStrategy === "reply_link" || input.linkStrategy === "self_reply" ? "reply_link" : input.linkStrategy === "body_link" || input.linkStrategy === "body" ? "body_link" : null;
   const result = await saveXPostLog({
     postKey: trackedPostKey ?? `manual-${todayTokyo()}-${candidateId}`.slice(0, 120), workId: input.workId, category: "score",
     title: input.title.slice(0, 300), postText: input.postText, postDate: todayTokyo(), accountHandle: ACCOUNT,
+    xPostId: input.xPostId,
     postIntent: "work_link", scheduledSlot: input.slotId ?? null, creativeVariantId: candidateId,
     mediaAssetId: input.mediaAssetId ?? null, linkStrategy,
     creativeGenome: { candidate_id: candidateId, slot_id: input.slotId ?? null, slot_role: input.slotRole ?? null, candidate_rank: input.candidateRank ?? null, intent: input.intent ?? null, completion_source: "admin_manual_posted_button" },
@@ -1165,49 +1090,6 @@ export async function executeOpportunityPost(id: number) {
   } finally {
     if (temp) await cleanupTempVideo(temp.dir);
   }
-}
-
-export async function syncMetricSnapshots(age: XSnapshotAge) {
-  if (!snapshotAges.includes(age)) return { error: "Invalid snapshot age", saved: 0 };
-  const { data, error } = await supabaseAdmin
-    .from("x_post_logs")
-    .select("id,post_key,work_id,posted_at,x_post_id")
-    .eq("account_handle", ACCOUNT)
-    .not("x_post_id", "is", null)
-    .limit(100);
-  if (error) return { error: error.message, saved: 0 };
-  const logs = (data ?? []) as Array<{ id: number; post_key: string; work_id: number; posted_at: string; x_post_id: string | null }>;
-  const metrics = await fetchXPostPublicMetrics(logs.map((log) => log.x_post_id).filter((id): id is string => Boolean(id)));
-  const rows = [];
-  for (const log of logs) {
-    const postedAt = new Date(log.posted_at).getTime();
-    const hours = { "1h": 1, "6h": 6, "24h": 24, "72h": 72 }[age];
-    if (Date.now() < postedAt + hours * 60 * 60 * 1000) continue;
-    const since = new Date(postedAt).toISOString();
-    const until = new Date(postedAt + hours * 60 * 60 * 1000).toISOString();
-    const [views, clicks] = await Promise.all([
-      supabaseAdmin.from("work_page_views").select("id", { count: "exact", head: true }).eq("source_page", "x").eq("x_post_key", log.post_key).gte("viewed_at", since).lte("viewed_at", until),
-      supabaseAdmin.from("affiliate_clicks").select("id", { count: "exact", head: true }).eq("source_page", "x").eq("x_post_key", log.post_key).gte("clicked_at", since).lte("clicked_at", until),
-    ]);
-    const publicMetric = log.x_post_id ? metrics.get(log.x_post_id) : null;
-    rows.push({
-      account_handle: ACCOUNT,
-      x_post_log_id: log.id,
-      post_key: log.post_key,
-      snapshot_age: age,
-      source: "x_api",
-      impressions: publicMetric?.impressions ?? 0,
-      likes: publicMetric?.likes ?? 0,
-      replies: publicMetric?.replies ?? 0,
-      reposts: publicMetric?.reposts ?? 0,
-      site_visits: views.count ?? 0,
-      affiliate_clicks: clicks.count ?? 0,
-      captured_at: new Date().toISOString(),
-    });
-  }
-  if (!rows.length) return { error: null, saved: 0 };
-  const result = await supabaseAdmin.from("x_metric_snapshots").upsert(rows, { onConflict: "post_key,snapshot_age" });
-  return { error: result.error?.message ?? null, saved: result.error ? 0 : rows.length };
 }
 
 export async function persistCreativeLearning(rows: XCreativeLearningRow[]) {

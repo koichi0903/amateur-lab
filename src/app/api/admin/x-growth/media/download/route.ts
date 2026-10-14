@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { canTrimFanzaXGrowthSampleMovie, isFanzaXGrowthTechnicalSampleMovie, sourceDomain, sourceKindFor } from "@/lib/xMediaAssets";
 import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
 import { xGrowthMediaResponseHeaders } from "@/lib/xGrowthMediaPreview";
+import { parseDatabaseDate } from "@/lib/dateTime";
 
 export const dynamic = "force-dynamic";
 
@@ -84,33 +85,40 @@ function dataCardSvg(work: {
   review_count: number | null;
   sale_price: number | null;
   price: number | null;
+  list_price: number | null;
+  lowest_price: number | null;
+  is_bottom_price: boolean | null;
+  is_on_sale: boolean | null;
+  sale_end_at: string | null;
 }) {
-  const genre = work.genre?.split(/[,、/]/)[0]?.trim() || "今日の注目枠";
-  const price = work.sale_price && work.sale_price > 0 ? work.sale_price : work.price;
-  const axis = work.discount_rate && work.discount_rate >= 30
-    ? `${Math.round(work.discount_rate)}%OFF`
-    : work.ranking ? `ランキング${work.ranking}位`
-      : work.review_average ? `評価${work.review_average.toFixed(1)}`
-        : "サンプル優先";
-  const comparison = [
-    work.review_average ? `評価 ${work.review_average.toFixed(1)}` : "",
-    work.ranking ? `順位 ${work.ranking}` : "",
-    price ? `価格 ${price.toLocaleString("ja-JP")}円` : "",
-  ].filter(Boolean).slice(0, 3);
+  const now = Date.now();
+  const saleEndAt = parseDatabaseDate(work.sale_end_at)?.getTime() ?? null;
+  const saleIsCurrent = Boolean(work.is_on_sale && work.sale_price && work.sale_price > 0 && (!work.sale_end_at || (saleEndAt != null && saleEndAt > now)));
+  const currentPrice = saleIsCurrent ? work.sale_price : work.price;
+  const regularPrice = work.list_price && currentPrice && work.list_price > currentPrice ? work.list_price : null;
+  const discountRate = regularPrice && currentPrice ? Math.round((1 - currentPrice / regularPrice) * 100) : null;
+  const recordedLow = work.lowest_price && work.lowest_price > 0 ? work.lowest_price : null;
+  const isRecordedLow = Boolean(work.is_bottom_price && recordedLow && currentPrice === recordedLow);
+  const saleEnd = work.sale_end_at && saleEndAt && saleEndAt > now
+    ? new Date(saleEndAt).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric" })
+    : null;
   const titleLines = splitText(work.title, 22, 3);
   const actress = work.actress?.split(/[,、/]/)[0]?.trim() || "";
+  const priceText = (value: number | null) => value && value > 0 ? `¥${value.toLocaleString("ja-JP")}` : "未取得";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
   <rect width="1200" height="675" fill="#09090b"/>
-  <rect x="54" y="54" width="1092" height="567" rx="18" fill="#101316" stroke="#2dd4bf" stroke-width="3"/>
-  <text x="92" y="118" fill="#67e8f9" font-size="30" font-weight="800" font-family="Arial, sans-serif">今日のセール欄で見る場所</text>
-  <text x="92" y="190" fill="#ffffff" font-size="60" font-weight="900" font-family="Arial, sans-serif">${escapeXml(genre)}から見る日</text>
-  <rect x="92" y="236" width="430" height="96" rx="12" fill="#042f2e" stroke="#14b8a6" stroke-width="2"/>
-  <text x="120" y="299" fill="#ccfbf1" font-size="48" font-weight="900" font-family="Arial, sans-serif">${escapeXml(axis)}</text>
-  <text x="92" y="388" fill="#d4d4d8" font-size="34" font-weight="700" font-family="Arial, sans-serif">${escapeXml(actress)}</text>
-  ${titleLines.map((line, index) => `<text x="92" y="${438 + index * 42}" fill="#fafafa" font-size="34" font-weight="800" font-family="Arial, sans-serif">${escapeXml(line)}</text>`).join("")}
-  ${comparison.map((line, index) => `<g><rect x="${690}" y="${246 + index * 82}" width="350" height="58" rx="12" fill="#18181b" stroke="#3f3f46"/><text x="716" y="${285 + index * 82}" fill="#f4f4f5" font-size="28" font-weight="800" font-family="Arial, sans-serif">${escapeXml(line)}</text></g>`).join("")}
-  <text x="92" y="580" fill="#a1a1aa" font-size="26" font-weight="700" font-family="Arial, sans-serif">@hakkutsu_lab</text>
+  <rect x="42" y="42" width="1116" height="591" rx="24" fill="#101316" stroke="#ec4899" stroke-width="3"/>
+  <text x="82" y="106" fill="#f9a8d4" font-size="28" font-weight="800" font-family="Arial, sans-serif">発掘LAB｜価格をチェック</text>
+  ${isRecordedLow ? `<rect x="865" y="70" width="235" height="54" rx="27" fill="#831843"/><text x="982" y="106" text-anchor="middle" fill="#fff1f2" font-size="24" font-weight="900" font-family="Arial, sans-serif">記録最安と同額</text>` : ""}
+  ${actress ? `<text x="82" y="154" fill="#a1a1aa" font-size="24" font-weight="700" font-family="Arial, sans-serif">${escapeXml(actress)}</text>` : ""}
+  ${titleLines.map((line, index) => `<text x="82" y="${202 + index * 40}" fill="#ffffff" font-size="32" font-weight="900" font-family="Arial, sans-serif">${escapeXml(line)}</text>`).join("")}
+  <g><rect x="82" y="354" width="318" height="142" rx="18" fill="#18181b" stroke="#3f3f46"/><text x="112" y="397" fill="#a1a1aa" font-size="23" font-weight="700" font-family="Arial, sans-serif">通常価格</text><text x="112" y="463" fill="#f4f4f5" font-size="46" font-weight="900" font-family="Arial, sans-serif">${escapeXml(priceText(regularPrice))}</text></g>
+  <g><rect x="440" y="354" width="318" height="142" rx="18" fill="#3b102b" stroke="#ec4899" stroke-width="2"/><text x="470" y="397" fill="#fbcfe8" font-size="23" font-weight="700" font-family="Arial, sans-serif">${saleIsCurrent ? "現在価格" : "掲載価格"}</text><text x="470" y="463" fill="#ffffff" font-size="50" font-weight="900" font-family="Arial, sans-serif">${escapeXml(priceText(currentPrice))}</text></g>
+  <g><rect x="798" y="354" width="318" height="142" rx="18" fill="#18181b" stroke="#3f3f46"/><text x="828" y="397" fill="#a1a1aa" font-size="23" font-weight="700" font-family="Arial, sans-serif">発掘LABの記録最安</text><text x="828" y="463" fill="#f4f4f5" font-size="46" font-weight="900" font-family="Arial, sans-serif">${escapeXml(priceText(recordedLow))}</text></g>
+  <text x="82" y="550" fill="#f9a8d4" font-size="28" font-weight="800" font-family="Arial, sans-serif">${discountRate ? `通常価格から${discountRate}%OFF` : work.review_average ? `レビュー評価 ${work.review_average.toFixed(1)}（${work.review_count ?? 0}件）` : "価格・記録を作品ページで確認"}</text>
+  <text x="82" y="594" fill="#a1a1aa" font-size="21" font-weight="700" font-family="Arial, sans-serif">${saleEnd ? `セール期限 ${saleEnd}（サイト掲載情報）` : isRecordedLow ? "価格は発掘LABで記録した範囲の比較です" : "価格・セール状況は遷移先でご確認ください"}</text>
+  <text x="1110" y="594" text-anchor="end" fill="#71717a" font-size="20" font-weight="700" font-family="Arial, sans-serif">@hakkutsu_lab</text>
 </svg>`;
 }
 
@@ -164,7 +172,7 @@ async function resolveMedia(workId: number, mediaType: string, assetId: number |
   if (mediaType === "data_card") {
     const { data, error } = await supabaseAdmin
       .from("works")
-      .select("id,title,actress,genre,ranking,discount_rate,review_average,review_count,sale_price,price")
+      .select("id,title,actress,genre,ranking,discount_rate,review_average,review_count,sale_price,price,list_price,lowest_price,is_bottom_price,is_on_sale,sale_end_at")
       .eq("id", workId)
       .single();
     const work = data as Parameters<typeof dataCardSvg>[0] | null;
@@ -205,7 +213,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse(resolved.body, {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `attachment; filename="${safeFilename(resolved.basename)}.${resolved.fallbackExt}"`,
+        "Content-Disposition": `${mediaType === "data_card" && preview ? "inline" : "attachment"}; filename="${safeFilename(resolved.basename)}.${resolved.fallbackExt}"`,
         "Cache-Control": "private, no-store",
       },
     });

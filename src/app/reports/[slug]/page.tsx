@@ -110,7 +110,7 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ s
             <p className="mt-6 text-xs font-black tracking-widest text-emerald-700">UPDATED DATA REPORT</p>
             <h1 className="mt-2 text-3xl font-black sm:text-5xl">{definition.title}</h1>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600">{definition.description}</p>
-            <p className="mt-4 text-xs font-bold text-slate-500">データ更新: 30分ごとに再集計 / 編集: 発掘LAB編集部</p>
+            <p className="mt-4 text-xs font-bold text-slate-500">データ表示: 30分間隔で再検証 / 取得データの条件に基づく自動集計</p>
           </div>
         </section>
         <div className="mx-auto max-w-[1500px] px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
@@ -121,7 +121,7 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ s
               <div className="mb-8 rounded-2xl border border-pink-100 bg-white p-5 text-sm leading-7 text-slate-600">
                 <p className="font-black text-slate-900">このページの見方</p>
                 <p className="mt-2">
-                  価格だけでなく、レビュー件数、過去最安値、サンプルの有無を作品カードで確認できます。気になる作品は詳細ページで価格履歴と「今買う・比較して判断・待つ」の判定を確認してください。
+                  各レポートの抽出条件はページ上部の説明をご確認ください。作品カードでは掲載されている価格やレビュー情報を確認でき、作品詳細ページから作品ごとの情報を確認できます。
                 </p>
               </div>
               {slug === "price-bands" ? (
@@ -129,7 +129,7 @@ export default async function ReportDetailPage({ params }: { params: Promise<{ s
               ) : (
                 <>
                   <p className="mb-6 text-sm leading-7 text-slate-600">
-                    取得条件に該当した上位{result.works.length}作品です。順位は購入満足度を保証するものではありません。気になる作品は価格履歴と買い時判定を確認してください。
+                    取得条件に該当した{result.works.length}作品です。表示順や抽出条件はレポートごとに異なり、購入満足度を保証するものではありません。
                   </p>
                   <ReportWorkGrid works={result.works} />
                 </>

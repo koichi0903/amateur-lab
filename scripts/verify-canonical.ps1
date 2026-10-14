@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$expectedRoot = (Resolve-Path (Join-Path $env:USERPROFILE "projects\amateur-lab")).Path
+$expectedRoot = 'F:\HakkutsuLAB\workspace\Users\DELL\projects\amateur-lab'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if ($repoRoot -ne $expectedRoot) { throw "Canonical path mismatch: $repoRoot" }
 
@@ -12,7 +12,7 @@ if ((& git -c "safe.directory=$repoRoot" -C $repoRoot status --porcelain) -ne $n
 $listener = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $listener) { throw "No listener on port 3000" }
 $ownerPid = [int]$listener.OwningProcess
-$markerPath = Join-Path $env:LOCALAPPDATA "amateur-lab\local-dev-3000.json"
+$markerPath = 'F:\HakkutsuLAB\workspace\Users\DELL\AppData\Local\amateur-lab\local-dev-3000.json'
 if (-not (Test-Path -LiteralPath $markerPath)) { throw "Canonical server marker not found" }
 $marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
 if ([string]$marker.repoRoot -ne $repoRoot) { throw "Port 3000 marker is not canonical" }

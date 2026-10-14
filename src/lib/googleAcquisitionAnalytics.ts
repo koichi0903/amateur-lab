@@ -43,6 +43,7 @@ type DailyMetric = {
 
 export type GoogleAcquisitionAnalytics = {
   configured: boolean;
+  evaluatedAt: string;
   period: { startDate: string; endDate: string };
   searchConsole: {
     available: boolean;
@@ -146,6 +147,7 @@ function reportPeriod() {
 function emptyReport(period: { startDate: string; endDate: string }): GoogleAcquisitionAnalytics {
   return {
     configured: Boolean(getCredential()),
+    evaluatedAt: new Date().toISOString(),
     period,
     searchConsole: {
       available: false,

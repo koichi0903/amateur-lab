@@ -293,12 +293,29 @@ function primaryVideoTag(input: XCreativeInput): XVideoManualTag | null {
   return VIDEO_TAG_PRIORITY.find((tag) => tags.includes(tag)) ?? null;
 }
 
-function concreteVisualPhrase(fact: NonNullable<ReturnType<typeof primaryUsableVisualFact>>) {
-  if (fact.kind === "jacket_sample_mismatch" || /ジャケとサンプルで印象/.test(fact.safePhrase ?? "")) return "ジャケとサンプルで見え方が違う。";
-  if (/入り方が少し予想と違う/.test(fact.safePhrase ?? "") || fact.value === "opening_change") return "冒頭の展開が予想と少し違う。";
-  if (fact.value === "first_seconds_attention") return "開いてすぐ、画面の変化に目が止まる。";
-  if (fact.value === "safe_preview") return "サンプルの冒頭だけで、見え方が分かる。";
-  return fact.safePhrase ?? "";
+function concreteVisualPhrases(fact: NonNullable<ReturnType<typeof primaryUsableVisualFact>>) {
+  if (fact.kind === "jacket_sample_mismatch" || /ジャケとサンプルで印象/.test(fact.safePhrase ?? "")) {
+    return ["ジャケとサンプルで見え方が違う。", "表紙の印象とサンプルの雰囲気が少し違う。", "ジャケを見た印象と、動画の入り方に差がある。"];
+  }
+  if (/入り方が少し予想と違う/.test(fact.safePhrase ?? "") || fact.value === "opening_change") {
+    return ["冒頭の展開が予想と少し違う。", "再生してすぐ、想像していた流れと変わった。", "冒頭の入り方が、思っていた流れと少し違う。"];
+  }
+  if (fact.value === "first_seconds_attention") {
+    return ["開いてすぐ、画面の変化に目が止まる。", "最初の数秒で、画面の動きが気になった。", "再生直後の動きに、思わず目が止まる。"];
+  }
+  if (fact.value === "safe_preview") {
+    return ["サンプルの冒頭だけで、見え方が分かる。", "冒頭を少し見ただけでも、作品の雰囲気が伝わる。", "短いサンプルでも、入り方は確かめられる。"];
+  }
+  return [fact.safePhrase ?? ""].filter(Boolean);
+}
+
+function concreteVisualPhrase(fact: NonNullable<ReturnType<typeof primaryUsableVisualFact>>, seed: string) {
+  const phrases = concreteVisualPhrases(fact);
+  return phrases[stableChoiceIndex(seed, phrases.length)] ?? "";
+}
+
+function containsConcreteVisualPhrase(text: string, fact: NonNullable<ReturnType<typeof primaryUsableVisualFact>>) {
+  return concreteVisualPhrases(fact).some((phrase) => phrase && text.includes(phrase.replace(/[。．]+$/, "")));
 }
 
 function nativeVisualOpening(
@@ -390,7 +407,7 @@ function videoReaderActionLine(
 
 function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPlan: XLinkPlan, direction: XHookDirection) {
   const visualFact = primaryUsableVisualFact(input.visualFacts);
-  const concretePhrase = visualFact ? concreteVisualPhrase(visualFact) : "";
+  const concretePhrase = visualFact ? concreteVisualPhrase(visualFact, [input.key, intent, direction].join("|")) : "";
   if (visualFact && concretePhrase) {
     const link = linkPlan === "body_link" ? input.url : "";
     const action = visualFact ? videoReaderActionLine(input, visualFact, intent, primaryVideoTag(input), direction) : "";
@@ -408,7 +425,8 @@ function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPl
         : layout === 2
           ? [subjectLead, concretePhrase]
         : [visualOpening, subjectLead];
-    return [ensureNativeFirstLine(lines[0]), ...lines.slice(1), intent === "MONEY" ? humanProofLine(input, intent) : "", link].filter(Boolean);
+    const authorityQuestion = intent === "AUTHORITY" ? "冒頭の入り方、気になりますか。" : "";
+    return [ensureNativeFirstLine(lines[0]), ...lines.slice(1), authorityQuestion, intent === "MONEY" ? humanProofLine(input, intent) : "", link].filter(Boolean);
   }
   const tag = primaryVideoTag(input);
   const actress = primaryActress(input);
@@ -425,7 +443,8 @@ function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPl
       "気になったところだけ、続きも見ておきたい。",
     ];
     const ending = fallbackEndings[stableChoiceIndex([input.key, intent, direction].join("|"), fallbackEndings.length)];
-    return [`${subject}、サンプルが少し気になる。`, decisionProof || ending].filter(Boolean);
+    const authorityQuestion = intent === "AUTHORITY" ? "サンプルの入り方、気になりますか。" : "";
+    return [`${subject}、サンプルが少し気になる。`, decisionProof || ending, authorityQuestion].filter(Boolean);
   }
   const decisionProof = input.decisionFacts ? decisionFactProofLine(input.decisionFacts) : "";
   const proof = input.decisionFacts
@@ -447,7 +466,8 @@ function videoSpecificLines(input: XCreativeInput, intent: XGrowthIntent, linkPl
     scene_surprise: "この入り方、少し気になる。",
     safe_preview: "強く言わなくても、これで十分。",
   };
-  return [lineByTag[tag], second, closingByTag[tag], link].filter(Boolean);
+  const authorityQuestion = intent === "AUTHORITY" ? "この入り方、気になりますか。" : "";
+  return [lineByTag[tag], second, closingByTag[tag], authorityQuestion, link].filter(Boolean);
 }
 
 /** Reject copy whose grammar implies facts or comparisons the source does not support. */
@@ -616,12 +636,12 @@ function moneyClickReason(input: XCreativeInput) {
 function mediaFor(input: XCreativeInput, intent: XGrowthIntent): XCreativeMedia {
   if (intent === "MONEY") return "existing_link_image";
   if (intent === "CONVERSATION") return "quote";
+  if (input.imageUrl && input.sourceType === "PRICE_EVENT") return "data_card";
   if ((input.mediaManualTags ?? []).includes("too_explicit_for_reach") || (input.mediaManualTags ?? []).includes("weak_visual") || input.mediaQuality === "weak") return input.imageUrl ? "existing_link_image" : "text";
   if (input.hasRightsCheckedMovie && input.sampleMovieUrl && (intent === "REACH" || intent === "FOLLOW" || intent === "AUTHORITY")) return "sample_movie";
   if (input.imageUrl && input.sourceType !== "MARKET" && input.sourceType !== "COMPARISON" && input.sourceType !== "JUDGMENT") return "existing_link_image";
-  // X Growth never uses generated/data cards. A real work image is always
-  // preferable to a synthetic comparison card, including market-oriented
-  // candidates.
+  // Use the official work image for other topics; price events have a dedicated
+  // fact card above so the saved price evidence travels with the post.
   if (input.imageUrl) return "existing_link_image";
   return "text";
 }
@@ -741,7 +761,7 @@ function finalHumanVoiceGate(input: XCreativeInput, variant: { intent: XGrowthIn
     || variant.mediaType !== "sample_movie"
     || !primaryFact
     || !input.visualFacts?.usableFacts.length
-    || Boolean(primaryFact && variant.text.includes(concreteVisualPhrase(primaryFact)));
+    || Boolean(primaryFact && containsConcreteVisualPhrase(variant.text, primaryFact));
   const checks = {
     xNative: lines.length >= 1 && lines.length <= 5 && !/[。\.].*[。\.].*[。\.]/.test(first),
     audienceClear: Boolean(primaryActress(input) || input.genre || first.includes("今日") || first.includes("同じ") || first.includes("半額") || first.includes("ランキング")),
@@ -852,7 +872,8 @@ function evaluateAdSmell(text: string, linkPlan: XLinkPlan, input: XCreativeInpu
 function qualityFor(input: XCreativeInput, variant: { intent: XGrowthIntent; structure: XCreativeStructure; mediaType: XCreativeMedia; linkPlan: XLinkPlan; text: string }) {
   const proofCount = strongestFacts(input).length;
   const videoTag = primaryVideoTag(input);
-  const reachSourceSignal = input.sourceType === "MARKET" || input.sourceType === "COMPARISON" || input.sourceType === "JUDGMENT" ? 18 : 0;
+  const hasVerifiedVideoFact = variant.mediaType === "sample_movie" && Boolean(primaryUsableVisualFact(input.visualFacts));
+  const reachSourceSignal = (input.sourceType === "MARKET" || input.sourceType === "COMPARISON" || input.sourceType === "JUDGMENT" ? 18 : 0) + (hasVerifiedVideoFact ? 8 : 0);
   const reachTextHook = variant.text.includes("今日") || variant.text.includes("同じ") || variant.text.includes("見送") || variant.text.includes("偏り") || variant.text.includes("差が") || variant.text.includes("迷う") || variant.text.includes("冒頭") || variant.text.includes("ジャケ") || variant.text.includes("動画") ? 16 : 0;
   const firstSecondsBoost = variant.intent === "REACH" && variant.mediaType === "sample_movie" && videoTag === "first_seconds_strong" && input.mediaQuality === "strong" ? 28 : 0;
   const mediaStoryFit = variant.mediaType === "sample_movie"
@@ -871,7 +892,7 @@ function qualityFor(input: XCreativeInput, variant: { intent: XGrowthIntent; str
   const noveltyPenalty = Math.round(recentSimilarity * 40) + sameStructureCount * 8;
   const dimensions: Record<XQualityDimension, number> = {
     scrollStop: clamp(42 + reachSourceSignal + reachTextHook + firstSecondsBoost + (input.ranking && input.ranking <= 50 ? 10 : 0) + (input.isNinetyDayLow ? 8 : 0) + (input.discoveryScore ?? 0) / 6),
-    curiosity: clamp(45 + reachTextHook + (variant.text.includes("なぜ") || variant.text.includes("ズレ") || variant.text.includes("不自然") || variant.text.includes("印象") || variant.text.includes("流して") || variant.text.includes("偏り") ? 24 : 0) + proofCount * 5),
+    curiosity: clamp(45 + reachTextHook + (variant.text.includes("なぜ") || variant.text.includes("ズレ") || variant.text.includes("不自然") || variant.text.includes("印象") || variant.text.includes("流して") || variant.text.includes("偏り") || (hasVerifiedVideoFact && /違い|違う|変わった/.test(variant.text)) ? 24 : 0) + proofCount * 5),
     proof: clamp(30 + proofCount * 16 + (input.seriesObservationCount ?? 0) * 2),
     judgment: clamp(variant.text.includes("近い") || variant.text.includes("見落と") || variant.text.includes("サンプル") || variant.text.includes("中身") || variant.text.includes("見たい") || variant.text.includes("決め") || variant.text.includes("外し") || variant.text.includes("迷う") || variant.text.includes("差") ? 80 : 48),
     followValue: clamp(variant.intent === "FOLLOW" ? 62 + proofCount * 8 : variant.intent === "AUTHORITY" ? 58 + proofCount * 6 : 42 + proofCount * 4),
@@ -1020,7 +1041,8 @@ function diversifyNativeStructure(input: XCreativeInput, intent: XGrowthIntent, 
   if (!proof || lines.length !== 2 || lines.some((line) => line.includes(proof))) return text;
   const key = [input.key, input.title, input.sourceType ?? "WORK", intent, direction, index, proof].join("|");
   if (stableChoiceIndex(key, 3) !== 0) return text;
-  const proofReaction = `${proof}なのも、少し気になる。`;
+  const proofReactions = [`${proof}が目に入って、少し気になった。`, `${proof}も見たうえで、サンプルを見たい。`, `${proof}だけで決めず、続きも見てから考えたい。`];
+  const proofReaction = proofReactions[stableChoiceIndex(`${key}:reaction`, proofReactions.length)];
   return formatText([lines[0], proofReaction, lines[1]], input.title);
 }
 
@@ -1052,9 +1074,9 @@ export function buildXCreativeVariants(input: XCreativeInput, hookScore = calcul
       // fall back to the strongest passing body.
       const preferred = reviewedCandidates[alternativeIndex % Math.max(1, reviewedCandidates.length)];
       const primaryVideoFact = mediaType === "sample_movie" ? primaryUsableVisualFact(input.visualFacts) : null;
-      const factPhrase = primaryVideoFact ? concreteVisualPhrase(primaryVideoFact) : "";
-      const factPreserving = factPhrase
-        ? reviewedCandidates.find((candidate) => candidate.quality.passed && candidate.text.includes(factPhrase))
+      const factPhrase = primaryVideoFact ? concreteVisualPhrase(primaryVideoFact, [input.key, intent, alternative.direction].join("|")) : "";
+      const factPreserving = factPhrase && primaryVideoFact
+        ? reviewedCandidates.find((candidate) => candidate.quality.passed && containsConcreteVisualPhrase(candidate.text, primaryVideoFact))
         : undefined;
       const reviewed = factPreserving
         ?? (preferred?.quality.passed

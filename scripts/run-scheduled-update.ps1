@@ -15,7 +15,7 @@ $OutputEncoding = $utf8
 Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
 $env:FORCE_COLOR = "0"
 $projectDir = Split-Path -Parent $PSScriptRoot
-$logDir = Join-Path $env:LOCALAPPDATA "HakkutsuLAB\scheduled-update-logs"
+$logDir = 'F:\HakkutsuLAB\workspace\Users\DELL\AppData\Local\HakkutsuLAB\scheduled-update-logs'
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $logPath = Join-Path $logDir "$timestamp-$Group.log"
 $logFile = Split-Path -Leaf $logPath

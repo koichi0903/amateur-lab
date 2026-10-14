@@ -31,7 +31,7 @@ type CompareWork = {
   review_count: number | null;
   release_date: string | null;
   sample_movie_url: string | null;
-  is_bottom_price: boolean | null;
+  is_lowest_price: boolean | null;
   sale_end_at: string | null;
   affiliate_url: string | null;
 };
@@ -128,7 +128,7 @@ export default function CompareClient() {
               <h2 className="mt-4 line-clamp-3 min-h-[4.5rem] text-base font-black leading-6"><Link href={workDetailHref(work.id, "comparison")} className="hover:text-pink-600">{work.title}</Link></h2>
               <dl className="mt-3">
                 <ValueRow label="現在の最安価格"><span className={`text-xl font-black ${isLowest ? "text-emerald-600" : "text-pink-600"}`}>{price ? `¥${price.toLocaleString("ja-JP")}` : "価格確認中"}</span>{isLowest && <span className="ml-2 rounded-full bg-emerald-50 px-2 py-1 text-[10px] text-emerald-700">最安</span>}</ValueRow>
-                <ValueRow label="割引・価格実績"><span className="flex flex-wrap gap-1.5">{work.discount_rate && work.discount_rate > 0 ? <span className="rounded-full bg-rose-50 px-2 py-1 text-xs text-rose-700">{Math.round(work.discount_rate)}%OFF</span> : "割引なし"}{work.is_bottom_price && <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-700">過去最安</span>}</span></ValueRow>
+                <ValueRow label="割引・価格実績"><span className="flex flex-wrap gap-1.5">{work.discount_rate && work.discount_rate > 0 ? <span className="rounded-full bg-rose-50 px-2 py-1 text-xs text-rose-700">{Math.round(work.discount_rate)}%OFF</span> : "割引なし"}{work.is_lowest_price && <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-700">過去最安</span>}</span></ValueRow>
                 <ValueRow label="発掘スコア"><span className={work.score === bestScore && bestScore > 0 ? "text-pink-600" : ""}>{work.score ? `${work.score}点` : "—"}{work.score === bestScore && bestScore > 0 && <Check className="ml-1 inline" size={14} />}</span></ValueRow>
                 <ValueRow label="レビュー"><span className="flex items-center gap-1"><Star size={14} className="text-amber-500" fill="currentColor" />{work.review_average ? `${work.review_average.toFixed(2)}（${work.review_count ?? 0}件）` : "—"}{work.review_average === bestReview && bestReview > 0 && <Check className="text-emerald-600" size={14} />}</span></ValueRow>
                 <ValueRow label="無料サンプル">{work.sample_movie_url ? <span className="flex items-center gap-1 text-sky-700"><PlayCircle size={14} />動画あり</span> : "なし・未取得"}</ValueRow>

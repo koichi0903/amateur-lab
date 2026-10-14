@@ -41,8 +41,8 @@ export const dealCategories = {
   "sample-available": {
     label: "サンプルあり",
     title: "サンプル動画を確認できるFANZA作品",
-    description: "購入前に無料サンプル動画を確認できるFANZA作品を集めました。",
-    decisionGuide: ["無料サンプルの登録を確認", "画質や雰囲気を購入前に判断"],
+    description: "購入前に無料サンプル動画を確認できるFANZA作品を、レビュー評価と件数を参考に掲載します。",
+    decisionGuide: ["無料サンプルの登録を確認", "レビュー平均・件数も合わせて比較"],
     caution: "サンプルは本編の一部です。収録時間や商品形式は詳細ページで確認してください。",
     icon: PlayCircle,
     accent: "sky",
@@ -50,8 +50,8 @@ export const dealCategories = {
   "best-discount": {
     label: "割引率が高い",
     title: "割引率が高いFANZAセール作品",
-    description: "現在セール中のFANZA作品を割引率の高い順に紹介します。",
-    decisionGuide: ["割引率が高い順", "通常価格と現在価格を併記"],
+    description: "現在セール中のFANZA作品を割引率の高い順に紹介し、レビュー評価も確認できます。",
+    decisionGuide: ["割引率が高い順", "レビュー平均・件数と現在価格を併記"],
     caution: "割引率が高くても最安とは限りません。現在価格と内容を基準に判断してください。",
     icon: BadgePercent,
     accent: "pink",

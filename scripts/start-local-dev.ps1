@@ -49,15 +49,21 @@ if ($TestCase) {
     exit 0
 }
 
+$fCanonicalRepoRoot = 'F:\HakkutsuLAB\workspace\Users\DELL\projects\amateur-lab'
+$scriptRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+if (-not $TestCase -and $scriptRepoRoot -ieq $fCanonicalRepoRoot) {
+    & 'F:\HakkutsuLAB\migration\scripts\start-f-local-dev.ps1'
+    exit $LASTEXITCODE
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$expectedRepoRoot = (Resolve-Path (Join-Path $env:USERPROFILE "projects\amateur-lab")).Path
+$expectedRepoRoot = 'F:\HakkutsuLAB\workspace\Users\DELL\projects\amateur-lab'
 if ($repoRoot -ne $expectedRepoRoot) {
     throw "Canonical local dev must be started from $expectedRepoRoot; refusing checkout $repoRoot"
 }
 $packagePath = Join-Path $repoRoot "package.json"
 $envPath = Join-Path $repoRoot ".env.local"
-$stateDir = Join-Path $env:LOCALAPPDATA "amateur-lab"
-
+$stateDir = 'F:\HakkutsuLAB\workspace\Users\DELL\AppData\Local\amateur-lab'
 if (-not (Test-Path -LiteralPath $packagePath)) { throw "package.json was not found at $repoRoot" }
 if (-not (Test-Path -LiteralPath $envPath)) {
     Write-Warning "No .env.local at $envPath. Values are never printed by this launcher; HTTP readiness will determine whether the app can run."
@@ -88,7 +94,7 @@ try {
     Remove-Item -LiteralPath $writeProbe -Force -ErrorAction SilentlyContinue
 }
 catch {
-    $stateDir = Join-Path $env:TEMP "amateur-lab"
+    $stateDir = 'F:\HakkutsuLAB\migration\tmp\amateur-lab'
     New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
     Write-Warning "Could not write under LOCALAPPDATA; using TEMP for the non-secret PID/log marker."
 }
@@ -207,7 +213,7 @@ $nextCli = Join-Path $repoRoot "node_modules\next\dist\bin\next"
 if (-not (Test-Path -LiteralPath $nextCli)) { throw "Next CLI was not found at $nextCli" }
 
 $arguments = @($nextCli, "dev", "--webpack", "-H", "127.0.0.1", "-p", "3000")
-$server = Start-Process -FilePath "node.exe" -ArgumentList $arguments -WorkingDirectory $repoRoot -RedirectStandardOutput $logPath -RedirectStandardError $errorLogPath -PassThru
+$server = Start-Process -FilePath "F:\HakkutsuLAB\runtime\nodejs\node.exe" -ArgumentList $arguments -WorkingDirectory $repoRoot -RedirectStandardOutput $logPath -RedirectStandardError $errorLogPath -PassThru
 $markerData = [ordered]@{
     pid = $server.Id
     repoRoot = $repoRoot

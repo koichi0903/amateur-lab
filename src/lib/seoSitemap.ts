@@ -27,7 +27,6 @@ type SitemapWork = {
   price: number | null;
   sale_price: number | null;
   discount_rate: number | null;
-  is_bottom_price: boolean | null;
   is_lowest_price: boolean | null;
   ranking: number | null;
   realtime_rank: number | null;
@@ -101,7 +100,7 @@ const staticEntries: SitemapEntry[] = [
 
 const QUALITY_WORK_COLUMNS = [
   "id", "created_at", "updated_at", "stage", "score", "review_count",
-  "review_average", "price", "sale_price", "discount_rate", "is_bottom_price",
+  "review_average", "price", "sale_price", "discount_rate",
   "is_lowest_price", "ranking", "realtime_rank", "daily_rank", "weekly_rank",
   "monthly_rank", "long_hit_rank", "image_url", "affiliate_url",
 ].join(",");
@@ -114,7 +113,7 @@ const getQualityWorks = unstable_cache(
         .from("works")
         .select(QUALITY_WORK_COLUMNS)
         .neq("stage", "DISCONTINUED")
-        .or("review_count.gte.20,discount_rate.gte.50,is_bottom_price.eq.true,is_lowest_price.eq.true,ranking.lte.100,realtime_rank.lte.100,daily_rank.lte.100,weekly_rank.lte.100,monthly_rank.lte.100,long_hit_rank.lte.100")
+        .or("review_count.gte.20,discount_rate.gte.50,is_lowest_price.eq.true,ranking.lte.100,realtime_rank.lte.100,daily_rank.lte.100,weekly_rank.lte.100,monthly_rank.lte.100,long_hit_rank.lte.100")
         .not("image_url", "is", null)
         .neq("image_url", "")
         .not("affiliate_url", "is", null)
@@ -130,7 +129,7 @@ const getQualityWorks = unstable_cache(
 
     return candidates.filter(isWorkIndexable);
   },
-  ["seo-sitemap-quality-works-v5-purchase-signals"],
+  ["seo-sitemap-quality-works-v6-verified-lowest-price"],
   { revalidate: 3600 },
 );
 

@@ -51,4 +51,4 @@ foreach ($definition in $definitions) {
 }
 
 Write-Host "All HakkutsuLAB scheduled tasks were registered."
-Write-Host "Logs: $env:LOCALAPPDATA\HakkutsuLAB\scheduled-update-logs"
+Write-Host "Logs: F:\HakkutsuLAB\workspace\Users\DELL\AppData\Local\HakkutsuLAB\scheduled-update-logs"

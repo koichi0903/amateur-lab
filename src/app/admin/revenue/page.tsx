@@ -19,6 +19,9 @@ import { getGoogleAcquisitionAnalytics } from "@/lib/googleAcquisitionAnalytics"
 import RevenueImportForm from "./RevenueImportForm";
 import RevenuePerformanceTable from "./RevenuePerformanceTable";
 import TrafficImprovementPanel from "./TrafficImprovementPanel";
+import FanzaDailyPostFunnel from "./FanzaDailyPostFunnel";
+import FanzaId990DailyOfficialInput from "./FanzaId990DailyOfficialInput";
+import { getFanzaId990DailyOfficialMetrics } from "@/lib/fanzaId990DailyOfficialMetrics";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -247,11 +250,15 @@ export default async function RevenueDashboardPage({
   const query = await searchParams;
   const xDaysParam = Array.isArray(query.x_days) ? query.x_days[0] : query.x_days;
   const xCategoryDays = xDaysParam === "30" ? 30 : 7;
-  const [analytics, salesAnalytics, googleAnalytics] = await Promise.all([
+  const [analytics, salesAnalytics, googleAnalytics, id990Daily] = await Promise.all([
     getAffiliateAnalytics(xCategoryDays),
     getAffiliateSalesAnalytics(),
     getGoogleAcquisitionAnalytics(),
+    getFanzaId990DailyOfficialMetrics(30),
   ]);
+  const id990ConfirmedDaily = id990Daily.rows.filter((row) => row.report_status === "confirmed");
+  const id990ConfirmedClicks = id990ConfirmedDaily.reduce((sum, row) => sum + row.click_count, 0);
+  const id990ConfirmedReward = id990ConfirmedDaily.reduce((sum, row) => sum + row.direct_reward_yen + row.category_reward_yen + row.service_reward_yen, 0);
   const maxDaily = Math.max(...analytics.daily.map((item) => item.count), 1);
   const thirtyDayTotal = analytics.totals.thirtyDays;
   const mobileClicks = analytics.placements.find(
@@ -331,7 +338,7 @@ export default async function RevenueDashboardPage({
               <p className="text-xs font-black tracking-[0.16em] text-emerald-300">① FANZA公式の成果</p>
               <h2 className="mt-1 text-xl font-black">販売・報酬（公式CSV）</h2>
               <p className="mt-1 text-sm leading-6 text-zinc-400">
-              FANZA公式の商品別レポートに記録されたアカウント合計です。発掘LAB内のクリックや個別投稿に紐付いた購入ではありません。期間は下記の対象月です。
+              FANZA公式の商品別CSVをアフィリエイトID別に記録します。ここでは発掘LAB用の990だけを表示し、全体CSVや026は混ぜません。作品・投稿への購入帰属はできません。
               </p>
             </div>
           </div>
@@ -348,18 +355,18 @@ export default async function RevenueDashboardPage({
 
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <MetricCard
-              label={`公式レポート ${salesAnalytics.currentMonth.replace("-", "年")}月 販売件数`}
-              value={`${salesAnalytics.totals.salesCount.toLocaleString("ja-JP")}件`}
-              note="商品別レポートのサイト全体実績"
+              label={`ID990 ${salesAnalytics.currentMonth.replace("-", "年")}月 販売件数`}
+              value={salesAnalytics.currentMonthHasRows ? `${salesAnalytics.totals.salesCount.toLocaleString("ja-JP")}件` : "未取得"}
+              note={salesAnalytics.currentMonthHasRows ? "990を選択して取り込んだ公式CSVのみ" : "未取込と成果0件を区別できません"}
             />
             <MetricCard
               label="販売金額"
-              value={`¥${salesAnalytics.totals.salesAmount.toLocaleString("ja-JP")}`}
-              note="対象月の取込済み合計"
+              value={salesAnalytics.currentMonthHasRows ? `¥${salesAnalytics.totals.salesAmount.toLocaleString("ja-JP")}` : "未取得"}
+              note="ID990・対象月の取込済み合計"
             />
             <MetricCard
               label="発生報酬"
-              value={`¥${salesAnalytics.totals.commissionAmount.toLocaleString("ja-JP")}`}
+              value={salesAnalytics.currentMonthHasRows ? `¥${salesAnalytics.totals.commissionAmount.toLocaleString("ja-JP")}` : "未取得"}
               note="確定報酬とは差が出る場合があります"
             />
           </div>
@@ -370,8 +377,55 @@ export default async function RevenueDashboardPage({
             </p>
           )}
 
+          <div className="mt-7 border-t border-emerald-900/70 pt-6">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-xs font-black tracking-[0.16em] text-emerald-300">DMM OFFICIAL DAILY · ID 990</p>
+                <h3 className="mt-1 text-lg font-black">公式日別クリック・報酬</h3>
+                <p className="mt-1 text-xs leading-5 text-zinc-400">対象 {id990Daily.fromDate}〜{id990Daily.untilDate}。DMM公式画面からの手入力です。サイト内イベント・ID026・全体CSVとは別集計です。</p>
+              </div>
+              {!id990Daily.error && <p className="text-xs text-zinc-500">確定値のみ集計 / 記録 {id990ConfirmedDaily.length}日</p>}
+            </div>
+
+            {id990Daily.error ? (
+              <p className="mt-4 rounded-lg border border-amber-800 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">日別公式テーブルを読み込めません。DB設定反映後に利用できます。エラー: {id990Daily.error}</p>
+            ) : (
+              <>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <MetricCard label="ID990 確定クリック（30日）" value={id990ConfirmedDaily.length ? `${id990ConfirmedClicks.toLocaleString("ja-JP")}回` : "未記録"} note={`DMM公式の日別確定値。${id990ConfirmedDaily.length}日分のみ。未記録日は含みません。`} />
+                  <MetricCard label="ID990 確定報酬（30日）" value={id990ConfirmedDaily.length ? `¥${id990ConfirmedReward.toLocaleString("ja-JP")}` : "未記録"} note="ダイレクト・カテゴリ・サービス新規の合計" />
+                  <MetricCard label="速報・未確定日" value={`${id990Daily.rows.filter((row) => row.report_status === "provisional").length}日`} note="確定値の合計からは除外" />
+                </div>
+                <FanzaId990DailyOfficialInput />
+                <div className="mt-4 overflow-x-auto rounded-xl border border-zinc-800">
+                  <table className="w-full min-w-[760px] text-left text-xs">
+                    <thead className="bg-zinc-900 text-zinc-400"><tr><th className="px-3 py-3">対象日</th><th className="px-3 py-3 text-right">公式クリック</th><th className="px-3 py-3 text-right">成果件数</th><th className="px-3 py-3 text-right">報酬額</th><th className="px-3 py-3">状態</th><th className="px-3 py-3">確認日時</th></tr></thead>
+                    <tbody className="divide-y divide-zinc-800">
+                      {id990Daily.rows.slice(0, 10).map((row) => {
+                        const count = row.direct_reward_count + row.category_reward_count + row.service_reward_count;
+                        const reward = row.direct_reward_yen + row.category_reward_yen + row.service_reward_yen;
+                        return <tr key={row.report_date}>
+                          <td className="px-3 py-3 font-bold text-zinc-200">{row.report_date}</td>
+                          <td className="px-3 py-3 text-right font-black text-cyan-200">{row.click_count.toLocaleString("ja-JP")}</td>
+                          <td className="px-3 py-3 text-right text-zinc-300">{count.toLocaleString("ja-JP")}</td>
+                          <td className="px-3 py-3 text-right font-black text-emerald-300">¥{reward.toLocaleString("ja-JP")}</td>
+                          <td className="px-3 py-3">{row.report_status === "confirmed" ? <span className="text-emerald-300">確定</span> : <span className="text-amber-300">速報</span>}</td>
+                          <td className="px-3 py-3 text-zinc-500">{formatDateTime(row.observed_at)}</td>
+                        </tr>;
+                      })}
+                      {!id990Daily.rows.length && <tr><td colSpan={6} className="px-3 py-5 text-center text-zinc-500">日別レポートは未記録です。未記録は0件として集計していません。</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+
           {!salesAnalytics.currentMonthHasRows && !salesAnalytics.error && (
-            <p className="mt-4 text-xs leading-5 text-amber-300">対象月の成果データ行がありません。CSV未取込と販売0件をこの画面だけでは区別できないため、上の0を確定成果として扱わないでください。</p>
+            <p className="mt-4 text-xs leading-5 text-amber-300">対象月のID990成果行は未取得です。CSV未取込と販売0件を区別できないため、0件とは判定しません。DMM公式のID990レポートも確認してください。</p>
+          )}
+          {salesAnalytics.non990Totals.rows > 0 && (
+            <p className="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-xs leading-5 text-amber-200">ID990以外またはID範囲が不明な明細が {salesAnalytics.non990Totals.rows.toLocaleString("ja-JP")} 行あります。これらは発掘LABの990成果・クリック分析に含めていません。</p>
           )}
 
           <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
@@ -431,7 +485,7 @@ export default async function RevenueDashboardPage({
                 <h3 className="mt-1 text-lg font-black">検索表示とサイト訪問</h3>
               </div>
               <p className="text-xs text-zinc-500">
-                共通期間: {googleAnalytics.period.startDate}〜{googleAnalytics.period.endDate} · Search Consoleの反映遅延を考慮して3日前まで
+                共通期間: {googleAnalytics.period.startDate}〜{googleAnalytics.period.endDate} · 取得 {formatDateTime(googleAnalytics.evaluatedAt)} JST · Search Consoleの反映遅延を考慮して3日前まで
               </p>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -483,7 +537,7 @@ export default async function RevenueDashboardPage({
             <FunnelStage number={2} title="サイト訪問ユーザー" value={googleAnalytics.analytics.available ? `${googleAnalytics.analytics.activeUsers?.toLocaleString("ja-JP")}人` : "未接続"} period={`${googleAnalytics.period.startDate}〜${googleAnalytics.period.endDate}`} definition="GA4のアクティブユーザー数。検索経由に限らない全流入のユーザーです。" status={googleAnalytics.analytics.available ? "google-measured" : "unavailable"} />
             <FunnelStage number={3} title="作品ページPV" value={analytics.pageViewTrackingEnabled ? `${analytics.totals.workPageViewsThirtyDays.toLocaleString("ja-JP")}回` : "未計測"} period="直近30日" definition={analytics.pageViewTrackingEnabled ? "記録された作品詳細ページ表示イベント。ユニーク訪問者数ではありません。" : "ページ表示計測が有効ではないため、この期間の数字を出せません。"} status={analytics.pageViewTrackingEnabled ? "measured" : "unavailable"} />
             <FunnelStage number={4} title="FANZA CTA" value={`${thirtyDayTotal.toLocaleString("ja-JP")}回`} period="直近30日" definition="サイト内で記録したFANZAリンク操作。購入・購入者数ではありません。" status="measured" />
-            <FunnelStage number={5} title="公式成果" value={salesAnalytics.currentMonthHasRows ? `${salesAnalytics.totals.salesCount.toLocaleString("ja-JP")}件 / ¥${salesAnalytics.totals.commissionAmount.toLocaleString("ja-JP")}` : "未確認"} period={`${salesAnalytics.currentMonth} 対象月`} definition="公式CSVの月次アカウント合計。対象月に保存済みの成果行がない場合、未取込と0件を判別できません。" status={salesAnalytics.currentMonthHasRows ? "account-total" : "unavailable"} />
+            <FunnelStage number={5} title="公式報酬（ID990）" value={id990Daily.error ? "未取得" : `${id990ConfirmedClicks.toLocaleString("ja-JP")}回 / ¥${id990ConfirmedReward.toLocaleString("ja-JP")}`} period={id990Daily.error ? "日別テーブル未接続" : `${id990Daily.fromDate}〜${id990Daily.untilDate}`} definition="DMM公式日別レポートの確定クリック・報酬。未記録日と速報値は除外し、商品別月次CSVとは別に表示します。" status={!id990Daily.error && id990ConfirmedDaily.length > 0 ? "account-total" : "unavailable"} />
           </div>
           <p className="mt-3 rounded-xl border border-amber-900/70 bg-amber-950/20 px-4 py-3 text-xs leading-5 text-amber-200">
             期間と帰属範囲が異なる段階を並べた全体像です。現在は厳密な一続きのCVファネルや各段階の転換率として比較できません。
@@ -558,6 +612,8 @@ export default async function RevenueDashboardPage({
         </section>
 
         <XTrafficPanel xTraffic={analytics.xTraffic} />
+
+        <FanzaDailyPostFunnel />
 
         <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 sm:p-6">
           <div className="flex items-center gap-3">

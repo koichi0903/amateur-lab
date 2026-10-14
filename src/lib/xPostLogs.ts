@@ -150,6 +150,7 @@ export async function saveXPostLog(input: XPostLogInput) {
   const result = await supabaseAdmin.from("x_post_logs").upsert(row, { onConflict: "post_key,post_date" });
 
   if (result.error && (result.error.code === "PGRST204" || result.error.message?.includes("creative_variant_id") || result.error.message?.includes("account_handle") || result.error.message?.includes("post_intent") || result.error.message?.includes("x_post_id"))) {
+    if (input.xPostId) return result;
     const { account_handle, post_intent, scheduled_slot, planned_at, evaluation_due_at, creative_variant_id, hook_type, image_strategy, link_strategy, cta_strategy, x_post_id, opportunity_id, media_asset_id, creative_genome, ...fallback } = row;
     void account_handle;
     void post_intent;
@@ -315,7 +316,7 @@ export async function getXPostOutcomes(): Promise<{
     const clicksSevenDays = clicks.filter((click) => {
       const clickedAt = new Date(click.clicked_at).getTime();
       return (
-        (click.x_post_key ? click.x_post_key === log.post_key : click.work_id === log.work_id) &&
+        click.x_post_key === log.post_key &&
         clickedAt >= postedAt &&
         clickedAt <= windowEnd
       );
@@ -323,7 +324,7 @@ export async function getXPostOutcomes(): Promise<{
     const clicks24h = clicks.filter((click) => {
       const clickedAt = new Date(click.clicked_at).getTime();
       return (
-        (click.x_post_key ? click.x_post_key === log.post_key : click.work_id === log.work_id) &&
+        click.x_post_key === log.post_key &&
         clickedAt >= postedAt &&
         clickedAt <= postedAt + DAY_MS
       );

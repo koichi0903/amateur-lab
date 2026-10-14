@@ -14,6 +14,7 @@ import {
 } from "@/lib/domain/decisionFacts";
 import { calculateDiscoveryScore } from "@/lib/discoveryScore";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isOfficialFanzaDmmSampleUrl } from "@/lib/xMediaAssets";
 import {
   buildXCreativeVariants,
   calculateHookScore,
@@ -91,6 +92,10 @@ export type XPostCandidate = {
   reviewAverage: number | null;
   reviewCount: number;
   score: number;
+  salesScoreBonus?: number;
+  currentMonthSalesCount?: number;
+  prior90DaySalesCount?: number;
+  salesReason?: string;
   discoveryScore: number | null;
   buyTimingScore: number | null;
   ranking: number | null;
@@ -141,6 +146,7 @@ const HISTORY_PAGE_SIZE = 1000;
 // Hard Gates and cross-slot diversity are applied later, after all source pools
 // have had a chance to contribute distinct works.
 const CANDIDATE_WORK_LIMIT = 500;
+const SALE_SAMPLE_MOVIE_WORK_LIMIT = 300;
 const ABSOLUTE_COOLDOWN_DAYS = 3;
 const databaseDateTime = (value: string) => parseDatabaseDate(value)?.getTime() ?? Number.NaN;
 
@@ -229,6 +235,29 @@ function activeSale(work: CandidateWork) {
 function currentPrice(work: CandidateWork) {
   if (activeSale(work)) return work.sale_price;
   return work.price && work.price > 0 ? work.price : null;
+}
+
+type SaleSampleMovieSource = Pick<CandidateWork, "id" | "sample_movie_url" | "is_on_sale" | "sale_price" | "sale_end_at">;
+
+export function selectSaleSampleMovieWorks<T extends SaleSampleMovieSource>(
+  works: T[],
+  postedWorkIds: ReadonlySet<number>,
+  limit = SALE_SAMPLE_MOVIE_WORK_LIMIT,
+) {
+  const activeOfficial = works.filter((work) => {
+    if (!work.is_on_sale || !work.sale_price || work.sale_price <= 0) return false;
+    if (work.sale_end_at && (parseDatabaseDate(work.sale_end_at)?.getTime() ?? 0) <= Date.now()) return false;
+    return isOfficialFanzaDmmSampleUrl(work.sample_movie_url);
+  });
+  const afterPosted = activeOfficial.filter((work) => !postedWorkIds.has(work.id));
+  const safeLimit = Math.max(0, Math.floor(limit));
+  return {
+    works: afterPosted.slice(0, safeLimit),
+    fetched: works.length,
+    activeOfficial: activeOfficial.length,
+    afterPosted: afterPosted.length,
+    selected: Math.min(afterPosted.length, safeLimit),
+  };
 }
 
 function decisionPoolRejectReason(work: CandidateWork, decisionType: Exclude<DecisionType, "UNKNOWN">): DecisionSupplyRejectReason | null {
@@ -742,9 +771,10 @@ export async function getXPostCandidates(
   logs: XPostLog[] = [],
   postedWorkIds: ReadonlySet<number> = new Set(),
 ) {
-  const salesIds = performance.filter((row) => row.salesCount > 0).slice(0, 30).map((row) => row.workId);
+  const salesIds = performance.filter((row) => row.salesScoreBonus > 0).slice(0, 30).map((row) => row.workId);
   const base = () => supabaseAdmin.from("works").select(SELECT_COLUMNS).not("product_id", "is", null).neq("product_id", "");
-  const [dealResult, scoreResult, newResult, salesResult, hiddenGemResult, actressResult, genreResult, makerResult, seriesResult, judgmentResult, reviewGapResult, recordLowSupplyResult, highDiscountSupplyResult, hiddenValueSupplyResult] = await Promise.all([
+  const saleSampleMovieCutoff = new Date().toISOString();
+  const [dealResult, scoreResult, newResult, salesResult, hiddenGemResult, actressResult, genreResult, makerResult, seriesResult, judgmentResult, reviewGapResult, recordLowSupplyResult, highDiscountSupplyResult, hiddenValueSupplyResult, saleSampleMovieResult] = await Promise.all([
     base().eq("is_on_sale", true).gt("sale_price", 0).order("score", { ascending: false, nullsFirst: false }).limit(60),
     base().gt("score", 0).order("score", { ascending: false, nullsFirst: false }).order("review_count", { ascending: false, nullsFirst: false }).limit(80),
     base().eq("stage", "NEW").order("score", { ascending: false, nullsFirst: false }).limit(60),
@@ -768,8 +798,16 @@ export async function getXPostCandidates(
       .or("ranking.is.null,ranking.gte.9999")
       .order("score", { ascending: false, nullsFirst: false })
       .limit(2000),
+    base()
+      .eq("is_on_sale", true)
+      .gt("sale_price", 0)
+      .not("sample_movie_url", "is", null)
+      .or(`sale_end_at.is.null,sale_end_at.gt.${saleSampleMovieCutoff}`)
+      .order("discount_rate", { ascending: false, nullsFirst: false })
+      .order("score", { ascending: false, nullsFirst: false })
+      .limit(SALE_SAMPLE_MOVIE_WORK_LIMIT),
   ]);
-  const errors = [dealResult.error, scoreResult.error, newResult.error, salesResult.error, hiddenGemResult.error, actressResult.error, genreResult.error, makerResult.error, seriesResult.error, judgmentResult.error, reviewGapResult.error, recordLowSupplyResult.error, highDiscountSupplyResult.error, hiddenValueSupplyResult.error]
+  const errors = [dealResult.error, scoreResult.error, newResult.error, salesResult.error, hiddenGemResult.error, actressResult.error, genreResult.error, makerResult.error, seriesResult.error, judgmentResult.error, reviewGapResult.error, recordLowSupplyResult.error, highDiscountSupplyResult.error, hiddenValueSupplyResult.error, saleSampleMovieResult.error]
     .filter(Boolean).map((error) => error?.message ?? "候補取得エラー");
   const pools: Array<[XPostCandidate["category"], CandidateWork[]]> = [
     ["market_scan", (dealResult.data ?? []) as unknown as CandidateWork[]],
@@ -792,7 +830,7 @@ export async function getXPostCandidates(
   const sourcePoolTotal = pools.reduce((sum, [, works]) => sum + works.length, 0);
   const sourcePoolByCategory = Object.fromEntries(pools.map(([category, works]) => [category, works.length]));
   const postedExcluded = pools.reduce((sum, [, works]) => sum + works.filter((work) => postedWorkIds.has(work.id)).length, 0);
-  const sourcePoolAfterPosted = new Set(pools.flatMap(([, works]) => works.filter((work) => !postedWorkIds.has(work.id)).map((work) => work.id))).size;
+  const sourcePoolWorkIdsAfterPosted = new Set(pools.flatMap(([, works]) => works.filter((work) => !postedWorkIds.has(work.id)).map((work) => work.id)));
   const eligibleWorks = (works: CandidateWork[]) => works.filter((work) => !postedWorkIds.has(work.id));
   const decisionPools: Array<{ decisionType: Exclude<DecisionType, "UNKNOWN">; works: CandidateWork[]; category: XPostCandidate["category"] }> = [
     { decisionType: "RECORD_LOW", works: (recordLowSupplyResult.data ?? []).filter((work) => !decisionPoolRejectReason(work as unknown as CandidateWork, "RECORD_LOW")) as unknown as CandidateWork[], category: "comparison_pick" },
@@ -833,8 +871,17 @@ export async function getXPostCandidates(
     ? await base().in("id", reviewedVideoWorkIds.filter((id) => !postedWorkIds.has(id)))
     : { data: [] as CandidateWork[], error: null };
   if (reviewedVideoWorks.error) errors.push(reviewedVideoWorks.error.message);
+  const saleVideoSupply = selectSaleSampleMovieWorks(
+    (saleSampleMovieResult.data ?? []) as unknown as CandidateWork[],
+    postedWorkIds,
+  );
+  const saleVideoWorkIds = new Set(saleVideoSupply.works.map((work) => work.id));
+  const videoSupplyWorks = [...new Map([
+    ...saleVideoSupply.works,
+    ...((reviewedVideoWorks.data ?? []) as unknown as CandidateWork[]).filter((work) => !postedWorkIds.has(work.id)),
+  ].map((work) => [work.id, work])).values()];
   const allSelected = [...new Map([
-    ...((reviewedVideoWorks.data ?? []) as unknown as CandidateWork[]),
+    ...videoSupplyWorks,
     ...selectedGroups.flatMap((group) => group.selected),
   ].map((work) => [work.id, work])).values()];
 
@@ -847,12 +894,12 @@ export async function getXPostCandidates(
     for (const row of history) rowsByProduct.set(row.product_id, [...(rowsByProduct.get(row.product_id) ?? []), row]);
     const used = new Set<number>();
     const candidates: XPostCandidate[] = [];
-    for (const work of (reviewedVideoWorks.data ?? []) as unknown as CandidateWork[]) {
+    for (const work of videoSupplyWorks) {
       if (postedWorkIds.has(work.id)) continue;
       const chart = chartForWork(work, rowsByProduct.get(work.product_id) ?? []);
       const candidate = makeCandidate(
         work,
-        "comparison_pick",
+        saleVideoWorkIds.has(work.id) ? "market_scan" : "comparison_pick",
         chart,
         0,
         funnels.get(work.id) ?? { pageViews: 0, fanzaClicks: 0, ctr: 0 },
@@ -917,13 +964,39 @@ export async function getXPostCandidates(
     return {
       candidates: candidates.sort((a, b) => b.funnelScore - a.funnelScore),
       error: errors.length ? errors.join(" / ") : null,
-      diagnostics: { sourcePoolTotal, sourcePoolByCategory, postedExcluded, sourcePoolAfterPosted, selectedWorkCount: allSelected.length, decisionSupply },
+      diagnostics: {
+        sourcePoolTotal: sourcePoolTotal + saleVideoSupply.fetched,
+        sourcePoolByCategory: { ...sourcePoolByCategory, sale_sample_movie: saleVideoSupply.fetched },
+        postedExcluded: postedExcluded + saleVideoSupply.activeOfficial - saleVideoSupply.afterPosted,
+        sourcePoolAfterPosted: new Set([...sourcePoolWorkIdsAfterPosted, ...saleVideoSupply.works.map((work) => work.id)]).size,
+        selectedWorkCount: allSelected.length,
+        saleVideoSupply: {
+          fetched: saleVideoSupply.fetched,
+          activeOfficial: saleVideoSupply.activeOfficial,
+          afterPosted: saleVideoSupply.afterPosted,
+          selected: saleVideoSupply.selected,
+        },
+        decisionSupply,
+      },
     };
   } catch (error) {
     return {
       candidates: [],
       error: error instanceof Error ? error.message : "価格履歴を取得できませんでした",
-      diagnostics: { sourcePoolTotal, sourcePoolByCategory, postedExcluded, sourcePoolAfterPosted, selectedWorkCount: allSelected.length, decisionSupply },
+      diagnostics: {
+        sourcePoolTotal: sourcePoolTotal + saleVideoSupply.fetched,
+        sourcePoolByCategory: { ...sourcePoolByCategory, sale_sample_movie: saleVideoSupply.fetched },
+        postedExcluded: postedExcluded + saleVideoSupply.activeOfficial - saleVideoSupply.afterPosted,
+        sourcePoolAfterPosted: new Set([...sourcePoolWorkIdsAfterPosted, ...saleVideoSupply.works.map((work) => work.id)]).size,
+        selectedWorkCount: allSelected.length,
+        saleVideoSupply: {
+          fetched: saleVideoSupply.fetched,
+          activeOfficial: saleVideoSupply.activeOfficial,
+          afterPosted: saleVideoSupply.afterPosted,
+          selected: saleVideoSupply.selected,
+        },
+        decisionSupply,
+      },
     };
   }
 }

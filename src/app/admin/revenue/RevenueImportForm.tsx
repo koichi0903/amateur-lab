@@ -17,6 +17,7 @@ type ImportResult = {
   matched: number;
   unmatched: number;
   totalCommission: number;
+  scopeLabel: string;
 };
 
 export default function RevenueImportForm() {
@@ -41,7 +42,7 @@ export default function RevenueImportForm() {
       if (!response.ok) throw new Error(payload.error ?? "取込に失敗しました。");
 
       setMessage(
-        `${payload.imported.toLocaleString("ja-JP")}商品を取込（作品紐付け ${payload.matched.toLocaleString("ja-JP")}件／未紐付け ${payload.unmatched.toLocaleString("ja-JP")}件、報酬合計 ¥${payload.totalCommission.toLocaleString("ja-JP")}）`,
+        `${payload.scopeLabel}のCSVを取込：${payload.imported.toLocaleString("ja-JP")}商品（作品紐付け ${payload.matched.toLocaleString("ja-JP")}件／未紐付け ${payload.unmatched.toLocaleString("ja-JP")}件、報酬合計 ¥${payload.totalCommission.toLocaleString("ja-JP")}）`,
       );
       router.refresh();
     } catch (error) {
@@ -53,7 +54,7 @@ export default function RevenueImportForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-5 grid gap-3 lg:grid-cols-[10rem_minmax(0,1fr)_auto]">
+    <form onSubmit={handleSubmit} className="mt-5 grid gap-3 lg:grid-cols-[10rem_12rem_minmax(0,1fr)_auto]">
       <label className="grid gap-1.5 text-xs font-bold text-zinc-400">
         対象月
         <input
@@ -63,6 +64,14 @@ export default function RevenueImportForm() {
           required
           className="h-11 rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-pink-500"
         />
+      </label>
+      <label className="grid gap-1.5 text-xs font-bold text-zinc-400">
+        レポートのアフィリエイトID
+        <select name="affiliateScope" defaultValue="account-wide" required className="h-11 rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none focus:border-pink-500">
+          <option value="990">990（発掘LAB）</option>
+          <option value="026">026（別入口）</option>
+          <option value="account-wide">全体・ID不明</option>
+        </select>
       </label>
       <label className="grid gap-1.5 text-xs font-bold text-zinc-400">
         FANZA 商品別レポートCSV
@@ -82,10 +91,11 @@ export default function RevenueImportForm() {
         {pending ? <LoaderCircle className="animate-spin" size={17} /> : <FileUp size={17} />}
         {pending ? "取込中" : "CSVを取込"}
       </button>
+      <p className="text-xs leading-5 text-zinc-500 lg:col-span-4">過去CSVのように複数IDを含む場合は「全体・ID不明」を選択してください。発掘LABの990成果とは混ぜません。</p>
       {message && (
         <p
           role={isError ? "alert" : "status"}
-          className={`text-sm leading-6 lg:col-span-3 ${isError ? "text-red-300" : "text-emerald-300"}`}
+          className={`text-sm leading-6 lg:col-span-4 ${isError ? "text-red-300" : "text-emerald-300"}`}
         >
           {message}
         </p>

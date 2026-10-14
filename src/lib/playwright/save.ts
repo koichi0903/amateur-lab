@@ -259,6 +259,7 @@ const { data: currentWork, error: currentError } =
   playwright_status,
   stage,
   is_bottom_price,
+  is_lowest_price,
   actress
 `)
     .eq("product_id", productId)
@@ -283,6 +284,15 @@ const isNewLowestPrice =
     currentWork?.lowest_price == null ||
     currentDisplayPrice < currentWork.lowest_price
   );
+
+// is_bottom_price is a rental-price threshold, not a historical-low signal.
+// Keep the recorded-low flag only when the current price ties a previously
+// verified low or establishes a new low against the previous observation.
+const isLowestPrice =
+  currentDisplayPrice != null &&
+  currentWork?.lowest_price != null &&
+  (currentDisplayPrice < currentWork.lowest_price ||
+    (currentDisplayPrice === currentWork.lowest_price && currentWork.is_lowest_price === true));
 
 const fallbackActress =
   !currentWork?.actress && data.actressLinks?.length
@@ -343,6 +353,7 @@ max_discount_rate: maxDiscountRate,
   ...(restoredStage ? { stage: restoredStage } : {}),
 
   is_bottom_price: isBottomPrice,
+  is_lowest_price: isLowestPrice,
 };
 
   let updated = null;
@@ -375,6 +386,9 @@ currentWork.max_discount_rate !== maxDiscountRate ||
 
 currentWork.is_bottom_price !==
   isBottomPrice ||
+
+currentWork.is_lowest_price !==
+  isLowestPrice ||
 
 (restoredStage != null && currentWork.stage !== restoredStage) ||
 

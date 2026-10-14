@@ -3,7 +3,7 @@ import type { DealWork } from "@/components/deals/DealWorkCard";
 import type { ReportSlug } from "@/lib/editorialContent";
 import { DEAL_COLUMNS } from "@/lib/getDeals";
 import { supabase } from "@/lib/supabase";
-import { isNonVrWork } from "@/lib/vr";
+import { NON_VR_GENRE_OR_FILTER, isNonVrWork } from "@/lib/vr";
 
 export type EditorialReportWork = DealWork & {
   previous_realtime_rank?: number | null;
@@ -37,19 +37,52 @@ const getRankingMovers = unstable_cache(async () => {
   return { works, error };
 }, ["editorial-report-ranking-movers-v1"], { revalidate: 1800 });
 
-const getPriceBands = unstable_cache(async () => {
-  const { data, error } = await supabase
+async function fetchPriceBandSide(min: number, max: number, onSale: boolean) {
+  let query = supabase
     .from("works")
     .select(DEAL_COLUMNS)
     .gt("price", 0)
     .gte("review_count", 1)
     .not("image_url", "is", null)
-    .order("score", { ascending: false, nullsFirst: false })
-    .limit(150);
-  const works = ((data ?? []) as unknown as EditorialReportWork[])
-    .filter(isNonVrWork)
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    .slice(0, 60);
+    .or(NON_VR_GENRE_OR_FILTER)
+    .not("title", "ilike", "%VR%");
+
+  if (onSale) {
+    query = query.gt("sale_price", 0).gte("sale_price", min);
+    if (Number.isFinite(max)) query = query.lt("sale_price", max);
+  } else {
+    query = query.or("sale_price.is.null,sale_price.eq.0").gte("price", min);
+    if (Number.isFinite(max)) query = query.lt("price", max);
+  }
+
+  return query
+    .order("review_average", { ascending: false, nullsFirst: false })
+    .order("review_count", { ascending: false, nullsFirst: false })
+    .limit(40);
+}
+
+const getPriceBands = unstable_cache(async () => {
+  const bands = [
+    { min: 0, max: 1000 },
+    { min: 1000, max: 3000 },
+    { min: 3000, max: Number.POSITIVE_INFINITY },
+  ] as const;
+  const results = await Promise.all(bands.map(({ min, max }) => Promise.all([
+    fetchPriceBandSide(min, max, true),
+    fetchPriceBandSide(min, max, false),
+  ])));
+  const error = results.flat().find((result) => result.error)?.error ?? null;
+  const works = results.flatMap((sideResults) => {
+    const candidates = sideResults.flatMap((result) => result.data ?? []) as unknown as EditorialReportWork[];
+    return candidates
+      .filter(isNonVrWork)
+      .sort((a, b) =>
+        (b.review_average ?? 0) - (a.review_average ?? 0)
+        || (b.review_count ?? 0) - (a.review_count ?? 0)
+        || ((a.sale_price > 0 ? a.sale_price : a.price) - (b.sale_price > 0 ? b.sale_price : b.price))
+      )
+      .slice(0, 10);
+  });
   return { works, error };
 }, ["editorial-report-price-bands-v1"], { revalidate: 1800 });
 

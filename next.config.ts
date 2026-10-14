@@ -30,7 +30,7 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
-        source: "/:section(actress|series|maker|genre)/:name",
+        source: "/:section(actress|maker|genre)/:name",
         has: [{ type: "query", key: "page", value: "(?<page>\\d+)" }],
         destination: "/:section/:name/page/:page",
       },
@@ -39,7 +39,7 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/:section(actress|genre|maker|series)",
+        source: "/:section(actress|genre|maker)",
         headers: [
           {
             key: "Cache-Control",
@@ -48,7 +48,7 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: "/:section(actress|genre|maker|series)/:name",
+        source: "/:section(actress|genre|maker)/:name",
         headers: [
           {
             key: "Cache-Control",
@@ -57,7 +57,7 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: "/:section(actress|genre|maker|series)/:name/page/:page",
+        source: "/:section(actress|genre|maker)/:name/page/:page",
         headers: [
           {
             key: "Cache-Control",

@@ -18,6 +18,17 @@ export function tokyoDate(date = new Date()) {
 export function tokyoDateFromIso(value: string) { return tokyoDate(new Date(value)); }
 
 const TOKYO_DAY_MS = 86_400_000;
+export const BIJYO_RESERVED_REGISTRATION_WINDOW_MS = 7 * TOKYO_DAY_MS;
+
+export function isBijyoReservedRegistrationRecent(createdAt: string | null | undefined, now = new Date()) {
+  if (!createdAt) return false;
+  const createdAtMs = Date.parse(createdAt);
+  const nowMs = now.getTime();
+  return Number.isFinite(createdAtMs)
+    && createdAtMs >= nowMs - BIJYO_RESERVED_REGISTRATION_WINDOW_MS
+    && createdAtMs <= nowMs;
+}
+
 export function isBijyoManualCandidate(
   work: { stage: string; release_date?: string | null },
   eligibility: { officialSample: boolean; hasExistingJob: boolean },
@@ -56,6 +67,10 @@ export function isBijyoFutureOperationEligible(stage: string, releaseDate: strin
   return evaluateBijyoFutureOperation(stage, releaseDate, dateRange).eligible;
 }
 
+export function isBijyoReservedQueueEligible(stage: string, releaseDate: string | null | undefined, todayDate: string) {
+  return stage === "RESERVED" && Boolean(releaseDate) && releaseDate!.slice(0, 10) > todayDate;
+}
+
 export type RecentReleaseWork = {
   id: number;
   title: string;
@@ -82,6 +97,28 @@ export function filterRecentReleaseWorks(works: RecentReleaseWork[], jobs: Recen
       return true;
     })
     .sort((a, b) => a.release_date.slice(0, 10).localeCompare(b.release_date.slice(0, 10)) || b.created_at.localeCompare(a.created_at) || a.id - b.id);
+}
+
+export function filterBijyoReservedQueueWorks(works: RecentReleaseWork[], jobs: RecentReleaseJob[], todayDate: string, now = new Date()) {
+  const assignedWorkIds = new Set(jobs.map((job) => job.work_id));
+  const seen = new Set<number>();
+  return works
+    .filter((work) => {
+      if (!isBijyoReservedQueueEligible(work.stage, work.release_date, todayDate)
+        || !isBijyoReservedRegistrationRecent(work.created_at, now)
+        || !work.sample_movie_url) return false;
+      if (assignedWorkIds.has(work.id) || seen.has(work.id)) return false;
+      seen.add(work.id);
+      return true;
+    })
+    .sort((a, b) => b.release_date.slice(0, 10).localeCompare(a.release_date.slice(0, 10)) || b.created_at.localeCompare(a.created_at) || a.id - b.id);
+}
+
+export function pageBijyoReservedQueueWorks(works: RecentReleaseWork[], jobs: RecentReleaseJob[], todayDate: string, page: number, pageSize: number) {
+  const eligible = filterBijyoReservedQueueWorks(works, jobs, todayDate);
+  const offset = Math.max(0, page - 1) * pageSize;
+  const pageWorks = eligible.slice(offset, offset + pageSize);
+  return { works: pageWorks, hasMore: offset + pageSize < eligible.length, total: eligible.length };
 }
 
 export function isoAtTokyo(date: string, time: string) { return new Date(`${date}T${time}:00+09:00`).toISOString(); }

@@ -12,7 +12,10 @@ import { buildTopPickSlotsViewModel } from "@/lib/xGrowthTopPicks";
 import { xGrowthMediaPreviewUrl } from "@/lib/xGrowthMediaPreview";
 import { withXPostTracking } from "@/lib/xPostTracking";
 import { visualFactBasis, type XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
-import { CandidateSelectAction, DeferredXGrowthSections, MediaPipelineActions, MetricSyncActions, OpportunityActions, RegenerateTopPicksAction, RightsReviewActions, TempFolderStatus, TopPickVideoActions, TrimReviewActions } from "./XGrowthActions";
+import { CandidateSelectAction, DeferredXGrowthSections, MediaPipelineActions, OpportunityActions, RegenerateTopPicksAction, RightsReviewActions, TempFolderStatus, TopPickVideoActions, TrimReviewActions } from "./XGrowthActions";
+import XDailyImpressionTasks from "./XDailyImpressionTasks";
+import VideoCandidatePool from "./VideoCandidatePool";
+import OperatorPostDirective from "./OperatorPostDirective";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -542,13 +545,11 @@ function TopPicksSkeleton() {
           <h1 className="mt-2 text-3xl font-black sm:text-5xl">@hakkutsu_lab 司令塔</h1>
         </div>
         <Panel className="mt-8 border-emerald-700 bg-emerald-950/10">
-          <div className="flex items-center gap-2"><Sparkles className="text-emerald-300" size={20} /><h2 className="text-2xl font-black">今日の投稿</h2></div>
-          <p className="mt-2 text-sm leading-6 text-emerald-100/80">Top Picksを先に読み込んでいます。重い管理情報は後追いで表示します。</p>
-          <div className="mt-5 grid gap-4 xl:grid-cols-2">
-            {[1, 2, 3].map((item) => (
-              <div key={item} className="h-72 animate-pulse rounded-lg border border-emerald-900 bg-zinc-950" />
-            ))}
-          </div>
+          <div className="flex items-center gap-2"><Sparkles className="text-emerald-300" size={20} /><h2 className="text-2xl font-black">今日の運営指示を読み込み中</h2></div>
+          <p role="status" className="mt-3 rounded-lg border border-emerald-900 bg-zinc-950 p-4 text-sm leading-6 text-emerald-100/80">
+            投稿指示と計測タスクを読み込んでいます。Growth OS候補は参考情報として表示します。
+          </p>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-zinc-800"><div className="h-full w-1/3 animate-pulse rounded-full bg-emerald-400" /></div>
         </Panel>
       </div>
     </main>
@@ -610,11 +611,12 @@ async function XGrowthPageContent() {
             </Link>
           </div>
           <TempFolderStatus />
-
-          <Panel className="mt-6 border-emerald-800 bg-emerald-950/20">
+          <details className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
+            <summary className="cursor-pointer text-sm font-black text-zinc-300">Growth OSの自動ミッション（参考情報）を開く</summary>
+          <Panel className="mt-4 border-emerald-800 bg-emerald-950/20">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <div className="flex items-center gap-2"><Target className="text-emerald-300" size={20} /><h2 className="text-xl font-black">Today Mission</h2></div>
+                <div className="flex items-center gap-2"><Target className="text-emerald-300" size={20} /><h2 className="text-xl font-black">Growth OSの自動ミッション（参考）</h2></div>
                 <p className="mt-2 text-2xl font-black">{plan.mission_title}</p>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-emerald-100/80">{plan.mission_reason}</p>
                 <p className="mt-2 text-xs font-bold text-emerald-200">生成: {plan.generated_at ? new Date(plan.generated_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }) : "未記録"}</p>
@@ -629,13 +631,16 @@ async function XGrowthPageContent() {
               </div>
             </div>
           </Panel>
+          </details>
 
-          <Panel className="mt-6 border-emerald-700 bg-emerald-950/10">
+          <details className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
+            <summary className="cursor-pointer text-sm font-black text-zinc-300">Growth OSの参考候補・供給診断を開く（今日の投稿指示ではありません）</summary>
+          <Panel className="mt-4 border-emerald-700 bg-emerald-950/10">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <div className="flex items-center gap-2"><Sparkles className="text-emerald-300" size={20} /><h2 className="text-2xl font-black">今日の投稿</h2></div>
+                <div className="flex items-center gap-2"><Sparkles className="text-emerald-300" size={20} /><h2 className="text-2xl font-black">Growth OSの参考候補</h2></div>
               <p className="mt-2 text-sm leading-6 text-emerald-100/80">
-                保存済みTop Picksを即表示。完成文、素材、理由、手動投稿操作までこの枠で完結します。
+                作品・価格・素材の確認用です。投稿内容と仮説は上の「今日の運営指示」を優先してください。
               </p>
               <RegenerateTopPicksAction />
             </div>
@@ -690,6 +695,7 @@ async function XGrowthPageContent() {
               </div>
             )}
           </Panel>
+          </details>
 
           <Panel className="mt-6">
             <details>
@@ -738,6 +744,36 @@ async function XGrowthPageContent() {
     );
   }
 
+  if (!persisted.plan?.top_picks.length) {
+    return (
+      <main className="min-h-screen bg-zinc-950 text-white">
+        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <Link href="/admin" className="inline-flex items-center gap-2 text-sm font-bold text-zinc-400 hover:text-white">
+            <ArrowLeft size={16} /> 管理画面へ戻る
+          </Link>
+          <div className="mt-7">
+            <p className="text-xs font-black tracking-[0.18em] text-emerald-300">HAKKUTSU X GROWTH OS</p>
+            <h1 className="mt-2 text-3xl font-black sm:text-5xl">@hakkutsu_lab 司令塔</h1>
+          </div>
+          <details className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
+            <summary className="cursor-pointer text-sm font-black text-zinc-300">Growth OS候補の状況を開く（投稿指示ではありません）</summary>
+          <Panel className="mt-4 border-emerald-700 bg-emerald-950/10">
+            <h2 className="text-2xl font-black">候補は現在ありません</h2>
+            <p role="status" className="mt-3 text-sm leading-6 text-zinc-300">
+              投稿案を決める場所ではありません。作品・価格・素材を確認する必要がある場合だけ、候補を手動で更新できます。
+            </p>
+            <div className="mt-4"><RegenerateTopPicksAction /></div>
+          </Panel>
+          </details>
+          <Suspense fallback={<section className="mt-6 rounded-2xl border border-emerald-800 bg-emerald-950/15 p-5" aria-busy="true"><h2 className="text-xl font-black">Xデイリータスク</h2><p role="status" className="mt-2 text-sm text-zinc-400">投稿タスクを読み込んでいます。</p></section>}>
+            <XDailyImpressionTasks />
+          </Suspense>
+          <DeferredXGrowthSections />
+        </div>
+      </main>
+    );
+  }
+
   const [growth, salesAnalytics, logs, outcomes, creativeLearning] = await Promise.all([
     getFanzaXAccountGrowth(),
     getAffiliateSalesAnalytics(),
@@ -748,10 +784,12 @@ async function XGrowthPageContent() {
   const os = await buildXGrowthOS({
     growth,
     performance: salesAnalytics.performance,
+    salesEvaluation: salesAnalytics.salesEvaluation,
     logs: logs.logs,
     outcomes: outcomes.outcomes,
     creativeLearning: creativeLearning.rows,
     includeDeferred: false,
+    readOnlyDryRun: true,
   });
   const persistedIds = new Map(os.persistedOpportunities.map((row) => [String(row.opportunity_key), Number(row.id)]));
 
@@ -774,7 +812,6 @@ async function XGrowthPageContent() {
           </Link>
         </div>
         <TempFolderStatus />
-
         <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Metric label="ボトルネック" value={os.mission.bottleneck} note={os.mission.reason} />
           <Metric label="30日表示" value={growth.impressions30d.toLocaleString("ja-JP")} note={`平均 ${growth.avgImpressionsPerPost?.toLocaleString("ja-JP") ?? "-"} / 投稿`} />
@@ -809,15 +846,18 @@ async function XGrowthPageContent() {
           </div>
         </Panel>
 
+        <Suspense fallback={<section id="x-daily-impression-tasks" className="mt-6 rounded-2xl border border-emerald-800 bg-emerald-950/15 p-5 sm:p-6" aria-busy="true"><h2 className="text-xl font-black">Xデイリータスク：投稿表示数の記録</h2><p role="status" className="mt-2 text-sm text-zinc-400">投稿タスクを読み込んでいます。候補の操作画面は先に表示しています。</p></section>}>
+          <XDailyImpressionTasks />
+        </Suspense>
+
         <Panel className="mt-6 border-amber-800 bg-amber-950/20">
           <h2 className="text-lg font-black text-amber-200">運用前チェック</h2>
           <div className="mt-3 flex flex-wrap gap-2">
             <StatusPill label="Supabase migration" ok={os.systemStatus.migrationApplied} />
             <StatusPill label="X無料アカウント前提" ok={os.systemStatus.accountSubscription === "free"} />
-            <StatusPill label="X read-only" ok={os.systemStatus.xReadOnlyConnection.ok} />
             <StatusPill label="X投稿" ok={os.systemStatus.xPostingConfigured} />
             <StatusPill label="Media upload" ok={os.systemStatus.xMediaUploadConfigured} />
-            <StatusPill label="Metric取得" ok={os.systemStatus.xMetricsConfigured} />
+            <StatusPill label="X閲覧数の手入力" ok />
             <StatusPill label="Ranking History" ok={os.systemStatus.rankingSnapshotsReady} />
             <StatusPill label="Conversation Radar外部検索" ok={false} />
           </div>
@@ -825,7 +865,6 @@ async function XGrowthPageContent() {
             {!os.systemStatus.migrationApplied && <p>Migration未適用の可能性があります: {os.systemStatus.migrationError}</p>}
             <p>X Premiumは前提にしていません。必要なのはX Developer/API側の利用権限と、@hakkutsu_lab のUser Access Tokenです。</p>
             <p>Bearer token: {os.systemStatus.xBearerConfigured ? "設定あり" : "未設定"} / User Access Token: {os.systemStatus.xUserAccessTokenConfigured ? "設定あり" : "未設定"}</p>
-            {os.systemStatus.xReadOnlyConnection.checked && <p>read-only疎通: {os.systemStatus.xReadOnlyConnection.ok ? `@${os.systemStatus.xReadOnlyConnection.username}` : os.systemStatus.xReadOnlyConnection.error}</p>}
             {os.systemStatus.rankingSnapshotsError && <p>ランキング履歴: {os.systemStatus.rankingSnapshotsError}</p>}
             {!os.systemStatus.xPostingConfigured && <p>自動投稿と自動添付は User Access Token が必要です。手動動画投稿は、完成文コピー、mp4一時保存、X投稿画面起動で運用できます。</p>}
           </div>
@@ -882,9 +921,20 @@ async function XGrowthPageContent() {
                 : "本日の収益候補: 0件 / 本日はリンク投稿なし"}
             </p>
             <p>MONEY診断: generated {os.supplyDiagnostics.moneyGenerated} / Hard Gate passed {os.supplyDiagnostics.moneyHardGatePassed} / allocation eligible {os.supplyDiagnostics.moneyAllocationEligible} / Slot3 placed {os.supplyDiagnostics.moneyPlaced} / 主な落ち理由: {moneyGateReasonLabel[os.supplyDiagnostics.moneyTopFailureReason ?? ""] ?? "なし"}</p>
+            <p className="md:col-span-2">販売評価（Asia/Tokyo・scope:990のみ）: 当月 {os.supplyDiagnostics.salesEvaluation.currentMonth} {os.supplyDiagnostics.salesEvaluation.currentMonthRows}行 / {os.supplyDiagnostics.salesEvaluation.currentMonthSalesCount}件 → 過去90日相当 {os.supplyDiagnostics.salesEvaluation.prior90DayFromMonth}〜{os.supplyDiagnostics.salesEvaluation.prior90DayThroughMonth} {os.supplyDiagnostics.salesEvaluation.prior90DayRows}行・{os.supplyDiagnostics.salesEvaluation.prior90DaySalesCount}件 / scope不明は当月 {os.supplyDiagnostics.salesEvaluation.unscopedCurrentMonthRows}行・過去期間 {os.supplyDiagnostics.salesEvaluation.unscopedPrior90DayRows}行を除外 / 未来月 {os.supplyDiagnostics.salesEvaluation.futureRowsExcluded}行を除外 / 候補反映 {os.supplyDiagnostics.salesEvaluation.candidateWorksWithSalesBonus}作品。スコア: 当月1件あたりrevenueScore +3（最大+12）。当月1件以下のときだけ過去3つの完了report_monthを補助し、月平均×標本縮小率 n/(n+4)×3点/件、最大+3。0件・欠損は加点0。到達範囲はrevenueScoreと順位のみ。Creative Quality Hard Gate、公式HTTPS、権利・安全条件は変更しません。</p>
             <p>Semantic: supply {Object.entries(os.supplyDiagnostics.semanticSupply).map(([category, count]) => `${category} ${count}`).join(" / ")} / selected {Object.entries(os.supplyDiagnostics.semanticSelected).filter(([, count]) => count > 0).map(([category, count]) => `${category} ${count}`).join(" / ") || "なし"}</p>
                 <p>Media Mix: video candidates {os.supplyDiagnostics.mediaMix.totalVideoCandidates} / strong・safe {os.supplyDiagnostics.mediaMix.eligibleStrongVideos} / official eligible {os.supplyDiagnostics.mediaMix.eligibleOfficialVideos} / fallback selected {os.supplyDiagnostics.mediaMix.fallbackOfficialSelected} / selected {os.supplyDiagnostics.mediaMix.selectedVideos} / slot別 {Object.entries(os.supplyDiagnostics.mediaMix.selectedVideosBySlot).map(([slot, count]) => `${slot} ${count}`).join(" / ") || "なし"} / 目標 {os.supplyDiagnostics.mediaMix.targetVideos} / {os.supplyDiagnostics.mediaMix.unmetReason ?? "達成"}</p>
+                <p>セール動画入口: fetched {os.supplyDiagnostics.saleVideoSupply.fetched} → official HTTPS・販売中 {os.supplyDiagnostics.saleVideoSupply.activeOfficial} → posted除外後 {os.supplyDiagnostics.saleVideoSupply.afterPosted} → 追加 {os.supplyDiagnostics.saleVideoSupply.selected}（上限300）</p>
                 <p>供給段階: raw {os.supplyDiagnostics.pipeline.rawCandidates} → posted後 {os.supplyDiagnostics.pipeline.afterPosted} → stale後 {os.supplyDiagnostics.pipeline.afterStale} → real-media {os.supplyDiagnostics.pipeline.realMediaEligible}（video {os.supplyDiagnostics.pipeline.videoEligible} / image {os.supplyDiagnostics.pipeline.imageEligible}）→ hard {os.supplyDiagnostics.pipeline.hardGatePassed} / soft eligible {os.supplyDiagnostics.pipeline.softQualityEligible} → selected {os.supplyDiagnostics.pipeline.finalSelected}</p>
+                <p>動画作品の段階: 候補 {os.supplyDiagnostics.pipeline.videoCandidateWorks ?? 0} → 展開 {os.supplyDiagnostics.pipeline.videoExpandedWorks ?? 0} → 共通上限後 {os.supplyDiagnostics.pipeline.videoScoreWindowWorks ?? 0} → 素材判定後 {os.supplyDiagnostics.pipeline.videoAfterMediaWorks ?? 0} → 品質prefilter後 {os.supplyDiagnostics.pipeline.videoPrefilterWorks ?? 0} → 品質評価 {os.supplyDiagnostics.pipeline.videoQualityEvaluatedWorks ?? 0} → Hard Gate通過 {os.supplyDiagnostics.pipeline.videoHardGatePassedWorks ?? 0} → 最終動画 {os.supplyDiagnostics.pipeline.videoHardGateSelectedWorks ?? 0} / 不足: 最低2本 {os.supplyDiagnostics.pipeline.videoMinimumShortage ?? 0}・通常3本 {os.supplyDiagnostics.pipeline.videoNormalShortage ?? 0}</p>
+                <p>管理者が選べる動画候補: Hard Gate合格 {os.supplyDiagnostics.pipeline.videoHardGatePassedWorks ?? 0}作品 / 約5作品から選択可能 {os.supplyDiagnostics.pipeline.videoFivePickCapacity ?? 0} / 5作品までの不足 {os.supplyDiagnostics.pipeline.videoFivePickShortage ?? 5} / 10作品プールまでの不足 {os.supplyDiagnostics.pipeline.videoTenWorkShortage ?? 10}</p>
+                <p>動画Hard Gateの主な不合格理由: {Object.entries(os.supplyDiagnostics.videoQualityFailureCounts ?? {}).filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([reason, count]) => `${reason.replace(/^axis:/, "軸 ").replace(/^last-mile:/, "文面 ")} ${count}`).join(" / ") || "なし"}</p>
+                <details className="md:col-span-2">
+                  <summary className="cursor-pointer">動画作品ごとの段階・最初の除外理由（{os.supplyDiagnostics.videoWorkStages.length}作品）</summary>
+                  <div className="mt-2 max-h-72 overflow-auto rounded border border-zinc-800 p-2 font-mono text-[10px]">
+                    {os.supplyDiagnostics.videoWorkStages.map((stage) => <p key={stage.workId}>work {stage.workId}: candidate {Number(stage.candidate)} / expand {Number(stage.expanded)} / score-window {Number(stage.scoreWindow)} / media {Number(stage.afterMedia)} / prefilter {Number(stage.prefilter)} / quality {Number(stage.qualityEvaluated)} / hard {Number(stage.hardGatePassed)} / selected {Number(stage.finalSelected)} / drop {stage.firstDropReason ?? "なし"}</p>)}
+                  </div>
+                </details>
             <p>Video rejection: {Object.entries(os.supplyDiagnostics.mediaMix.rejectionReasons).map(([reason, count]) => `${reason} ${count}`).join(" / ") || "なし"} / Unique Audit: work {os.supplyDiagnostics.mediaMix.uniqueAudit.workDuplicateCount} / media {os.supplyDiagnostics.mediaMix.uniqueAudit.mediaDuplicateCount} / url {os.supplyDiagnostics.mediaMix.uniqueAudit.urlDuplicateCount} / posted {os.supplyDiagnostics.mediaMix.uniqueAudit.postedOverlap}</p>
             <p>Quota超過: {os.supplyDiagnostics.semanticQuotaOverflowReasons.length ? os.supplyDiagnostics.semanticQuotaOverflowReasons.join(" / ") : "なし"}</p>
             <p>Fact→semantic: {Object.entries(os.supplyDiagnostics.semanticMappingReasons ?? {}).map(([reason, count]) => `${reason} ${count}`).join(" / ") || "未記録"}</p>
@@ -1050,9 +1100,8 @@ async function XGrowthPageContent() {
               <div><p className="font-black text-rose-300">廃止</p>{os.audit.retire.map((item) => <p key={item} className="mt-2">{item}</p>)}</div>
             </div>
             <p className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs leading-5 text-zinc-500">
-              1h/6h/24h/72h の Metric Snapshots は取得できる数値だけ自動連携し、bookmarks/profile_visits/follows などAPI権限がない値は手入力前提です。
+              X APIによる閲覧数取得は行いません。投稿24時間後にX画面の表示数を手入力し、投稿別の作品PV・FANZA CTAと照合します。
             </p>
-            <MetricSyncActions />
           </Panel>
         </div>
       </div>
@@ -1062,8 +1111,17 @@ async function XGrowthPageContent() {
 
 export default function XGrowthPage() {
   return (
-    <Suspense fallback={<TopPicksSkeleton />}>
-      <XGrowthPageContent />
-    </Suspense>
+    <div className="min-h-screen bg-zinc-950 text-white">
+      <div className="mx-auto max-w-7xl px-4 pt-8 sm:px-6 lg:px-8">
+        <OperatorPostDirective />
+        <details className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
+          <summary className="cursor-pointer text-sm font-black text-zinc-300">作品・素材の参考候補を開く（投稿指示ではありません）</summary>
+          <div className="mt-4"><VideoCandidatePool /></div>
+        </details>
+      </div>
+      <Suspense fallback={<TopPicksSkeleton />}>
+        <XGrowthPageContent />
+      </Suspense>
+    </div>
   );
 }

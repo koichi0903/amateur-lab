@@ -647,11 +647,11 @@ export async function getAffiliateAnalytics(categoryDays = 7) {
     previousSevenDayCutoff,
   );
   const externalChannelLabels: Record<ExternalAttributionChannel, string> = {
-    direct: "直接流入",
-    organic_search: "Google等の自然検索",
-    social: "X等のSNS",
-    referral: "外部サイト",
-    internal: "サイト内",
+    direct: "直接流入として記録",
+    organic_search: "検索流入として記録",
+    social: "SNS流入として記録",
+    referral: "参照流入として記録",
+    internal: "サイト内として記録",
   };
   const externallyAttributedRows = reportingRows.filter(
     (row) => row.external_channel !== null,
