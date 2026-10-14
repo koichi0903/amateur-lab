@@ -6,33 +6,28 @@ export default function ManualXImpressionInput({
   postKey,
   account,
   initialValue,
-  compact = false,
   draftValue,
   onDraftChange,
+  compact = false,
 }: {
   postKey: string;
   account: "hakkutsu_lab" | "bijyo1010";
   initialValue?: number | null;
-  compact?: boolean;
   draftValue?: string;
   onDraftChange?: (value: string) => void;
+  compact?: boolean;
 }) {
-  const [localValue, setLocalValue] = useState(initialValue == null ? "" : String(initialValue));
+  const [value, setValue] = useState(initialValue == null ? "" : String(initialValue));
+  const currentValue = draftValue ?? value;
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
-  const value = draftValue ?? localValue;
-
-  function updateValue(next: string) {
-    if (onDraftChange) onDraftChange(next);
-    else setLocalValue(next);
-  }
 
   const save = async () => {
-    if (!/^\d+$/.test(value)) {
+    if (!/^\d+$/.test(currentValue)) {
       setMessage("Xに表示された閲覧数を整数で入力してください。");
       return;
     }
-    const impressions = Number(value);
+    const impressions = Number(currentValue);
     if (!Number.isSafeInteger(impressions) || impressions < 0 || impressions > 1_000_000_000) {
       setMessage("0以上の閲覧数を入力してください。");
       return;
@@ -57,7 +52,7 @@ export default function ManualXImpressionInput({
 
   return (
     <div className={compact ? "mt-2" : "mt-3 rounded-lg border border-emerald-900 bg-zinc-950 p-3"}>
-      {!compact && <p className="text-xs leading-5 text-zinc-400">投稿から24時間以上たった後、X画面の表示数を入力します。入力した時刻を保存し、同じ経過時間までの作品PV・FANZA CTAと照合します。</p>}
+      {!compact && <p className="text-xs leading-5 text-zinc-400">投稿から24時間以上たったら、X画面に表示された閲覧数を入力してください。投稿後30日以内なら記録できます。遅れて入力した場合は、その入力時点の数値として保存します。</p>}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <label className="sr-only" htmlFor={`x-impressions-${postKey}`}>X閲覧数</label>
         <input
@@ -66,14 +61,14 @@ export default function ManualXImpressionInput({
           inputMode="numeric"
           min="0"
           step="1"
-          value={value}
-          onChange={(event) => updateValue(event.target.value)}
+          value={currentValue}
+          onChange={(event) => onDraftChange ? onDraftChange(event.target.value) : setValue(event.target.value)}
           placeholder="閲覧数"
           className="h-10 w-32 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm font-bold text-white outline-none focus:border-emerald-400"
         />
         <button
           type="button"
-          disabled={pending || value === ""}
+          disabled={pending || currentValue === ""}
           onClick={() => void save()}
           className="h-10 rounded-lg bg-emerald-500 px-3 text-xs font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
         >

@@ -1,10 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
-export async function GET() {
-  return NextResponse.json(
-    { error: "X APIによる閲覧数取得は停止中です。X Growth OSで投稿24時間後の表示数を手入力してください。" },
-    { status: 410, headers: { "Cache-Control": "no-store" } },
-  );
+export async function GET(request: NextRequest) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: { "Cache-Control": "no-store" } });
+  }
+  return NextResponse.json({ error: "X APIによる閲覧数取得は停止中です。手入力タスクを使ってください。" }, { status: 410, headers: { "Cache-Control": "no-store" } });
 }

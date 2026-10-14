@@ -436,8 +436,8 @@ function OpportunityCard({ item, persistedId }: { item: XGrowthOpportunity; pers
           <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${intentStyle[item.intent]}`}>{item.intent}</span>
           <span className="rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] font-bold text-zinc-400">{item.sourceType}</span>
           <span className="rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] font-bold text-zinc-400">{item.eventType}</span>
-        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${item.mediaUsage === "allowed" ? "border-emerald-800 bg-emerald-950/40 text-emerald-300" : "border-amber-800 bg-amber-950/40 text-amber-300"}`}>
-          {item.mediaType === "existing_link_image" ? "既存リンク画像" : item.mediaType === "sample_movie" ? "mp4候補" : "データ素材"} / {item.mediaUsage === "allowed" ? "technical eligible" : "technical確認待ち"}
+        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black ${item.mediaType !== "sample_movie" && item.mediaUsage === "allowed" ? "border-emerald-800 bg-emerald-950/40 text-emerald-300" : "border-amber-800 bg-amber-950/40 text-amber-300"}`}>
+          {item.mediaType === "existing_link_image" ? "既存リンク画像" : item.mediaType === "sample_movie" ? "公式動画URLあり" : "データ素材"} / {item.mediaType === "sample_movie" ? "再生・取得は未確認" : item.mediaUsage === "allowed" ? "使用可能" : "確認待ち"}
         </span>
       </div>
       <h3 className="mt-3 line-clamp-2 text-base font-black text-zinc-100">{item.topic}</h3>
@@ -544,6 +544,7 @@ function TopPicksSkeleton() {
           <p className="text-xs font-black tracking-[0.18em] text-emerald-300">HAKKUTSU X GROWTH OS</p>
           <h1 className="mt-2 text-3xl font-black sm:text-5xl">@hakkutsu_lab 司令塔</h1>
         </div>
+        <VideoCandidatePool />
         <Panel className="mt-8 border-emerald-700 bg-emerald-950/10">
           <div className="flex items-center gap-2"><Sparkles className="text-emerald-300" size={20} /><h2 className="text-2xl font-black">今日の運営指示を読み込み中</h2></div>
           <p role="status" className="mt-3 rounded-lg border border-emerald-900 bg-zinc-950 p-4 text-sm leading-6 text-emerald-100/80">
@@ -611,9 +612,9 @@ async function XGrowthPageContent() {
             </Link>
           </div>
           <TempFolderStatus />
-          <details className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-            <summary className="cursor-pointer text-sm font-black text-zinc-300">Growth OSの自動ミッション（参考情報）を開く</summary>
-          <Panel className="mt-4 border-emerald-800 bg-emerald-950/20">
+          <VideoCandidatePool />
+
+          <Panel className="mt-6 border-emerald-800 bg-emerald-950/20">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <div className="flex items-center gap-2"><Target className="text-emerald-300" size={20} /><h2 className="text-xl font-black">Growth OSの自動ミッション（参考）</h2></div>
@@ -631,7 +632,6 @@ async function XGrowthPageContent() {
               </div>
             </div>
           </Panel>
-          </details>
 
           <details className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
             <summary className="cursor-pointer text-sm font-black text-zinc-300">Growth OSの参考候補・供給診断を開く（今日の投稿指示ではありません）</summary>
@@ -696,6 +696,8 @@ async function XGrowthPageContent() {
             )}
           </Panel>
           </details>
+
+          <XDailyImpressionTasks />
 
           <Panel className="mt-6">
             <details>
@@ -812,19 +814,21 @@ async function XGrowthPageContent() {
           </Link>
         </div>
         <TempFolderStatus />
+        <VideoCandidatePool />
+
         <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Metric label="ボトルネック" value={os.mission.bottleneck} note={os.mission.reason} />
           <Metric label="30日表示" value={growth.impressions30d.toLocaleString("ja-JP")} note={`平均 ${growth.avgImpressionsPerPost?.toLocaleString("ja-JP") ?? "-"} / 投稿`} />
           <Metric label="プロフィール/フォロー" value={`${growth.profileVisits30d}/${growth.newFollows30d}`} note="取得できる範囲は週次入力から反映" />
-          <Metric label="動画供給" value={`mp4 ${os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / technical eligible ${os.mediaSupply.allowed.toLocaleString("ja-JP")}`} note={`同期 ${os.mediaSupply.synced.toLocaleString("ja-JP")} / technical確認待ち ${Math.max(0, os.mediaSupply.synced - os.mediaSupply.allowed - os.mediaSupply.dead).toLocaleString("ja-JP")} / URL失効 ${os.mediaSupply.dead.toLocaleString("ja-JP")}`} />
+          <Metric label="動画供給" value={`作品URL ${os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / 公式URL資産 ${os.mediaSupply.officialUrlCandidates.toLocaleString("ja-JP")}`} note={`同期 ${os.mediaSupply.synced.toLocaleString("ja-JP")} / 過去のHTTP失敗記録 ${os.mediaSupply.historicalHttpFailures.toLocaleString("ja-JP")}（候補判定には不使用）`} />
         </div>
 
         <Panel className="mt-6 border-cyan-800 bg-cyan-950/20">
           <div className="flex items-center gap-2"><Film className="text-cyan-300" size={20} /><h2 className="text-lg font-black">動画供給ステータス</h2></div>
           <p className="mt-2 text-sm leading-6 text-cyan-100/80">
-            mp4候補 {os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / synced {os.mediaSupply.synced.toLocaleString("ja-JP")} / technical eligible {os.mediaSupply.allowed.toLocaleString("ja-JP")} / technical確認待ち {Math.max(0, os.mediaSupply.synced - os.mediaSupply.allowed - os.mediaSupply.dead).toLocaleString("ja-JP")} / URL失効 {os.mediaSupply.dead.toLocaleString("ja-JP")}
+            作品 sample_movie_url {os.mediaSupply.mp4Candidates.toLocaleString("ja-JP")} / 公式URL資産 {os.mediaSupply.officialUrlCandidates.toLocaleString("ja-JP")} / 同期 {os.mediaSupply.synced.toLocaleString("ja-JP")} / 過去のHTTP失敗記録 {os.mediaSupply.historicalHttpFailures.toLocaleString("ja-JP")}（動画候補判定には不使用）
           </p>
-          <p className="mt-1 text-xs leading-5 text-cyan-100/60">FANZA/DMM公式 sample_movie_url は、無加工投稿と冒頭トリムの両方に使用できます。残るのはURL・取得・品質・公開安全性の確認だけです。</p>
+          <p className="mt-1 text-xs leading-5 text-cyan-100/60">公式sample_movie_urlは動画候補に使います。実際の再生・取得成功はプレビュー/編集時に確認してください。X掲載の許可とトリム条件は別途確認が必要です。</p>
           {os.mediaSupply.error && <p className="mt-2 text-xs font-bold text-rose-200">{os.mediaSupply.error}</p>}
           <MediaPipelineActions />
         </Panel>
@@ -846,9 +850,7 @@ async function XGrowthPageContent() {
           </div>
         </Panel>
 
-        <Suspense fallback={<section id="x-daily-impression-tasks" className="mt-6 rounded-2xl border border-emerald-800 bg-emerald-950/15 p-5 sm:p-6" aria-busy="true"><h2 className="text-xl font-black">Xデイリータスク：投稿表示数の記録</h2><p role="status" className="mt-2 text-sm text-zinc-400">投稿タスクを読み込んでいます。候補の操作画面は先に表示しています。</p></section>}>
-          <XDailyImpressionTasks />
-        </Suspense>
+        <XDailyImpressionTasks />
 
         <Panel className="mt-6 border-amber-800 bg-amber-950/20">
           <h2 className="text-lg font-black text-amber-200">運用前チェック</h2>
@@ -857,14 +859,13 @@ async function XGrowthPageContent() {
             <StatusPill label="X無料アカウント前提" ok={os.systemStatus.accountSubscription === "free"} />
             <StatusPill label="X投稿" ok={os.systemStatus.xPostingConfigured} />
             <StatusPill label="Media upload" ok={os.systemStatus.xMediaUploadConfigured} />
-            <StatusPill label="X閲覧数の手入力" ok />
+            <StatusPill label="X閲覧数は手入力" ok />
             <StatusPill label="Ranking History" ok={os.systemStatus.rankingSnapshotsReady} />
             <StatusPill label="Conversation Radar外部検索" ok={false} />
           </div>
           <div className="mt-3 grid gap-2 text-sm leading-6 text-amber-100/80 md:grid-cols-2">
             {!os.systemStatus.migrationApplied && <p>Migration未適用の可能性があります: {os.systemStatus.migrationError}</p>}
-            <p>X Premiumは前提にしていません。必要なのはX Developer/API側の利用権限と、@hakkutsu_lab のUser Access Tokenです。</p>
-            <p>Bearer token: {os.systemStatus.xBearerConfigured ? "設定あり" : "未設定"} / User Access Token: {os.systemStatus.xUserAccessTokenConfigured ? "設定あり" : "未設定"}</p>
+            <p>X閲覧数はAPIを呼ばず、投稿24時間後にX画面から手入力します。</p>
             {os.systemStatus.rankingSnapshotsError && <p>ランキング履歴: {os.systemStatus.rankingSnapshotsError}</p>}
             {!os.systemStatus.xPostingConfigured && <p>自動投稿と自動添付は User Access Token が必要です。手動動画投稿は、完成文コピー、mp4一時保存、X投稿画面起動で運用できます。</p>}
           </div>
@@ -1100,7 +1101,7 @@ async function XGrowthPageContent() {
               <div><p className="font-black text-rose-300">廃止</p>{os.audit.retire.map((item) => <p key={item} className="mt-2">{item}</p>)}</div>
             </div>
             <p className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs leading-5 text-zinc-500">
-              X APIによる閲覧数取得は行いません。投稿24時間後にX画面の表示数を手入力し、投稿別の作品PV・FANZA CTAと照合します。
+              X APIによる閲覧数取得は停止しています。投稿24〜27時間後のX画面表示数と、同じ投稿キーの作品PV・FANZAクリックを並べます。
             </p>
           </Panel>
         </div>

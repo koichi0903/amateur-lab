@@ -107,14 +107,14 @@ export function isOfficialFanzaDmmSampleUrl(url: string | null | undefined) {
 
 export function isOfficialSampleMovieAsset(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null) {
   const url = asset?.source_url ?? sampleMovieUrl;
-  if (!isOfficialFanzaDmmSampleUrl(url)) return false;
-  return asset?.source_kind === "official_sample" || sourceKindFor(url as string) === "official_sample";
+  return isOfficialFanzaDmmSampleUrl(url);
 }
 
 /**
- * FANZA X Growth's media gate is technical and source-based only.
- * Rights metadata is intentionally not consulted here; it remains available
- * for the separate review workflow and other consumers.
+ * Candidate eligibility uses only stored URL and source facts. Availability
+ * probes are not reliable for these URLs and historical HTTP results must not
+ * remove otherwise valid official sample candidates. Rights metadata remains
+ * separate for review and posting authorization.
  */
 export function isFanzaXGrowthTechnicalSampleMovie(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null): XFanzaXGrowthTechnicalVerdict {
   const sourceUrl = sampleMovieUrl ?? asset?.source_url;
@@ -183,7 +183,7 @@ export async function getXMediaSupplyStatus() {
     synced,
     unknown,
     review,
-    allowed,
+    officialUrls,
     blocked,
     dead,
     waiting,
@@ -192,21 +192,21 @@ export async function getXMediaSupplyStatus() {
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "unknown"),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "review"),
-    supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("fetch_status", "ok").ilike("mime_type", "video/mp4%"),
+    supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("source_kind", "official_sample"),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "blocked"),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).in("fetch_status", ["dead", "forbidden"]),
     supabaseAdmin.from("x_growth_opportunities").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).eq("media_type", "sample_movie").is("recommended_media_asset_id", null),
   ]);
-  const error = [works.error, synced.error, unknown.error, review.error, allowed.error, blocked.error, dead.error, waiting.error].find(Boolean);
+  const error = [works.error, synced.error, unknown.error, review.error, officialUrls.error, blocked.error, dead.error, waiting.error].find(Boolean);
   return {
     error: error?.message ?? null,
     mp4Candidates: works.count ?? 0,
     synced: synced.count ?? 0,
     unknown: unknown.count ?? 0,
     review: review.count ?? 0,
-    allowed: allowed.count ?? 0,
+    officialUrlCandidates: officialUrls.count ?? 0,
     blocked: blocked.count ?? 0,
-    dead: dead.count ?? 0,
+    historicalHttpFailures: dead.count ?? 0,
     topPickRightsWaiting: waiting.count ?? 0,
   };
 }
@@ -218,7 +218,6 @@ export async function getRightsReviewQueue(limit = 12) {
     .eq("account_handle", X_GROWTH_ACCOUNT)
     .in("media_type", ["video", "sample_movie"])
     .in("rights_status", ["unknown", "review", "allowed", "unchecked"])
-    .not("fetch_status", "in", "(dead,forbidden)")
     .order("updated_at", { ascending: false })
     .limit(limit);
   return { rows: (data ?? []) as Array<XMediaAsset & { works?: Record<string, unknown> | null }>, error: error?.message ?? null };

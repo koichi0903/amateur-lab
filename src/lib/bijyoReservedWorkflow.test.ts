@@ -199,24 +199,25 @@ test("NEWの発売日範囲制限は発売予定一覧だけに適用し、手�
 
 test("公式動画・投稿/追加/スキップ/除外・重複状態を候補/APIで共通判定する", () => {
   const server = fs.readFileSync("src/lib/bijyoReservedAutoPost.ts", "utf8");
+  const readPages = fs.readFileSync("src/lib/bijyoReadPages.ts", "utf8");
   const actions = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedActions.tsx", "utf8");
   const upcoming = fs.readFileSync("src/app/admin/bijyo-reserved/UpcomingBijyoReleases.tsx", "utf8");
   const queue = fs.readFileSync("src/app/admin/bijyo-reserved/ReservedBijyoWorks.tsx", "utf8");
-  const card = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedWorkCard.tsx", "utf8");
+  const workCard = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedWorkCard.tsx", "utf8");
   const candidate = { stage: "RESERVED", release_date: "2026-10-10" };
   assert.equal(isBijyoManualCandidate(candidate, { officialSample: true, hasExistingJob: false }), true);
+  assert.match(server, /!isBijyoManualCandidate\(work,/);
   for (const status of ["pending", "posted", "manual_posted", "skipped", "excluded", "trim_failed"]) {
     assert.equal(isBijyoManualCandidate(candidate, { officialSample: true, hasExistingJob: true }), false, `${status} は候補に出さない`);
   }
-  assert.match(server, /\.eq\("stage", "RESERVED"\)/);
-  assert.match(server, /\.gt\("release_date", todayDate\)/);
-  assert.match(server, /\.gte\("created_at", new Date\(now\.getTime\(\) - BIJYO_RESERVED_REGISTRATION_WINDOW_MS\)\.toISOString\(\)\)/);
-  assert.match(server, /\.lte\("created_at", now\.toISOString\(\)\)/);
-  assert.match(server, /\.order\("release_date", \{ ascending: false \}\)\s*\.order\("created_at", \{ ascending: false \}\)\s*\.order\("id", \{ ascending: true \}\)/);
-  assert.match(server, /sourceKindFor\(work\.sample_movie_url\) === "official_sample"/);
-  assert.match(server, /!isBijyoManualCandidate\(work,/);
   assert.match(server, /manualEligible: isBijyoManualCandidate\(work,/);
-  assert.match(card, /allowWorkManualAdd=\{work\.manualEligible === true\}/);
+  assert.match(readPages, /\.eq\("stage", "RESERVED"\)/);
+  assert.match(readPages, /\.gt\("release_date", today\)/);
+  assert.match(readPages, /\.gte\("created_at", cutoff\)/);
+  assert.match(readPages, /\.lte\("created_at", nowIso\)/);
+  assert.match(readPages, /filter\(\(work\) =>/);
+  assert.match(server, /!isBijyoManualCandidate\(work,/);
+  assert.match(workCard, /allowWorkManualAdd=\{work\.manualEligible === true\}/);
   assert.match(actions, /workId && allowWorkManualAdd && <button[^\n]*run\("manual"\)/);
   assert.match(upcoming, /<BijyoReservedWorkCard key=\{work\.id\} work=\{work\} \/>/);
   assert.match(queue, /<BijyoReservedWorkCard key=\{work\.id\} work=\{work\} \/>/);

@@ -3,3 +3,4 @@ lint.txt
 tools/fanza-inspector/output/
 docs/
 /supabase/
+.next-*

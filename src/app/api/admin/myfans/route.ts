@@ -710,9 +710,10 @@ async function importRevenue(formData: FormData) {
 }
 
 export async function POST(request: Request) {
+  let action = "unknown";
   try {
     const formData = await request.formData();
-    const action = text(formData, "action");
+    action = text(formData, "action") || "unknown";
     const result =
       action === "creator" ? await saveCreator(formData) :
       action === "media" ? await saveMedia(formData) :
@@ -733,8 +734,16 @@ export async function POST(request: Request) {
     if (!result) return NextResponse.json({ error: "未対応の操作です。" }, { status: 400 });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    console.error("myfans admin action failed", error);
     const message = error instanceof Error ? error.message : "";
+    const errorRecord = typeof error === "object" && error !== null ? error as { code?: unknown } : undefined;
+    const errorCode = typeof errorRecord?.code === "string" && /^[0-9A-Z]{5}$/.test(errorRecord.code)
+      ? errorRecord.code
+      : undefined;
+    console.error("myfans admin action failed", {
+      action: /^[a-z_]{1,64}$/.test(action) ? action : "unknown",
+      errorCode,
+      errorType: error instanceof Error ? error.name : "UnknownError",
+    });
     const safeMessage = /^(投稿本文を入力してください|正規myfansアフィリンク|期限日時|商品が見つかりません|投稿IDがありません|未対応の更新|投稿URLを入力|対象日が不正|投稿枠が不正|候補はA\/B\/C|今日のDaily Planが見つかりません|selectedは)/.test(message)
       ? message
       : "myfans操作に失敗しました。入力を確認して、時間をおいて再試行してください。";

@@ -8,8 +8,7 @@ import { saveXPostLog } from "@/lib/xPostLogs";
 import { withXPostTracking, xPostKeyFromText } from "@/lib/xPostTracking";
 import { normalizeTopPickCandidates } from "@/lib/xGrowthTopPicks";
 import type { XDailyMission, XDailyTopPick, XGrowthIntent, XGrowthOpportunity } from "@/lib/xGrowthOS";
-import { buildVisualVideoFacts, type XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
-import { analyzeSampleMovie, videoSourceFingerprint, VIDEO_ANALYSIS_VERSION } from "@/lib/xVideoAnalysis";
+import type { XVisualVideoFacts } from "@/lib/xVisualVideoFacts";
 import type { DecisionFacts } from "@/lib/domain/decisionFacts";
 
 export type XDailyPlanStatus = "draft" | "confirmed" | "completed" | "regenerated";
@@ -124,22 +123,6 @@ export async function fetchMediaAssets(workIds: number[]) {
   return { assets: map, error: null };
 }
 
-export async function analyzeUncachedVideoFacts(assets: Map<number, XMediaAsset>, limit = 24) {
-  const started = Date.now(); let analyzed = 0; let reused = 0; const diagnostics: Array<{ workId: number | null; sourceUrl: string; status: string; detail?: string }> = [];
-  for (const asset of [...assets.values()].slice(0, limit)) {
-    if (!asset.work_id || !asset.source_url || (asset.media_type !== "video" && asset.media_type !== "sample_movie")) continue;
-    if (asset.video_analysis_version === VIDEO_ANALYSIS_VERSION && asset.video_analysis_source_fingerprint === videoSourceFingerprint(asset.source_url) && asset.visual_video_facts) { reused += 1; continue; }
-    const jacketResult = asset.work_id ? await supabaseAdmin.from("works").select("image_url").eq("id", asset.work_id).maybeSingle() : { data: null };
-    const result = await analyzeSampleMovie({ sourceUrl: asset.source_url, trimStartSeconds: asset.trim_start_seconds ?? 0, jacketUrl: (jacketResult.data as { image_url?: string | null } | null)?.image_url });
-    const facts = buildVisualVideoFacts({ sampleMovieUrl: asset.source_url, videoEvidence: result.videoEvidence, jacketEvidence: result.jacketEvidence });
-    const update = { visual_video_facts: facts, video_analysis_version: result.version, video_analysis_source_fingerprint: result.sourceFingerprint, video_analyzed_at: result.analyzedAt, video_raw_metrics: result.rawMetrics, video_analysis_diagnostics: result.diagnostics };
-    const saved = await supabaseAdmin.from("x_media_assets").update(update).eq("account_handle", ACCOUNT).eq("id", asset.id);
-    if (saved.error) diagnostics.push({ workId: asset.work_id, sourceUrl: asset.source_url, status: "persist_failed", detail: saved.error.message });
-    else { Object.assign(asset, update); analyzed += 1; diagnostics.push({ workId: asset.work_id, sourceUrl: asset.source_url, status: result.videoEvidence.length ? "analyzed" : "no_usable_video_evidence", detail: result.diagnostics.join(" / ") }); }
-  }
-  return { analyzed, reused, elapsedMs: Date.now() - started, diagnostics };
-}
-
 export function applyMediaEligibility(opportunities: XGrowthOpportunity[], assets: Map<number, XMediaAsset>) {
   return opportunities.map((item) => {
     const storedAsset = assets.get(item.workId);
@@ -174,7 +157,7 @@ export function applyMediaEligibility(opportunities: XGrowthOpportunity[], asset
       mediaUsage: verdict.usable ? "allowed" as const : "not_available" as const,
       canNativeVideo: verdict.usable,
       mediaAsset: asset ?? null,
-      mediaDecision: verdict.usable ? "公式FANZA/DMM sample_movie_url。HTTP/MIME/取得可能性を確認済み" : `動画は${verdict.reasons.join(" / ") || "technical条件未確認"}のため未使用`,
+      mediaDecision: verdict.usable ? "公式FANZA/DMM sample_movie_urlあり。再生・編集時に動画を取得します" : `動画は${verdict.reasons.join(" / ") || "公式URL条件未確認"}のため未使用`,
     };
   });
 }
@@ -654,13 +637,13 @@ async function invalidateTodayPlanWork(workId: number) {
 
 export async function recordManualXPost(input: {
   workId: number;
+  xPostId: string;
   candidateId?: string | null;
   slotId?: string | null;
   candidateRank?: string | null;
   slotRole?: string | null;
   title: string;
   postText: string;
-  xPostId: string;
   trackingUrl?: string | null;
   intent?: string | null;
   mediaAssetId?: number | null;

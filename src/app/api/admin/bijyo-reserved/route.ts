@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createBijyoManualJob, excludeBijyoJob, getBijyoDashboard, getBijyoHistoryPage, getBijyoManualJobsPage, getBijyoReservedQueueWorks, markBijyoPosted, prepareBijyoVideo, skipBijyoFutureWork, skipBijyoJob } from "@/lib/bijyoReservedAutoPost";
+import { createBijyoManualJob, excludeBijyoJob, getBijyoDashboard, markBijyoPosted, prepareBijyoVideo, skipBijyoFutureWork, skipBijyoJob } from "@/lib/bijyoReservedAutoPost";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { executeBijyoManualAction } from "@/lib/bijyoManualAction";
+import { getBijyoHistoryPage, getBijyoReservedQueueWorks } from "@/lib/bijyoReadPages";
+import { getBijyoManualJobsPage } from "@/lib/bijyoManualJobs";
 
 export const dynamic = "force-dynamic";
 
@@ -12,24 +14,27 @@ function userSafeResult<T extends { error?: string }>(result: T) {
 
 export async function GET(request: NextRequest) {
   if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
-  const historyValue = request.nextUrl.searchParams.get("historyPage");
-  const reservedValue = request.nextUrl.searchParams.get("reservedPage");
+  const params = request.nextUrl.searchParams;
+  const historyValue = params.get("historyPage");
+  const reservedValue = params.get("reservedPage");
+  const manualValue = params.get("manualPage");
   if (historyValue !== null && reservedValue === null) {
     const page = Math.max(1, Number(historyValue) || 1);
-    return NextResponse.json(await getBijyoHistoryPage(page), { headers: { "Cache-Control": "no-store" } });
+    const result = await getBijyoHistoryPage(page);
+    return NextResponse.json({ ...result, historyPage: result.page, historyHasMore: result.hasMore }, { headers: { "Cache-Control": "no-store" } });
   }
   if (reservedValue !== null && historyValue === null) {
     const page = Math.max(1, Number(reservedValue) || 1);
     const result = await getBijyoReservedQueueWorks(page);
     return NextResponse.json({ reservedWorks: result.works, reservedHasMore: result.hasMore, error: result.error }, { headers: { "Cache-Control": "no-store" } });
   }
-  if (request.nextUrl.searchParams.has("manualPage")) {
-    const page = Math.max(1, Number(request.nextUrl.searchParams.get("manualPage")) || 1);
+  if (manualValue !== null) {
+    const page = Math.max(1, Number(manualValue) || 1);
     return NextResponse.json(await getBijyoManualJobsPage(page), { headers: { "Cache-Control": "no-store" } });
   }
-  const historyPage = Math.max(1, Number(request.nextUrl.searchParams.get("historyPage") ?? "1") || 1);
-  const reservedPageValue = Math.max(1, Number(request.nextUrl.searchParams.get("reservedPage") ?? "1") || 1);
-  return NextResponse.json(await getBijyoDashboard(historyPage, reservedPageValue));
+  const historyPage = Math.max(1, Number(historyValue ?? "1") || 1);
+  const candidatePage = Math.max(1, Number(params.get("candidatePage") ?? "1") || 1);
+  return NextResponse.json(await getBijyoDashboard(historyPage, candidatePage));
 }
 
 export async function POST(request: NextRequest) {
@@ -43,7 +48,7 @@ export async function POST(request: NextRequest) {
   if (action === "posted") {
     const xPostUrl = typeof body.xPostUrl === "string" ? body.xPostUrl.trim() : "";
     const match = xPostUrl.match(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/[^/]+\/status\/(\d+)(?:[/?#].*)?$/i);
-    if (!match) return NextResponse.json({ error: "X投稿URLを入力してください（例: https://x.com/アカウント/status/投稿ID）。" }, { status: 400 });
+    if (!match) return NextResponse.json({ error: "有効なX投稿URLが必要です。" }, { status: 400 });
     result = await markBijyoPosted(jobId, match[1]);
   }
   else if (action === "skip") result = Number.isSafeInteger(jobId) && jobId > 0 ? await skipBijyoJob(jobId) : Number.isSafeInteger(workId) && workId > 0 ? await skipBijyoFutureWork(workId) : { ok: false, error: "jobIdまたはworkIdが不正です。" };

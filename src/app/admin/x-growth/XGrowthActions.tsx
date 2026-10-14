@@ -257,7 +257,7 @@ export function OpportunityActions({ id, canNativeVideo }: { id: number | null; 
     <div className="mt-3 flex flex-wrap gap-2">
       <button disabled={pending} onClick={() => run("adopted")} className="h-9 rounded-lg bg-emerald-600 px-3 text-xs font-black text-white disabled:opacity-50">採用</button>
       <button disabled={pending} onClick={() => run("posted")} className="h-9 rounded-lg bg-sky-600 px-3 text-xs font-black text-white disabled:opacity-50">
-        {canNativeVideo ? "mp4投稿実行" : "投稿/記録実行"}
+        {canNativeVideo ? "動画を取得して投稿" : "投稿/記録実行"}
       </button>
       <button disabled={pending} onClick={() => run("rejected")} className="h-9 rounded-lg border border-zinc-700 px-3 text-xs font-black text-zinc-300 disabled:opacity-50">却下</button>
       {message && <p className="basis-full text-[11px] font-bold text-amber-200">{message}</p>}
@@ -381,7 +381,10 @@ export function ManualPostActions({
       const xPostUrl = window.prompt(linkPlan === "self_reply"
         ? "作品ページのリンクを含む自己リプのX投稿URLを貼り付けてください。"
         : "作品ページのリンクを含むX投稿URLを貼り付けてください。");
-      if (!xPostUrl?.trim()) { setMessage("計測に必要なX投稿URLがないため、投稿済み登録を中止しました。"); return; }
+      if (!xPostUrl?.trim()) {
+        setMessage("計測に必要なX投稿URLがないため、投稿済み登録を中止しました。");
+        return;
+      }
       await postJson("/api/admin/x-growth/mark-posted", { workId, candidateId, slotId, candidateRank, slotRole, title, postText, trackingUrl: affiliateUrl, intent, mediaAssetId, linkStrategy: linkPlan, xPostUrl });
       const handle = await loadDirectoryHandle();
       if (handle && (await ensurePermission(handle))) await handle.removeEntry(tempFilename).catch(() => undefined);

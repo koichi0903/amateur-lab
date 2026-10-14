@@ -42,6 +42,7 @@ const CANDIDATES_PER_PAGE = 20;
 
 export default function VideoCandidatePool() {
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [selection, setSelection] = useState<SavedSelection | null>(null);
   const [error, setError] = useState("");
   const [candidatePage, setCandidatePage] = useState(0);
@@ -56,6 +57,9 @@ export default function VideoCandidatePool() {
       })
       .catch((cause) => {
         if (active) setError(cause instanceof Error ? cause.message : "保存済み候補を読み込めませんでした。");
+      })
+      .finally(() => {
+        if (active) setInitialLoading(false);
       });
     return () => { active = false; };
   }, []);
@@ -115,8 +119,8 @@ export default function VideoCandidatePool() {
           <h2 className="text-xl font-black">動画候補の自動選定</h2>
           <p className="mt-1 text-sm text-zinc-300">動画Creative Quality Hard Gateを通過した作品から、スコア・鮮度・セール・直近投稿を使って上位5作品を選びます。</p>
         </div>
-        <button type="button" onClick={() => void save("refresh")} disabled={loading} className="h-10 shrink-0 rounded-lg border border-cyan-700 bg-cyan-950 px-4 text-sm font-black text-cyan-100 disabled:opacity-60">
-          {loading ? "読み取り・自動選定・保存中…" : selection ? "候補を更新して自動選定" : "動画候補を自動選定"}
+        <button type="button" onClick={() => void save("refresh")} disabled={loading || initialLoading} className="h-10 shrink-0 rounded-lg border border-cyan-700 bg-cyan-950 px-4 text-sm font-black text-cyan-100 disabled:opacity-60">
+          {initialLoading ? "保存済み候補を読み込み中…" : loading ? "読み取り・自動選定・保存中…" : selection ? "候補を更新して自動選定" : "動画候補を自動選定"}
         </button>
       </div>
       <p className="mt-2 text-xs text-zinc-400">選定は専用保存先に記録します。Top Picks・投稿・Schedulerには反映しません。公式HTTPSサンプル動画URLはX掲載許可済みとして扱い、独自の許諾審査や追加除外条件は設けません。</p>

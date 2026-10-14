@@ -41,6 +41,8 @@ assert.equal(isPostableOfficialSampleMovie({ ...officialSample, media_quality: "
 assert.equal(canTrimOfficialSampleMovie(officialSample).usable, false);
 assert.equal(canTrimOfficialSampleMovie({ ...officialSample, rights_status: "allowed", x_usage_allowed: true, can_reupload: true, quote_only: false, commercial_use_allowed: true }).usable, true);
 assert.equal(canTrimOfficialSampleMovie({ ...officialSample, fetch_status: "forbidden" }).usable, false);
+assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "forbidden", fetch_status_code: 403, mime_type: "text/html", content_length: 919 }).usable, true);
+assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "dead", fetch_status_code: 404 }).usable, true);
 
 assert.equal(isOfficialFanzaDmmSampleUrl("https://cc3001.dmm.co.jp/litevideo/freepv/example.mp4"), true);
 assert.equal(isOfficialFanzaDmmSampleUrl("http://cc3001.dmm.co.jp/example.mp4"), false);

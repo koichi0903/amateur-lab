@@ -22,7 +22,10 @@ export default function FanzaId990DailyOfficialInput() {
     setMessage("");
     setIsError(false);
     const form = new FormData(event.currentTarget);
-    const numeric = (name: string) => Number(form.get(name));
+    const numeric = (name: string) => {
+      const value = form.get(name);
+      return typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
+    };
     const payload = {
       reportDate: String(form.get("reportDate") ?? ""),
       reportStatus: String(form.get("reportStatus") ?? "confirmed"),

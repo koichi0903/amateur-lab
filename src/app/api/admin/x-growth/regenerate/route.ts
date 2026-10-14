@@ -7,7 +7,7 @@ import { getXCreativeLearning, getXPostOutcomes, getRecentXPostLogs } from "@/li
 
 export async function POST() {
   const started = Date.now();
-  // Sync official sample URL metadata without requesting the URLs themselves.
+  // Reconcile official sample URL metadata from works without contacting the URLs.
   const mediaSync = await syncSampleMovieAssets(250);
   if (mediaSync.error) return NextResponse.json({ ok: false, error: mediaSync.error, mediaSync }, { status: 500 });
   const [growth, salesAnalytics, logs, outcomes, creativeLearning] = await Promise.all([

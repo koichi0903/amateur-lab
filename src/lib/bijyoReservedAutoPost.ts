@@ -204,9 +204,9 @@ export async function markBijyoPosted(jobId: number, xPostId: string) {
     postText: loaded.job.main_text,
     postDate: tokyoDate(),
     accountHandle: BIJYO_ACCOUNT,
+    xPostId,
     postIntent: "work_link",
     linkStrategy: "reply_link",
-    xPostId,
   });
   if (postLog.error) return { ok: false, error: postLog.error.message };
   const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ status: "manual_posted", posted_at: new Date().toISOString(), failure_reason: null }).eq("account_handle", BIJYO_ACCOUNT).eq("id", jobId).in("status", ["pending", "trim_failed"]).select("id").maybeSingle();
@@ -319,8 +319,6 @@ async function performBijyoVideoPreparation(jobId: number, workId?: number, opti
     throw new Error(reason);
   }
 }
-
-
 
 export function prepareBijyoVideo(jobId: number, workId?: number, options: PrepareBijyoVideoOptions = {}) {
   return runBijyoPreparationOnce(jobId, () => performBijyoVideoPreparation(jobId, workId, options));

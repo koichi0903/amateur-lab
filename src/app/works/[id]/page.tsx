@@ -13,6 +13,7 @@ import {
   isWorkIndexable,
   WORK_INDEX_MIN_PRICE,
 } from "@/lib/seoQuality";
+import { buildWorkMetaDescription } from "@/lib/workMetadata";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
@@ -212,14 +213,8 @@ export async function generateMetadata(
     });
   }
 
-  const actressText = work.actress ? `${work.actress}出演。` : "";
-  const currentPrice = work.sale_price > 0 ? work.sale_price : work.price;
-  const priceText = currentPrice > 0 ? `現在価格${currentPrice.toLocaleString("ja-JP")}円。` : "";
-  const reviewText = work.review_count > 0
-    ? `レビュー${work.review_average.toFixed(2)}（${work.review_count}件）。`
-    : "";
   const title = `${work.title}｜FANZA価格・過去最安値・買い時 | 発掘LAB`;
-  const description = `${work.title}のFANZA現在価格、価格推移、過去最安値、買い時を確認。${priceText}${reviewText}${actressText}同価格帯の作品とも比較できます。`;
+  const description = buildWorkMetaDescription(work);
   const encodedId = encodeURIComponent(id);
   const socialImage = work.image_url || `${SITE_URL}/ogp.png`;
   const metadata = pageMetadata({

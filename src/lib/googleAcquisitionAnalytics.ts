@@ -45,6 +45,7 @@ export type GoogleAcquisitionAnalytics = {
   configured: boolean;
   evaluatedAt: string;
   period: { startDate: string; endDate: string };
+  analyticsPeriod: { startDate: string; endDate: string };
   searchConsole: {
     available: boolean;
     error: string | null;
@@ -139,16 +140,28 @@ function shiftDayKey(dayKey: string, amount: number) {
   return shifted.toISOString().slice(0, 10);
 }
 
-function reportPeriod() {
-  const endDate = shiftDayKey(jstDayKey(new Date()), -3);
-  return { startDate: shiftDayKey(endDate, -27), endDate };
+function reportPeriods() {
+  const today = jstDayKey(new Date());
+  const searchConsoleEndDate = shiftDayKey(today, -3);
+  const analyticsEndDate = shiftDayKey(today, -1);
+  return {
+    searchConsole: {
+      startDate: shiftDayKey(searchConsoleEndDate, -27),
+      endDate: searchConsoleEndDate,
+    },
+    analytics: {
+      startDate: shiftDayKey(analyticsEndDate, -27),
+      endDate: analyticsEndDate,
+    },
+  };
 }
 
-function emptyReport(period: { startDate: string; endDate: string }): GoogleAcquisitionAnalytics {
+function emptyReport(periods: ReturnType<typeof reportPeriods>): GoogleAcquisitionAnalytics {
   return {
     configured: Boolean(getCredential()),
     evaluatedAt: new Date().toISOString(),
-    period,
+    period: periods.searchConsole,
+    analyticsPeriod: periods.analytics,
     searchConsole: {
       available: false,
       error: null,
@@ -309,8 +322,8 @@ async function fetchAnalyticsReport(
 }
 
 export async function getGoogleAcquisitionAnalytics(): Promise<GoogleAcquisitionAnalytics> {
-  const period = reportPeriod();
-  const report = emptyReport(period);
+  const periods = reportPeriods();
+  const report = emptyReport(periods);
   if (!report.configured) {
     const message = process.env.VERCEL
       ? "このVercel環境にGoogle読み取り用サービスアカウントが設定されていません。Production環境変数と、設定後に作成されたデプロイか確認してください。"
@@ -321,8 +334,8 @@ export async function getGoogleAcquisitionAnalytics(): Promise<GoogleAcquisition
   }
 
   const [searchResult, analyticsResult] = await Promise.allSettled([
-    fetchSearchConsoleReport(period),
-    fetchAnalyticsReport(period),
+    fetchSearchConsoleReport(periods.searchConsole),
+    fetchAnalyticsReport(periods.analytics),
   ]);
   if (searchResult.status === "fulfilled") report.searchConsole = searchResult.value;
   else report.searchConsole.error = safeErrorMessage(searchResult.reason);
