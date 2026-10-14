@@ -132,12 +132,19 @@ export async function POST(request: Request) {
   }
 
   if (error) {
+    const safeLogText = (value: string | null | undefined) =>
+      typeof value === "string" ? value.slice(0, 240) : undefined;
+
     console.error("[affiliate-click] failed to record click", {
       workId,
       placement,
       sourcePage,
       ctaVariant,
+      externalChannel: externalAttribution?.channel,
       code: error.code,
+      message: safeLogText(error.message),
+      details: safeLogText(error.details),
+      hint: safeLogText(error.hint),
     });
     // Tracking must never turn a valid customer click into a UI error.
   }
