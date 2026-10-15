@@ -59,7 +59,7 @@ export default async function AmateurPage({ searchParams }: { searchParams: Prom
               <div>
                 <h1 className="text-3xl font-black tracking-tight sm:text-4xl">FANZA素人作品を探す</h1>
                 <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">未保存ページはFANZA Web APIから取得してSupabaseに保存します。保存済みページはそのデータを表示します。定期更新ルールは未設定です。</p>
-                <p className="mt-2 text-xs text-slate-500">対象：FANZA 動画・素人（APIフロア videoc）／送客ID：026</p>
+                <p className="mt-2 text-xs text-slate-500">対象：FANZA 動画・素人（APIフロア videoc）／送客ID：991</p>
               </div>
               {result && <div className="flex shrink-0 items-center gap-2 rounded-xl bg-slate-100 px-4 py-3">
                 <span className="text-xs font-bold text-slate-500">作品総数</span>

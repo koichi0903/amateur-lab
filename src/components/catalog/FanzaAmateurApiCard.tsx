@@ -64,7 +64,7 @@ export default function FanzaAmateurApiCard({ item }: { item: FanzaAmateurCatalo
               window.gtag?.("event", "amateur_affiliate_click", {
                 content_id: item.content_id,
                 source_page: "amateur",
-                affiliate_id: "026",
+                affiliate_id: "991",
               });
             }}
           >

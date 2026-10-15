@@ -42,19 +42,15 @@ function priceNumber(value: unknown): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function amateurAffiliateId() {
-  return getAmateurAffiliateId();
-}
-
-function getAmateurAffiliateId() {
+export function getFanzaAmateurAffiliateId() {
   const configured = process.env.DMM_AMATEUR_AFFILIATE_ID?.trim();
-  if (configured?.endsWith("-026")) return configured;
+  if (configured?.endsWith("-991")) return configured;
 
   const defaultId = process.env.DMM_AFFILIATE_ID?.trim();
-  const derived = defaultId?.replace(/-\d{3}$/, "-026");
-  if (derived?.endsWith("-026")) return derived;
+  const derived = defaultId?.replace(/-\\d{3}$/, "-991");
+  if (derived?.endsWith("-991")) return derived;
 
-  throw new Error("素人作品用のDMMアフィリエイトID 026を確認できません。");
+  throw new Error("素人作品用のDMMアフィリエイトID 991を確認できません。");
 }
 
 function buildAffiliateUrl(canonicalUrl: string) {
@@ -65,7 +61,7 @@ function buildAffiliateUrl(canonicalUrl: string) {
 
   const affiliate = new URL("https://al.fanza.co.jp/");
   affiliate.searchParams.set("lurl", target.href);
-  affiliate.searchParams.set("af_id", amateurAffiliateId());
+  affiliate.searchParams.set("af_id", getFanzaAmateurAffiliateId());
   return affiliate.href;
 }
 
@@ -134,7 +130,7 @@ async function fetchAndSaveFanzaAmateurCatalogPage({
   const apiId = process.env.DMM_API_ID?.trim();
   if (!apiId) throw new Error("DMM APIの設定がありません。");
 
-  const apiAffiliateId = getAmateurAffiliateId();
+  const apiAffiliateId = getFanzaAmateurAffiliateId();
   const offset = (page - 1) * FANZA_AMATEUR_PAGE_SIZE + 1;
   const params = new URLSearchParams({
     api_id: apiId,

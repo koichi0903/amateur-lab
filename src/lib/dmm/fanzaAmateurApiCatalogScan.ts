@@ -1,7 +1,7 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { FANZA_AMATEUR_FLOOR } from "@/lib/dmm/fanzaAmateurCatalog";
+import { FANZA_AMATEUR_FLOOR, getFanzaAmateurAffiliateId } from "@/lib/dmm/fanzaAmateurCatalog";
 
 const PAGE_SIZE = 100;
 const API_OFFSET_LIMIT = 50_000;
@@ -31,13 +31,7 @@ export type FanzaAmateurApiCatalogRun = {
   completed_at: string | null;
 };
 
-function apiAffiliateId() {
-  const configured = process.env.DMM_API_AFFILIATE_ID?.trim()
-    || process.env.DMM_AFFILIATE_ID?.trim();
-  if (!configured || !/-99\d$/.test(configured)) {
-    throw new Error("DMM API用アフィリエイトID（末尾990〜999）の設定を確認してください。");
-  }
-  return configured;
+function apiAffiliateId() {\n  return getFanzaAmateurAffiliateId();
 }
 
 function asCount(value: unknown): number | null {
