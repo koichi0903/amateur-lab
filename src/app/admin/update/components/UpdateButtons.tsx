@@ -275,22 +275,6 @@ onStop,
       </div>
     </section>
 
-    {/* FANZA素人 APIカタログ */}
-    <section>
-      <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-400">
-        FANZA素人
-      </h3>
-      <div className="grid gap-4 md:grid-cols-2">
-        <a
-          href="/admin/amateur-api-catalog?start=1"
-          className="flex min-h-16 flex-col items-start justify-center rounded-xl border border-zinc-700 bg-zinc-900 px-5 text-left transition hover:border-emerald-400 hover:bg-zinc-800"
-        >
-          <span className="font-bold text-white">🎞️ 素人API全作品取得</span>
-          <span className="mt-1 text-xs text-zinc-400">手動で開始・一時停止・再開／取得情報をSupabaseに保存</span>
-        </a>
-      </div>
-    </section>
-
     {/* セール */}
     <section>
       <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-400">

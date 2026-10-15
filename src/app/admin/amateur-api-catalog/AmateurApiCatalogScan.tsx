@@ -39,18 +39,6 @@ export default function AmateurApiCatalogScan() {
     return data.run;
   }, []);
 
-  useEffect(() => {
-    const query = new URLSearchParams(window.location.search);
-    if (query.get("start") === "1" && !autoStartRef.current) {
-      autoStartRef.current = true;
-      window.history.replaceState(null, "", window.location.pathname);
-      void runAll();
-      return;
-    }
-
-    void refresh().catch((error: unknown) => setMessage(error instanceof Error ? error.message : "取得状況を読み込めませんでした。"));
-  }, [refresh, runAll]);
-
   const request = useCallback(async (action: "start" | "continue", runId?: string) => {
     const response = await fetch("/api/admin/fanza-amateur-api-catalog", {
       method: "POST",
@@ -84,6 +72,18 @@ export default function AmateurApiCatalogScan() {
       setBusy(false);
     }
   }, [refresh, request]);
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    if (query.get("start") === "1" && !autoStartRef.current) {
+      autoStartRef.current = true;
+      window.history.replaceState(null, "", window.location.pathname);
+      void runAll();
+      return;
+    }
+
+    void refresh().catch((error: unknown) => setMessage(error instanceof Error ? error.message : "取得状況を読み込めませんでした。"));
+  }, [refresh, runAll]);
 
   async function resume() {
     if (!run) return;
