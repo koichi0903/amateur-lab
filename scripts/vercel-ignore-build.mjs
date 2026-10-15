@@ -9,7 +9,7 @@ if (!env) {
 }
 
 if (env !== "production") {
-  if (env === "preview" && ["codex/amateur-affiliate-id-991-preview", "codex/admin-amateur-scan-button"].includes(ref ?? "")) {
+  if (env === "preview" && ["codex/amateur-affiliate-id-991-preview", "codex/admin-amateur-scan-button", "codex/fanza-amateur-works-20261015"].includes(ref ?? "")) {
     console.log(`Allowing the requested isolated preview for ${ref}.`);
     process.exit(1);
   }
