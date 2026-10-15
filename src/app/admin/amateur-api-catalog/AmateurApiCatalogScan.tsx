@@ -28,6 +28,7 @@ export default function AmateurApiCatalogScan() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const stopRef = useRef(false);
+  const autoStartRef = useRef(false);
 
   const refresh = useCallback(async () => {
     const response = await fetch("/api/admin/fanza-amateur-api-catalog", { cache: "no-store" });
@@ -39,10 +40,18 @@ export default function AmateurApiCatalogScan() {
   }, []);
 
   useEffect(() => {
-    void refresh().catch((error: unknown) => setMessage(error instanceof Error ? error.message : "取得状況を読み込めませんでした。"));
-  }, [refresh]);
+    const query = new URLSearchParams(window.location.search);
+    if (query.get("start") === "1" && !autoStartRef.current) {
+      autoStartRef.current = true;
+      window.history.replaceState(null, "", window.location.pathname);
+      void runAll();
+      return;
+    }
 
-  async function request(action: "start" | "continue", runId?: string) {
+    void refresh().catch((error: unknown) => setMessage(error instanceof Error ? error.message : "取得状況を読み込めませんでした。"));
+  }, [refresh, runAll]);
+
+  const request = useCallback(async (action: "start" | "continue", runId?: string) => {
     const response = await fetch("/api/admin/fanza-amateur-api-catalog", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -53,9 +62,9 @@ export default function AmateurApiCatalogScan() {
     setRun(data.run);
     setProcessedItemCount(data.processedItemCount);
     return data;
-  }
+  }, []);
 
-  async function runAll() {
+  const runAll = useCallback(async () => {
     setBusy(true);
     stopRef.current = false;
     setMessage("準備中…");
@@ -74,7 +83,7 @@ export default function AmateurApiCatalogScan() {
     } finally {
       setBusy(false);
     }
-  }
+  }, [refresh, request]);
 
   async function resume() {
     if (!run) return;
