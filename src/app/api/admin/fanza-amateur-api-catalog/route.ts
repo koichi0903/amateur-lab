@@ -6,6 +6,7 @@ import {
   getActiveFanzaAmateurApiCatalogRun,
   getLatestFanzaAmateurApiCatalogRun,
   startFanzaAmateurApiCatalogRun,
+  type FanzaAmateurRunType,
 } from "@/lib/dmm/fanzaAmateurApiCatalogScan";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
       const from = (page - 1) * pageSize;
       const { data, count, error } = await supabaseAdmin
         .from("fanza_amateur_works")
-        .select("content_id,title,api_date,rank,raw_item,fetched_at", { count: "exact" })
+        .select("content_id,title,api_date,rank,raw_item,fetched_at,is_listed,missing_since,mp4_url,mp4_status,mp4_attempt_count,mp4_checked_at", { count: "exact" })
         .order("api_date", { ascending: false, nullsFirst: false })
         .order("content_id", { ascending: true })
         .range(from, from + pageSize - 1);
@@ -37,7 +38,19 @@ export async function GET(request: NextRequest) {
         headers: { "Cache-Control": "no-store" },
       });
     }
-    return NextResponse.json(withProgress(await getLatestFanzaAmateurApiCatalogRun()), {
+    const [dailyRun, weeklyRun, activeRun] = await Promise.all([
+      getLatestFanzaAmateurApiCatalogRun("daily_incremental"),
+      getLatestFanzaAmateurApiCatalogRun("weekly_full"),
+      getActiveFanzaAmateurApiCatalogRun(),
+    ]);
+    return NextResponse.json({
+      runs: {
+        daily_incremental: dailyRun,
+        weekly_full: weeklyRun,
+      },
+      activeRun,
+      processedItemCount: activeRun?.fetched_item_count ?? 0,
+    }, {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
@@ -47,10 +60,13 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
-  const body = await request.json().catch(() => ({})) as { action?: unknown; runId?: unknown };
+  const body = await request.json().catch(() => ({})) as { action?: unknown; runId?: unknown; runType?: unknown };
   try {
     if (body.action === "start") {
-      const run = await startFanzaAmateurApiCatalogRun();
+      if (body.runType !== "daily_incremental" && body.runType !== "weekly_full") {
+        return NextResponse.json({ error: "runTypeはdaily_incrementalまたはweekly_fullを指定してください。" }, { status: 400 });
+      }
+      const run = await startFanzaAmateurApiCatalogRun(body.runType as FanzaAmateurRunType);
       return NextResponse.json(withProgress(run), { headers: { "Cache-Control": "no-store" } });
     }
 

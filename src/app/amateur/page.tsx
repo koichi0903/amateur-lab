@@ -10,9 +10,8 @@ import { pageMetadata } from "@/lib/seo";
 export const revalidate = 900;
 
 const SORTS: Array<{ value: FanzaAmateurSort; label: string }> = [
-  { value: "rank", label: "人気順" },
   { value: "date", label: "新着順" },
-  { value: "review", label: "レビュー順" },
+  { value: "review", label: "レビュー数順" },
   { value: "price", label: "価格が安い順" },
   { value: "-price", label: "価格が高い順" },
 ];
@@ -27,7 +26,7 @@ export default async function AmateurPage({ searchParams }: { searchParams: Prom
   const params = await searchParams;
   const requestedPage = Number.parseInt(params.page ?? "1", 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  const sort = SORTS.some((item) => item.value === params.sort) ? params.sort as FanzaAmateurSort : "rank";
+  const sort = SORTS.some((item) => item.value === params.sort) ? params.sort as FanzaAmateurSort : "date";
   let result: Awaited<ReturnType<typeof getFanzaAmateurCatalogPage>> | null = null;
   let errorMessage: string | null = null;
 
@@ -42,7 +41,7 @@ export default async function AmateurPage({ searchParams }: { searchParams: Prom
   const pageHref = (targetPage: number) => {
     const query = new URLSearchParams();
     if (targetPage > 1) query.set("page", String(targetPage));
-    if (sort !== "rank") query.set("sort", sort);
+    if (sort !== "date") query.set("sort", sort);
     const suffix = query.toString();
     return suffix ? `/amateur?${suffix}` : "/amateur";
   };
@@ -58,7 +57,7 @@ export default async function AmateurPage({ searchParams }: { searchParams: Prom
             <div className="mt-2 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <h1 className="text-3xl font-black tracking-tight sm:text-4xl">FANZA素人作品を探す</h1>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">未保存ページはFANZA Web APIから取得してSupabaseに保存します。保存済みページはそのデータを表示します。定期更新ルールは未設定です。</p>
+                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">管理画面でSupabaseに保存した素人作品を、新着・レビュー数・価格順で探せます。</p>
                 <p className="mt-2 text-xs text-slate-500">対象：FANZA 動画・素人（APIフロア videoc）／送客ID：991</p>
               </div>
               {result && <div className="flex shrink-0 items-center gap-2 rounded-xl bg-slate-100 px-4 py-3">
