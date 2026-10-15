@@ -47,7 +47,7 @@ export function getFanzaAmateurAffiliateId() {
   if (configured?.endsWith("-991")) return configured;
 
   const defaultId = process.env.DMM_AFFILIATE_ID?.trim();
-  const derived = defaultId?.replace(/-\\d{3}$/, "-991");
+  const derived = defaultId?.replace(/-\d{3}$/, "-991");
   if (derived?.endsWith("-991")) return derived;
 
   throw new Error("素人作品用のDMMアフィリエイトID 991を確認できません。");
