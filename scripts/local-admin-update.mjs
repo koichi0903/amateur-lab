@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { config as loadEnv } from "dotenv";
 import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
@@ -39,6 +39,7 @@ const TASKS = {
   ranking: { label: "ランキング更新", path: "/api/dmm-ranking", jobName: "ranking" },
   score: { label: "スコア更新", path: "/api/score-update", jobName: "score" },
   "missing-prices": { label: "価格補完", path: "/api/update-missing-prices", jobName: "missing_prices" },
+  "amateur-api-catalog": { label: "素人作品API全件補完", path: "/api/admin/fanza-amateur-api-catalog", jobName: "amateur_api_catalog", revalidate: false },
 };
 
 const ALL_TASKS = [
@@ -55,7 +56,7 @@ const ALL_TASKS = [
 ];
 
 const TASK_GROUPS = {
-  "daily-0030": ["reserve", "new", "old", "sale", "ended-sale", "ranking", "score"],
+  "daily-0030": ["reserve", "new", "old", "sale", "ended-sale", "ranking", "score", "amateur-api-catalog"],
   "daily-1030": ["sale", "ended-sale", "ranking", "score"],
   "tue-fri-1800": ["review", "semi-new"],
   "sunday-1800": ["missing-prices"],
@@ -161,13 +162,18 @@ async function findAvailablePort() {
   });
 }
 
-function postWithoutTimeout(url) {
+function postWithoutTimeout(url, options = {}) {
   return new Promise((resolveResponse, reject) => {
+    const headers = {
+      accept: "application/json",
+      ...(options.body === undefined ? {} : { "content-type": "application/json" }),
+      ...(options.headers ?? {}),
+    };
     const request = httpRequest(
       url,
       {
         method: "POST",
-        headers: { accept: "application/json" },
+        headers,
         // Playwrightを使う更新は5分以上かかる。Node fetch (undici) の
         // 既定タイムアウトで接続だけが切れ、サーバー処理が残るのを防ぐ。
         timeout: 0,
@@ -194,7 +200,7 @@ function postWithoutTimeout(url) {
     );
 
     request.once("error", reject);
-    request.end();
+    request.end(options.body);
   });
 }
 
@@ -344,6 +350,7 @@ async function recoverDisconnectedTask(task, startedAt) {
 async function run(taskName) {
   const port = await findAvailablePort();
   const baseUrl = `http://127.0.0.1:${port}`;
+  const localScheduleToken = randomBytes(32).toString("hex");
   const distDirName = LOCAL_UPDATE_DIST_DIR;
   const distDirPath = resolve(process.cwd(), distDirName);
   const tsconfigPath = resolve(process.cwd(), "tsconfig.json");
@@ -364,6 +371,7 @@ async function run(taskName) {
       env: {
         ...process.env,
         NEXT_DIST_DIR: distDirName,
+        SCHEDULE_API_TOKEN: localScheduleToken,
         NODE_ENV: "production",
         FORCE_COLOR: "1",
       },
@@ -429,8 +437,60 @@ async function run(taskName) {
     );
   }
 
+  async function executeAmateurApiCatalog(task) {
+    const headers = { "x-hakkutsu-schedule-token": localScheduleToken };
+    const send = async (body) => {
+      const response = await postWithoutTimeout(`${baseUrl}${task.path}`, {
+        headers,
+        body: JSON.stringify(body),
+      });
+      let result;
+      try {
+        result = JSON.parse(response.text);
+      } catch {
+        result = { message: response.text };
+      }
+      if (!isSuccessfulTaskResponse(response.ok, result)) {
+        throw new Error(result.message || result.error || `${task.label}に失敗しました（HTTP ${response.status}）。`);
+      }
+      if (!result.run?.id || !result.run?.status) {
+        throw new Error(`${task.label}から有効な実行状況が返りませんでした。`);
+      }
+      return result.run;
+    };
+
+    console.log(`\n[開始] ${task.label}（DMM APIのみ、MP4補完なし）`);
+    let run = await send({ action: "start", runType: "weekly_full" });
+    let pageCount = 0;
+    while (run.status === "running" && !interrupted) {
+      if (pageCount >= 1_000) {
+        throw new Error(`${task.label}が1,000ページを超えたため安全停止しました。保存済み進捗から次回再開できます。`);
+      }
+      run = await send({ action: "continue", runId: run.id });
+      pageCount += 1;
+      console.log(`[進捗] 素人API ${Number(run.fetched_item_count ?? 0).toLocaleString("ja-JP")}/${run.total_count == null ? "件数未確定" : Number(run.total_count).toLocaleString("ja-JP")}件（今回${pageCount}ページ）`);
+      if (run.status === "running" && !interrupted) {
+        await new Promise((resolveWait) => setTimeout(resolveWait, 350));
+      }
+    }
+    if (interrupted && run.status === "running") {
+      throw new Error(`${task.label}は中断されました。保存済みの進捗から次回再開できます。`);
+    }
+    if (run.status === "limit_reached") {
+      throw new Error(`${task.label}はAPI取得上限で停止しました（${Number(run.fetched_item_count ?? 0).toLocaleString("ja-JP")}件）。全作品完了とは判定できません。`);
+    }
+    if (run.status !== "completed") {
+      throw new Error(`${task.label}が完了状態になりませんでした（${String(run.status)}）。`);
+    }
+    console.log(`[完了] ${task.label} ${Number(run.fetched_item_count ?? 0).toLocaleString("ja-JP")}件`);
+  }
+
   async function executeTask(name) {
     const task = TASKS[name];
+    if (name === "amateur-api-catalog") {
+      await executeAmateurApiCatalog(task);
+      return;
+    }
     let batch = 0;
     do {
       batch += 1;
@@ -502,8 +562,9 @@ async function run(taskName) {
 
     // Successful stages are still valid even when a later stage fails. Keep
     // their public data fresh and report the failed stage separately.
-    if (succeededTasks.length > 0) {
-      await revalidateProduction(succeededTasks);
+    const cacheTasks = succeededTasks.filter((name) => TASKS[name].revalidate !== false);
+    if (cacheTasks.length > 0) {
+      await revalidateProduction(cacheTasks);
     } else if (failedTasks.length > 0) {
       console.warn("[revalidate] 成功工程がないためキャッシュ更新をスキップします");
     }
