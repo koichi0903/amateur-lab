@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
@@ -18,6 +19,16 @@ function responseError(error: unknown) {
 
 function withProgress(run: Awaited<ReturnType<typeof getLatestFanzaAmateurApiCatalogRun>>) {
   return { run, processedItemCount: run?.fetched_item_count ?? 0 };
+}
+
+async function isCatalogAdminRequest(request: NextRequest) {
+  if (await isAdminRequest(request)) return true;
+  const expected = process.env.SCHEDULE_API_TOKEN;
+  const supplied = request.headers.get("x-hakkutsu-schedule-token");
+  if (!expected || !supplied || !["localhost", "127.0.0.1"].includes(request.nextUrl.hostname)) return false;
+  const expectedBytes = Buffer.from(expected);
+  const suppliedBytes = Buffer.from(supplied);
+  return expectedBytes.length === suppliedBytes.length && timingSafeEqual(expectedBytes, suppliedBytes);
 }
 
 export async function GET(request: NextRequest) {
@@ -59,7 +70,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
+  if (!(await isCatalogAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
   const body = await request.json().catch(() => ({})) as { action?: unknown; runId?: unknown; runType?: unknown };
   try {
     if (body.action === "start") {
