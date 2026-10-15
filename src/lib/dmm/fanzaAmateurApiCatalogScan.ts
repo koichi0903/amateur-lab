@@ -40,6 +40,14 @@ function asCount(value: unknown): number | null {
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function asText(value: unknown): string | null {
+  return typeof value === "string" || typeof value === "number" ? String(value) : null;
+}
+
+function asJson(value: unknown) {
+  return value !== undefined ? value : null;
+}
+
 function collectItemKeyPaths(value: unknown, prefix = "", paths = new Set<string>()): Set<string> {
   if (Array.isArray(value)) {
     const arrayPath = `${prefix}[]`;
@@ -136,16 +144,49 @@ export async function fetchNextFanzaAmateurApiCatalogPage(run: FanzaAmateurApiCa
 
     const fetchedAt = new Date().toISOString();
     const totalCount = asCount(result?.total_count) ?? run.total_count;
-    const rows = (rawItems as ApiItem[]).flatMap((rawItem, index) => {
-      const contentId = typeof rawItem?.content_id === "string" ? rawItem.content_id.trim() : "";
-      if (!contentId) return [];
-      return [{
+    const apiItems = rawItems as ApiItem[];
+    const invalidItemCount = apiItems.filter((rawItem) => typeof rawItem?.content_id !== "string" || !rawItem.content_id.trim()).length;
+    if (invalidItemCount > 0) {
+      throw new Error(`DMM APIの返却作品${apiItems.length}件中${invalidItemCount}件にcontent_idがなく、欠落を避けるため保存を停止しました。`);
+    }
+    const rows = apiItems.map((rawItem, index) => {
+      const contentId = String(rawItem.content_id).trim();
+      return {
         run_id: run.id,
         content_id: contentId,
         source_offset: run.next_offset + index,
         raw_item: rawItem,
         fetched_at: fetchedAt,
-      }];
+      };
+    });
+    const workRows = apiItems.map((rawItem, index) => {
+      const contentId = String(rawItem.content_id).trim();
+      return {
+        content_id: contentId,
+        source_run_id: run.id,
+        source_offset: run.next_offset + index,
+        fetched_at: fetchedAt,
+        service_code: asText(rawItem.service_code),
+        service_name: asText(rawItem.service_name),
+        floor_code: asText(rawItem.floor_code),
+        floor_name: asText(rawItem.floor_name),
+        category_name: asText(rawItem.category_name),
+        product_id: asText(rawItem.product_id),
+        title: asText(rawItem.title),
+        volume: asText(rawItem.volume),
+        review: asJson(rawItem.review),
+        api_url: asText(rawItem.URL),
+        affiliate_url: asText(rawItem.affiliateURL),
+        image_url: asJson(rawItem.imageURL),
+        sample_image_url: asJson(rawItem.sampleImageURL),
+        sample_movie_url: asJson(rawItem.sampleMovieURL),
+        prices: asJson(rawItem.prices),
+        api_date: asText(rawItem.date),
+        iteminfo: asJson(rawItem.iteminfo),
+        campaign: asJson(rawItem.campaign),
+        rank: asCount(rawItem.rank),
+        raw_item: rawItem,
+      };
     });
     const observedKeyPaths = new Set(run.observed_item_key_paths ?? []);
     for (const rawItem of rawItems) {
@@ -157,6 +198,11 @@ export async function fetchNextFanzaAmateurApiCatalogPage(run: FanzaAmateurApiCa
         .from("fanza_amateur_api_catalog_items")
         .upsert(rows, { onConflict: "run_id,content_id" });
       if (saved.error) throw new Error(`作品API情報を保存できませんでした: ${saved.error.message}`);
+
+      const savedWorks = await supabaseAdmin
+        .from("fanza_amateur_works")
+        .upsert(workRows, { onConflict: "content_id" });
+      if (savedWorks.error) throw new Error(`素人作品テーブルへ保存できませんでした: ${savedWorks.error.message}`);
     }
 
     const nextOffset = run.next_offset + rawItems.length;

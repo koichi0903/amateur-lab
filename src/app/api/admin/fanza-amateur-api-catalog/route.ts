@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   fetchNextFanzaAmateurApiCatalogPage,
   getActiveFanzaAmateurApiCatalogRun,
@@ -21,6 +22,21 @@ function withProgress(run: Awaited<ReturnType<typeof getLatestFanzaAmateurApiCat
 export async function GET(request: NextRequest) {
   if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
   try {
+    if (request.nextUrl.searchParams.get("items") === "1") {
+      const page = Math.max(1, Number.parseInt(request.nextUrl.searchParams.get("page") ?? "1", 10) || 1);
+      const pageSize = 20;
+      const from = (page - 1) * pageSize;
+      const { data, count, error } = await supabaseAdmin
+        .from("fanza_amateur_works")
+        .select("content_id,title,api_date,rank,raw_item,fetched_at", { count: "exact" })
+        .order("api_date", { ascending: false, nullsFirst: false })
+        .order("content_id", { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (error) throw new Error(`素人作品テーブルを読めませんでした: ${error.message}`);
+      return NextResponse.json({ items: data ?? [], page, pageSize, total: count ?? 0 }, {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
     return NextResponse.json(withProgress(await getLatestFanzaAmateurApiCatalogRun()), {
       headers: { "Cache-Control": "no-store" },
     });
