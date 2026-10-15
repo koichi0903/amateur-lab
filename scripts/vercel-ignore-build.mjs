@@ -9,6 +9,10 @@ if (!env) {
 }
 
 if (env !== "production") {
+  if (env === "preview" && ref === "codex/amateur-affiliate-id-991-preview") {
+    console.log(`Allowing the requested isolated preview for ${ref}.`);
+    process.exit(1);
+  }
   console.log(`Skipping ${env} deployment for ${ref ?? "unknown branch"}.`);
   process.exit(0);
 }
