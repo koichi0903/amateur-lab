@@ -9,7 +9,7 @@ if (!env) {
 }
 
 if (env !== "production") {
-  if (env === "preview" && ref === "codex/amateur-affiliate-id-991-preview") {
+  if (env === "preview" && ["codex/amateur-affiliate-id-991-preview", "codex/admin-amateur-scan-button"].includes(ref ?? "")) {
     console.log(`Allowing the requested isolated preview for ${ref}.`);
     process.exit(1);
   }
