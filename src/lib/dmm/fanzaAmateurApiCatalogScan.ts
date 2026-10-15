@@ -31,7 +31,8 @@ export type FanzaAmateurApiCatalogRun = {
   completed_at: string | null;
 };
 
-function apiAffiliateId() {\n  return getFanzaAmateurAffiliateId();
+function apiAffiliateId() {
+  return getFanzaAmateurAffiliateId();
 }
 
 function asCount(value: unknown): number | null {
