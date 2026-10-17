@@ -1,5 +1,6 @@
 import PriceChartTabs from "./PriceChartTabs";
 import PriceTimeline from "./PriceTimeline";
+import { parsePriceHistoryDate } from "@/lib/createChartData";
 import type { PriceHistoryItem } from "@/types/price";
 
 type Props = {
@@ -42,6 +43,18 @@ export default function PriceHistory({
   const isLowestPrice =
     currentPrice === lowestPrice;
 
+  const recordedDates = history
+    .map((item) => parsePriceHistoryDate(item.changed_at))
+    .filter((date) => Number.isFinite(date.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
+  const formatRecordedDate = (date: Date) =>
+    new Intl.DateTimeFormat("ja-JP", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(date);
+
   const discount =
     history[0].sale_price &&
     history[0].normal_price
@@ -72,6 +85,13 @@ export default function PriceHistory({
       <h2 className="text-2xl font-black">
         💴 価格履歴
       </h2>
+
+      <p className="mt-2 text-sm leading-6 text-zinc-600">
+        表示対象の価格変更記録は{history.length}件（最大100件）
+        {recordedDates.length > 0 && (
+          <>（{formatRecordedDate(recordedDates[0])}〜{formatRecordedDate(recordedDates[recordedDates.length - 1])}）</>
+        )}です。毎日の価格記録ではなく、発掘LABが取得した時点の記録です。
+      </p>
 
       <div className="mt-6 rounded-2xl border border-orange-200 bg-gradient-to-r from-orange-50 to-white p-5">
 
@@ -105,11 +125,15 @@ export default function PriceHistory({
     <div className="min-w-0 text-left sm:text-right">
 
       <div className="text-sm text-zinc-500">
-        🏆 過去最安値
+        🏆 記録上の最安値
       </div>
 
       <div className="mt-1 text-2xl font-black">
         ¥{lowestPrice.toLocaleString()}
+      </div>
+
+      <div className="mt-1 text-xs text-zinc-500">
+        このページに表示している価格変更記録内
       </div>
 
       {isLowestPrice && (

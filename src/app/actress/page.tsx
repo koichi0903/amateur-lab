@@ -26,7 +26,7 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   const query = (params.q ?? "").trim();
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
   return pageMetadata({
-    title: `${query ? `「${query}」のFANZA女優検索結果` : "FANZA女優ランキング"}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
+    title: `${query ? `「${query}」のFANZA女優検索結果` : "FANZA女優一覧｜出演作品数・プロフィール"}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
     description: "FANZA作品の出演女優を、生年月日・身長・スリーサイズ・カップと出演作品数から探せます。",
     canonical: query ? "/actress" : `/actress${page > 1 ? `?page=${page}` : ""}`,
     robots: query ? { index: false, follow: true } : undefined,
@@ -101,7 +101,7 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
           <div className="mx-auto max-w-[1500px] px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
             <WorkCategorySwitch active="actress" />
             <div>
-              <div className="flex items-center gap-3"><UserRound size={24} /><h1 className="text-2xl font-black sm:text-3xl">AV女優検索</h1></div>
+              <div className="flex items-center gap-3"><UserRound size={24} /><h1 className="text-2xl font-black sm:text-3xl">FANZA女優検索・出演作品一覧</h1></div>
               <p className="mt-2 text-sm text-sky-300">出演作品数やプロフィールを見ながら女優を探せます。</p>
             </div>
             <div className="mt-5 flex w-full max-w-xl items-center gap-3">
