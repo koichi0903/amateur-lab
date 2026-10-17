@@ -7,6 +7,7 @@ const PUBLIC_API_PATHS = new Set([
   "/api/compare",
   "/api/contact",
   "/api/favorites",
+  "/api/amateur/genres",
   "/api/push/subscribe",
   "/api/work-page-view",
 ]);
