@@ -59,6 +59,9 @@ const staticEntries: SitemapEntry[] = [
     changeFrequency: "weekly" as const,
     priority: 0.8,
   })),
+  { url: `${SITE_URL}/amateur`, changeFrequency: "daily", priority: 0.9 },
+  { url: `${SITE_URL}/amateur/genre`, changeFrequency: "daily", priority: 0.8 },
+  { url: `${SITE_URL}/amateur/maker`, changeFrequency: "daily", priority: 0.8 },
   { url: `${SITE_URL}/guides`, changeFrequency: "weekly", priority: 0.9 },
   { url: `${SITE_URL}/compare-guide`, changeFrequency: "monthly", priority: 0.9 },
   ...editorialGuides.map((guide) => ({
@@ -182,6 +185,22 @@ export async function getCatalogSitemapEntries(): Promise<SitemapEntry[]> {
         )
         .map((summary) => ({
           url: `${SITE_URL}/${kind}/${encodeURIComponent(summary.name)}`,
+          changeFrequency: "weekly" as const,
+          priority: 0.7,
+        })),
+    );
+  }
+
+  // Include only substantial amateur taxonomy landing pages. Product URLs stay
+  // out of the sitemap while their copy and price-history coverage remain thin.
+  const { getFanzaAmateurTaxonomy } = await import("@/lib/dmm/fanzaAmateurCatalog");
+  for (const kind of ["genre", "maker"] as const) {
+    const entities = await getFanzaAmateurTaxonomy(kind);
+    entries.push(
+      ...entities
+        .filter((entity) => entity.count >= 24)
+        .map((entity) => ({
+          url: `${SITE_URL}/amateur/${kind}/${encodeURIComponent(entity.name)}`,
           changeFrequency: "weekly" as const,
           priority: 0.7,
         })),

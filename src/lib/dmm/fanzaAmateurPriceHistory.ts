@@ -24,6 +24,13 @@ export type FanzaAmateurPriceHistoryRow = {
   price_data: unknown;
 };
 
+export type FanzaAmateurPriceSnapshotRow = {
+  source_run_id: string;
+  content_id: string;
+  observed_at: string;
+  prices: unknown;
+};
+
 const BACKFILL_BATCH_SIZE = 500;
 const UPSERT_BATCH_SIZE = 500;
 
@@ -82,6 +89,17 @@ function priceValuesFromRows(rows: FanzaAmateurPriceHistoryRow[]): Map<string, P
 
 export function getFanzaAmateurPriceValues(rawItem: JsonRecord): Map<string, FanzaAmateurPriceValue> {
   return priceValuesFromRows(extractFanzaAmateurPriceHistoryRows("", "", rawItem, ""));
+}
+
+export function expandFanzaAmateurPriceSnapshotRows(
+  snapshot: FanzaAmateurPriceSnapshotRow,
+): FanzaAmateurPriceHistoryRow[] {
+  return extractFanzaAmateurPriceHistoryRows(
+    snapshot.content_id,
+    snapshot.source_run_id,
+    { prices: isRecord(snapshot.prices) ? snapshot.prices : {} },
+    snapshot.observed_at,
+  );
 }
 
 export function selectChangedFanzaAmateurPriceHistoryRows(

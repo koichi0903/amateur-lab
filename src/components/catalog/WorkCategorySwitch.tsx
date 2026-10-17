@@ -1,10 +1,10 @@
 import Link from "next/link";
 
-type WorkCategory = "actress" | "amateur";
+type WorkCategory = "fanza" | "amateur" | "actress";
 
 export default function WorkCategorySwitch({ active }: { active: WorkCategory }) {
   const categories: Array<{ id: WorkCategory; href: string; label: string }> = [
-    { id: "actress", href: "/actress", label: "女優から探す" },
+    { id: "fanza", href: "/", label: "FANZA作品" },
     { id: "amateur", href: "/amateur", label: "素人作品" },
   ];
 
@@ -14,9 +14,13 @@ export default function WorkCategorySwitch({ active }: { active: WorkCategory })
         <Link
           key={category.id}
           href={category.href}
-          aria-current={active === category.id ? "page" : undefined}
+          aria-current={
+            active === category.id || (active === "actress" && category.id === "fanza")
+              ? "page"
+              : undefined
+          }
           className={`rounded-lg px-4 py-2 text-sm font-black transition ${
-            active === category.id
+            active === category.id || (active === "actress" && category.id === "fanza")
               ? "bg-white text-pink-700 shadow-sm"
               : "text-slate-500 hover:text-slate-900"
           }`}

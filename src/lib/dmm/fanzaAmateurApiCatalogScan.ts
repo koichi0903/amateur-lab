@@ -163,7 +163,7 @@ export async function startFanzaAmateurApiCatalogRun(runType: FanzaAmateurRunTyp
       .from("fanza_amateur_api_catalog_runs")
       .update({
         status: "needs_attention",
-        last_error: "旧50,000件スキャナーの途中状態です。取得済み履歴は保持し、新方式では再開せず、新しい日次/週次補完を開始してください。",
+        last_error: "旧50,000件スキャナーの途中状態です。取得済み履歴は保持し、新方式の全件補完を開始してください。",
         updated_at: now,
         completed_at: now,
       })
@@ -295,6 +295,9 @@ async function finishRun(run: FanzaAmateurApiCatalogRun) {
     if (candidateError) throw new Error(`未掲載候補を記録できませんでした: ${candidateError.message}`);
   }
 
+  const { error: pruneError } = await supabaseAdmin.rpc("prune_fanza_amateur_price_history");
+  if (pruneError) throw new Error(`1年を超えた素人価格履歴を整理できませんでした: ${pruneError.message}`);
+
   return persistRun(run, { status: "completed", last_error: null, completed_at: new Date().toISOString() });
 }
 
@@ -395,6 +398,28 @@ export async function fetchNextFanzaAmateurApiCatalogPage(run: FanzaAmateurApiCa
           .upsert(changed.slice(index, index + 500), { onConflict: "source_run_id,content_id,price_type" });
         if (priceError) throw new Error(`価格変更履歴を保存できませんでした: ${priceError.message}`);
       }
+
+      const weeklyCutoff = new Date(Date.parse(fetchedAt) - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const contentIds = [...new Set(rawItems.map((item) => String(item.content_id).trim()))];
+      const recentSnapshots = await supabaseAdmin
+        .from("fanza_amateur_price_weekly_snapshots")
+        .select("content_id")
+        .in("content_id", contentIds)
+        .gt("observed_at", weeklyCutoff);
+      if (recentSnapshots.error) throw new Error(`週次価格履歴の有無を確認できませんでした: ${recentSnapshots.error.message}`);
+      const recentIds = new Set((recentSnapshots.data ?? []).map((row) => row.content_id as string));
+      const weeklySnapshots = rawItems.flatMap((item) => {
+        const contentId = String(item.content_id).trim();
+        if (recentIds.has(contentId)) return [];
+        const prices = item.prices && typeof item.prices === "object" && !Array.isArray(item.prices) ? item.prices : {};
+        return [{ source_run_id: run.id, content_id: contentId, observed_at: fetchedAt, prices }];
+      });
+      if (weeklySnapshots.length > 0) {
+        const { error: snapshotError } = await supabaseAdmin
+          .from("fanza_amateur_price_weekly_snapshots")
+          .upsert(weeklySnapshots, { onConflict: "source_run_id,content_id" });
+        if (snapshotError) throw new Error(`週次価格履歴を保存できませんでした: ${snapshotError.message}`);
+      }
     }
 
     const keyPaths = new Set(run.observed_item_key_paths ?? []);
@@ -402,6 +427,27 @@ export async function fetchNextFanzaAmateurApiCatalogPage(run: FanzaAmateurApiCa
     const expectedCount = activeRange.expectedCount ?? totalCount;
     const nextOffset = activeRange.offset + rawItems.length;
     const rangeComplete = rawItems.length === 0 || nextOffset > expectedCount;
+
+    if (rawItems.length === 0 && activeRange.expectedCount !== null && activeRange.offset <= expectedCount) {
+      const split = splitDateRange(activeRange);
+      if (split) {
+        return persistRun(run, {
+          total_count: totalCount,
+          next_offset: 1,
+          current_range: null,
+          pending_ranges: [...split, ...pendingRanges],
+          expected_item_count: Math.max(0, run.expected_item_count - expectedCount),
+          range_count: Math.max(0, run.range_count - 1),
+          last_error: `日付範囲${activeRange.fromDate}〜${activeRange.toDate}でAPI件数と実取得数が一致しなかったため、範囲を分割して再確認しています。`,
+        });
+      }
+      return persistRun(run, {
+        status: "needs_attention",
+        last_error: `1日分の範囲${activeRange.fromDate}でAPI件数${expectedCount}件に対し取得位置${activeRange.offset}までしか返されませんでした。欠落の可能性があるため、全作品補完を完了扱いにしていません。`,
+        completed_at: new Date().toISOString(),
+      });
+    }
+
     const nextActiveRange = rangeComplete ? null : { ...activeRange, expectedCount, offset: nextOffset };
     const updatedRun = await persistRun(run, {
       total_count: totalCount,
