@@ -85,6 +85,10 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
   const currentLabel = displayPrice != null && displayPrice > 0 ? `¥${displayPrice.toLocaleString("ja-JP")}` : "価格未取得";
   const hasDiscount = Boolean(displayPrice && regularPrice && regularPrice > displayPrice);
   const priceCheckedAt = formatDate(priceHistory[0]?.changed_at);
+  const recordedPriceDates = priceHistory
+    .map((item) => formatDate(item.changed_at))
+    .filter((date) => date !== "—")
+    .sort();
   const isCurrentLowest = Boolean(displayPrice && work.lowest_price && displayPrice <= work.lowest_price);
   const durationLabel = formatDuration(work.duration);
   const priceStatus = hasDiscount
@@ -123,14 +127,21 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
     </div>
 
     <div className="min-w-0">
-      <h1 className="work-detail-title hidden text-[20px] font-black leading-[1.375] text-slate-950 lg:block">{work.title}</h1>
+      <div aria-hidden="true" className="work-detail-title hidden text-[20px] font-black leading-[1.375] text-slate-950 lg:block">{work.title}</div>
       <div className="mt-5 border-y border-slate-200 py-4">
         <div className="flex items-end gap-3"><strong className="text-[48px] font-black leading-none text-pink-600">{currentLabel}</strong>{hasDiscount && <><span className="text-sm text-slate-400 line-through">¥{regularPrice?.toLocaleString("ja-JP")}</span><span className="rounded bg-pink-100 px-2 py-1 text-xs font-black text-pink-700">{discountRate}%OFF</span></>}</div>
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-500"><span>発売日：<strong className="text-slate-800">{formatDate(work.release_date)}</strong></span>{durationLabel && <span>{durationLabel}</span>}<span>レビュー：<strong className="text-slate-800">★ {work.review_average > 0 ? work.review_average.toFixed(1) : "—"}（{work.review_count ?? 0}件）</strong></span></div>
       </div>
       <p className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-600">{workSummary}</p>
       <div className="mt-6 mb-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        {priceHistory.length > 0 ? <PriceChartTabs history={priceHistory} /> : <p className="py-8 text-center text-sm text-slate-500">価格推移はまだありません。</p>}
+        {priceHistory.length > 0 ? <>
+          <p className="mb-4 text-xs leading-5 text-slate-500">
+            表示対象の価格変更記録は{priceHistory.length}件
+            {recordedPriceDates.length > 0 && `（${recordedPriceDates[0]}〜${recordedPriceDates[recordedPriceDates.length - 1]}）`}
+            です。毎日の連続記録ではなく、発掘LABが取得した時点の記録です。
+          </p>
+          <PriceChartTabs history={priceHistory} />
+        </> : <p className="py-8 text-center text-sm text-slate-500">価格推移はまだありません。</p>}
       </div>
       <div className="flex items-stretch gap-2">
         {work.affiliate_url ? <AffiliateLink href={work.affiliate_url} workId={work.id} placement="detail-sidebar" sourcePage="direct" className="flex h-14 min-w-0 flex-1 items-center justify-center rounded-lg bg-pink-600 px-3 text-base font-bold text-white shadow-sm hover:bg-pink-700">FANZAで見る{displayPrice ? `（${currentLabel}）` : ""}</AffiliateLink> : <span className="flex h-14 min-w-0 flex-1 items-center justify-center rounded-lg bg-slate-100 px-3 text-base font-bold text-slate-400">FANZAリンク準備中</span>}
