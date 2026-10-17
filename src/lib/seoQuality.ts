@@ -11,6 +11,7 @@ export const WORK_INDEX_MAX_BOTTOM_PRICE = 2000;
 // evidence. This exception is deliberately separate from the site-wide gate.
 export const SEARCH_DEMAND_WORK_INDEX_EXCEPTIONS = [
   { id: 39697, minScore: 50, minReviewCount: 10, minReviewAverage: 4.5 },
+  { id: 32775, minScore: 49, minReviewCount: 3, minReviewAverage: 5.0 },
 ] as const;
 export const SEARCH_DEMAND_WORK_INDEX_EXCEPTION_IDS = SEARCH_DEMAND_WORK_INDEX_EXCEPTIONS.map(
   ({ id }) => id,

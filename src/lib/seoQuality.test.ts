@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isWorkIndexable } from "./seoQuality.ts";
+import {
+  isWorkIndexable,
+  SEARCH_DEMAND_WORK_INDEX_EXCEPTION_IDS,
+} from "./seoQuality.ts";
 
 const qualityWork = {
   score: 80,
@@ -78,4 +81,46 @@ test("Search Consoleで需要が確認できた作品だけ、レビュー品質
   assert.equal(isWorkIndexable({ ...evidencedWork, stage: "DISCONTINUED" }), false);
   assert.equal(isWorkIndexable({ ...evidencedWork, image_url: null }), false);
   assert.equal(isWorkIndexable({ ...evidencedWork, affiliate_url: null }), false);
+});
+
+test("検索実績とレビュー評価が確認できた作品32775は個別例外で対象にする", () => {
+  assert.ok(SEARCH_DEMAND_WORK_INDEX_EXCEPTION_IDS.includes(32775));
+  assert.equal(
+    isWorkIndexable({
+      ...qualityWork,
+      id: 32775,
+      score: 49,
+      review_count: 3,
+      review_average: 5.0,
+      price: 2180,
+      discount_rate: 0,
+    }),
+    true,
+  );
+});
+
+test("作品32775の個別例外は品質条件を下回ると対象外にする", () => {
+  for (const work of [
+    { ...qualityWork, id: 32775, score: 48, review_count: 3, review_average: 5.0, discount_rate: 0 },
+    { ...qualityWork, id: 32775, score: 49, review_count: 2, review_average: 5.0, discount_rate: 0 },
+    { ...qualityWork, id: 32775, score: 49, review_count: 3, review_average: 4.99, discount_rate: 0 },
+    { ...qualityWork, id: 32775, stage: "DISCONTINUED", score: 49, review_count: 3, review_average: 5.0, discount_rate: 0 },
+  ]) {
+    assert.equal(isWorkIndexable(work), false);
+  }
+});
+
+test("低品質の作品6375は検索需要例外の対象にしない", () => {
+  assert.equal(
+    isWorkIndexable({
+      ...qualityWork,
+      id: 6375,
+      score: 36,
+      review_count: 0,
+      review_average: 0,
+      discount_rate: 0,
+      is_lowest_price: false,
+    }),
+    false,
+  );
 });
