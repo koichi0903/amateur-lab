@@ -461,6 +461,24 @@ const getDmmFanzaAmateurRankedCatalogPage = unstable_cache(async (offset: number
     .filter((item): item is FanzaAmateurCatalogItem => item !== null);
 }, ["fanza-amateur-ranked-catalog-page-v4"], { revalidate: 86_400, tags: ["fanza-amateur-home", "fanza-amateur-catalog"] });
 
+/** DMM popularity order, bounded for the manual X-posting queue. */
+export async function getDmmFanzaAmateurPopularWorks(limit = 500) {
+  const boundedLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
+  const items: FanzaAmateurCatalogItem[] = [];
+  const seenContentIds = new Set<string>();
+  for (let offset = 1; offset <= boundedLimit; offset += RANKED_CATALOG_PAGE_SIZE) {
+    const pageItems = await getDmmFanzaAmateurRankedCatalogPage(offset);
+    for (const item of pageItems) {
+      if (seenContentIds.has(item.content_id)) continue;
+      seenContentIds.add(item.content_id);
+      items.push(item);
+      if (items.length >= boundedLimit) return items;
+    }
+    if (pageItems.length < RANKED_CATALOG_PAGE_SIZE) break;
+  }
+  return items;
+}
+
 const getDmmFanzaAmateurRankedCatalog = async () => {
   const items: FanzaAmateurCatalogItem[] = [];
   const seenContentIds = new Set<string>();
