@@ -4,6 +4,7 @@ import { workDetailHref } from "@/lib/affiliateTracking";
 import WorkImage from "@/components/home/WorkImage";
 import SaleCountdown from "@/components/home/SaleCountdown";
 import MiniPriceHistoryChart from "@/components/home/MiniPriceHistoryChart";
+import { parseDatabaseDate } from "@/lib/dateTime";
 import AffiliateLink from "@/app/components/AffiliateLink";
 import FavoriteButton from "@/components/favorites/FavoriteButton";
 import type { HomePriceInsightWork } from "@/lib/getHomePriceInsights";
@@ -30,8 +31,12 @@ const tagsOf = (work: Work) => {
 };
 
 export default function FanzaStyleWorkCard({ work, sourcePage = "direct", itemListName, insight, rank, compact = false, showChart = true, dark = false }: { work: Work; sourcePage?: "home" | "ranking" | "sale" | "search" | "new" | "direct"; itemListName?: string; insight?: HomePriceInsightWork; rank?: number; compact?: boolean; showChart?: boolean; dark?: boolean }) {
-  const price = work.sale_price > 0 ? work.sale_price : work.price;
-  const isSale = work.sale_price > 0 && work.price > work.sale_price;
+  const saleEndAt = parseDatabaseDate(work.sale_end_at)?.getTime();
+  // Sale state must follow the real-time end timestamp, even while page data is cached.
+  // eslint-disable-next-line react-hooks/purity -- time-sensitive sale expiry is intentional.
+  const saleNotExpired = !work.sale_end_at || (saleEndAt != null && saleEndAt > Date.now());
+  const isSale = work.sale_price > 0 && work.price > work.sale_price && saleNotExpired;
+  const price = isSale ? work.sale_price : work.price;
   const discountRate = discountRateOf(work);
   const selectionListName = itemListName ?? sourcePage;
   return (
@@ -56,7 +61,7 @@ export default function FanzaStyleWorkCard({ work, sourcePage = "direct", itemLi
           {isSale && <p className="text-[10px] font-bold text-slate-400 line-through">¥{work.price.toLocaleString("ja-JP")}</p>}
           <p className={`text-base font-black ${isSale ? "text-pink-500" : dark ? "text-white" : "text-slate-900"}`}>{price > 0 ? `¥${price.toLocaleString("ja-JP")}` : "価格未取得"}</p>
         </div>
-        {work.sale_end_at && <SaleCountdown saleEndAt={work.sale_end_at} />}
+        {isSale && work.sale_end_at && <SaleCountdown saleEndAt={work.sale_end_at} />}
       </div>
       <div className={`mt-2 flex min-h-5 items-center justify-between text-[11px] font-bold ${dark ? "text-zinc-500" : "text-slate-500"}`}><span className="text-amber-500">★ {work.review_average > 0 ? work.review_average.toFixed(1) : "-"}</span><span>({work.review_count ?? 0})</span></div>
       {showChart && insight && <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1"><MiniPriceHistoryChart points={insight.priceHistory} windowStartAt={insight.priceWindowStartAt} windowEndAt={insight.priceWindowEndAt} lowPrice={insight.low90Price} currentPrice={insight.currentPrice} variant="compact" /></div>}

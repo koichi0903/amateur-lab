@@ -66,12 +66,6 @@ const LOCAL_UPDATE_DIST_DIR = ".next-local-update-production";
 
 async function revalidateProduction(tasks) {
   if (tasks.length === 0) return;
-  if (process.env.ENABLE_PRODUCTION_REVALIDATE !== "true") {
-    console.log(
-      "[再検証] 本番キャッシュ更新はスキップしました。必要な時だけ ENABLE_PRODUCTION_REVALIDATE=true で実行してください。",
-    );
-    return;
-  }
 
   const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "");
   const siteUrls = configuredSiteUrl
@@ -142,7 +136,32 @@ if (!requestedTask || (requestedTask !== "all" && !TASK_GROUPS[requestedTask] &&
   usage();
   process.exitCode = 1;
 } else {
-  await run(requestedTask);
+  try {
+    await run(requestedTask);
+  } catch (error) {
+    console.error("\n[失敗]", error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  } finally {
+    // The two daily groups are the only scheduled runs that invalidate the
+    // production cache. Do this once after the update attempt, even when a
+    // stage or local-server startup failed, and before the scheduler records
+    // the final status. Manual daily-1030 launches use this same path.
+    if (requestedTask === "daily-0030" || requestedTask === "daily-1030") {
+      const cacheTasks = TASK_GROUPS[requestedTask].filter(
+        (name) => TASKS[name].revalidate !== false,
+      );
+      try {
+        console.log(`[再検証] ${requestedTask} の更新処理後に本番キャッシュを更新します。`);
+        await revalidateProduction(cacheTasks);
+      } catch (error) {
+        console.error(
+          "[再検証失敗]",
+          error instanceof Error ? error.message : error,
+        );
+        process.exitCode = 1;
+      }
+    }
+  }
 }
 
 async function findAvailablePort() {
@@ -558,15 +577,6 @@ async function run(taskName) {
         stoppedAfterFailure = true;
         break;
       }
-    }
-
-    // Successful stages are still valid even when a later stage fails. Keep
-    // their public data fresh and report the failed stage separately.
-    const cacheTasks = succeededTasks.filter((name) => TASKS[name].revalidate !== false);
-    if (cacheTasks.length > 0) {
-      await revalidateProduction(cacheTasks);
-    } else if (failedTasks.length > 0) {
-      console.warn("[revalidate] 成功工程がないためキャッシュ更新をスキップします");
     }
 
     if (!interrupted) {
