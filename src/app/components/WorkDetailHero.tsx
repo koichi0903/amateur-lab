@@ -28,6 +28,7 @@ type Props = {
   sampleMovieUrl?: string | null;
   officialSampleEmbedUrl?: string | null;
   priceHistory: PriceHistoryItem[];
+  defaultPriceSeries?: { displayName: string; period: string | null } | null;
   displayPrice: number | null;
   regularPrice: number | null;
   discountRate: number;
@@ -56,7 +57,7 @@ function formatDuration(value: unknown) {
   return Number.isFinite(numeric) && numeric > 0 ? `${numeric}分` : null;
 }
 
-export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, officialSampleEmbedUrl, priceHistory, displayPrice, regularPrice, discountRate }: Props) {
+export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, officialSampleEmbedUrl, priceHistory, defaultPriceSeries, displayPrice, regularPrice, discountRate }: Props) {
   const playableMovieUrl = isOfficialSampleMovieUrl(sampleMovieUrl) ? sampleMovieUrl : null;
   const officialWorkUrl = work.affiliate_url ?? work.url;
   const sampleFallback = getSampleMovieFallbackCopy(work);
@@ -65,7 +66,16 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
   const [selected, setSelected] = useState<"movie" | number>("movie");
   const [viewerOpen, setViewerOpen] = useState(false);
   const [preferNativeSamplePlayer, setPreferNativeSamplePlayer] = useState(false);
-  const [selectedPriceSeriesKey, setSelectedPriceSeriesKey] = useState(() => getDefaultPriceSeriesKey(priceHistory));
+  const [selectedPriceSeriesKey, setSelectedPriceSeriesKey] = useState(() => {
+    const preferredSeries = defaultPriceSeries
+      ? getPriceSeries(priceHistory).find(
+          (series) =>
+            series.displayName === defaultPriceSeries.displayName &&
+            series.period === defaultPriceSeries.period,
+        )
+      : null;
+    return preferredSeries ? priceSeriesKey(preferredSeries) : getDefaultPriceSeriesKey(priceHistory);
+  });
   const officialPlayerRef = useRef<HTMLDivElement>(null);
   const [officialPlayerSize, setOfficialPlayerSize] = useState({ width: 260, height: 167 });
   const showImage = selected !== "movie";
@@ -194,4 +204,3 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
     </div>
   </section>;
 }
-

@@ -10,6 +10,7 @@ import WorkPageViewTracker from "@/app/components/WorkPageViewTracker";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 import { isOfficialSampleMovieUrl } from "@/lib/officialSampleMovie";
 import {
+  getSeoPilotDefaultPriceSeries,
   isWorkIndexable,
   WORK_INDEX_MIN_PRICE,
 } from "@/lib/seoQuality";
@@ -97,7 +98,10 @@ const getWork = cache(
 );
 
 const getWorkDetailData = cache(
-  async (productId: string) =>
+  async (
+    productId: string,
+    defaultPriceSeries?: { displayName: string; period: string | null } | null,
+  ) =>
     unstable_cache(
       async () => {
     const [sampleImages, priceHistory, workPrices] = await Promise.all([
@@ -119,15 +123,48 @@ const getWorkDetailData = cache(
         .order("display_name"),
     ]);
 
+    let combinedPriceHistory = priceHistory.data ?? [];
+    if (
+      defaultPriceSeries &&
+      !combinedPriceHistory.some(
+        (item) =>
+          item.display_name.replace(/\s+/g, "").trim() === defaultPriceSeries.displayName &&
+          (item.period ?? null) === defaultPriceSeries.period,
+      )
+    ) {
+      let selectedSeriesQuery = supabase
+        .from("price_history")
+        .select("id,changed_at,display_name,type,period,price_kind,normal_price,sale_price")
+        .eq("product_id", productId)
+        .eq("display_name", defaultPriceSeries.displayName)
+        .order("changed_at", { ascending: false })
+        .limit(100);
+      selectedSeriesQuery = defaultPriceSeries.period == null
+        ? selectedSeriesQuery.is("period", null)
+        : selectedSeriesQuery.eq("period", defaultPriceSeries.period);
+      const selectedSeries = await selectedSeriesQuery;
+      if (selectedSeries.error) {
+        console.error("[work-detail] failed to load pinned price series", {
+          productId,
+          error: selectedSeries.error,
+        });
+      } else {
+        const rowsById = new Map(
+          [...combinedPriceHistory, ...(selectedSeries.data ?? [])].map((item) => [item.id, item]),
+        );
+        combinedPriceHistory = [...rowsById.values()].sort(
+          (a, b) => Date.parse(b.changed_at) - Date.parse(a.changed_at),
+        );
+      }
+    }
+
     return {
       sampleImages: sampleImages.data ?? [],
-      priceHistory: priceHistory.data ?? [],
+      priceHistory: combinedPriceHistory,
       workPrices: workPrices.data ?? [],
     };
       },
-      // Versioned after adding period-aware price history. This prevents the old
-      // period-less payload from hiding the 7-day and unlimited series.
-      ["work-detail-data-v4-period-keyed-current-offers", productId],
+      ["work-detail-data-v5-seo-pilot-pinned-series", productId, defaultPriceSeries?.displayName ?? "", defaultPriceSeries?.period ?? "__null"],
       { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [workDetailProductCacheTag(productId)] },
     )(),
 );
@@ -215,13 +252,25 @@ export async function generateMetadata(
 
   const title = `${work.title}｜FANZA価格・過去最安値・買い時 | 発掘LAB`;
   const description = buildWorkMetaDescription(work);
+  const defaultPriceSeries = getSeoPilotDefaultPriceSeries(work.id);
+  const workDetailData = defaultPriceSeries
+    ? await getWorkDetailData(work.product_id, defaultPriceSeries)
+    : null;
+  const hasPilotPriceSeries = Boolean(
+    defaultPriceSeries &&
+    workDetailData?.priceHistory.some(
+      (item) =>
+        item.display_name.replace(/\s+/g, "").trim() === defaultPriceSeries.displayName &&
+        (item.period ?? null) === defaultPriceSeries.period,
+    ),
+  );
   const encodedId = encodeURIComponent(id);
   const socialImage = work.image_url || `${SITE_URL}/ogp.png`;
   const metadata = pageMetadata({
     title,
     description,
     canonical: `/works/${encodedId}`,
-    robots: isWorkIndexable(work)
+    robots: isWorkIndexable(work) && (!defaultPriceSeries || hasPilotPriceSeries)
       ? undefined
       : { index: false, follow: true },
   });
@@ -263,8 +312,9 @@ export default async function WorkDetailPage(
 
   if (!work) notFound();
 
+  const defaultPriceSeries = getSeoPilotDefaultPriceSeries(work.id);
   const { sampleImages, priceHistory, workPrices } =
-    await getWorkDetailData(work.product_id);
+    await getWorkDetailData(work.product_id, defaultPriceSeries);
   const latestOffers = new Map<string, (typeof priceHistory)[number]>();
   for (const offer of priceHistory ?? []) {
     const key = `${offer.display_name ?? offer.type ?? ""}\u0000${offer.period ?? ""}`;
@@ -358,6 +408,7 @@ export default async function WorkDetailPage(
   sampleMovieUrl={work.sample_movie_url}
   officialSampleEmbedUrl={getOfficialSampleEmbedUrl(work)}
   priceHistory={priceHistory ?? []}
+  defaultPriceSeries={defaultPriceSeries}
   displayPrice={mobileDisplayPrice ?? null}
   regularPrice={currentPrice.normal_price ?? work.price ?? null}
   discountRate={mobileDisplayDiscountRate}

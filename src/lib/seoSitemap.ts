@@ -6,8 +6,8 @@ import {
 } from "@/lib/catalog/entityIndexSummaries";
 import { SITE_URL } from "@/lib/seo";
 import {
+  getSeoIndexedWorkIds,
   isWorkIndexable,
-  SEARCH_DEMAND_WORK_INDEX_EXCEPTION_IDS,
 } from "@/lib/seoQuality";
 import { supabase } from "@/lib/supabase";
 import { editorialGuides, reportDefinitions } from "@/lib/editorialContent";
@@ -24,29 +24,14 @@ type SitemapWork = {
   created_at: string | null;
   updated_at: string | null;
   stage: string | null;
-  score: number | null;
-  review_count: number | null;
-  review_average: number | null;
   price: number | null;
-  sale_price: number | null;
-  discount_rate: number | null;
-  is_lowest_price: boolean | null;
-  ranking: number | null;
-  realtime_rank: number | null;
-  daily_rank: number | null;
-  weekly_rank: number | null;
-  monthly_rank: number | null;
-  long_hit_rank: number | null;
   image_url: string | null;
   affiliate_url: string | null;
 };
 
 const PAGE_SIZE = 1000;
+const WORK_QUERY_BATCH_SIZE = 200;
 const CACHE_CONTROL = "public, s-maxage=3600, stale-while-revalidate=86400";
-const SEARCH_DEMAND_WORK_ID_FILTER = SEARCH_DEMAND_WORK_INDEX_EXCEPTION_IDS
-  .map((id) => `id.eq.${id}`)
-  .join(",");
-
 const staticEntries: SitemapEntry[] = [
   { url: SITE_URL, changeFrequency: "daily", priority: 1 },
   ...["ranking", "new", "sale", "deals", "discovery", "price-insights", "vr"].map((path) => ({
@@ -108,37 +93,34 @@ const staticEntries: SitemapEntry[] = [
 ];
 
 const QUALITY_WORK_COLUMNS = [
-  "id", "created_at", "updated_at", "stage", "score", "review_count",
-  "review_average", "price", "sale_price", "discount_rate",
-  "is_lowest_price", "ranking", "realtime_rank", "daily_rank", "weekly_rank",
-  "monthly_rank", "long_hit_rank", "image_url", "affiliate_url",
+  "id", "created_at", "updated_at", "stage", "price", "image_url", "affiliate_url",
 ].join(",");
 
 const getQualityWorks = unstable_cache(
   async (): Promise<SitemapWork[]> => {
+    const indexedIds = getSeoIndexedWorkIds();
     const candidates: SitemapWork[] = [];
-    for (let from = 0; ; from += PAGE_SIZE) {
+    for (let from = 0; from < indexedIds.length; from += WORK_QUERY_BATCH_SIZE) {
       const { data, error } = await supabase
         .from("works")
         .select(QUALITY_WORK_COLUMNS)
+        .in("id", indexedIds.slice(from, from + WORK_QUERY_BATCH_SIZE))
         .neq("stage", "DISCONTINUED")
-        .or(`${SEARCH_DEMAND_WORK_ID_FILTER},review_count.gte.20,discount_rate.gte.50,is_bottom_price.eq.true,is_lowest_price.eq.true,ranking.lte.100,realtime_rank.lte.100,daily_rank.lte.100,weekly_rank.lte.100,monthly_rank.lte.100,long_hit_rank.lte.100`)
+        .gte("price", 1)
         .not("image_url", "is", null)
         .neq("image_url", "")
         .not("affiliate_url", "is", null)
         .neq("affiliate_url", "")
         .order("id", { ascending: true })
-        .range(from, from + PAGE_SIZE - 1);
 
       if (error) throw error;
       const rows = (data ?? []) as unknown as SitemapWork[];
       candidates.push(...rows);
-      if (rows.length < PAGE_SIZE) break;
     }
 
-    return candidates.filter(isWorkIndexable);
+    return candidates.filter(isWorkIndexable).sort((a, b) => a.id - b.id);
   },
-  ["seo-sitemap-quality-works-v6-search-demand-exceptions"],
+  ["seo-sitemap-work-index-pilot-2026-10-20-v1"],
   { revalidate: 3600 },
 );
 
