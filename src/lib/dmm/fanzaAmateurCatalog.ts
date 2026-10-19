@@ -476,18 +476,37 @@ const getDmmFanzaAmateurRankedCatalog = async () => {
   return items;
 };
 
+const getDmmFanzaAmateurRankedCampaigns = async (targetCount: number, now: number) => {
+  const campaigns: FanzaAmateurCatalogItem[] = [];
+  const seenContentIds = new Set<string>();
+
+  for (let offset = 1; offset <= RANKED_CATALOG_SCAN_SIZE; offset += RANKED_CATALOG_PAGE_SIZE) {
+    const pageItems = await getDmmFanzaAmateurRankedCatalogPage(offset);
+    for (const item of pageItems) {
+      if (seenContentIds.has(item.content_id)) continue;
+      seenContentIds.add(item.content_id);
+      if (hasActiveCampaign(item, now)) campaigns.push(item);
+      if (campaigns.length >= targetCount) return campaigns;
+    }
+    if (pageItems.length < RANKED_CATALOG_PAGE_SIZE) break;
+  }
+
+  return campaigns;
+};
+
 async function loadFanzaAmateurHomeSections() {
-  const [rankedCatalogPage, latest, catalogCount] = await Promise.all([
+  const now = Date.now();
+  const [rankedCatalogPage, rankedCampaigns, latest, catalogCount] = await Promise.all([
     getDmmFanzaAmateurRankedCatalogPage(1),
+    getDmmFanzaAmateurRankedCampaigns(12, now),
     getFanzaAmateurCatalogPage({ page: 1, sort: "date" }),
     supabaseAdmin.from("fanza_amateur_works").select("content_id", { count: "exact", head: true }),
   ]);
   if (catalogCount.error) throw new Error(`素人作品数を読めませんでした: ${catalogCount.error.message}`);
 
   const rankedCatalog = uniqueAmateurItemsByContentId(rankedCatalogPage);
-  const now = Date.now();
   const popular = rankedCatalog.slice(0, 12).map((item, index) => ({ item, rank: index + 1 }));
-  const campaign = rankedCatalog.filter((item) => hasActiveCampaign(item, now)).slice(0, 12).map((item) => ({ item }));
+  const campaign = rankedCampaigns.map((item) => ({ item }));
   const latestCards = latest.items.slice(0, 12).map((item) => ({ item }));
   const allCards = [...popular, ...campaign, ...latestCards];
   const contentIds = [...new Set(allCards.map(({ item }) => item.content_id))];
