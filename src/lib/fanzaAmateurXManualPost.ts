@@ -195,7 +195,7 @@ export async function updateAmateurXJobStatus(handle: string, jobId: number, sta
   if (status === "posted" && (!mainText?.trim() || mainText.length > 280 || !replyText?.trim() || replyText.length > 280)) throw new Error("本文と自己リプを確認してから投稿済みにしてください。");
   const postUrl = xPostUrl?.trim() ?? "";
   if (postUrl && (!/^https:\/\/(?:x\.com|twitter\.com)\/[A-Za-z0-9_]+\/status\/\d+\/?$/.test(postUrl))) throw new Error("X投稿URLの形式が正しくありません。");
-  let update = supabaseAdmin.from("fanza_amateur_x_post_jobs")
+  const update = supabaseAdmin.from("fanza_amateur_x_post_jobs")
     .update({ status, x_post_url: postUrl || null, posted_at: status === "posted" ? new Date().toISOString() : null,
       ...(status === "posted" ? { main_text: mainText, reply_text: replyText } : {}) })
     .eq("account_handle", handle).eq("id", jobId).eq("status", "pending");
