@@ -88,6 +88,19 @@ function rangeParams(range: DateRange) {
   };
 }
 
+function rangeKey(range: DateRange) {
+  return `${range.fromDate}:${range.toDate}`;
+}
+
+async function discardUnverifiedRange(run: FanzaAmateurApiCatalogRun, range: DateRange) {
+  const { error } = await supabaseAdmin
+    .from("fanza_amateur_api_catalog_run_items")
+    .delete()
+    .eq("run_id", run.id)
+    .eq("range_key", rangeKey(range));
+  if (error) throw new Error(`再分割前の未確定IDを整理できませんでした: ${error.message}`);
+}
+
 function splitDateRange(range: DateRange): [DateRange, DateRange] | null {
   const start = Date.parse(`${range.fromDate}T00:00:00Z`);
   const end = Date.parse(`${range.toDate}T00:00:00Z`);
@@ -264,14 +277,14 @@ function workRowsFor(run: FanzaAmateurApiCatalogRun, range: ActiveDateRange, raw
 
 async function finishRun(run: FanzaAmateurApiCatalogRun) {
   const { count, error } = await supabaseAdmin
-    .from("fanza_amateur_works")
+    .from("fanza_amateur_api_catalog_run_items")
     .select("content_id", { count: "exact", head: true })
-    .eq("source_run_id", run.id);
-  if (error) throw new Error(`作品表への保存件数を確認できませんでした: ${error.message}`);
+    .eq("run_id", run.id);
+  if (error) throw new Error(`確認済み作品ID数を確認できませんでした: ${error.message}`);
   if ((count ?? 0) !== run.expected_item_count) {
     return persistRun(run, {
       status: "needs_attention",
-      last_error: `分割検索の件数(${run.expected_item_count})と素人作品表に保存した件数(${count ?? 0})が一致しません。欠落を防ぐため、掲載終了判定は保留しました。`,
+      last_error: `分割検索の件数(${run.expected_item_count})と確認済み作品ID数(${count ?? 0})が一致しません。欠落を防ぐため、掲載終了判定は保留しました。`,
       completed_at: new Date().toISOString(),
     });
   }
@@ -336,6 +349,7 @@ export async function fetchNextFanzaAmateurApiCatalogPage(run: FanzaAmateurApiCa
           completed_at: new Date().toISOString(),
         });
       }
+      await discardUnverifiedRange(run, activeRange);
       return persistRun(run, {
         current_range: null,
         pending_ranges: [...split, ...pendingRanges],
@@ -358,6 +372,21 @@ export async function fetchNextFanzaAmateurApiCatalogPage(run: FanzaAmateurApiCa
     }
 
     if (rawItems.length > 0) {
+      const scanItems = [...new Map(rawItems.map((item) => {
+        const contentId = String(item.content_id).trim();
+        return [contentId, {
+          run_id: run.id,
+          content_id: contentId,
+          range_key: rangeKey(activeRange!),
+        }];
+      })).values()];
+      for (let index = 0; index < scanItems.length; index += 500) {
+        const { error: scanItemsError } = await supabaseAdmin
+          .from("fanza_amateur_api_catalog_run_items")
+          .upsert(scanItems.slice(index, index + 500), { onConflict: "run_id,content_id" });
+        if (scanItemsError) throw new Error(`確認用の作品IDを保存できませんでした: ${scanItemsError.message}`);
+      }
+
       const { error: worksError } = await supabaseAdmin
         .from("fanza_amateur_works")
         .upsert(workRowsFor(run, activeRange, rawItems, fetchedAt), { onConflict: "content_id" });
@@ -431,6 +460,7 @@ export async function fetchNextFanzaAmateurApiCatalogPage(run: FanzaAmateurApiCa
     if (rawItems.length === 0 && activeRange.expectedCount !== null && activeRange.offset <= expectedCount) {
       const split = splitDateRange(activeRange);
       if (split) {
+        await discardUnverifiedRange(run, activeRange);
         return persistRun(run, {
           total_count: totalCount,
           next_offset: 1,
@@ -474,3 +504,4 @@ export async function fetchNextFanzaAmateurApiCatalogPage(run: FanzaAmateurApiCa
     throw error;
   }
 }
+
