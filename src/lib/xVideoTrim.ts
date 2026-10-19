@@ -4,13 +4,12 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { spawn } from "node:child_process";
+import ffmpeg from "@ffmpeg-installer/ffmpeg";
+import ffprobe from "@ffprobe-installer/ffprobe";
 import { validateTrimStartSeconds } from "@/lib/xMediaAssets";
 
 function bundledBinary(kind: "ffmpeg" | "ffprobe") {
-  if (process.platform !== "win32" || process.arch !== "x64") throw new Error("同梱ffmpegはWindows x64環境だけに対応しています。");
-  return kind === "ffmpeg"
-    ? join(process.cwd(), "node_modules", "@ffmpeg-installer", "win32-x64", "ffmpeg.exe")
-    : join(process.cwd(), "node_modules", "@ffprobe-installer", "win32-x64", "ffprobe.exe");
+  return kind === "ffmpeg" ? ffmpeg.path : ffprobe.path;
 }
 
 export type TrimVideoForXResult = {
