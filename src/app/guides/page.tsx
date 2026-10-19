@@ -50,8 +50,8 @@ export default function GuidesPage() {
       <Header />
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
         <CollectionPageJsonLd
-          title="FANZAガイド・使い方まとめ"
-          description="FANZAをお得に・賢く使うためのガイド記事一覧です。"
+          title="FANZAの使い方ガイド｜セール・登録・見放題・VR"
+          description="FANZAのセールの買い時、会員登録、見放題サービス、VRの始め方をテーマ別に解説。ライブチャットなど各サービスの違いや、利用前に確認したい手順をまとめています。"
           url={`${SITE_URL}/guides`}
           items={guideCards.map(({ guide, title }) => ({ name: title, url: `${SITE_URL}/guides/${guide.slug}` }))}
         />
@@ -60,8 +60,8 @@ export default function GuidesPage() {
           <nav aria-label="パンくず" className="mt-5 text-xs font-bold text-slate-500">
             <Link href="/" className="hover:text-pink-600">ホーム</Link><span className="mx-2">/</span><span>ガイド</span>
           </nav>
-          <h1 className="mt-7 text-2xl font-black tracking-tight sm:text-3xl">FANZAガイド・使い方まとめ</h1>
-          <p className="mt-2 text-sm text-slate-400">FANZAをお得に・賢く使うためのガイド記事一覧です。</p>
+          <h1 className="mt-7 text-2xl font-black tracking-tight sm:text-3xl">FANZAの使い方ガイド｜セール・登録・見放題・VR</h1>
+          <p className="mt-2 text-sm text-slate-600">FANZAのセールの買い時、会員登録、見放題サービス、VRの始め方をテーマ別に解説。ライブチャットなど各サービスの違いや、利用前に確認したい手順をまとめています。</p>
 
           <div className="mt-8 space-y-4">
             {guideCards.map(({ guide, badge, title, description }) => (
