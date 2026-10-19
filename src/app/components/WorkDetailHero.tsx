@@ -11,6 +11,13 @@ import ActressTags from "./ActressTags";
 import FavoriteButton from "@/components/favorites/FavoriteButton";
 import AffiliateLink from "./AffiliateLink";
 import PriceChartTabs from "./PriceChartTabs";
+import {
+  formatDisplayName,
+  getDefaultPriceSeriesKey,
+  getPriceSeries,
+  getPriceSeriesSummary,
+  priceSeriesKey,
+} from "@/lib/createChartData";
 import PriceAlertButton from "./PriceAlertButton";
 import { getSampleMovieFallbackCopy } from "@/lib/sampleMovieFallback";
 import { isOfficialSampleMovieUrl } from "@/lib/officialSampleMovie";
@@ -28,6 +35,15 @@ type Props = {
 
 function formatDate(value: string | null | undefined) {
   return value ? value.slice(0, 10).replace(/-/g, "/") : "—";
+}
+
+function formatPriceHistoryDate(value: Date) {
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(value);
 }
 
 function formatDuration(value: unknown) {
@@ -49,12 +65,17 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
   const [selected, setSelected] = useState<"movie" | number>("movie");
   const [viewerOpen, setViewerOpen] = useState(false);
   const [preferNativeSamplePlayer, setPreferNativeSamplePlayer] = useState(false);
+  const [selectedPriceSeriesKey, setSelectedPriceSeriesKey] = useState(() => getDefaultPriceSeriesKey(priceHistory));
   const officialPlayerRef = useRef<HTMLDivElement>(null);
   const [officialPlayerSize, setOfficialPlayerSize] = useState({ width: 260, height: 167 });
   const showImage = selected !== "movie";
   const compactOfficialSampleEmbedUrl = officialSampleEmbedUrl
     ?.replace(/width=\d+/, `width=${officialPlayerSize.width}`)
     .replace(/height=\d+/, `height=${officialPlayerSize.height}`);
+  const availablePriceSeries = getPriceSeries(priceHistory);
+  const activePriceSeriesKey = availablePriceSeries.some((series) => priceSeriesKey(series) === selectedPriceSeriesKey)
+    ? selectedPriceSeriesKey
+    : getDefaultPriceSeriesKey(priceHistory);
 
   useEffect(() => {
     const updatePlayerPreference = () => {
@@ -84,23 +105,19 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
   }, [officialSampleEmbedUrl]);
   const currentLabel = displayPrice != null && displayPrice > 0 ? `¥${displayPrice.toLocaleString("ja-JP")}` : "価格未取得";
   const hasDiscount = Boolean(displayPrice && regularPrice && regularPrice > displayPrice);
-  const priceCheckedAt = formatDate(priceHistory[0]?.changed_at);
-  const recordedPriceDates = priceHistory
-    .map((item) => formatDate(item.changed_at))
-    .filter((date) => date !== "—")
-    .sort();
-  const isCurrentLowest = Boolean(displayPrice && work.lowest_price && displayPrice <= work.lowest_price);
+  const selectedPriceSummary = getPriceSeriesSummary(priceHistory, activePriceSeriesKey);
+  const priceCheckedAt = selectedPriceSummary
+    ? formatPriceHistoryDate(selectedPriceSummary.lastDate)
+    : formatDate(priceHistory[0]?.changed_at);
   const durationLabel = formatDuration(work.duration);
   const priceStatus = hasDiscount
-    ? `現在セール中：通常${regularPrice?.toLocaleString("ja-JP")}円が${displayPrice?.toLocaleString("ja-JP")}円（${discountRate}%OFF）`
+    ? `現在の代表価格はセール中：通常${regularPrice?.toLocaleString("ja-JP")}円が${displayPrice?.toLocaleString("ja-JP")}円（${discountRate}%OFF）`
     : displayPrice && displayPrice > 0
-      ? `現在価格：${displayPrice.toLocaleString("ja-JP")}円`
-      : "現在価格は未取得です";
-  const lowestStatus = isCurrentLowest
-    ? `現在価格${displayPrice?.toLocaleString("ja-JP")}円は、発掘LABの記録上の最安値です。`
-    : work.lowest_price && work.lowest_price > 0
-      ? `発掘LABの記録上の最安値は${work.lowest_price.toLocaleString("ja-JP")}円です。`
-      : "過去最安値はまだ確認できていません。";
+      ? `現在の代表価格：${displayPrice.toLocaleString("ja-JP")}円`
+      : "代表価格は未取得です";
+  const lowestStatus = selectedPriceSummary
+    ? `選択中の価格系列で、記録上の最安値は${selectedPriceSummary.lowestPrice.toLocaleString("ja-JP")}円です。`
+    : "価格履歴から最安値を確認できません。";
   const workSummary = [
     priceStatus,
     `発掘LABでの価格取得日：${priceCheckedAt}`,
@@ -129,18 +146,43 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
     <div className="min-w-0">
       <div aria-hidden="true" className="work-detail-title hidden text-[20px] font-black leading-[1.375] text-slate-950 lg:block">{work.title}</div>
       <div className="mt-5 border-y border-slate-200 py-4">
+        <div className="mb-1 text-xs font-semibold text-slate-500">現在の代表価格</div>
         <div className="flex items-end gap-3"><strong className="text-[48px] font-black leading-none text-pink-600">{currentLabel}</strong>{hasDiscount && <><span className="text-sm text-slate-400 line-through">¥{regularPrice?.toLocaleString("ja-JP")}</span><span className="rounded bg-pink-100 px-2 py-1 text-xs font-black text-pink-700">{discountRate}%OFF</span></>}</div>
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-500"><span>発売日：<strong className="text-slate-800">{formatDate(work.release_date)}</strong></span>{durationLabel && <span>{durationLabel}</span>}<span>レビュー：<strong className="text-slate-800">★ {work.review_average > 0 ? work.review_average.toFixed(1) : "—"}（{work.review_count ?? 0}件）</strong></span></div>
       </div>
       <p className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-600">{workSummary}</p>
       <div className="mt-6 mb-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         {priceHistory.length > 0 ? <>
-          <p className="mb-4 text-xs leading-5 text-slate-500">
-            表示対象の価格変更記録は{priceHistory.length}件
-            {recordedPriceDates.length > 0 && `（${recordedPriceDates[0]}〜${recordedPriceDates[recordedPriceDates.length - 1]}）`}
-            です。毎日の連続記録ではなく、発掘LABが取得した時点の記録です。
-          </p>
-          <PriceChartTabs history={priceHistory} />
+          {selectedPriceSummary && <div className="mb-4 rounded-xl bg-slate-50 p-3 text-sm" aria-live="polite">
+            <div className="mb-3 font-bold text-slate-800">
+              選択中：{formatDisplayName(selectedPriceSummary.series.displayName)}
+              {selectedPriceSummary.series.period ? `［${selectedPriceSummary.series.period}］` : ""}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <div className="text-xs text-slate-500">この系列の最新記録価格</div>
+                <div className="font-bold text-pink-700">¥{selectedPriceSummary.latest.price.toLocaleString("ja-JP")}
+                  {selectedPriceSummary.latest.isSale && <span className="ml-1 text-xs font-medium text-red-600">セール記録</span>}
+                </div>
+                {selectedPriceSummary.latest.item.sale_price != null && selectedPriceSummary.latest.item.normal_price != null && <div className="text-xs text-slate-500">通常価格 ¥{selectedPriceSummary.latest.item.normal_price.toLocaleString("ja-JP")}</div>}
+              </div>
+              <div>
+                <div className="text-xs text-slate-500">この系列の記録上の最安値</div>
+                <div className="font-bold text-slate-800">¥{selectedPriceSummary.lowestPrice.toLocaleString("ja-JP")}</div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500">記録件数・期間</div>
+                <div className="font-semibold text-slate-800">{selectedPriceSummary.recordCount}件</div>
+                <div className="text-xs text-slate-500">{formatPriceHistoryDate(selectedPriceSummary.firstDate)}〜{formatPriceHistoryDate(selectedPriceSummary.lastDate)}</div>
+              </div>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-slate-500">価格変更の取得記録です。毎日の連続記録ではなく、このページに読み込んだ最大100件の範囲で集計しています。</p>
+          </div>}
+          <PriceChartTabs
+            history={priceHistory}
+            selectedSeriesKey={activePriceSeriesKey}
+            onSelectedSeriesChange={setSelectedPriceSeriesKey}
+          />
         </> : <p className="py-8 text-center text-sm text-slate-500">価格推移はまだありません。</p>}
       </div>
       <div className="flex items-stretch gap-2">
@@ -152,3 +194,4 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
     </div>
   </section>;
 }
+
