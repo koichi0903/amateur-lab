@@ -6,8 +6,8 @@ import { analyzerGuideArticles } from "@/lib/analyzerGuideContent";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 
 export const metadata: Metadata = pageMetadata({
-  title: "FANZAガイド・使い方まとめ | 発掘LAB",
-  description: "FANZAをお得に・賢く使うためのガイド記事一覧です。",
+  title: "FANZAの使い方ガイド｜セール・登録・見放題・VR | 発掘LAB",
+  description: "FANZAのセールの買い時、会員登録、見放題サービス、VRの始め方をテーマ別に解説。ライブチャットなど各サービスの違いや、利用前に確認したい手順をまとめています。",
   canonical: "/guides",
 });
 
