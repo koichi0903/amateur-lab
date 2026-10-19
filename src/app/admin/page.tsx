@@ -24,6 +24,16 @@ const menus = [
     href: "/admin/x-growth",
   },
   {
+    title: "𝕏 @bijyo1010 予約作品 手動投稿",
+    description: "毎日4件 / 動画・本文・自己リプ準備済み",
+    href: "/admin/bijyo-reserved",
+  },
+  {
+    title: "𝕏 素人動画 手動投稿",
+    description: "Xアカウントを選択 / 新作7日分・人気順TOP500",
+    href: "/admin/amateur-x-post",
+  },
+  {
     title: "📈 FANZA送客分析",
     description: "クリック流入元・上位作品を確認",
     href: "/admin/revenue",
@@ -38,11 +48,7 @@ const menus = [
     description: "ID1 Source / ID5 Market WinnerのDaily Growth Command Centerを開く",
     href: "/admin/myfans?media=1",
   },
-  {
-    title: "𝕏 @bijyo1010 予約作品 手動投稿",
-    description: "毎日4件 / 動画・本文・自己リプ準備済み",
-    href: "/admin/bijyo-reserved",
-  },
+
 ];
 
 export default function AdminDashboard() {

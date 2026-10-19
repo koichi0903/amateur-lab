@@ -70,6 +70,8 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "@sparticuz/chromium",
     "playwright-core",
+    "@ffmpeg-installer/ffmpeg",
+    "@ffprobe-installer/ffprobe",
   ],
   ...(shouldBundleServerlessChromium
     ? {
