@@ -22,7 +22,7 @@ export default function AdvancedSearchModal({ open, onClose, catalog = "fanza" }
   useEffect(() => {
     if (!open || !isAmateur || amateurGenresLoaded) return;
     let cancelled = false;
-    fetch("/api/amateur/genres")
+    fetch("/api/amateur")
       .then(async (response) => {
         if (!response.ok) throw new Error("素人作品のジャンルを読み込めませんでした");
         return response.json() as Promise<{ genres?: unknown }>;

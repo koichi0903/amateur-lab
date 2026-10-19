@@ -29,7 +29,7 @@ test("allows the local production update runner health checks", async () => {
   }
 });
 
-test("allows public amateur genre lookup without admin authentication", async () => {
+test("allows public amateur genre API without admin authentication", async () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalAdminUsername = process.env.ADMIN_USERNAME;
   const originalAdminPassword = process.env.ADMIN_PASSWORD;
@@ -38,7 +38,7 @@ test("allows public amateur genre lookup without admin authentication", async ()
   mutableEnv.NODE_ENV = "production";
 
   try {
-    const response = await proxy(request("/api/amateur/genres", "example.com"));
+    const response = await proxy(request("/api/amateur", "example.com"));
 
     assert.equal(response.headers.get("x-middleware-next"), "1");
     assert.equal(response.headers.get("www-authenticate"), null);
