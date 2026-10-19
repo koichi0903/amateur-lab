@@ -40,8 +40,8 @@ type AmateurWork = {
 type WorksResponse = { items: AmateurWork[]; page: number; pageSize: number; total: number; error?: string };
 
 const RUN_LABELS: Record<RunType, string> = {
-  daily_incremental: "日次・新作補完",
-  weekly_full: "週次・全作品補完",
+  daily_incremental: "素人作品API補完",
+  weekly_full: "素人作品API全件補完",
 };
 
 function count(value: number) {
@@ -144,7 +144,7 @@ export default function AmateurApiCatalogScan() {
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     const mode = query.get("mode");
-    const runType: RunType | null = mode === "daily" ? "daily_incremental" : mode === "weekly" ? "weekly_full" : null;
+    const runType: RunType | null = mode === "full" || mode === "weekly" ? "weekly_full" : mode === "daily" ? "daily_incremental" : null;
     if (query.get("start") === "1" && runType && !autoStartRef.current) {
       autoStartRef.current = true;
       window.history.replaceState(null, "", window.location.pathname);
@@ -168,26 +168,26 @@ export default function AmateurApiCatalogScan() {
     const isActive = activeRun?.run_type === runType;
     const isLegacy = isActive && isLegacyActiveRun(activeRun);
     const isBusy = busyType === runType;
-    const startHref = `/admin/amateur-api-catalog?mode=${runType === "daily_incremental" ? "daily" : "weekly"}&start=1`;
+    const startHref = "/admin/amateur-api-catalog?mode=full&start=1";
     return (
       <article key={runType} className="rounded-2xl border border-zinc-700 bg-zinc-900 p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-black tracking-[0.14em] text-emerald-300">{runType === "daily_incremental" ? "DAILY INCREMENTAL" : "WEEKLY FULL RECONCILIATION"}</p>
-            <h2 className="mt-2 text-xl font-black">{RUN_LABELS[runType]}</h2>
+            <p className="text-xs font-black tracking-[0.14em] text-emerald-300">FULL CATALOG</p>
+            <h2 className="mt-2 text-xl font-black">素人作品 API 全件補完</h2>
           </div>
           <span className={`rounded-full px-3 py-1 text-xs font-bold ${isLegacy || run?.status === "needs_attention" ? "bg-amber-900 text-amber-200" : run?.status === "running" ? "bg-blue-900 text-blue-200" : "bg-zinc-800 text-zinc-300"}`}>{isLegacy ? "旧仕様・要切替" : statusLabel(run)}</span>
         </div>
         <p className="mt-3 text-sm leading-6 text-zinc-300">{description}</p>
         <p className="mt-2 text-xs text-zinc-400">対象期間：{rangeDescription}</p>
         <div className="mt-4 grid gap-2 sm:grid-cols-3">
-          <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">処理済み</p><strong className="mt-1 block">{count(run?.fetched_item_count ?? 0)}</strong></div>
+          <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">API取得累計（再取得を含む）</p><strong className="mt-1 block">{count(run?.fetched_item_count ?? 0)}</strong></div>
           <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">分割範囲</p><strong className="mt-1 block">{count(run?.completed_range_count ?? 0)} / {count(run?.range_count ?? 0)}</strong></div>
           <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">最終実行</p><strong className="mt-1 block text-xs">{dateTime(run?.completed_at ?? run?.started_at)}</strong></div>
         </div>
         {run?.last_error && <p className="mt-3 rounded-lg bg-amber-950/60 p-3 text-xs leading-5 text-amber-200">{run.last_error}</p>}
         <div className="mt-4 flex flex-wrap gap-2">
-          {!activeRun && !isBusy && <a href={startHref} className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-zinc-950">{runType === "daily_incremental" ? "日次補完を開始" : "週次全作品補完を開始"}</a>}
+          {!activeRun && !isBusy && <a href={startHref} className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-zinc-950">全件補完を開始</a>}
           {isActive && isLegacy && !isBusy && <button type="button" onClick={() => void runAll(runType)} className="rounded-xl bg-amber-400 px-4 py-3 text-sm font-black text-zinc-950">旧履歴を保持して新方式で開始</button>}
           {isActive && !isLegacy && !isBusy && <button type="button" onClick={() => void runAll(runType, activeRun!)} className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-zinc-950">続きから再開</button>}
           {isBusy && <button type="button" onClick={() => { stopRef.current = true; }} className="rounded-xl border border-zinc-600 px-4 py-3 text-sm font-bold">一時停止</button>}
@@ -200,14 +200,14 @@ export default function AmateurApiCatalogScan() {
     <section className="space-y-6">
       <div className="rounded-2xl border border-emerald-900 bg-zinc-900 p-6">
         <p className="text-xs font-black tracking-[0.16em] text-emerald-300">DMM ITEM API / OFFSET 5,000 SAFE</p>
-        <h2 className="mt-2 text-2xl font-black">日次と週次の補完を分けて管理</h2>
-        <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-300">1回の検索範囲が5,000件を超えたら、日付範囲を自動で分割して取得します。日次は直近7日間と7日先までを重複取得し、週次は全期間を走査します。週次が途中失敗・件数不一致・1日で5,000件超となった場合、掲載終了の判定を行いません。</p>
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          {renderRunCard("daily_incremental", "新着・直近公開作品を短い期間で補完します。日付境界の変動を拾えるよう期間を重ねます。", "今日の7日前〜7日後")}
-          {renderRunCard("weekly_full", "API掲載作品を日付範囲で分割して全体再照合します。成功完了後にだけ未掲載候補を更新します。", "APIの発売日範囲全体を分割")}
+        <h2 className="mt-2 text-2xl font-black">全作品のAPI情報を補完</h2>
+        <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-300">全作品を発売日範囲ごとに分割して取得します。取得途中の失敗や件数不一致がある場合は完了扱いにせず、掲載終了の判定も行いません。</p>
+        <div className="mt-5 grid gap-4">
+          {renderRunCard("weekly_full", "API掲載作品を発売日の範囲に分けて全体を再照合します。成功完了後にだけ未掲載候補を更新します。", "APIの発売日範囲全体")}
         </div>
         {message && <p role="status" className="mt-4 rounded-xl bg-zinc-950 p-4 text-sm leading-6 text-zinc-200">{message}</p>}
-        <p className="mt-4 text-[11px] leading-5 text-zinc-500">管理画面からの手動開始です。DMM APIの発売日フィルターが素人フロアで正確に分割できることは、初回の小規模取得で確認する必要があります。5,000件に分けられない範囲があれば要確認で停止し、全件取得済みとは表示しません。</p>
+        <p className="mt-4 text-[11px] leading-5 text-zinc-500">管理画面から「全件補完」を開始してください。5,000件以下の範囲に分割して取得し、件数不一致などで完了を確認できない場合は要確認で停止します。</p>
+        {activeRun && activeRun.run_type !== "weekly_full" && <p role="status" className="mt-3 rounded-xl bg-amber-950/60 p-3 text-sm text-amber-200">別のAPI補完処理が実行中です。完了後に全件補完を開始できます。</p>}
       </div>
 
       <section className="rounded-2xl border border-zinc-700 bg-zinc-900 p-5">
@@ -248,7 +248,7 @@ export default function AmateurApiCatalogScan() {
                   <td className="px-3 py-3">{work.is_listed ? (work.missing_since ? "未掲載候補（再確認中）" : "掲載中") : "未掲載確認"}</td>
                 </tr>
               ))}
-              {works.length === 0 && <tr><td colSpan={7} className="px-3 py-10 text-center text-zinc-500">まだ作品データはありません。日次または週次の補完を開始すると、作品ごとのAPI情報がここに表示されます。</td></tr>}
+              {works.length === 0 && <tr><td colSpan={7} className="px-3 py-10 text-center text-zinc-500">まだ作品データはありません。全件補完を開始すると、作品ごとのAPI情報がここに表示されます。</td></tr>}
             </tbody>
           </table>
         </div>
@@ -256,3 +256,4 @@ export default function AmateurApiCatalogScan() {
     </section>
   );
 }
+
