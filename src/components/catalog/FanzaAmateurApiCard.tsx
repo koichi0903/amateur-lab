@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { FanzaAmateurCatalogItem } from "@/lib/dmm/fanzaAmateurCatalog";
 import AmateurFavoriteButton from "@/components/favorites/AmateurFavoriteButton";
+import { trackFanzaAmateurAffiliateClick } from "@/lib/trackFanzaAmateurAffiliateClick";
 
 function priceLabel(value: number | null) {
   return value == null ? "価格未取得" : `¥${value.toLocaleString("ja-JP")}`;
@@ -69,13 +70,7 @@ export default function FanzaAmateurApiCard({ item }: { item: FanzaAmateurCatalo
             target="_blank"
             rel="noopener noreferrer sponsored"
             className="mt-3 flex min-h-10 items-center justify-center rounded-lg bg-pink-600 px-3 text-xs font-black text-white hover:bg-pink-700"
-            onClick={() => {
-              window.gtag?.("event", "amateur_affiliate_click", {
-                content_id: item.content_id,
-                source_page: "amateur",
-                affiliate_id: "991",
-              });
-            }}
+            onClick={() => trackFanzaAmateurAffiliateClick({ contentId: item.content_id, sourcePage: "amateur", placement: "listing-card" })}
           >
             FANZA公式で作品を見る
           </a>
