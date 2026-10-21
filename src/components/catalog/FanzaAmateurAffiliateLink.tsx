@@ -21,4 +21,3 @@ export default function FanzaAmateurAffiliateLink({ href, contentId, sourcePage,
     </a>
   );
 }
-

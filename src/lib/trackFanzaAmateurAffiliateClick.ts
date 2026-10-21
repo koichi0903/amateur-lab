@@ -25,4 +25,3 @@ export function trackFanzaAmateurAffiliateClick({
     keepalive: true,
   }).catch(() => undefined);
 }
-

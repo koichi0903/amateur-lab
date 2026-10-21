@@ -18,4 +18,3 @@ alter table public.fanza_amateur_affiliate_clicks enable row level security;
 revoke all privileges on table public.fanza_amateur_affiliate_clicks from public, anon, authenticated, service_role;
 grant select, insert, update, delete on table public.fanza_amateur_affiliate_clicks to service_role;
 grant usage, select on sequence public.fanza_amateur_affiliate_clicks_id_seq to service_role;
-

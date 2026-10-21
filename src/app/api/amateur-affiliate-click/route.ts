@@ -67,4 +67,3 @@ export async function POST(request: Request) {
   // Measurement failures must not block a valid affiliate visit.
   return new NextResponse(null, { status: 204 });
 }
-

@@ -3,7 +3,7 @@ import { ADMIN_SESSION_COOKIE } from "@/lib/admin/requestAuth";
 
 const PUBLIC_API_PATHS = new Set([
   "/api/affiliate-click",
-    "/api/amateur-affiliate-click",
+  "/api/amateur-affiliate-click",
   "/api/affiliate-impression",
   "/api/compare",
   "/api/contact",
@@ -233,6 +233,3 @@ export const config = {
     "/works/:id/twitter-image",
   ],
 };
-
-
-

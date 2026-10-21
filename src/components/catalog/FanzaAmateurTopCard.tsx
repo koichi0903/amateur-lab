@@ -92,4 +92,3 @@ export default function FanzaAmateurTopCard({ card, showChart = true, showRank =
     </article>
   );
 }
-
