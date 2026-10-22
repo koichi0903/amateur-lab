@@ -31,6 +31,13 @@ affiliateURL?: string;  // アフィリエイトURL
   prices: {
     price: string;
     list_price: string;
+    deliveries?: {
+      delivery?: Array<{
+        type: string;
+        price: string;
+        list_price: string;
+      }>;
+    };
   };
 
   review?: {

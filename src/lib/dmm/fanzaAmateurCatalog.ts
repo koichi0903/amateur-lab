@@ -164,6 +164,16 @@ export function normalizeFanzaAmateurCatalogItem(value: unknown): FanzaAmateurCa
     prices: {
       price: asText(prices?.price),
       list_price: asText(prices?.list_price),
+      deliveries: (() => {
+        const rawDeliveries = isRecord(prices?.deliveries) ? prices.deliveries.delivery : null;
+        const deliveryRows = Array.isArray(rawDeliveries) ? rawDeliveries : rawDeliveries ? [rawDeliveries] : [];
+        const delivery = deliveryRows.flatMap((row) => {
+          if (!isRecord(row)) return [];
+          const type = asText(row.type);
+          return type ? [{ type, price: asText(row.price), list_price: asText(row.list_price) }] : [];
+        });
+        return delivery.length ? { delivery } : undefined;
+      })(),
     },
     iteminfo: {
       actress: Array.isArray(rawItemInfo.actress) ? rawItemInfo.actress as NonNullable<DmmItem["iteminfo"]>["actress"] : [],
@@ -277,8 +287,8 @@ async function loadFanzaAmateurCatalogWork(contentId: string) {
 
 const getCachedFanzaAmateurCatalogWork = unstable_cache(
   loadFanzaAmateurCatalogWork,
-  ["fanza-amateur-work-detail-v2-yearly-weekly-price-snapshots"],
-  { revalidate: 86_400, tags: ["fanza-amateur-catalog"] },
+  ["fanza-amateur-work-detail-v3-current-price-chart"],
+  { revalidate: 10_800, tags: ["fanza-amateur-catalog"] },
 );
 
 export async function getFanzaAmateurCatalogWork(contentId: string) {

@@ -102,7 +102,21 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
     .map((entry) => ({ entry, price: parsePrice(entry.price) }))
     .filter((entry): entry is { entry: FanzaAmateurPriceHistoryEntry; price: number } => entry.price != null)
     .sort((a, b) => a.entry.observed_at.localeCompare(b.entry.observed_at));
-  const chartData = activeHistory.map(({ entry, price }) => ({
+  const currentDeliveryPrice = item.prices.deliveries?.delivery?.find((delivery) => delivery.type === activePriceType);
+  const currentChartPrice = parsePrice(currentDeliveryPrice?.price);
+  const chartHistory = [...activeHistory];
+  if (currentChartPrice != null && fetchedAt) {
+    const latest = chartHistory.at(-1);
+    if (latest?.entry.observed_at === fetchedAt) {
+      chartHistory[chartHistory.length - 1] = { ...latest, price: currentChartPrice };
+    } else {
+      chartHistory.push({
+        entry: { observed_at: fetchedAt, price_type: activePriceType, price: String(currentChartPrice), list_price: currentDeliveryPrice?.list_price ?? null },
+        price: currentChartPrice,
+      });
+    }
+  }
+  const chartData = chartHistory.map(({ entry, price }) => ({
     date: new Date(entry.observed_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }),
     price,
   }));
@@ -152,7 +166,7 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
         <div className="mt-6 mb-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 border-t pt-4"><h2 className="mb-3 text-lg font-bold">価格推移</h2><div className="flex flex-wrap gap-2">{priceTypes.map((type) => <button key={type} type="button" onClick={() => setSelectedPriceType(type)} className={`rounded-full border px-3 py-1 text-sm transition ${activePriceType === type ? "bg-pink-500 text-white" : "bg-pink-50 hover:bg-pink-100"}`}>{formatPriceType(type)}</button>)}</div></div>
           {chartData.length > 0 ? <PriceChart data={chartData} /> : <p className="py-8 text-center text-sm text-slate-500">価格推移はまだありません。</p>}
-          <div className="text-xs text-slate-500">履歴 {activeHistory.length}点</div>
+          <div className="text-xs text-slate-500">履歴 {activeHistory.length}点{chartHistory.length > activeHistory.length ? "・最新取得価格を含む" : ""}</div>
         </div>
         <div className="flex items-stretch gap-2">
           <div className="min-w-0 flex-1"><FanzaAmateurAffiliateLink href={item.affiliateURL} contentId={item.content_id} sourcePage="amateur_detail" price={currentPrice} /></div>
