@@ -6,6 +6,7 @@ import {
   extractFanzaAmateurPriceHistoryRows,
   selectChangedFanzaAmateurPriceHistoryRowsByWork,
 } from "@/lib/dmm/fanzaAmateurPriceHistory";
+import { notifyAmateurMakerAlertsForContentIds, notifyAmateurPriceAlertsForContentIds } from "@/lib/pushNotifications";
 
 const PAGE_SIZE = 100;
 const API_OFFSET_LIMIT = 5_000;
@@ -370,6 +371,11 @@ export async function fetchNextFanzaAmateurApiCatalogPage(run: FanzaAmateurApiCa
     }
 
     if (rawItems.length > 0) {
+      const contentIds = [...new Set(rawItems.map((item) => String(item.content_id).trim()))];
+      const existingWorks = await supabaseAdmin.from("fanza_amateur_works").select("content_id").in("content_id", contentIds);
+      if (existingWorks.error) throw new Error(`新着通知の対象作品を確認できませんでした: ${existingWorks.error.message}`);
+      const previouslySavedIds = new Set((existingWorks.data ?? []).map((row) => row.content_id as string));
+
       const { error: worksError } = await supabaseAdmin
         .from("fanza_amateur_works")
         .upsert(workRowsFor(run, activeRange, rawItems, fetchedAt), { onConflict: "content_id" });
@@ -411,8 +417,38 @@ export async function fetchNextFanzaAmateurApiCatalogPage(run: FanzaAmateurApiCa
         if (priceError) throw new Error(`価格変更履歴を保存できませんでした: ${priceError.message}`);
       }
 
+      const summaryPriceChanges = [...new Set(priceRowsByWork.flatMap((row) => {
+        if (row.price_type !== "summary") return [];
+        const previous = previousByWork.get(row.content_id)?.get("summary");
+        return previous && (previous.price !== row.price || previous.list_price !== row.list_price) ? [row.content_id] : [];
+      }))];
+      if (summaryPriceChanges.length > 0) {
+        try {
+          await notifyAmateurPriceAlertsForContentIds(summaryPriceChanges);
+        } catch (error) {
+          console.error("[push] amateur price notification batch failed", { contentCount: summaryPriceChanges.length, error });
+        }
+      }
+
+      if (run.run_type === "daily_incremental") {
+        const now = Date.now();
+        const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+        const newRecentContentIds = rawItems.flatMap((item) => {
+          const contentId = String(item.content_id).trim();
+          if (previouslySavedIds.has(contentId)) return [];
+          const releaseAt = Date.parse(String(item.date ?? ""));
+          return Number.isFinite(releaseAt) && releaseAt >= weekAgo && releaseAt <= now ? [contentId] : [];
+        });
+        if (newRecentContentIds.length > 0) {
+          try {
+            await notifyAmateurMakerAlertsForContentIds(newRecentContentIds);
+          } catch (error) {
+            console.error("[push] amateur maker notification batch failed", { contentCount: newRecentContentIds.length, error });
+          }
+        }
+      }
+
       const weeklyCutoff = new Date(Date.parse(fetchedAt) - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const contentIds = [...new Set(rawItems.map((item) => String(item.content_id).trim()))];
       const recentSnapshots = await supabaseAdmin
         .from("fanza_amateur_price_weekly_snapshots")
         .select("content_id")
