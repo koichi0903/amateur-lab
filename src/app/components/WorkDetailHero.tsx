@@ -12,6 +12,7 @@ import FavoriteButton from "@/components/favorites/FavoriteButton";
 import AffiliateLink from "./AffiliateLink";
 import PriceChartTabs from "./PriceChartTabs";
 import {
+  createChartData,
   formatDisplayName,
   getDefaultPriceSeriesKey,
   getPriceSeries,
@@ -67,13 +68,20 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
   const [viewerOpen, setViewerOpen] = useState(false);
   const [preferNativeSamplePlayer, setPreferNativeSamplePlayer] = useState(false);
   const [selectedPriceSeriesKey, setSelectedPriceSeriesKey] = useState(() => {
-    const preferredSeries = defaultPriceSeries
+    const representativeSeries = displayPrice != null && displayPrice > 0
+      ? getPriceSeries(priceHistory).find((series) => {
+          const points = createChartData(priceHistory, series.displayName, series.period);
+          return points[points.length - 1]?.price === displayPrice;
+        })
+      : null;
+    const seoPilotSeries = defaultPriceSeries
       ? getPriceSeries(priceHistory).find(
           (series) =>
             series.displayName === defaultPriceSeries.displayName &&
             series.period === defaultPriceSeries.period,
         )
       : null;
+    const preferredSeries = representativeSeries ?? seoPilotSeries;
     return preferredSeries ? priceSeriesKey(preferredSeries) : getDefaultPriceSeriesKey(priceHistory);
   });
   const officialPlayerRef = useRef<HTMLDivElement>(null);
