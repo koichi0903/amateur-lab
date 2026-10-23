@@ -403,6 +403,7 @@ export default async function WorkDetailPage(
       {/* Hero */}
       <section className="mt-0 p-0 sm:p-8">
 <WorkDetailHero
+  key={work.id}
   work={work}
   sampleImages={sampleImages ?? []}
   sampleMovieUrl={work.sample_movie_url}
