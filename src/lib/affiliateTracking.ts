@@ -36,7 +36,21 @@ export function workDetailHref(
   workId: number | string,
   source: AffiliateSource,
 ) {
-  return `/works/${encodeURIComponent(String(workId))}?from=${source}`;
+  // Keep attribution available to the client tracker without creating a
+  // query-string URL variant that search engines can discover from internal links.
+  return `/works/${encodeURIComponent(String(workId))}#from=${source}`;
+}
+
+export function resolveAffiliateSource(
+  search: string,
+  hash: string,
+  fallback?: AffiliateSource,
+): AffiliateSource {
+  const hashParams = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+  const searchParams = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  return normalizeAffiliateSource(
+    hashParams.get("from") ?? searchParams.get("from") ?? fallback,
+  );
 }
 
 export const AFFILIATE_SOURCE_LABELS: Record<AffiliateSource, string> = {

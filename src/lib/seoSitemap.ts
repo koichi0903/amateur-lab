@@ -10,6 +10,7 @@ import {
   isWorkIndexable,
 } from "@/lib/seoQuality";
 import { supabase } from "@/lib/supabase";
+import { analyzerGuideArticles } from "@/lib/analyzerGuideContent";
 import { editorialGuides, reportDefinitions } from "@/lib/editorialContent";
 
 export type SitemapEntry = {
@@ -49,6 +50,11 @@ const staticEntries: SitemapEntry[] = [
   { url: `${SITE_URL}/amateur/maker`, changeFrequency: "daily", priority: 0.8 },
   { url: `${SITE_URL}/guides`, changeFrequency: "weekly", priority: 0.9 },
   { url: `${SITE_URL}/compare-guide`, changeFrequency: "monthly", priority: 0.9 },
+  ...analyzerGuideArticles.map((guide) => ({
+    url: `${SITE_URL}/guides/${guide.slug}`,
+    changeFrequency: "monthly" as const,
+    priority: 0.9,
+  })),
   ...editorialGuides.map((guide) => ({
     url: `${SITE_URL}/guides/${guide.slug}`,
     changeFrequency: "monthly" as const,
