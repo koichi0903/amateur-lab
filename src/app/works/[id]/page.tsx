@@ -20,6 +20,8 @@ import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
 import Header from "@/components/layout/Header";
 import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
+import FanzaStyleWorkCard from "@/components/catalog/FanzaStyleWorkCard";
+import { parseDatabaseDate } from "@/lib/dateTime";
 
 
 function currentTimeMs() {
@@ -369,6 +371,24 @@ export default async function WorkDetailPage(
     mainMaker,
   );
 
+  const purchaseAlternatives = (relatedWorks ?? []).filter((candidate) => {
+    const saleEnd = parseDatabaseDate(candidate.sale_end_at)?.getTime();
+    const saleExpired = candidate.sale_price > 0 &&
+      Boolean(candidate.sale_end_at) &&
+      (saleEnd == null || saleEnd <= currentTimeMs());
+    const price = !saleExpired && candidate.sale_price > 0 && candidate.sale_price < candidate.price
+      ? candidate.sale_price
+      : candidate.price;
+    return Boolean(
+      mobileDisplayPrice &&
+      price > 0 &&
+      price < mobileDisplayPrice &&
+      candidate.review_count >= 10 &&
+      candidate.review_average > 0,
+    );
+  }).slice(0, 3);
+  const purchaseAlternativeIds = new Set(purchaseAlternatives.map((candidate) => candidate.id));
+
   return (
   <>
   <Header />
@@ -416,7 +436,26 @@ export default async function WorkDetailPage(
 />
       </section>
 
-      <RelatedWorks works={relatedWorks ?? []} />
+      {purchaseAlternatives.length > 0 && (
+        <section className="mt-8" aria-labelledby="purchase-alternatives-title">
+          <div className="mb-4">
+            <h2 id="purchase-alternatives-title" className="text-xl font-black text-zinc-900">価格を抑えて選びたい方へ</h2>
+            <p className="mt-1 text-sm text-slate-600">表示中の作品より価格が低く、レビューが10件以上ある関連作品です。</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-3">
+            {purchaseAlternatives.map((candidate) => (
+              <FanzaStyleWorkCard
+                key={`purchase-alternative-${candidate.id}`}
+                work={candidate}
+                sourcePage="direct"
+                showChart={false}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      <RelatedWorks works={(relatedWorks ?? []).filter((candidate) => !purchaseAlternativeIds.has(candidate.id))} />
 
     </div>
   </main>
