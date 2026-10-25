@@ -13,7 +13,7 @@ export function revalidateFanzaAmateurPublicCache() {
     "/amateur/personal-pick",
     "/amateur/genre",
     "/amateur/maker",
-    "/api/amateur/genres",
+    "/api/amateur",
   ]) {
     revalidatePath(path);
   }
