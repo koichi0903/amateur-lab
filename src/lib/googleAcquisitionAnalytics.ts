@@ -95,7 +95,7 @@ function createSignedAssertion(credential: GoogleCredential, scope: string) {
   return `${content}.${signer.sign(credential.privateKey).toString("base64url")}`;
 }
 
-async function getAccessToken(scope: string) {
+export async function getGoogleAccessToken(scope: string) {
   const credential = getCredential();
   if (!credential) throw new Error("Google読み取り用サービスアカウントが未設定です。");
 
@@ -123,6 +123,10 @@ async function getAccessToken(scope: string) {
     expiresAt: Date.now() + (result.expires_in ?? 3600) * 1000,
   });
   return result.access_token;
+}
+
+async function getAccessToken(scope: string) {
+  return getGoogleAccessToken(scope);
 }
 
 function jstDayKey(date: Date) {
