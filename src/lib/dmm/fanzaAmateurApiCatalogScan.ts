@@ -413,7 +413,7 @@ export async function fetchNextFanzaAmateurApiCatalogPage(run: FanzaAmateurApiCa
       for (let index = 0; index < changed.length; index += 500) {
         const { error: priceError } = await supabaseAdmin
           .from("fanza_amateur_price_history")
-          .upsert(changed.slice(index, index + 500), { onConflict: "source_run_id,content_id,price_type" });
+          .upsert(changed.slice(index, index + 500), { onConflict: "content_id,observed_date_jst,price_type" });
         if (priceError) throw new Error(`価格変更履歴を保存できませんでした: ${priceError.message}`);
       }
 
