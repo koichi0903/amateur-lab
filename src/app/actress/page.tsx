@@ -167,7 +167,51 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
             <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Sparkles className="mx-auto text-slate-300" size={38} /><p className="mt-4 font-black">該当する女優が見つかりませんでした</p><Link href="/actress" className="mt-3 inline-block text-sm font-black text-pink-600">一覧に戻る</Link></div>
           )}
 
-          {totalPages > 1 && <nav aria-label="女優一覧のページ送り" className="mt-10 flex items-center justify-center gap-3">{currentPage > 1 && <Link href={pageHref(currentPage - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black">← 前へ</Link>}<span className="text-xs font-bold text-slate-400">{currentPage} / {totalPages}</span>{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white hover:bg-pink-600">次へ →</Link>}</nav>}
+          {totalPages > 1 && (
+            <nav
+              aria-label="女優一覧のページ送り"
+              className="mt-10 flex flex-wrap items-center justify-center gap-2"
+            >
+              {currentPage > 1 && (
+                <Link
+                  href={pageHref(currentPage - 1)}
+                  className="rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-black"
+                >
+                  ← 前へ
+                </Link>
+              )}
+              <span className="sr-only">{currentPage} / {totalPages}</span>
+              {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
+                pageNumber === currentPage ? (
+                  <span
+                    key={pageNumber}
+                    aria-current="page"
+                    aria-label={`${pageNumber}ページ目（現在のページ）`}
+                    className="flex h-10 min-w-[2.5rem] items-center justify-center rounded-full bg-pink-600 px-3 text-sm font-black text-white"
+                  >
+                    {pageNumber}
+                  </span>
+                ) : (
+                  <Link
+                    key={pageNumber}
+                    href={pageHref(pageNumber)}
+                    aria-label={`${pageNumber}ページ目へ`}
+                    className="flex h-10 min-w-[2.5rem] items-center justify-center rounded-full border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 hover:border-pink-300 hover:text-pink-600"
+                  >
+                    {pageNumber}
+                  </Link>
+                )
+              ))}
+              {currentPage < totalPages && (
+                <Link
+                  href={pageHref(currentPage + 1)}
+                  className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-pink-600"
+                >
+                  次へ →
+                </Link>
+              )}
+            </nav>
+          )}
         </div>
       </main>
     </>
