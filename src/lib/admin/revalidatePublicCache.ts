@@ -20,6 +20,7 @@ export const PUBLIC_CACHE_TASKS = new Set([
   "score",
   "missing-prices",
   "sample-movie",
+  "amateur-api-catalog",
 ]);
 
 export type PublicCacheRevalidationOptions = {
@@ -84,7 +85,21 @@ export async function revalidatePublicCacheForTasks(
     tags.add("entity-works");
   }
 
+  if (knownTasks.includes("amateur-api-catalog")) {
+    for (const path of ["/amateur", "/amateur/search", "/amateur/sale", "/amateur/genre", "/amateur/maker"]) {
+      paths.add(path);
+    }
+    tags.add("fanza-amateur-home");
+    tags.add("fanza-amateur-catalog");
+  }
+
   for (const path of paths) revalidatePath(path);
+
+  if (knownTasks.includes("amateur-api-catalog")) {
+    for (const path of ["/amateur/[contentId]", "/amateur/genre/[name]", "/amateur/maker/[name]"]) {
+      revalidatePath(path, "page");
+    }
+  }
 
   for (const tag of tags) revalidateTag(tag, tag === "home-price-insights" ? "max" : { expire: 0 });
   for (const tag of workTags) revalidateTag(tag, { expire: 0 });
