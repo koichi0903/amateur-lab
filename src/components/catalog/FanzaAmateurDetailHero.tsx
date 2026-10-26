@@ -91,8 +91,12 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
     return aIndex - bIndex;
   }), [priceHistory]);
   const [selectedPriceType, setSelectedPriceType] = useState("");
-  const activePriceType = priceTypes.includes(selectedPriceType) ? selectedPriceType : priceTypes[0] ?? "";
   const currentPrice = item.currentPrice;
+  const representativePriceType = priceTypes.find((type) => {
+    const deliveryPrice = item.prices.deliveries?.delivery?.find((delivery) => delivery.type === type)?.price;
+    return parsePrice(deliveryPrice) === currentPrice;
+  }) ?? priceTypes[0] ?? "";
+  const activePriceType = priceTypes.includes(selectedPriceType) ? selectedPriceType : representativePriceType;
   const listPrice = parsePrice(item.prices?.list_price);
   const discount = currentPrice != null && listPrice != null && listPrice > currentPrice
     ? Math.round((1 - currentPrice / listPrice) * 100)
@@ -182,3 +186,4 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
     </section>
   );
 }
+
