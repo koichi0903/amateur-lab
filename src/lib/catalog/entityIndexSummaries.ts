@@ -43,7 +43,14 @@ const getCachedEntityIndexSummaries = unstable_cache(
   { revalidate: 3600 }
 );
 
+const getCachedActressIndexSummaries = unstable_cache(
+  () => loadEntityIndexSummaries("actress"),
+  ["actress-index-summaries-v1"],
+  { revalidate: 43200 }
+);
+
 export async function getEntityIndexSummaries(kind: EntityIndexKind) {
+  if (kind === "actress") return getCachedActressIndexSummaries();
   return getCachedEntityIndexSummaries(kind);
 }
 

@@ -12,7 +12,7 @@ import { ENTITY_PAGE_SIZE, getActressContext, getActressWorksPage } from "@/lib/
 import { getActressProfiles } from "@/lib/catalog/actressProfiles";
 import { buildInsightsForWorks, type HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 
-export const revalidate = 86400;
+export const revalidate = 43200;
 
 export async function actressMetadata(actressName: string, page = 1): Promise<Metadata> {
   let robots: Metadata["robots"] = { index: false, follow: true };

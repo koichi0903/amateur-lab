@@ -188,7 +188,7 @@ const getCachedActressWorks = unstable_cache(
     };
   },
   ["actress-works-v1"],
-  { revalidate: 900, tags: ["actress-works"] },
+  { revalidate: 43200, tags: ["actress-works"] },
 );
 
 async function loadActressWorksPage(name: string, page: number) {

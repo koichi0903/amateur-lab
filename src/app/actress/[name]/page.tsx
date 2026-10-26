@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ActressDetailPage, actressMetadata } from "@/components/catalog/ActressDetailPage";
 
-export const revalidate = 86400;
+export const revalidate = 43200;
 export const dynamic = "force-static";
 
 export async function generateMetadata({ params }: { params: Promise<{ name: string }> }): Promise<Metadata> {

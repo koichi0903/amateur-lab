@@ -11,7 +11,7 @@ import { pageMetadata } from "@/lib/seo";
 import { getActressProfiles, type ActressProfile } from "@/lib/catalog/actressProfiles";
 import WorkCategorySwitch from "@/components/catalog/WorkCategorySwitch";
 
-export const revalidate = 86400;
+export const revalidate = 43200;
 
 function normalizeActressSearchText(value: string | null | undefined) {
   return (value ?? "")
