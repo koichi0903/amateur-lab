@@ -135,7 +135,7 @@ async function upsertHistoryRows(rows: FanzaAmateurPriceHistoryRow[]) {
     const { error } = await supabaseAdmin
       .from("fanza_amateur_price_history")
       .upsert(rows.slice(index, index + UPSERT_BATCH_SIZE), {
-        onConflict: "source_run_id,content_id,price_type",
+        onConflict: "content_id,observed_date_jst,price_type",
       });
     if (error) throw new Error(`素人作品の価格履歴を保存できませんでした: ${error.message}`);
   }
@@ -207,7 +207,15 @@ export async function backfillFanzaAmateurPriceHistory(offset: number) {
     changedRows.push(...selected.changed);
     for (const [contentId, values] of selected.nextByWork) previousByWork.set(contentId, values);
   }
-  await upsertHistoryRows(changedRows);
+  const dailyRows = new Map<string, FanzaAmateurPriceHistoryRow>();
+  for (const row of changedRows) {
+    const observedAtMs = Date.parse(row.observed_at);
+    if (!Number.isFinite(observedAtMs)) throw new Error("価格履歴の取得日時が不正です。");
+    const observedDateJst = new Date(observedAtMs + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    dailyRows.set(`${row.content_id}\u0000${observedDateJst}\u0000${row.price_type}`, row);
+  }
+  const dailyChangedRows = [...dailyRows.values()];
+  await upsertHistoryRows(dailyChangedRows);
 
   const nextOffset = safeOffset + sourceRows.length;
   const sourceItemCount = count ?? nextOffset;

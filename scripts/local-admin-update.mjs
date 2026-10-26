@@ -39,7 +39,7 @@ const TASKS = {
   ranking: { label: "ランキング更新", path: "/api/dmm-ranking", jobName: "ranking" },
   score: { label: "スコア更新", path: "/api/score-update", jobName: "score" },
   "missing-prices": { label: "価格補完", path: "/api/update-missing-prices", jobName: "missing_prices" },
-  "amateur-api-catalog": { label: "素人作品API全件補完", path: "/api/admin/fanza-amateur-api-catalog", jobName: "amateur_api_catalog", revalidate: false },
+  "amateur-api-catalog": { label: "素人作品API全件補完", path: "/api/admin/fanza-amateur-api-catalog", jobName: "amateur_api_catalog" },
 };
 
 const ALL_TASKS = [
@@ -57,7 +57,7 @@ const ALL_TASKS = [
 
 const TASK_GROUPS = {
   "daily-0030": ["reserve", "new", "old", "sale", "ended-sale", "ranking", "score", "amateur-api-catalog"],
-  "daily-1030": ["sale", "ended-sale", "ranking", "score"],
+  "daily-1030": ["sale", "ended-sale", "ranking", "score", "amateur-api-catalog"],
   "tue-fri-1800": ["review", "semi-new"],
   "sunday-1800": ["missing-prices"],
 };
