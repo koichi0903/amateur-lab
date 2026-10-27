@@ -12,6 +12,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { analyzerGuideArticles } from "@/lib/analyzerGuideContent";
 import { editorialGuides, reportDefinitions } from "@/lib/editorialContent";
+import { getFanzaAmateurActressIndex } from "@/lib/dmm/fanzaAmateurCatalog";
 
 export type SitemapEntry = {
   url: string;
@@ -31,6 +32,7 @@ type SitemapWork = {
 };
 
 const PAGE_SIZE = 1000;
+const AMATEUR_ACTRESS_PAGE_SIZE = 1000;
 const WORK_QUERY_BATCH_SIZE = 200;
 const CACHE_CONTROL = "public, s-maxage=3600, stale-while-revalidate=86400";
 const staticEntries: SitemapEntry[] = [
@@ -46,6 +48,7 @@ const staticEntries: SitemapEntry[] = [
     priority: 0.8,
   })),
   { url: `${SITE_URL}/amateur`, changeFrequency: "daily", priority: 0.9 },
+  { url: `${SITE_URL}/amateur/actress`, changeFrequency: "weekly", priority: 0.8 },
   { url: `${SITE_URL}/amateur/genre`, changeFrequency: "daily", priority: 0.8 },
   { url: `${SITE_URL}/amateur/maker`, changeFrequency: "daily", priority: 0.8 },
   { url: `${SITE_URL}/guides`, changeFrequency: "weekly", priority: 0.9 },
@@ -198,6 +201,47 @@ export async function getCatalogSitemapEntries(): Promise<SitemapEntry[]> {
   return entries;
 }
 
+const getAmateurActressSummaries = unstable_cache(
+  async () => {
+    const firstPage = await getFanzaAmateurActressIndex({ sort: "count-desc", page: 1 });
+    const summaries = [...firstPage.items];
+
+    for (let page = 2; page <= firstPage.totalPages; page += 1) {
+      const result = await getFanzaAmateurActressIndex({ sort: "count-desc", page });
+      summaries.push(...result.items);
+    }
+
+    const uniqueByName = new Map<string, (typeof summaries)[number]>();
+    for (const summary of summaries) {
+      const name = summary.name.trim();
+      if (name && Number(summary.work_count) > 0 && !uniqueByName.has(name)) {
+        uniqueByName.set(name, summary);
+      }
+    }
+    return [...uniqueByName.values()];
+  },
+  ["seo-sitemap-fanza-amateur-actresses-v1"],
+  { revalidate: 3600, tags: ["fanza-amateur-actress"] },
+);
+
+export async function getAmateurActressSitemapPaths(): Promise<string[]> {
+  const summaries = await getAmateurActressSummaries();
+  return Array.from(
+    { length: Math.ceil(summaries.length / AMATEUR_ACTRESS_PAGE_SIZE) },
+    (_, index) => `/sitemaps/amateur-actress-${index + 1}.xml`,
+  );
+}
+
+export async function getAmateurActressSitemapEntries(chunkNumber: number): Promise<SitemapEntry[]> {
+  const summaries = await getAmateurActressSummaries();
+  const from = (chunkNumber - 1) * AMATEUR_ACTRESS_PAGE_SIZE;
+  return summaries.slice(from, from + AMATEUR_ACTRESS_PAGE_SIZE).map((summary) => ({
+    url: `${SITE_URL}/amateur/actress/${encodeURIComponent(summary.name)}`,
+    changeFrequency: "weekly",
+    priority: 0.7,
+  }));
+}
+
 function escapeXml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -247,3 +291,4 @@ function xmlResponse(xml: string): Response {
     },
   });
 }
+

@@ -1,4 +1,5 @@
 import {
+  getAmateurActressSitemapPaths,
   getWorkSitemapPaths,
   renderSitemapIndex,
 } from "@/lib/seoSitemap";
@@ -9,11 +10,16 @@ export const revalidate = 3600;
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const workSitemaps = await getWorkSitemapPaths();
+  const [workSitemaps, amateurActressSitemaps] = await Promise.all([
+    getWorkSitemapPaths(),
+    getAmateurActressSitemapPaths(),
+  ]);
 
   return renderSitemapIndex([
     "/sitemaps/static.xml",
     "/sitemaps/catalog.xml",
+    ...amateurActressSitemaps,
     ...workSitemaps,
   ]);
 }
+
