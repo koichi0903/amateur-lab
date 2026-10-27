@@ -126,6 +126,10 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
   }));
   const lowestPrice = activeHistory.length ? Math.min(...activeHistory.map(({ price }) => price)) : null;
   const samplePlayerAvailable = Boolean(officialSampleEmbedUrl || playableMovieUrl);
+  const performers = item.confirmedPerformers ?? [];
+  const makers = item.iteminfo?.maker?.map((maker) => maker.name).filter(Boolean) ?? [];
+  const seriesList = item.iteminfo?.series?.map((series) => series.name).filter(Boolean) ?? [];
+  const genres = item.iteminfo?.genre?.map((genre) => genre.name).filter(Boolean) ?? [];
 
   return (
     <section className="grid gap-2 lg:grid-cols-[minmax(0,1.08fr)_minmax(380px,0.92fr)] lg:gap-8">
@@ -166,6 +170,11 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
           <div className="flex flex-wrap items-end gap-3"><strong className="text-4xl font-black leading-none text-pink-600 sm:text-5xl">{currentPrice != null ? `¥${currentPrice.toLocaleString("ja-JP")}` : "価格未取得"}</strong>{discount > 0 && listPrice != null && <><span className="text-sm text-slate-400 line-through">¥{listPrice.toLocaleString("ja-JP")}</span><span className="rounded bg-pink-100 px-2 py-1 text-xs font-black text-pink-700">{discount}%OFF</span></>}</div>
           <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-500"><span>発売日：<strong className="text-slate-800">{item.date?.slice(0, 10) || "未取得"}</strong></span>{volume && <span>収録時間：<strong className="text-slate-800">{volume}</strong></span>}<span>レビュー：<strong className="text-slate-800">★ {item.reviewAverage != null ? item.reviewAverage.toFixed(1) : "—"}（{item.review?.count ?? 0}件）</strong></span></div>
         </div>
+        <div className="flex min-w-0 flex-wrap gap-2">
+          {performers.map((performer) => <span key={`performer-${performer}`} className="max-w-full break-words rounded-full bg-pink-100 px-3 py-1 text-sm font-semibold text-pink-700">♀ {performer}</span>)}
+          {makers.map((maker) => <Link key={`maker-${maker}`} href={`/amateur/search?maker=${encodeURIComponent(maker)}`} className="max-w-full break-words rounded-full bg-green-100 px-3 py-1 text-sm font-semibold text-green-700">🏢 {maker}</Link>)}
+          {genres.map((genre) => <Link key={`genre-${genre}`} href={`/amateur/search?genre=${encodeURIComponent(genre)}`} className="max-w-full break-words rounded-full bg-indigo-100 px-3 py-1 text-sm font-semibold text-indigo-700">🏷 {genre}</Link>)}
+        </div>
         <p className="mt-3 text-sm leading-6 text-slate-600">現在価格：{currentPrice != null ? `${currentPrice.toLocaleString("ja-JP")}円` : "未取得"}<br />素人作品データ取得日：{formatDate(fetchedAt)}<br />{lowestPrice != null ? `発掘LABの記録上の最安値（${activePriceType || "価格"}）：${lowestPrice.toLocaleString("ja-JP")}円。` : "価格履歴から最安値を判定するデータはまだありません。"}<br />作品コード：{item.content_id}</p>
         <div className="mt-6 mb-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 border-t pt-4"><h2 className="mb-3 text-lg font-bold">価格推移</h2><div className="flex flex-wrap gap-2">{priceTypes.map((type) => <button key={type} type="button" onClick={() => setSelectedPriceType(type)} className={`rounded-full border px-3 py-1 text-sm transition ${activePriceType === type ? "bg-pink-500 text-white" : "bg-pink-50 hover:bg-pink-100"}`}>{formatPriceType(type)}</button>)}</div></div>
@@ -177,11 +186,9 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
           <AmateurFavoriteButton contentId={item.content_id} iconOnly className="flex h-14 w-[72px] shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-2xl leading-none text-slate-600 transition hover:border-pink-200 hover:bg-pink-50" />
         </div>
         <FanzaAmateurPriceAlertButton contentId={item.content_id} workTitle={item.title} makers={[...new Set(item.iteminfo?.maker?.map((maker) => maker.name.trim()).filter(Boolean) ?? [])]} />
-        <div className="mt-5 flex min-w-0 flex-wrap gap-2 border-t border-slate-200 pt-4">
-          {item.iteminfo?.maker?.map((maker) => maker.name).filter(Boolean).map((maker) => <Link key={`maker-${maker}`} href={`/amateur/search?maker=${encodeURIComponent(maker)}`} className="max-w-full break-words rounded-full bg-green-100 px-3 py-1 text-sm font-semibold text-green-700">🏢 {maker}</Link>)}
-          {item.iteminfo?.series?.map((series) => series.name).filter(Boolean).map((series) => <Link key={`series-${series}`} href={`/amateur/search?q=${encodeURIComponent(series)}`} className="max-w-full break-words rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">▣ {series}</Link>)}
-          {item.iteminfo?.genre?.map((genre) => genre.name).filter(Boolean).map((genre) => <Link key={`genre-${genre}`} href={`/amateur/search?genre=${encodeURIComponent(genre)}`} className="max-w-full break-words rounded-full bg-indigo-100 px-3 py-1 text-sm font-semibold text-indigo-700">🏷 {genre}</Link>)}
-        </div>
+        {seriesList.length > 0 && <div className="mt-5 flex min-w-0 flex-wrap gap-2 border-t border-slate-200 pt-4">
+          {seriesList.map((series) => <Link key={`series-${series}`} href={`/amateur/search?q=${encodeURIComponent(series)}`} className="max-w-full break-words rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">▣ {series}</Link>)}
+        </div>}
       </div>
     </section>
   );
