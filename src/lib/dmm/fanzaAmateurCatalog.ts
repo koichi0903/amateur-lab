@@ -11,6 +11,7 @@ export type FanzaAmateurSort = "date" | "review" | "price" | "-price";
 
 export type FanzaAmateurCatalogItem = DmmItem & {
   product_id?: string;
+  confirmedPerformers?: string[];
   affiliateURL: string;
   imageUrl: string | null;
   currentPrice: number | null;
@@ -46,6 +47,29 @@ function priceNumber(value: unknown): number | null {
   if (!digits) return null;
   const parsed = Number(digits);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+export async function addConfirmedPerformersToAmateurItems(items: FanzaAmateurCatalogItem[]) {
+  const contentIds = [...new Set(items.map(({ content_id }) => content_id).filter(Boolean))];
+  if (!contentIds.length) return items;
+
+  const { data, error } = await supabaseAdmin
+    .from("fanza_amateur_performer_matches")
+    .select("content_id,performer_name")
+    .eq("verification_status", "confirmed")
+    .in("content_id", contentIds);
+  if (error) throw new Error(`確認済み出演者を読み込めませんでした: ${error.message}`);
+
+  const namesByContentId = new Map<string, string[]>();
+  for (const row of data ?? []) {
+    const name = asText(row.performer_name);
+    if (!name) continue;
+    const names = namesByContentId.get(row.content_id) ?? [];
+    if (!names.includes(name)) names.push(name);
+    namesByContentId.set(row.content_id, names);
+  }
+
+  return items.map((item) => ({ ...item, confirmedPerformers: namesByContentId.get(item.content_id) ?? [] }));
 }
 
 async function loadAmateurSummaryPriceHistory(contentIds: string[], observedSince: string) {
@@ -538,6 +562,9 @@ async function loadFanzaAmateurHomeSections() {
   const latestCards = latest.items.slice(0, 12).map((item) => ({ item }));
   const allCards = [...popular, ...campaign, ...latestCards];
   const contentIds = [...new Set(allCards.map(({ item }) => item.content_id))];
+  const confirmedPerformers = await addConfirmedPerformersToAmateurItems(allCards.map(({ item }) => item));
+  const performersByContentId = new Map(confirmedPerformers.map((item) => [item.content_id, item.confirmedPerformers ?? []]));
+  for (const { item } of allCards) item.confirmedPerformers = performersByContentId.get(item.content_id) ?? [];
   const windowEndAt = new Date(now).toISOString();
   const windowStartAt = new Date(now - 90 * 24 * 60 * 60 * 1000).toISOString();
   const storedMedia = contentIds.length
@@ -840,7 +867,8 @@ async function loadFanzaAmateurBrowsePage({ page = 1, query, genre, genres = [],
     historyByContentId.set(row.content_id, history);
   }
 
-  const cards: FanzaAmateurHomeCard[] = items.map((item) => {
+  const enrichedItems = await addConfirmedPerformersToAmateurItems(items);
+  const cards: FanzaAmateurHomeCard[] = enrichedItems.map((item) => {
     const history = [...(historyByContentId.get(item.content_id) ?? [])].sort((a, b) => a.changedAt.localeCompare(b.changedAt));
     const priceHistory = item.currentPrice == null ? history : [
       ...history,
@@ -926,3 +954,4 @@ export async function getFanzaAmateurTaxonomy(kind: "genre" | "maker") {
     return { name, count: work_count, imageUrl };
   });
 }
+

@@ -5,7 +5,7 @@ import Header from "@/components/layout/Header";
 import FanzaAmateurTopCard from "@/components/catalog/FanzaAmateurTopCard";
 import FanzaAmateurDetailHero from "@/components/catalog/FanzaAmateurDetailHero";
 import Breadcrumb from "@/app/components/Breadcrumb";
-import { getFanzaAmateurCatalogWork, getFanzaAmateurRelatedWorks, getFanzaAmateurSamplePlayerUrl, type FanzaAmateurCatalogItem, type FanzaAmateurHomeCard } from "@/lib/dmm/fanzaAmateurCatalog";
+import { addConfirmedPerformersToAmateurItems, getFanzaAmateurCatalogWork, getFanzaAmateurRelatedWorks, getFanzaAmateurSamplePlayerUrl, type FanzaAmateurCatalogItem, type FanzaAmateurHomeCard } from "@/lib/dmm/fanzaAmateurCatalog";
 import { pageMetadata } from "@/lib/seo";
 
 export const revalidate = 3600;
@@ -86,7 +86,7 @@ export default async function FanzaAmateurWorkPage({ params }: { params: Promise
   const { item, fetchedAt, priceHistory, mp4Url } = result;
   const rawItem = item as unknown as Record<string, unknown>;
   const samples = sampleImages(item);
-  const relatedItems = await getFanzaAmateurRelatedWorks(item);
+  const relatedItems = await addConfirmedPerformersToAmateurItems(await getFanzaAmateurRelatedWorks(item));
   const relatedWorks: FanzaAmateurHomeCard[] = relatedItems.map((related) => ({
     item: related,
     priceHistory: [],
@@ -118,3 +118,4 @@ export default async function FanzaAmateurWorkPage({ params }: { params: Promise
     </>
   );
 }
+

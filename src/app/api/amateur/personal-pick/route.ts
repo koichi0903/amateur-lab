@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { normalizeFanzaAmateurCatalogItem, type FanzaAmateurCatalogItem } from "@/lib/dmm/fanzaAmateurCatalog";
+import { addConfirmedPerformersToAmateurItems, normalizeFanzaAmateurCatalogItem, type FanzaAmateurCatalogItem } from "@/lib/dmm/fanzaAmateurCatalog";
 
 function names(values: Array<{ name: string }> | undefined) {
   return [...new Set((values ?? []).map(({ name }) => name.trim()).filter(Boolean))];
@@ -92,5 +92,9 @@ export async function POST(request: Request) {
       reason: matchedTokens[0] ? `${matchedTokens[0].name}が好きなあなたへ` : priceMatch ? "いつもの価格帯から選んだ一作品" : "高評価レビューから選んだ一作品",
     }));
 
-  return NextResponse.json({ works: favoriteItems, personalPicks });
+  const enrichedPicks = await addConfirmedPerformersToAmateurItems(personalPicks.map(({ item }) => item));
+  const enrichedById = new Map(enrichedPicks.map((item) => [item.content_id, item]));
+
+  return NextResponse.json({ works: favoriteItems, personalPicks: personalPicks.map((pick) => ({ ...pick, item: enrichedById.get(pick.item.content_id) ?? pick.item })) });
 }
+

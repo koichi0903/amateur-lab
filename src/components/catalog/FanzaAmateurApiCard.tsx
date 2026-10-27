@@ -13,6 +13,7 @@ function priceLabel(value: number | null) {
 
 export default function FanzaAmateurApiCard({ item }: { item: FanzaAmateurCatalogItem }) {
   const genres = item.iteminfo?.genre?.map((genre) => genre.name).filter(Boolean).slice(0, 3) ?? [];
+  const performers = item.confirmedPerformers ?? [];
   const releaseDate = item.date?.slice(0, 10) ?? "";
   const [showSample, setShowSample] = useState(false);
   const samplePlayerUrl = item.sampleMovieURL?.size_476_306;
@@ -30,6 +31,7 @@ export default function FanzaAmateurApiCard({ item }: { item: FanzaAmateurCatalo
       <div className="flex flex-1 flex-col p-3">
         <h2 className="line-clamp-2 min-h-10 text-sm font-black leading-5 text-slate-900">{item.title}</h2>
         <p className="mt-1 truncate text-xs font-semibold text-slate-500">{item.iteminfo?.maker?.map((maker) => maker.name).filter(Boolean).join(" / ") || "メーカー情報なし"}</p>
+        {performers.length > 0 && <p className="mt-2 line-clamp-1 text-[11px] font-black text-pink-700">{performers.join("・")}</p>}
         {genres.length > 0 && <p className="mt-2 line-clamp-1 text-[11px] font-bold text-slate-500">{genres.join("・")}</p>}
         <div className="mt-auto pt-3">
           <div className="flex items-end justify-between gap-2">
@@ -79,3 +81,4 @@ export default function FanzaAmateurApiCard({ item }: { item: FanzaAmateurCatalo
     </article>
   );
 }
+

@@ -51,6 +51,7 @@ export default function FanzaAmateurTopCard({ card, showChart = true, showRank =
     : 0;
   const activeCampaign = item.campaigns.find((campaign) => campaignIsActive(campaign.dateBegin, campaign.dateEnd));
   const genres = item.iteminfo?.genre?.map((genre) => genre.name).filter(Boolean) ?? [];
+  const performers = item.confirmedPerformers ?? [];
   const releaseDate = (() => { const value = item.date?.slice(0, 10); const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/); return match ? `${match[1]}年${Number(match[2])}月${Number(match[3])}日` : value ?? ""; })();
 
   return (
@@ -73,6 +74,7 @@ export default function FanzaAmateurTopCard({ card, showChart = true, showRank =
         <h3 className="mt-3 line-clamp-2 min-h-10 text-sm font-black leading-5 text-slate-900">{item.title}</h3>
         <p className="mt-1 truncate text-[11px] font-bold text-slate-500">発売日：{releaseDate || "未取得"}</p>
         <div className="mt-1 flex min-h-11 max-h-11 min-w-0 content-start flex-wrap gap-1 overflow-hidden">
+          {performers.map((performer) => <span key={`performer:${performer}`} className="max-w-full truncate rounded-md bg-pink-100 px-1.5 py-1 text-[10px] font-bold text-pink-700">{performer}</span>)}
           {genres.map((genre) => <Link key={genre} href={`/amateur/search?genre=${encodeURIComponent(genre)}`} className="max-w-full truncate rounded-md bg-slate-100 px-1.5 py-1 text-[10px] font-bold text-slate-600 transition hover:bg-pink-100 hover:text-pink-700">{genre}</Link>)}
         </div>
       </div>
@@ -92,3 +94,4 @@ export default function FanzaAmateurTopCard({ card, showChart = true, showRank =
     </article>
   );
 }
+
