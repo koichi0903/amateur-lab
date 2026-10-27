@@ -84,6 +84,7 @@ export default async function FanzaAmateurWorkPage({ params }: { params: Promise
   if (!result) notFound();
 
   const { item, fetchedAt, priceHistory, mp4Url } = result;
+  const [itemWithPerformers] = await addConfirmedPerformersToAmateurItems([item]);
   const rawItem = item as unknown as Record<string, unknown>;
   const samples = sampleImages(item);
   const relatedItems = await addConfirmedPerformersToAmateurItems(await getFanzaAmateurRelatedWorks(item));
@@ -102,7 +103,7 @@ export default async function FanzaAmateurWorkPage({ params }: { params: Promise
         <div className="mx-auto max-w-[1500px] px-4 sm:px-6">
           <Breadcrumb variant="compact" items={[{ label: "トップ", href: "/" }, { label: "FANZA素人作品", href: "/amateur" }, { label: "作品詳細" }]} />
           <section className="mt-0 p-0 sm:p-8">
-            <FanzaAmateurDetailHero item={item} fetchedAt={fetchedAt} volume={textValue(rawItem.volume)} officialSampleEmbedUrl={getFanzaAmateurSamplePlayerUrl(item)} sampleMovieMp4Url={mp4Url} sampleImages={samples} priceHistory={priceHistory} />
+            <FanzaAmateurDetailHero item={itemWithPerformers} fetchedAt={fetchedAt} volume={textValue(rawItem.volume)} officialSampleEmbedUrl={getFanzaAmateurSamplePlayerUrl(item)} sampleMovieMp4Url={mp4Url} sampleImages={samples} priceHistory={priceHistory} />
           </section>
 
           {relatedWorks.length > 0 && <section className="mt-12">
