@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { ArrowRight, Search, Sparkles, UserRound } from "lucide-react";
 import Header from "@/components/layout/Header";
 import WorkCategorySwitch from "@/components/catalog/WorkCategorySwitch";
 import WorkImage from "@/components/home/WorkImage";
+import CollectionPageJsonLd from "@/app/components/CollectionPageJsonLd";
 import { getFanzaAmateurActressIndex, type FanzaAmateurActressSort } from "@/lib/dmm/fanzaAmateurCatalog";
-import { pageMetadata } from "@/lib/seo";
+import { pageMetadata, SITE_URL } from "@/lib/seo";
 
 export const revalidate = 3600;
 
@@ -41,7 +43,7 @@ function visiblePageNumbers(currentPage: number, totalPages: number): Array<numb
   return [1, "start-ellipsis", currentPage - 1, currentPage, currentPage + 1, "end-ellipsis", totalPages];
 }
 
-export async function generateMetadata({ searchParams }: { searchParams: Promise<{ q?: string; page?: string }> }): Promise<Metadata> {
+export async function generateMetadata({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; sort?: string }> }): Promise<Metadata> {
   const params = await searchParams;
   const query = (params.q ?? "").trim();
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
@@ -49,7 +51,7 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
     title: `${query ? `「${query}」の素人出演女優検索結果` : "素人出演女優検索・出演作品一覧"}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
     description: "出演者が確認できたFANZA素人作品を、女優プロフィールや作品数から検索できます。",
     canonical: query ? "/amateur/actress" : `/amateur/actress${page > 1 ? `?page=${page}` : ""}`,
-    robots: query ? { index: false, follow: true } : undefined,
+    robots: query || (params.sort && params.sort !== "count-desc") ? { index: false, follow: true } : undefined,
   });
 }
 
@@ -60,9 +62,21 @@ export default async function AmateurActressPage({ searchParams }: { searchParam
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const sort = SORTS.some(({ value }) => value === params.sort) ? params.sort as FanzaAmateurActressSort : "count-desc";
   const result = await getFanzaAmateurActressIndex({ query, sort, page });
-  const currentPage = Math.min(page, result.totalPages);
+  if (page > result.totalPages) notFound();
+  const currentPage = page;
+  const canonicalUrl = `${SITE_URL}/amateur/actress${currentPage > 1 ? `?page=${currentPage}` : ""}`;
 
   return <><Header /><main className="min-h-screen bg-[#f8fafc] text-slate-950">
+    <CollectionPageJsonLd
+      title={`FANZA素人 女優検索・出演作品一覧${currentPage > 1 ? ` ${currentPage}ページ目` : ""} | 発掘LAB`}
+      description="出演者が確認できたFANZA素人作品を、女優プロフィールや作品数から探せます。作品別の価格情報と価格履歴も確認できます。"
+      url={canonicalUrl}
+      items={result.items.map((item) => ({
+        name: item.name,
+        url: `${SITE_URL}/amateur/actress/${encodeURIComponent(item.name)}`,
+        image: item.profile_image_url || item.image_url || undefined,
+      }))}
+    />
     <section className="border-b border-slate-200 bg-white">
       <div className="mx-auto max-w-[1500px] px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
         <WorkCategorySwitch active="amateur" />
@@ -117,3 +131,4 @@ export default async function AmateurActressPage({ searchParams }: { searchParam
     </div>
   </main></>;
 }
+

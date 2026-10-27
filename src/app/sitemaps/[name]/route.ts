@@ -1,4 +1,6 @@
 import {
+  getAmateurActressSitemapEntries,
+  getAmateurActressSitemapPaths,
   getCatalogSitemapEntries,
   getStaticSitemapEntries,
   getWorkSitemapEntries,
@@ -29,6 +31,17 @@ export async function GET(_request: Request, context: SitemapRouteContext) {
     return renderSitemap(await getCatalogSitemapEntries());
   }
 
+  const amateurActressChunk = /^amateur-actress-(\d+)\.xml$/.exec(name);
+  if (amateurActressChunk) {
+    const chunkNumber = Number.parseInt(amateurActressChunk[1], 10);
+    const paths = await getAmateurActressSitemapPaths();
+    if (chunkNumber < 1 || chunkNumber > paths.length) {
+      return new Response("Not Found", { status: 404 });
+    }
+
+    return renderSitemap(await getAmateurActressSitemapEntries(chunkNumber));
+  }
+
   const workChunk = /^works-(\d+)\.xml$/.exec(name);
   if (workChunk) {
     const chunkNumber = Number.parseInt(workChunk[1], 10);
@@ -41,3 +54,4 @@ export async function GET(_request: Request, context: SitemapRouteContext) {
 
   return new Response("Not Found", { status: 404 });
 }
+
