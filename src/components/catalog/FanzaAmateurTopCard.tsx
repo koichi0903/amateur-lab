@@ -74,7 +74,7 @@ export default function FanzaAmateurTopCard({ card, showChart = true, showRank =
         <h3 className="mt-3 line-clamp-2 min-h-10 text-sm font-black leading-5 text-slate-900">{item.title}</h3>
         <p className="mt-1 truncate text-[11px] font-bold text-slate-500">発売日：{releaseDate || "未取得"}</p>
         <div className="mt-1 flex min-h-11 max-h-11 min-w-0 content-start flex-wrap gap-1 overflow-hidden">
-          {performers.map((performer) => <span key={`performer:${performer}`} className="max-w-full truncate rounded-md bg-pink-100 px-1.5 py-1 text-[10px] font-bold text-pink-700">{performer}</span>)}
+          {performers.map((performer) => <Link key={`performer:${performer}`} href={`/amateur/actress/${encodeURIComponent(performer)}`} aria-label={`${performer}の素人出演作品一覧`} className="max-w-full truncate rounded-md bg-pink-100 px-1.5 py-1 text-[10px] font-bold text-pink-700 hover:bg-pink-200 hover:underline">{performer}</Link>)}
           {genres.map((genre) => <Link key={genre} href={`/amateur/search?genre=${encodeURIComponent(genre)}`} className="max-w-full truncate rounded-md bg-slate-100 px-1.5 py-1 text-[10px] font-bold text-slate-600 transition hover:bg-pink-100 hover:text-pink-700">{genre}</Link>)}
         </div>
       </div>

@@ -67,6 +67,7 @@ export default function AdvancedSearchModal({ open, onClose, catalog = "fanza" }
         </div>
         <form id={isAmateur ? "advanced-search-form-amateur" : "advanced-search-form"} action={isAmateur ? "/amateur/search" : "/search"} className="overflow-y-auto px-5 py-5">
           <label className="block text-xs font-black text-slate-600">キーワード<input name="q" maxLength={100} className="mt-2 h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-100" placeholder={isAmateur ? "作品名・品番など..." : "タイトル、メーカー名、女優名など..."} /></label>
+          {isAmateur && <label className="mt-5 block text-xs font-black text-slate-600">女優名（登録名と一致）<input name="performer" maxLength={100} autoComplete="off" className="mt-2 h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-100" placeholder="例：美園和花" /></label>}
           <fieldset className="mt-5">
             <legend className="text-xs font-black text-slate-600">ジャンル</legend>
             <input name={isAmateur ? "genres" : "genres"} value={selectedGenres.join(",")} readOnly className="sr-only" aria-label="選択したジャンル" />

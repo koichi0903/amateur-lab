@@ -171,7 +171,7 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
           <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-500"><span>発売日：<strong className="text-slate-800">{item.date?.slice(0, 10) || "未取得"}</strong></span>{volume && <span>収録時間：<strong className="text-slate-800">{volume}</strong></span>}<span>レビュー：<strong className="text-slate-800">★ {item.reviewAverage != null ? item.reviewAverage.toFixed(1) : "—"}（{item.review?.count ?? 0}件）</strong></span></div>
         </div>
         <div className="flex min-w-0 flex-wrap gap-2">
-          {performers.map((performer) => <span key={`performer-${performer}`} className="max-w-full break-words rounded-full bg-pink-100 px-3 py-1 text-sm font-semibold text-pink-700">♀ {performer}</span>)}
+          {performers.map((performer) => <Link key={`performer-${performer}`} href={`/amateur/actress/${encodeURIComponent(performer)}`} aria-label={`${performer}の素人出演作品一覧`} className="max-w-full break-words rounded-full bg-pink-100 px-3 py-1 text-sm font-semibold text-pink-700 hover:bg-pink-200 hover:underline">♀ {performer}</Link>)}
           {makers.map((maker) => <Link key={`maker-${maker}`} href={`/amateur/search?maker=${encodeURIComponent(maker)}`} className="max-w-full break-words rounded-full bg-green-100 px-3 py-1 text-sm font-semibold text-green-700">🏢 {maker}</Link>)}
           {genres.map((genre) => <Link key={`genre-${genre}`} href={`/amateur/search?genre=${encodeURIComponent(genre)}`} className="max-w-full break-words rounded-full bg-indigo-100 px-3 py-1 text-sm font-semibold text-indigo-700">🏷 {genre}</Link>)}
         </div>

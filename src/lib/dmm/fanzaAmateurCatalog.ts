@@ -28,6 +28,23 @@ export type FanzaAmateurHomeCard = {
   lowestObservedPrice: number | null;
 };
 
+export type FanzaAmateurActressSort = "count-desc" | "count-asc" | "birthday-asc" | "birthday-desc" | "cup-asc" | "cup-desc" | "height-asc" | "height-desc" | "bust-asc" | "bust-desc" | "waist-asc" | "waist-desc" | "hip-asc" | "hip-desc";
+
+export type FanzaAmateurActressSummary = {
+  name: string;
+  work_count: number;
+  image_url: string | null;
+  profile_image_url: string | null;
+  ruby: string | null;
+  birthday: string | null;
+  height_cm: number | null;
+  bust_cm: number | null;
+  waist_cm: number | null;
+  hip_cm: number | null;
+  cup: string | null;
+  total_count: number;
+};
+
 type CatalogPageRow = {
   raw_item: unknown;
   fetched_at: string;
@@ -437,6 +454,125 @@ const getCachedFanzaAmateurCatalogPage = unstable_cache(
   { revalidate: 86_400, tags: ["fanza-amateur-catalog"] },
 );
 
+const getCachedFanzaAmateurActressIndex = unstable_cache(
+  async (query: string | null, sort: FanzaAmateurActressSort, offset: number) => {
+    const { data, error } = await supabaseAdmin.rpc("get_fanza_amateur_actress_index", {
+      p_query: query,
+      p_sort: sort,
+      p_offset: offset,
+      p_limit: 24,
+    });
+    if (error) throw new Error(`素人出演女優を読み込めませんでした: ${error.message}`);
+    return (data ?? []) as FanzaAmateurActressSummary[];
+  },
+  ["fanza-amateur-actress-index-v1"],
+  { revalidate: 3_600, tags: ["fanza-amateur-actress"] },
+);
+
+export async function getFanzaAmateurActressIndex({ query, sort, page }: { query?: string; sort: FanzaAmateurActressSort; page: number }) {
+  const safePage = Math.max(1, Math.trunc(page));
+  const safeQuery = query?.trim().slice(0, 100) || null;
+  const rows = await getCachedFanzaAmateurActressIndex(safeQuery, sort, (safePage - 1) * 24);
+  const totalCount = Number(rows[0]?.total_count ?? 0);
+  return {
+    items: rows,
+    page: safePage,
+    totalCount,
+    totalPages: Math.max(1, Math.ceil(totalCount / 24)),
+  };
+}
+
+type AmateurActressWorkRow = {
+  raw_item: unknown;
+  fetched_at: string;
+  image_url: unknown;
+  sample_image_url: unknown;
+  confirmed_performers: string[] | null;
+  total_count: number | string;
+};
+
+export async function getFanzaAmateurActressWorks({ name, page = 1, pageSize = 60, sort = "newest" }: {
+  name: string;
+  page?: number;
+  pageSize?: number;
+  sort?: "newest" | "review";
+}) {
+  const safePage = Math.max(1, Math.trunc(page));
+  const safePageSize = Math.min(300, Math.max(1, Math.trunc(pageSize)));
+  const { data, error } = await supabaseAdmin.rpc("get_fanza_amateur_actress_works", {
+    p_name: name,
+    p_offset: (safePage - 1) * safePageSize,
+    p_limit: safePageSize,
+    p_sort: sort,
+  });
+  if (error) throw new Error(`素人出演作品を読み込めませんでした: ${error.message}`);
+
+  const rows = (data ?? []) as AmateurActressWorkRow[];
+  const items = rows.flatMap((row) => {
+    const item = normalizeFanzaAmateurCatalogItem(row.raw_item);
+    if (!item) return [];
+    const savedImages = isRecord(row.image_url) ? row.image_url : {};
+    item.imageURL = {
+      ...(item.imageURL ?? {}),
+      large: asText(savedImages.large) || item.imageURL?.large,
+      small: asText(savedImages.small) || item.imageURL?.small,
+      list: asText(savedImages.list) || item.imageURL?.list,
+    };
+    const savedSamples = isRecord(row.sample_image_url) ? row.sample_image_url : {};
+    const savedLargeSamples = isRecord(savedSamples.sample_l) ? savedSamples.sample_l : {};
+    const savedSmallSamples = isRecord(savedSamples.sample_s) ? savedSamples.sample_s : {};
+    const largeSampleImages = Array.isArray(savedLargeSamples.image) ? savedLargeSamples.image.filter((url): url is string => typeof url === "string") : [];
+    const smallSampleImages = Array.isArray(savedSmallSamples.image) ? savedSmallSamples.image.filter((url): url is string => typeof url === "string") : [];
+    if (largeSampleImages.length || smallSampleImages.length) {
+      item.sampleImageURL = {
+        ...(item.sampleImageURL ?? {}),
+        sample_l: largeSampleImages.length ? { image: largeSampleImages } : item.sampleImageURL?.sample_l,
+        sample_s: smallSampleImages.length ? { image: smallSampleImages } : item.sampleImageURL?.sample_s,
+      };
+    }
+    item.confirmedPerformers = row.confirmed_performers ?? [];
+    return [{ item, fetchedAt: row.fetched_at }];
+  });
+  const totalCount = Number(rows[0]?.total_count ?? 0);
+  const contentIds = items.map(({ item }) => item.content_id);
+  const priceWindowEndAt = new Date().toISOString();
+  const priceWindowStartAt = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const historyResult = contentIds.length
+    ? await supabaseAdmin.from("fanza_amateur_price_history")
+      .select("content_id,observed_at,price")
+      .eq("price_type", "summary")
+      .in("content_id", contentIds)
+      .gte("observed_at", priceWindowStartAt)
+      .order("observed_at", { ascending: false })
+      .limit(1_000)
+    : { data: [], error: null };
+  if (historyResult.error) throw new Error(`素人出演作品の価格履歴を読み込めませんでした: ${historyResult.error.message}`);
+
+  const historyByContentId = new Map<string, Array<{ price: number; changedAt: string; priceKind: "regular" | "sale" | null }>>();
+  for (const row of historyResult.data ?? []) {
+    const price = priceNumber(row.price);
+    if (price == null) continue;
+    const history = historyByContentId.get(row.content_id) ?? [];
+    history.push({ price, changedAt: row.observed_at, priceKind: null });
+    historyByContentId.set(row.content_id, history);
+  }
+  const cards: FanzaAmateurHomeCard[] = items.map(({ item }) => {
+    const history = [...(historyByContentId.get(item.content_id) ?? [])].sort((a, b) => a.changedAt.localeCompare(b.changedAt));
+    const priceHistory = item.currentPrice == null ? history : [
+      ...history,
+      { price: item.currentPrice, changedAt: priceWindowEndAt, priceKind: null, isCurrent: true },
+    ];
+    return {
+      item,
+      priceHistory,
+      priceWindowStartAt,
+      priceWindowEndAt,
+      lowestObservedPrice: priceHistory.length ? Math.min(...priceHistory.map((point) => point.price)) : null,
+    };
+  });
+  return { cards, totalCount, totalPages: Math.ceil(totalCount / safePageSize), page: safePage };
+}
+
 export async function getFanzaAmateurCatalogPage({ page, sort }: { page: number; sort: FanzaAmateurSort }) {
   return getCachedFanzaAmateurCatalogPage({ page, sort });
 }
@@ -648,6 +784,7 @@ export async function getFanzaAmateurHomeSections() {
 export type FanzaAmateurBrowseFilter = {
   page?: number;
   query?: string;
+  performer?: string;
   genre?: string;
   genres?: string[];
   maker?: string;
@@ -677,12 +814,35 @@ const getCachedFanzaAmateurEntityContentIds = unstable_cache(
   { revalidate: 86_400, tags: ["fanza-amateur-taxonomy", "fanza-amateur-catalog"] },
 );
 
-async function loadFanzaAmateurBrowsePage({ page = 1, query, genre, genres = [], maker, sort = "date_desc", campaignOnly = false, maxPrice, minRating, minPrice, releaseFrom, releaseTo }: FanzaAmateurBrowseFilter) {
+async function loadFanzaAmateurPerformerContentIds(name: string) {
+  const ids: string[] = [];
+  const batchSize = 1_000;
+  for (let from = 0; ; from += batchSize) {
+    const { data, error } = await supabaseAdmin
+      .from("fanza_amateur_performer_matches")
+      .select("content_id")
+      .eq("verification_status", "confirmed")
+      .eq("performer_name", name)
+      .order("content_id", { ascending: true })
+      .range(from, from + batchSize - 1);
+    if (error) throw new Error("素人作品の女優情報を検索できませんでした: " + error.message);
+    ids.push(...(data ?? []).map((row) => row.content_id));
+    if (!data || data.length < batchSize) break;
+  }
+  return [...new Set(ids)];
+}
+
+const getCachedFanzaAmateurPerformerContentIds = unstable_cache(loadFanzaAmateurPerformerContentIds, ["fanza-amateur-performer-content-ids-v1"], { revalidate: 3600 });
+
+async function loadFanzaAmateurBrowsePage({ page = 1, query, performer, genre, genres = [], maker, sort = "date_desc", campaignOnly = false, maxPrice, minRating, minPrice, releaseFrom, releaseTo }: FanzaAmateurBrowseFilter) {
   const safePage = Math.max(1, Math.trunc(page));
   let items: FanzaAmateurCatalogItem[];
   let totalCount: number;
   const rankByContentId = new Map<string, number>();
   const safeQuery = query?.trim().slice(0, 100);
+  const safePerformer = performer?.trim().slice(0, 100);
+  const performerContentIds = safePerformer ? await getCachedFanzaAmateurPerformerContentIds(safePerformer) : null;
+  const performerContentIdSet = performerContentIds ? new Set(performerContentIds) : null;
   const selectedGenres = [...new Set([...genres, ...(genre ? [genre] : [])].map((value) => value.trim().slice(0, 100)).filter(Boolean))].slice(0, 30);
   const matchesAdvancedFilters = (item: FanzaAmateurCatalogItem) => {
     const releaseDate = item.date ?? "";
@@ -695,6 +855,7 @@ async function loadFanzaAmateurBrowsePage({ page = 1, query, genre, genres = [],
   if (sort === "rank" || campaignOnly) {
     const rankedCatalog = await getDmmFanzaAmateurRankedCatalog();
     const matchesFilters = (item: FanzaAmateurCatalogItem) => {
+      if (performerContentIdSet && !performerContentIdSet.has(item.content_id)) return false;
       if (safeQuery && !`${item.title} ${item.content_id} ${item.product_id ?? ""}`.toLocaleLowerCase("ja").includes(safeQuery.toLocaleLowerCase("ja"))) return false;
       if (genre && !item.iteminfo?.genre?.some((entry) => entry.name === genre)) return false;
       if (maker && !item.iteminfo?.maker?.some((entry) => entry.name === maker)) return false;
@@ -764,7 +925,7 @@ async function loadFanzaAmateurBrowsePage({ page = 1, query, genre, genres = [],
       const regular = listPrice(item);
       return current != null && regular != null && regular > current ? (regular - current) / regular : 0;
     };
-    const allEntityWorks = !campaignOnly && sort === "rank" && !safeQuery && genres.length === 0 && maxPrice == null && minRating == null && minPrice == null && !releaseFrom && !releaseTo && Boolean((genre && !maker) || (!genre && maker));
+    const allEntityWorks = !campaignOnly && sort === "rank" && !safeQuery && !safePerformer && genres.length === 0 && maxPrice == null && minRating == null && minPrice == null && !releaseFrom && !releaseTo && Boolean((genre && !maker) || (!genre && maker));
     if (allEntityWorks) {
       const entityIds = [...new Set(await getCachedFanzaAmateurEntityContentIds(genre ? "genre" : "maker", genre ?? maker ?? ""))];
       const entityIdSet = new Set(entityIds);
@@ -815,6 +976,7 @@ async function loadFanzaAmateurBrowsePage({ page = 1, query, genre, genres = [],
     let request = supabaseAdmin
       .from("fanza_amateur_works")
       .select("raw_item,fetched_at", { count: "exact" });
+    if (performerContentIds) request = request.in("content_id", performerContentIds.length ? performerContentIds : ["__no_confirmed_performer_match__"]);
     if (sort === "date_asc") request = request.order("api_date", { ascending: true, nullsFirst: true });
     else if (sort === "review") request = request.order("raw_item->review->count", { ascending: false, nullsFirst: false }).order("raw_item->review->average", { ascending: false, nullsFirst: false });
     else request = request.order("api_date", { ascending: false, nullsFirst: false });
@@ -908,6 +1070,7 @@ export async function getFanzaAmateurBrowsePage(filters: FanzaAmateurBrowseFilte
   if (filters.campaignOnly) return getCachedFanzaAmateurSalePage(filters);
   const hasNarrowFilters = Boolean(
     filters.query?.trim()
+    || filters.performer?.trim()
     || filters.maxPrice != null
     || filters.minRating != null
     || filters.minPrice != null

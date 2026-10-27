@@ -31,7 +31,7 @@ export default function FanzaAmateurApiCard({ item }: { item: FanzaAmateurCatalo
       <div className="flex flex-1 flex-col p-3">
         <h2 className="line-clamp-2 min-h-10 text-sm font-black leading-5 text-slate-900">{item.title}</h2>
         <p className="mt-1 truncate text-xs font-semibold text-slate-500">{item.iteminfo?.maker?.map((maker) => maker.name).filter(Boolean).join(" / ") || "メーカー情報なし"}</p>
-        {performers.length > 0 && <p className="mt-2 line-clamp-1 text-[11px] font-black text-pink-700">{performers.join("・")}</p>}
+        {performers.length > 0 && <div className="mt-2 flex min-w-0 flex-wrap gap-1 text-[11px] font-black text-pink-700">{performers.map((performer) => <Link key={performer} href={`/amateur/actress/${encodeURIComponent(performer)}`} aria-label={`${performer}の素人出演作品一覧`} className="max-w-full truncate hover:underline">{performer}</Link>)}</div>}
         {genres.length > 0 && <p className="mt-2 line-clamp-1 text-[11px] font-bold text-slate-500">{genres.join("・")}</p>}
         <div className="mt-auto pt-3">
           <div className="flex items-end justify-between gap-2">

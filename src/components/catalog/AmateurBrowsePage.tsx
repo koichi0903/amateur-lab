@@ -3,7 +3,7 @@ import { getFanzaAmateurBrowsePage, getFanzaAmateurTaxonomy, type FanzaAmateurBr
 import FanzaAmateurTopCard from "@/components/catalog/FanzaAmateurTopCard";
 
 type Mode = "search" | "sale" | "personal";
-type Params = { q?: string; genres?: string; genre?: string; maker?: string; page?: string; sort?: string; maxPrice?: string; minRating?: string; releaseFrom?: string; releaseTo?: string; minPrice?: string };
+type Params = { q?: string; performer?: string; genres?: string; genre?: string; maker?: string; page?: string; sort?: string; maxPrice?: string; minRating?: string; releaseFrom?: string; releaseTo?: string; minPrice?: string };
 
 function formatTodayJa() {
   const parts = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "numeric", day: "numeric" }).formatToParts(new Date());
@@ -14,6 +14,7 @@ function formatTodayJa() {
 export default async function AmateurBrowsePage({ mode, searchParams }: { mode: Mode; searchParams: Promise<Params> }) {
   const params = await searchParams;
   const query = (params.q ?? "").trim().slice(0, 100);
+  const performer = (params.performer ?? "").trim().slice(0, 100);
   const genre = (params.genre ?? "").trim().slice(0, 100);
   const genres = [...new Set((params.genres ?? "").split(",").map((value) => value.trim().slice(0, 100)).filter(Boolean))].slice(0, 30);
   const maker = (params.maker ?? "").trim().slice(0, 100);
@@ -28,10 +29,10 @@ export default async function AmateurBrowsePage({ mode, searchParams }: { mode: 
   const releaseFrom = /^\d{4}-\d{2}-\d{2}$/.test(params.releaseFrom ?? "") ? params.releaseFrom : undefined;
   const releaseTo = /^\d{4}-\d{2}-\d{2}$/.test(params.releaseTo ?? "") ? params.releaseTo : undefined;
   const minPrice = /^\d+$/.test(params.minPrice ?? "") ? Math.min(Number(params.minPrice), 1_000_000) : undefined;
-  const result = await getFanzaAmateurBrowsePage({ page, query, genre, genres, maker, sort, campaignOnly: mode === "sale", maxPrice, minRating, releaseFrom, releaseTo, minPrice });
+  const result = await getFanzaAmateurBrowsePage({ page, query, performer, genre, genres, maker, sort, campaignOnly: mode === "sale", maxPrice, minRating, releaseFrom, releaseTo, minPrice });
   const availableGenreOptions = mode === "personal" && !genre ? await getFanzaAmateurTaxonomy("genre") : [];
   const action = mode === "sale" ? "/amateur/sale" : mode === "personal" ? "/amateur/personal-pick" : "/amateur/search";
-  const showCompactSearchHeader = mode === "search" && (Boolean(query) || Boolean(genre) || Boolean(genres.length) || Boolean(maker) || Boolean(releaseFrom) || Boolean(releaseTo) || minPrice != null || maxPrice != null || sort === "rank");
+  const showCompactSearchHeader = mode === "search" && (Boolean(query) || Boolean(performer) || Boolean(genre) || Boolean(genres.length) || Boolean(maker) || Boolean(releaseFrom) || Boolean(releaseTo) || minPrice != null || maxPrice != null || sort === "rank");
   const today = formatTodayJa();
 
   return <main className="min-h-screen bg-[#f8fafc] text-slate-950">
@@ -47,6 +48,7 @@ export default async function AmateurBrowsePage({ mode, searchParams }: { mode: 
       <h1 className="flex items-baseline gap-2 text-2xl font-black tracking-tight sm:text-3xl">検索結果 <span className="text-sm font-bold text-slate-500 sm:text-base">{result.totalCount.toLocaleString("ja-JP")}件</span></h1>
       <form action={action} className="flex items-center gap-2">
         <input type="hidden" name="q" value={query} />
+        {performer && <input type="hidden" name="performer" value={performer} />}
         {genre && <input type="hidden" name="genre" value={genre} />}
         {genres.length > 0 && <input type="hidden" name="genres" value={genres.join(",")} />}
         {maker && <input type="hidden" name="maker" value={maker} />}
@@ -69,8 +71,9 @@ export default async function AmateurBrowsePage({ mode, searchParams }: { mode: 
       <nav aria-label="パンくずリスト" className="text-xs font-bold text-slate-500"><Link href="/amateur" className="hover:text-pink-600">FANZA素人作品</Link><span className="mx-2">/</span><span aria-current="page">{title}</span></nav>
       <p className="mt-5 text-xs font-black tracking-[0.18em] text-pink-600">FANZA AMATEUR</p><h1 className="mt-2 text-3xl font-black sm:text-4xl">{title}</h1>
       <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">FANZA素人カタログに保存された作品だけを検索します。女優作品のデータは含めません。</p>
-      {mode !== "personal" && <form action={action} className="mt-6 grid max-w-5xl gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto]">
+      {mode !== "personal" && <form action={action} className="mt-6 grid max-w-5xl gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1fr_auto]">
         <label className="text-xs font-black text-slate-600">作品名・品番<input name="q" defaultValue={query} maxLength={100} placeholder="作品名、品番を入力" className="mt-1 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium" /></label>
+        <label className="text-xs font-black text-slate-600">女優名（登録名と一致）<input name="performer" defaultValue={performer} maxLength={100} placeholder="例：美園和花" className="mt-1 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium" /></label>
         <label className="text-xs font-black text-slate-600">ジャンル<input name="genre" defaultValue={genre} maxLength={100} placeholder="例：素人、女子校生" className="mt-1 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium" /></label>
         <label className="text-xs font-black text-slate-600">メーカー<input name="maker" defaultValue={maker} maxLength={100} placeholder="メーカー名を入力" className="mt-1 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium" /></label>
         <button className="self-end rounded-lg bg-slate-950 px-6 py-3 text-sm font-black text-white hover:bg-pink-600">検索する</button>
@@ -83,9 +86,9 @@ export default async function AmateurBrowsePage({ mode, searchParams }: { mode: 
 
     <section className="mx-auto max-w-[1500px] px-4 py-7 sm:px-6 lg:px-8">
       {mode === "personal" && !genre ? <div className="rounded-2xl border border-dashed border-violet-200 bg-white p-8 text-center"><p className="font-black">気になるジャンルを選んでください</p><p className="mt-2 text-sm text-slate-500">選んだジャンルの素人作品からおすすめを表示します。</p></div> : result.items.length ? <>
-        {!showCompactSearchHeader && mode !== "sale" && <div className="mb-4 flex items-center justify-between gap-3"><p className="text-sm font-bold text-slate-600">検索結果：{result.totalCount.toLocaleString("ja-JP")}件</p>{(query || genre || maker) && <Link href={action} className="text-xs font-black text-pink-600">条件をクリア</Link>}</div>}
+        {!showCompactSearchHeader && mode !== "sale" && <div className="mb-4 flex items-center justify-between gap-3"><p className="text-sm font-bold text-slate-600">検索結果：{result.totalCount.toLocaleString("ja-JP")}件</p>{(query || performer || genre || maker) && <Link href={action} className="text-xs font-black text-pink-600">条件をクリア</Link>}</div>}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{result.cards.map((card) => <FanzaAmateurTopCard key={card.item.content_id} card={card} showRank={mode !== "sale"} />)}</div>
-        {result.totalPages > 1 && <nav aria-label="素人作品検索結果のページ" className="mt-8 flex items-center justify-center gap-4">{page > 1 && <Link href={`${action}?${new URLSearchParams({ ...(query ? { q: query } : {}), ...(genre ? { genre } : {}), ...(genres.length ? { genres: genres.join(",") } : {}), ...(maker ? { maker } : {}), ...(releaseFrom ? { releaseFrom } : {}), ...(releaseTo ? { releaseTo } : {}), ...(minPrice != null ? { minPrice: String(minPrice) } : {}), ...(maxPrice ? { maxPrice: String(maxPrice) } : {}), ...(minRating ? { minRating: String(minRating) } : {}), sort, page: String(page - 1) })}`} className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-black">前へ</Link>}<span className="text-sm font-bold text-slate-500">{page} / {result.totalPages}</span>{page < result.totalPages && <Link href={`${action}?${new URLSearchParams({ ...(query ? { q: query } : {}), ...(genre ? { genre } : {}), ...(genres.length ? { genres: genres.join(",") } : {}), ...(maker ? { maker } : {}), ...(releaseFrom ? { releaseFrom } : {}), ...(releaseTo ? { releaseTo } : {}), ...(minPrice != null ? { minPrice: String(minPrice) } : {}), ...(maxPrice ? { maxPrice: String(maxPrice) } : {}), ...(minRating ? { minRating: String(minRating) } : {}), sort, page: String(page + 1) })}`} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-black text-white">次へ</Link>}</nav>}
+        {result.totalPages > 1 && <nav aria-label="素人作品検索結果のページ" className="mt-8 flex items-center justify-center gap-4">{page > 1 && <Link href={`${action}?${new URLSearchParams({ ...(query ? { q: query } : {}), ...(performer ? { performer } : {}), ...(genre ? { genre } : {}), ...(genres.length ? { genres: genres.join(",") } : {}), ...(maker ? { maker } : {}), ...(releaseFrom ? { releaseFrom } : {}), ...(releaseTo ? { releaseTo } : {}), ...(minPrice != null ? { minPrice: String(minPrice) } : {}), ...(maxPrice ? { maxPrice: String(maxPrice) } : {}), ...(minRating ? { minRating: String(minRating) } : {}), sort, page: String(page - 1) })}`} className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-black">前へ</Link>}<span className="text-sm font-bold text-slate-500">{page} / {result.totalPages}</span>{page < result.totalPages && <Link href={`${action}?${new URLSearchParams({ ...(query ? { q: query } : {}), ...(performer ? { performer } : {}), ...(genre ? { genre } : {}), ...(genres.length ? { genres: genres.join(",") } : {}), ...(maker ? { maker } : {}), ...(releaseFrom ? { releaseFrom } : {}), ...(releaseTo ? { releaseTo } : {}), ...(minPrice != null ? { minPrice: String(minPrice) } : {}), ...(maxPrice ? { maxPrice: String(maxPrice) } : {}), ...(minRating ? { minRating: String(minRating) } : {}), sort, page: String(page + 1) })}`} className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-black text-white">次へ</Link>}</nav>}
       </> : <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center"><p className="font-black">該当する素人作品がありません</p><p className="mt-2 text-sm text-slate-500">条件を変えるか、素人作品一覧へ戻ってください。</p><Link href="/amateur" className="mt-4 inline-flex rounded-lg bg-slate-950 px-5 py-3 text-sm font-black text-white">素人作品一覧</Link></div>}
     </section>
   </main>;
