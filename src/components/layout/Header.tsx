@@ -29,6 +29,7 @@ export default function Header({ theme = "light" }: { theme?: "light" | "dark" }
         { href: "/amateur/sale", label: "セール" },
         { href: "/amateur/guides", label: "ガイド" },
         { href: "/amateur/search", label: "詳細検索" },
+        { href: "/amateur/actress", label: "女優検索" },
         { href: "/amateur/genre", label: "ジャンル検索" },
         { href: "/amateur/maker", label: "メーカー検索" },
         { href: "/amateur/personal-pick", label: "好み発掘" },
