@@ -13,6 +13,7 @@ import { supabase } from "@/lib/supabase";
 import { analyzerGuideArticles } from "@/lib/analyzerGuideContent";
 import { editorialGuides, reportDefinitions } from "@/lib/editorialContent";
 import { getFanzaAmateurActressIndex } from "@/lib/dmm/fanzaAmateurCatalog";
+import { getAmateurActressSitemapPaths as buildAmateurActressSitemapPaths, getAmateurActressSitemapUrls } from "@/lib/amateurActressSitemap";
 
 export type SitemapEntry = {
   url: string;
@@ -201,42 +202,17 @@ export async function getCatalogSitemapEntries(): Promise<SitemapEntry[]> {
   return entries;
 }
 
-const getAmateurActressSummaries = unstable_cache(
-  async () => {
-    const firstPage = await getFanzaAmateurActressIndex({ sort: "count-desc", page: 1 });
-    const summaries = [...firstPage.items];
-
-    for (let page = 2; page <= firstPage.totalPages; page += 1) {
-      const result = await getFanzaAmateurActressIndex({ sort: "count-desc", page });
-      summaries.push(...result.items);
-    }
-
-    const uniqueByName = new Map<string, (typeof summaries)[number]>();
-    for (const summary of summaries) {
-      const name = summary.name.trim();
-      if (name && Number(summary.work_count) > 0 && !uniqueByName.has(name)) {
-        uniqueByName.set(name, summary);
-      }
-    }
-    return [...uniqueByName.values()];
-  },
-  ["seo-sitemap-fanza-amateur-actresses-v1"],
-  { revalidate: 3600, tags: ["fanza-amateur-actress"] },
-);
-
 export async function getAmateurActressSitemapPaths(): Promise<string[]> {
-  const summaries = await getAmateurActressSummaries();
-  return Array.from(
-    { length: Math.ceil(summaries.length / AMATEUR_ACTRESS_PAGE_SIZE) },
-    (_, index) => `/sitemaps/amateur-actress-${index + 1}.xml`,
-  );
+  const firstPage = await getFanzaAmateurActressIndex({ sort: "count-desc", page: 1 });
+  return buildAmateurActressSitemapPaths(firstPage.totalPages);
 }
 
 export async function getAmateurActressSitemapEntries(chunkNumber: number): Promise<SitemapEntry[]> {
-  const summaries = await getAmateurActressSummaries();
-  const from = (chunkNumber - 1) * AMATEUR_ACTRESS_PAGE_SIZE;
-  return summaries.slice(from, from + AMATEUR_ACTRESS_PAGE_SIZE).map((summary) => ({
-    url: `${SITE_URL}/amateur/actress/${encodeURIComponent(summary.name)}`,
+  if (!Number.isInteger(chunkNumber) || chunkNumber < 1) return [];
+
+  const { items } = await getFanzaAmateurActressIndex({ sort: "count-desc", page: chunkNumber });
+  return getAmateurActressSitemapUrls(items, SITE_URL).map((url) => ({
+    url,
     changeFrequency: "weekly",
     priority: 0.7,
   }));
