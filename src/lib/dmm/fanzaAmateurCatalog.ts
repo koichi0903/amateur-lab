@@ -45,6 +45,14 @@ export type FanzaAmateurActressSummary = {
   total_count: number;
 };
 
+const FANZA_AMATEUR_ACTRESS_ALIASES: Record<string, string> = {
+  "静河": "月瀬りりあ",
+};
+
+export function getCanonicalFanzaAmateurActressName(name: string) {
+  return FANZA_AMATEUR_ACTRESS_ALIASES[name] ?? name;
+}
+
 type CatalogPageRow = {
   raw_item: unknown;
   fetched_at: string;
@@ -465,7 +473,7 @@ const getCachedFanzaAmateurActressIndex = unstable_cache(
     if (error) throw new Error(`素人出演女優を読み込めませんでした: ${error.message}`);
     return (data ?? []) as FanzaAmateurActressSummary[];
   },
-  ["fanza-amateur-actress-index-v1"],
+  ["fanza-amateur-actress-index-v2-aliases"],
   { revalidate: 3_600, tags: ["fanza-amateur-actress"] },
 );
 
