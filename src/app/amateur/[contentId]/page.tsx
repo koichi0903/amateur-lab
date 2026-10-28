@@ -41,7 +41,7 @@ export async function generateMetadata({ params }: { params: Promise<{ contentId
     title: `${item.title}｜FANZA素人作品の価格・詳細 | 発掘LAB`,
     description: `${item.title}の作品情報。${detail}`.slice(0, 160),
     canonical: `/amateur/${encodeURIComponent(item.content_id)}`,
-    image: item.imageUrl || "/ogp.png",
+    image: item.imageUrl || "/ogp-20261028.png",
     // Product pages currently have sparse, API-sourced copy and limited price history.
     // Keep them discoverable through internal links without indexing thousands of thin pages.
     robots: { index: false, follow: true },

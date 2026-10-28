@@ -18,7 +18,7 @@ export function pageMetadata({
   title,
   description,
   canonical,
-  image = "/ogp.png",
+  image = "/ogp-20261028.png",
   robots,
 }: {
   title: string;
@@ -27,7 +27,7 @@ export function pageMetadata({
   image?: string;
   robots?: Metadata["robots"];
 }): Metadata {
-  const ogImage = image === "/ogp.png"
+  const ogImage = image === "/ogp-20261028.png"
     ? { url: image, width: 1200, height: 630, alt: title }
     : { url: image, alt: title };
   return {

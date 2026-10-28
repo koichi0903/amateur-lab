@@ -267,7 +267,7 @@ export async function generateMetadata(
     ),
   );
   const encodedId = encodeURIComponent(id);
-  const socialImage = work.image_url || `${SITE_URL}/ogp.png`;
+  const socialImage = work.image_url || `${SITE_URL}/ogp-20261028.png`;
   const metadata = pageMetadata({
     title,
     description,
