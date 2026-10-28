@@ -1,3 +1,5 @@
+import { GSC_TARGET_ACTRESS_NAMES } from "./actressGsc635Manifest";
+
 export type EntityQualityKind = "actress" | "maker" | "series" | "genre";
 
 export const ENTITY_INDEX_THRESHOLDS: Record<
@@ -11,6 +13,7 @@ export const ENTITY_INDEX_THRESHOLDS: Record<
 };
 
 type EntityQualitySummary = {
+  name: string;
   count: number;
   maxScore: number;
   imageUrl: string | null;
@@ -23,7 +26,8 @@ export function isEntityIndexable(
   const threshold = ENTITY_INDEX_THRESHOLDS[kind];
   return (
     summary.count >= threshold.minWorks &&
-    summary.maxScore >= threshold.minScore &&
+    (summary.maxScore >= threshold.minScore ||
+      (kind === "actress" && GSC_TARGET_ACTRESS_NAMES.has(summary.name))) &&
     Boolean(summary.imageUrl?.trim())
   );
 }
