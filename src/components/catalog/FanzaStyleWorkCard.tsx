@@ -8,6 +8,7 @@ import { parseDatabaseDate } from "@/lib/dateTime";
 import AffiliateLink from "@/app/components/AffiliateLink";
 import FavoriteButton from "@/components/favorites/FavoriteButton";
 import type { HomePriceInsightWork } from "@/lib/getHomePriceInsights";
+import type { AffiliateSource } from "@/lib/affiliateTracking";
 import TrackedWorkLink from "@/app/components/TrackedWorkLink";
 
 const releaseDateOf = (work: Work) => {
@@ -30,7 +31,7 @@ const tagsOf = (work: Work) => {
     : genres.slice(0, 4).map((genre) => ({ label: genre, href: `/genre/${encodeURIComponent(genre)}` }));
 };
 
-export default function FanzaStyleWorkCard({ work, sourcePage = "direct", itemListName, insight, rank, compact = false, showChart = true, dark = false }: { work: Work; sourcePage?: "home" | "ranking" | "sale" | "search" | "new" | "direct"; itemListName?: string; insight?: HomePriceInsightWork; rank?: number; compact?: boolean; showChart?: boolean; dark?: boolean }) {
+export default function FanzaStyleWorkCard({ work, sourcePage = "direct", itemListName, insight, rank, compact = false, showChart = true, dark = false }: { work: Work; sourcePage?: AffiliateSource; itemListName?: string; insight?: HomePriceInsightWork; rank?: number; compact?: boolean; showChart?: boolean; dark?: boolean }) {
   const saleEndAt = parseDatabaseDate(work.sale_end_at)?.getTime();
   // Sale state must follow the real-time end timestamp, even while page data is cached.
   // eslint-disable-next-line react-hooks/purity -- time-sensitive sale expiry is intentional.
