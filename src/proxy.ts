@@ -153,7 +153,7 @@ export async function proxy(request: NextRequest) {
     isLoopbackRequest;
 
   if (WORK_SOCIAL_IMAGE_PATH_PATTERN.test(pathname)) {
-    return NextResponse.redirect(new URL("/ogp.png", request.url), {
+    return NextResponse.redirect(new URL("/ogp-20261028.png", request.url), {
       status: 308,
       headers: {
         "Cache-Control": "public, s-maxage=604800, stale-while-revalidate=2592000",

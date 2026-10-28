@@ -19,7 +19,7 @@ export async function generateMetadata({ params, searchParams }: { params: Promi
     title: `${name}｜FANZA素人作品のメーカー別一覧 | 発掘LAB`,
     description: `${name}のFANZA素人作品を人気順などで掲載。登録作品数は${count.toLocaleString("ja-JP")}件です。各作品の発売日・価格・サンプルを確認できます。`,
     canonical: `/amateur/maker/${encodeURIComponent(name)}`,
-    image: entity?.imageUrl || "/ogp.png",
+    image: entity?.imageUrl || "/ogp-20261028.png",
     robots: { index: Boolean(entity && count >= 24 && isDefaultView), follow: true },
   });
 }
