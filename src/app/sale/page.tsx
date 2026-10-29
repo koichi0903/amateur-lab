@@ -84,6 +84,7 @@ export default async function SalePage({ searchParams }: { searchParams: Promise
   else query = query.order("realtime_rank", { ascending: true, nullsFirst: false }).order("review_count", { ascending: false, nullsFirst: false });
 
   const { data, count, error } = await query.range(offset, offset + PAGE_SIZE - 1);
+  if (error) throw new Error("Failed to load sale works.");
 
   const works = (data ?? []) as unknown as Work[];
   let saleInsights: HomePriceInsightWork[] = [];

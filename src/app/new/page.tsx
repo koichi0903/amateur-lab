@@ -33,12 +33,14 @@ export default async function NewPage({ searchParams }: { searchParams: Promise<
   let offset = (page - 1) * PAGE_SIZE;
   const buildQuery = () => supabase.from("works").select("id,product_id,title,image_url,actress,genre,maker,series,price,sale_price,list_price,discount_rate,release_date,review_average,review_count,sale_end_at,affiliate_url", { count: "exact" }).eq("stage", "NEW").order("release_date", { ascending: false, nullsFirst: false }).order("id", { ascending: false });
   let response = await buildQuery().range(offset, offset + PAGE_SIZE - 1);
+  if (response.error) throw new Error("Failed to load new works.");
   const total = response.count ?? response.data?.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   if (currentPage !== page) {
     offset = (currentPage - 1) * PAGE_SIZE;
     response = await buildQuery().range(offset, offset + PAGE_SIZE - 1);
+    if (response.error) throw new Error("Failed to load new works.");
   }
   const works = (response.data ?? []) as unknown as Work[];
   const error = response.error;
