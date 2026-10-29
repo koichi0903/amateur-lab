@@ -2,6 +2,7 @@ import "server-only";
 
 import { unstable_cache } from "next/cache";
 import type { DmmItem } from "@/types/dmm";
+import { HAKKUTSU_SITE_DMM_AFFILIATE_ID } from "@/lib/dmm/siteAffiliateUrl";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { expandFanzaAmateurPriceSnapshotRows, type FanzaAmateurPriceHistoryRow, type FanzaAmateurPriceSnapshotRow } from "@/lib/dmm/fanzaAmateurPriceHistory";
 
@@ -168,7 +169,7 @@ function buildAffiliateUrl(canonicalUrl: string) {
 
   const affiliate = new URL("https://al.fanza.co.jp/");
   affiliate.searchParams.set("lurl", target.href);
-  affiliate.searchParams.set("af_id", getFanzaAmateurAffiliateId());
+  affiliate.searchParams.set("af_id", HAKKUTSU_SITE_DMM_AFFILIATE_ID);
   return affiliate.href;
 }
 
@@ -254,7 +255,7 @@ export function getFanzaAmateurSamplePlayerUrl(item: FanzaAmateurCatalogItem) {
     if (url.protocol !== "https:" || url.hostname !== "www.dmm.co.jp" || !url.pathname.startsWith("/litevideo/")) return null;
     const cid = url.pathname.match(/(?:^|\/)cid=([^/]+)/)?.[1] ?? item.content_id;
     const player = new URL(`https://www.dmm.co.jp/service/digitalapi/-/html5_player/=/cid=${encodeURIComponent(cid)}/mtype=AhRVShI_/service=litevideo/mode=part/width=260/height=167/`);
-    player.pathname += `affi_id=${encodeURIComponent(getFanzaAmateurAffiliateId())}/`;
+    player.pathname += `affi_id=${encodeURIComponent(HAKKUTSU_SITE_DMM_AFFILIATE_ID)}/`;
     return player.href;
   } catch {
     return null;
