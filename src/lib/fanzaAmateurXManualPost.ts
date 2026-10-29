@@ -71,15 +71,15 @@ function affiliateUrlForWork(work: AmateurWork) {
   }
 }
 
-function postCopy(handle: string, work: AmateurWork) {
+function postCopy(work: AmateurWork) {
   const release = work.api_date?.slice(0, 10) ?? "";
-  const dateLabel = /^\\d{4}-(\\d{2})-(\\d{2})$/.exec(release);
+  const dateLabel = /^\d{4}-(\d{2})-(\d{2})$/.exec(release);
   const releaseLabel = dateLabel ? `${Number(dateLabel[1])}月${Number(dateLabel[2])}日発売` : "FANZA素人作品";
   const affiliateUrl = affiliateUrlForWork(work);
   if (!affiliateUrl) throw new Error("FANZAの公式アフィリエイトリンクを確認できませんでした。");
   return {
-    mainText: `【${releaseLabel}】\\n${work.title ?? work.content_id}`,
-    replyText: `👇FANZAで作品をチェック（PR）\\n${affiliateUrl}`,
+    mainText: `【${releaseLabel}】\n${work.title ?? work.content_id}`,
+    replyText: `👇FANZAで作品をチェック（PR）\n${affiliateUrl}`,
   };
 }
 
@@ -209,7 +209,7 @@ export async function getAmateurXDashboard(handle: string, lane: "new_release" |
     ...candidatePage,
     jobs: jobs.map((job) => {
       const work = works.get(job.content_id) ?? null;
-      const oldUrl = job.reply_text.match(/https:\\/\\/hakkutsu-lab\\.com\\/amateur\\/[^\\s]+/)?.[0];
+      const oldUrl = job.reply_text.match(/https:\/\/hakkutsu-lab\.com\/amateur\/[^\s]+/)?.[0];
       const expectedPath = `/amateur/${encodeURIComponent(job.content_id)}?`;
       const isLegacyLink = oldUrl?.includes(expectedPath) ?? false;
       const affiliateUrl = job.status === "pending" && isLegacyLink ? affiliateUrls.get(job.content_id) : null;
@@ -231,7 +231,7 @@ export async function createAmateurXJob(handle: string, contentId: string, lane:
     const top500 = await getDmmFanzaAmateurPopularWorks(500);
     if (!top500.some((item) => item.content_id === contentId)) throw new Error("人気動画TOP500の候補ではありません。");
   }
-  const texts = postCopy(handle, work);
+  const texts = postCopy(work);
   const inserted = await supabaseAdmin.from("fanza_amateur_x_post_jobs")
     .insert({ account_handle: handle, content_id: contentId, source_lane: lane, status: "pending", ...texts })
     .select(JOB_FIELDS).single();
