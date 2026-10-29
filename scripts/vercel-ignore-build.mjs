@@ -9,7 +9,7 @@ if (!env) {
 }
 
 if (env !== "production") {
-  if (env === "preview" && ["codex/amateur-actress-sitemap-timeout-20261027", "codex/amateur-affiliate-id-991-preview", "codex/admin-amateur-scan-button", "codex/fanza-amateur-works-20261015", "codex/amateur-daily-api-schedule-20261015", "codex/fanza-catalog-reconcile-20261019", "codex/purchase-alternative-card-20261024", "codex/gsc-cleanup-20261024", "codex/amateur-actress-seo-20261027", "codex/gsc-actress-635-indexability-20261028", "codex/fanza-amateur-actress-alias-release-20261028", "codex/amateur-x-candidates-last-7-days", "codex/amateur-direct-fanza-links"].includes(ref ?? "")) {
+  if (env === "preview" && ["codex/site-id026-attribution", "codex/amateur-actress-sitemap-timeout-20261027", "codex/amateur-affiliate-id-991-preview", "codex/admin-amateur-scan-button", "codex/fanza-amateur-works-20261015", "codex/amateur-daily-api-schedule-20261015", "codex/fanza-catalog-reconcile-20261019", "codex/purchase-alternative-card-20261024", "codex/gsc-cleanup-20261024", "codex/amateur-actress-seo-20261027", "codex/gsc-actress-635-indexability-20261028", "codex/fanza-amateur-actress-alias-release-20261028", "codex/amateur-x-candidates-last-7-days", "codex/amateur-direct-fanza-links"].includes(ref ?? "")) {
     console.log(`Allowing the requested isolated preview for ${ref}.`);
     process.exit(1);
   }
