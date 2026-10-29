@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getDmmFanzaAmateurPopularWorks } from "@/lib/dmm/fanzaAmateurCatalog";
+import { getDmmFanzaAmateurPopularWorks, getFanzaAmateurAffiliateId, normalizeFanzaAmateurCatalogItem } from "@/lib/dmm/fanzaAmateurCatalog";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { trimVideoForX } from "@/lib/xVideoTrim";
 
@@ -20,6 +20,7 @@ type AmateurWork = {
   mp4_status: string | null;
   is_listed: boolean;
   image_url: unknown;
+  raw_item?: unknown;
 };
 
 type Job = {
@@ -55,14 +56,30 @@ function imageUrl(value: unknown) {
   return null;
 }
 
+function affiliateUrlForWork(work: AmateurWork) {
+  const item = normalizeFanzaAmateurCatalogItem(work.raw_item);
+  if (!item) return null;
+  try {
+    const affiliate = new URL(item.affiliateURL);
+    const target = new URL(affiliate.searchParams.get("lurl") ?? "");
+    if (affiliate.protocol !== "https:" || affiliate.hostname !== "al.fanza.co.jp") return null;
+    if (target.protocol !== "https:" || target.hostname !== "video.dmm.co.jp" || !target.pathname.startsWith("/amateur/content/")) return null;
+    if (affiliate.searchParams.get("af_id") !== getFanzaAmateurAffiliateId()) return null;
+    return affiliate.href;
+  } catch {
+    return null;
+  }
+}
+
 function postCopy(handle: string, work: AmateurWork) {
   const release = work.api_date?.slice(0, 10) ?? "";
-  const dateLabel = /^\d{4}-(\d{2})-(\d{2})$/.exec(release);
+  const dateLabel = /^\\d{4}-(\\d{2})-(\\d{2})$/.exec(release);
   const releaseLabel = dateLabel ? `${Number(dateLabel[1])}月${Number(dateLabel[2])}日発売` : "FANZA素人作品";
-  const postKey = encodeURIComponent(`amateur-${handle}-${work.content_id}`);
+  const affiliateUrl = affiliateUrlForWork(work);
+  if (!affiliateUrl) throw new Error("FANZAの公式アフィリエイトリンクを確認できませんでした。");
   return {
-    mainText: `【${releaseLabel}】\n${work.title ?? work.content_id}`,
-    replyText: `👇作品詳細・価格推移はこちら\nhttps://hakkutsu-lab.com/amateur/${encodeURIComponent(work.content_id)}?from=x&x_post=${postKey}`,
+    mainText: `【${releaseLabel}】\\n${work.title ?? work.content_id}`,
+    replyText: `👇FANZAで作品をチェック（PR）\\n${affiliateUrl}`,
   };
 }
 
@@ -73,6 +90,16 @@ async function getWorksByIds(ids: string[]) {
     .in("content_id", ids);
   if (result.error) throw new Error(`素人作品データを取得できませんでした: ${result.error.message}`);
   return new Map((result.data ?? []).map((row) => [row.content_id, row as AmateurWork]));
+}
+
+async function getAffiliateUrlsByIds(contentIds: string[]) {
+  if (!contentIds.length) return new Map<string, string>();
+  const result = await supabaseAdmin.from("fanza_amateur_works").select("content_id,raw_item").in("content_id", contentIds);
+  if (result.error) throw new Error(`FANZAアフィリエイトリンクを取得できませんでした: ${result.error.message}`);
+  return new Map((result.data ?? []).flatMap((row) => {
+    const url = affiliateUrlForWork({ content_id: row.content_id, title: null, api_date: null, mp4_url: null, mp4_status: null, is_listed: true, image_url: null, raw_item: row.raw_item });
+    return url ? [[row.content_id, url] as const] : [];
+  }));
 }
 
 async function getSelectedJobs(handle: string, contentIds: string[]) {
@@ -159,7 +186,7 @@ export async function getAmateurXCandidates(handle: string, lane: "new_release" 
 
 async function loadEligibleWork(contentId: string) {
   const result = await supabaseAdmin.from("fanza_amateur_works")
-    .select("content_id,title,api_date,mp4_url,mp4_status,is_listed,image_url")
+    .select("content_id,title,api_date,mp4_url,mp4_status,is_listed,image_url,raw_item")
     .eq("content_id", contentId).maybeSingle();
   if (result.error) throw new Error(`作品を取得できませんでした: ${result.error.message}`);
   const work = result.data as AmateurWork | null;
@@ -176,9 +203,21 @@ export async function getAmateurXDashboard(handle: string, lane: "new_release" |
   if (jobsResult.error) throw jobTableError("投稿履歴を取得できませんでした", jobsResult.error);
   const jobs = (jobsResult.data ?? []) as unknown as Job[];
   const works = await getWorksByIds([...new Set(jobs.map((job) => job.content_id))]);
+  const pendingIds = [...new Set(jobs.filter((job) => job.status === "pending").map((job) => job.content_id))];
+  const affiliateUrls = await getAffiliateUrlsByIds(pendingIds);
   return {
     ...candidatePage,
-    jobs: jobs.map((job) => ({ ...job, work: works.get(job.content_id) ?? null, image: imageUrl(works.get(job.content_id)?.image_url) })),
+    jobs: jobs.map((job) => {
+      const work = works.get(job.content_id) ?? null;
+      const oldUrl = job.reply_text.match(/https:\\/\\/hakkutsu-lab\\.com\\/amateur\\/[^\\s]+/)?.[0];
+      const expectedPath = `/amateur/${encodeURIComponent(job.content_id)}?`;
+      const isLegacyLink = oldUrl?.includes(expectedPath) ?? false;
+      const affiliateUrl = job.status === "pending" && isLegacyLink ? affiliateUrls.get(job.content_id) : null;
+      const reply_text = affiliateUrl
+        ? job.reply_text.replace("👇作品詳細・価格推移はこちら", "👇FANZAで作品をチェック（PR）").replace(oldUrl!, affiliateUrl)
+        : job.reply_text;
+      return { ...job, reply_text, work, image: imageUrl(work?.image_url) };
+    }),
   };
 }
 
