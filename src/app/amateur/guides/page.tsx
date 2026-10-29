@@ -24,7 +24,7 @@ export default function AmateurGuidesPage() {
   return <>
     <Header />
     <main className="min-h-screen bg-[#f8fafc] text-slate-950">
-      <CollectionPageJsonLd title="FANZAガイド・使い方まとめ" description="FANZAをお得に・賢く使うためのガイド記事一覧です。" url={`${SITE_URL}/amateur/guides`} items={guideCards.map(({ guide, title }) => ({ name: title, url: `${SITE_URL}/amateur/guides/${guide.slug}` }))} />
+      <CollectionPageJsonLd title="FANZAガイド・使い方まとめ" description="FANZAをお得に・賢く使うためのガイド記事一覧です。" url={`${SITE_URL}/guides`} items={guideCards.map(({ guide, title }) => ({ name: title, url: `${SITE_URL}/guides/${guide.slug}` }))} />
       <div className="mx-auto max-w-[740px] px-4 py-6 sm:px-6 sm:py-8">
         <span className="inline-flex rounded border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-500">広告・PR</span>
         <nav aria-label="パンくず" className="mt-5 text-xs font-bold text-slate-500"><Link href="/amateur" className="hover:text-pink-600">素人作品</Link><span className="mx-2">/</span><span>ガイド</span></nav>

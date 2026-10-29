@@ -16,5 +16,5 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 }
 
 export default async function AmateurGuideDetailRoute({ params }: { params: Promise<{ slug: string }> }) {
-  return <GuideDetailPage params={params} />;
+  return <GuideDetailPage params={params} basePath="/amateur/guides" />;
 }
