@@ -83,6 +83,24 @@ async function getSelectedJobs(handle: string, contentIds: string[]) {
   return new Map((result.data ?? []).map((row) => [row.content_id, row as Job]));
 }
 
+async function getTerminalContentIds(contentIds: string[]) {
+  const terminalIds = new Set<string>();
+  for (let offset = 0; offset < contentIds.length; offset += 500) {
+    const batchIds = contentIds.slice(offset, offset + 500);
+    for (let from = 0; ; from += 1000) {
+      const result = await supabaseAdmin.from("fanza_amateur_x_post_jobs").select("id,content_id")
+        .in("status", ["posted", "skipped"]).in("content_id", batchIds)
+        .order("id", { ascending: true })
+        .range(from, from + 999);
+      if (result.error) throw jobTableError("投稿済み・スキップ済み候補を取得できませんでした", result.error);
+      const rows = result.data ?? [];
+      for (const row of rows) terminalIds.add(row.content_id);
+      if (rows.length < 1000) break;
+    }
+  }
+  return terminalIds;
+}
+
 export async function getAmateurXCandidates(handle: string, lane: "new_release" | "popular", page = 1) {
   const safePage = Math.max(1, Math.trunc(page));
   let orderedIds: string[];
@@ -99,22 +117,26 @@ export async function getAmateurXCandidates(handle: string, lane: "new_release" 
     total = idsWithMedia.length;
     orderedIds = idsWithMedia.slice((safePage - 1) * AMATEUR_X_PAGE_SIZE, safePage * AMATEUR_X_PAGE_SIZE);
   } else {
-    const today = tokyoDateOffset(0);
-    const endExclusive = tokyoDateOffset(8);
-    const count = await supabaseAdmin.from("fanza_amateur_works").select("content_id", { count: "exact", head: true })
-      .eq("is_listed", true).eq("mp4_status", "found").not("mp4_url", "is", null)
-      .gte("api_date", today).lt("api_date", endExclusive);
-    if (count.error) throw new Error(`新作候補数を取得できませんでした: ${count.error.message}`);
-    total = count.count ?? 0;
+    const startInclusive = tokyoDateOffset(-6);
+    const endExclusive = tokyoDateOffset(1);
+    const allWorks: AmateurWork[] = [];
+    for (let from = 0; ; from += 500) {
+      const rows = await supabaseAdmin.from("fanza_amateur_works")
+        .select("content_id,title,api_date,mp4_url,mp4_status,is_listed,image_url")
+        .eq("is_listed", true).eq("mp4_status", "found").not("mp4_url", "is", null)
+        .gte("api_date", startInclusive).lt("api_date", endExclusive)
+        .order("api_date", { ascending: true }).order("content_id", { ascending: true })
+        .range(from, from + 499);
+      if (rows.error) throw new Error(`直近7日分の新作候補を取得できませんでした: ${rows.error.message}`);
+      const batch = (rows.data ?? []) as AmateurWork[];
+      allWorks.push(...batch);
+      if (batch.length < 500) break;
+    }
+    const terminalIds = await getTerminalContentIds(allWorks.map((work) => work.content_id));
+    const visibleWorks = allWorks.filter((work) => !terminalIds.has(work.content_id));
+    total = visibleWorks.length;
     const from = (safePage - 1) * AMATEUR_X_PAGE_SIZE;
-    const rows = await supabaseAdmin.from("fanza_amateur_works")
-      .select("content_id,title,api_date,mp4_url,mp4_status,is_listed,image_url")
-      .eq("is_listed", true).eq("mp4_status", "found").not("mp4_url", "is", null)
-      .gte("api_date", today).lt("api_date", endExclusive)
-      .order("api_date", { ascending: true }).order("content_id", { ascending: true })
-      .range(from, from + AMATEUR_X_PAGE_SIZE - 1);
-    if (rows.error) throw new Error(`新作候補を取得できませんでした: ${rows.error.message}`);
-    const works = (rows.data ?? []) as AmateurWork[];
+    const works = visibleWorks.slice(from, from + AMATEUR_X_PAGE_SIZE);
     const selected = await getSelectedJobs(handle, works.map((work) => work.content_id));
     return {
       candidates: works.map((work) => ({ ...work, image: imageUrl(work.image_url), job: selected.get(work.content_id) ?? null })),
@@ -164,7 +186,8 @@ export async function createAmateurXJob(handle: string, contentId: string, lane:
   const work = await loadEligibleWork(contentId);
   if (lane === "new_release") {
     const date = work.api_date?.slice(0, 10) ?? "";
-    if (date < tokyoDateOffset(0) || date >= tokyoDateOffset(8)) throw new Error("新作7日間の候補ではありません。");
+    if (date < tokyoDateOffset(-6) || date >= tokyoDateOffset(1)) throw new Error("直近7日間の新作候補ではありません。");
+    if ((await getTerminalContentIds([contentId])).has(contentId)) throw new Error("この作品はすでに投稿済みまたはスキップ済みです。");
   } else {
     const top500 = await getDmmFanzaAmateurPopularWorks(500);
     if (!top500.some((item) => item.content_id === contentId)) throw new Error("人気動画TOP500の候補ではありません。");
