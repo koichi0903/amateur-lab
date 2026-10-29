@@ -22,6 +22,9 @@ async function fetchDeals(category: DealCategory, from: number, to: number) {
       baseQuery().gt("sale_price", 0).lte("sale_price", 1000).gt("price", 0).order("sale_price", { ascending: true }).limit(upper),
       baseQuery().or("sale_price.is.null,sale_price.eq.0").gt("price", 0).lte("price", 1000).order("price", { ascending: true }).limit(upper),
     ]);
+    if (sale.error || regular.error) {
+      throw new Error("Failed to load deal works.");
+    }
     const works = [
       ...((sale.data ?? []) as unknown as DealWork[]),
       ...((regular.data ?? []) as unknown as DealWork[]),
@@ -85,6 +88,9 @@ async function fetchDeals(category: DealCategory, from: number, to: number) {
   }
 
   const response = await query.range(from, to);
+  if (response.error) {
+    throw new Error("Failed to load deal works.");
+  }
   return {
     works: ((response.data ?? []) as unknown as DealWork[]).filter(isNonVrWork),
     count: response.count ?? 0,

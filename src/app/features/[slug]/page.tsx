@@ -47,6 +47,7 @@ export default async function FeaturePage({ params, searchParams }: {
   const feature = featureCategories[slug];
   const Icon = feature.icon;
   const result = await getFeatureWorks(slug, offset, offset + PAGE_SIZE - 1);
+  if (result.error) throw new Error("Failed to load featured works.");
   const totalPages = Math.max(1, Math.ceil(result.count / PAGE_SIZE));
   const canonicalPath = `/features/${slug}${page > 1 ? `?page=${page}` : ""}`;
 
