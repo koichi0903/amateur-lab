@@ -8,6 +8,7 @@ import SaleCountdown from "@/components/home/SaleCountdown";
 import type { FanzaAmateurHomeCard } from "@/lib/dmm/fanzaAmateurCatalog";
 import AmateurFavoriteButton from "@/components/favorites/AmateurFavoriteButton";
 import { trackFanzaAmateurAffiliateClick } from "@/lib/trackFanzaAmateurAffiliateClick";
+import { withHakkutsuSiteAffiliateId } from "@/lib/dmm/siteAffiliateUrl";
 
 const numberFromPrice = (value: string | undefined) => {
   const digits = value?.match(/[0-9]+/)?.[0];
@@ -88,7 +89,7 @@ export default function FanzaAmateurTopCard({ card, showChart = true, showRank =
       <div className="mt-2 flex min-h-5 items-center justify-between text-[11px] font-bold text-slate-500"><span className="text-amber-500">★ {item.reviewAverage != null && item.reviewAverage > 0 ? item.reviewAverage.toFixed(1) : "-"}</span><span>({item.review?.count ?? 0})</span></div>
       {showChart && currentPrice != null && card.priceHistory.length > 0 && <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1"><MiniPriceHistoryChart points={card.priceHistory} windowStartAt={card.priceWindowStartAt} windowEndAt={card.priceWindowEndAt} lowPrice={card.lowestObservedPrice ?? currentPrice} currentPrice={currentPrice} variant="compact" /></div>}
       <div className="mt-auto flex flex-col gap-1.5 pt-2">
-        <a href={item.affiliateURL} target="_blank" rel="noopener noreferrer sponsored" className="flex min-h-9 w-full items-center justify-center rounded-lg bg-pink-600 px-2 text-[11px] font-black text-white hover:bg-pink-700" onClick={() => trackFanzaAmateurAffiliateClick({ contentId: item.content_id, sourcePage, placement: "listing-card" })}>FANZAで見る</a>
+        <a href={withHakkutsuSiteAffiliateId(item.affiliateURL)} target="_blank" rel="noopener noreferrer sponsored" className="flex min-h-9 w-full items-center justify-center rounded-lg bg-pink-600 px-2 text-[11px] font-black text-white hover:bg-pink-700" onClick={() => trackFanzaAmateurAffiliateClick({ contentId: item.content_id, sourcePage, placement: "listing-card" })}>FANZAで見る</a>
         <Link href={`/amateur/${encodeURIComponent(item.content_id)}`} className="flex min-h-8 w-full items-center justify-center rounded-lg border border-pink-200 px-2 text-[10px] font-black text-pink-700 hover:bg-pink-50">詳細を見る</Link>
       </div>
     </article>

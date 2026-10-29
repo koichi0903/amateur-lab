@@ -1,3 +1,5 @@
+import { HAKKUTSU_SITE_DMM_AFFILIATE_ID } from "@/lib/dmm/siteAffiliateUrl";
+
 type AmateurAffiliatePlacement = "listing-card" | "detail-sidebar";
 type AmateurSourcePage = "amateur" | "amateur_detail";
 
@@ -13,7 +15,7 @@ export function trackFanzaAmateurAffiliateClick({
   window.gtag?.("event", "amateur_affiliate_click", {
     content_id: contentId,
     source_page: sourcePage,
-    affiliate_id: "991",
+    affiliate_id: HAKKUTSU_SITE_DMM_AFFILIATE_ID,
     placement,
   });
 

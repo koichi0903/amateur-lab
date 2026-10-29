@@ -13,6 +13,7 @@ import { readExternalAttribution, readXPostKey } from "./Analytics";
 import { isOperatorLandingPath } from "@/lib/externalAttribution";
 import type { SampleMovieDeliveryMode } from "@/lib/sampleMovieFallback";
 import type { AffiliatePlacement } from "@/lib/affiliatePlacements";
+import { withHakkutsuSiteAffiliateId } from "@/lib/dmm/siteAffiliateUrl";
 
 type Props = {
   href: string;
@@ -82,6 +83,7 @@ export default function AffiliateLink({
   experiment = false,
   deliveryMode,
 }: Props) {
+  const destination = withHakkutsuSiteAffiliateId(href);
   const [ctaVariant, setCtaVariant] = useState<CtaVariant | null>(null);
   const linkRef = useRef<HTMLAnchorElement>(null);
   const impressionRecordedRef = useRef(false);
@@ -158,7 +160,7 @@ export default function AffiliateLink({
       external_source: externalAttribution?.source ?? "unknown",
       landing_path: externalAttribution?.landingPath ?? "unknown",
       page_path: `${window.location.pathname}${window.location.search}`,
-      link_url: href,
+      link_url: destination,
       delivery_mode: deliveryMode,
       transport_type: "beacon",
     });
@@ -183,7 +185,7 @@ export default function AffiliateLink({
   return (
     <a
       ref={linkRef}
-      href={href}
+      href={destination}
       target="_blank"
       rel="noopener noreferrer sponsored"
       className={className}

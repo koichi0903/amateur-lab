@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { HAKKUTSU_SITE_DMM_AFFILIATE_ID } from "@/lib/dmm/siteAffiliateUrl";
 
 const sourcePages = new Set(["amateur", "amateur_detail"]);
 const placements = new Set(["listing-card", "detail-sidebar"]);
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
       content_id: contentId,
       source_page: sourcePage,
       placement,
-      affiliate_id: "koichi1928-991",
+      affiliate_id: HAKKUTSU_SITE_DMM_AFFILIATE_ID,
     });
     if (error) {
       console.error("[amateur-affiliate-click] failed to record click", {

@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { FanzaAmateurCatalogItem } from "@/lib/dmm/fanzaAmateurCatalog";
 import AmateurFavoriteButton from "@/components/favorites/AmateurFavoriteButton";
 import { trackFanzaAmateurAffiliateClick } from "@/lib/trackFanzaAmateurAffiliateClick";
+import { withHakkutsuSiteAffiliateId } from "@/lib/dmm/siteAffiliateUrl";
 
 function priceLabel(value: number | null) {
   return value == null ? "価格未取得" : `¥${value.toLocaleString("ja-JP")}`;
@@ -68,7 +69,7 @@ export default function FanzaAmateurApiCard({ item }: { item: FanzaAmateurCatalo
             </div>
           )}
           <a
-            href={item.affiliateURL}
+            href={withHakkutsuSiteAffiliateId(item.affiliateURL)}
             target="_blank"
             rel="noopener noreferrer sponsored"
             className="mt-3 flex min-h-10 items-center justify-center rounded-lg bg-pink-600 px-3 text-xs font-black text-white hover:bg-pink-700"
