@@ -52,6 +52,7 @@
     "test:myfans-observed-post-import": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfansObservedPostImport.test.ts",
     "test:admin-review-batch": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/admin/reviewUpdateBatch.test.ts",
     "test:ranking-page-collection": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/admin/rankingPageCollection.test.ts",
+    "test:ranking-product-parsing": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/playwright/rankingProductParsing.test.ts",
     "test:fanza-catalog-detail-projection": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/dmm/fanzaAmateurCatalogDetailProjection.test.ts",
     "test:ranking-update-projection": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/playwright/rankingUpdateProjection.test.ts",
     "test:x-creative-learning-aggregation": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/xCreativeLearningAggregation.test.ts",
