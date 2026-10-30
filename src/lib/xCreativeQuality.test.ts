@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { finalNativeXVoiceGate, lastMileGate, qualityFor } from "./xCreativeQuality";
-import type { XCreativeInput, XLinkPlan } from "./xCreativeTypes";
+import type { XCreativeInput, XCreativeMedia, XLinkPlan } from "./xCreativeTypes";
 
 const input: XCreativeInput = {
   key: "quality-test",
@@ -22,8 +22,16 @@ const input: XCreativeInput = {
   isNinetyDayLow: false,
 };
 
-function makeVariant(intent: "REACH" | "MONEY", linkPlan: XLinkPlan, text: string) {
-  return { intent, mediaType: "text" as const, linkPlan, text };
+function makeVariant(intent: "REACH" | "MONEY", linkPlan: XLinkPlan, text: string, mediaType: XCreativeMedia = "text") {
+  return { intent, mediaType, linkPlan, text };
+}
+
+function mediaFitFor(mediaType: XCreativeMedia, text: string, overrides: Partial<XCreativeInput> = {}, intent: "REACH" | "MONEY" = "REACH") {
+  const result = qualityFor({ ...input, ...overrides }, {
+    ...makeVariant(intent, "profile_only", text, mediaType),
+    structure: "short",
+  });
+  return result.dimensions.mediaFit;
 }
 
 test("last-mile gate keeps a concrete, native REACH post eligible", () => {
@@ -94,6 +102,22 @@ test("quality dimension extraction preserves the calibrated scores and result", 
   assert.equal(result.passed, false);
   assert.equal(result.recommendation, "do_not_post");
   assert.deepEqual(result.weaknesses, ["scrollStop", "curiosity", "shareability", "mediaFit"]);
+});
+
+test("media story fit preserves per-media score bands and gates", () => {
+  assert.equal(mediaFitFor("sample_movie", "冒頭\n動画\n続き", { hasRightsCheckedMovie: true, mediaManualTags: ["first_seconds_strong"] }), 98);
+  assert.equal(mediaFitFor("sample_movie", "冒頭\n動画\n続き", { hasRightsCheckedMovie: true }), 88);
+  assert.equal(mediaFitFor("sample_movie", "冒頭\n動画\n続き"), 0);
+  assert.equal(mediaFitFor("sample_movie", "1\n2\n3\n4", { hasRightsCheckedMovie: true, mediaManualTags: ["first_seconds_strong"] }), 72);
+  assert.equal(mediaFitFor("sample_movie", "冒頭\n動画\nhttps://example.com", { hasRightsCheckedMovie: true, mediaManualTags: ["first_seconds_strong"] }), 72);
+  assert.equal(mediaFitFor("data_card", "カードで比較 1234"), 92);
+  assert.equal(mediaFitFor("data_card", "カードで比較 123456789"), 68);
+  assert.equal(mediaFitFor("existing_link_image", "雰囲気が気になる"), 88);
+  assert.equal(mediaFitFor("existing_link_image", "特に手掛かりなし"), 76);
+  assert.equal(mediaFitFor("existing_link_image", "特に手掛かりなし", {}, "MONEY"), 84);
+  assert.equal(mediaFitFor("text", "ランキングを確認"), 74);
+  assert.equal(mediaFitFor("text", "展開の話"), 55);
+  assert.equal(mediaFitFor("quote", "展開の話"), 55);
 });
 
 test("native voice gate keeps the forbidden-template reason and match visible", () => {

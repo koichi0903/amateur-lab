@@ -434,19 +434,32 @@ const QUALITY_RULES: Record<XGrowthIntent, Array<[XQualityDimension, number]>> =
   CONVERSATION: [["curiosity", 68], ["judgment", 64], ["adSmell", 0]],
 };
 
+function sampleMovieStoryFit(variant: XCreativeQualityVariant, videoTag: ReturnType<typeof primaryVideoTag>) {
+  const linesFit = variant.text.split("\n").filter(Boolean).length <= 3 && !variant.text.includes("http");
+  const strongTag = videoTag === "first_seconds_strong" || videoTag === "visual_mismatch" || videoTag === "scene_surprise" || videoTag === "actress_fit";
+  return strongTag && linesFit ? 98 : linesFit ? 88 : 72;
+}
+
+function dataCardStoryFit(text: string) {
+  return /カード|どこから見る|見るなら|迷う|差|ランキングだけ/.test(text) && (text.match(/\d/g) ?? []).length <= 8 ? 92 : 68;
+}
+
+function workImageStoryFit(variant: XCreativeQualityVariant) {
+  if (variant.intent === "MONEY") return 84;
+  return /ジャケ|画像|雰囲気|見た|止ま|流し|気にな|印象/.test(variant.text) ? 88 : 76;
+}
+
+function textStoryFit(text: string) {
+  return /ランキング|評価|半額|OFF|見落|差|迷|サンプル/.test(text) ? 74 : 55;
+}
+
 function mediaStoryFit(variant: XCreativeQualityVariant, videoTag: ReturnType<typeof primaryVideoTag>) {
-  if (variant.mediaType === "sample_movie") {
-    const linesFit = variant.text.split("\n").filter(Boolean).length <= 3 && !variant.text.includes("http");
-    const strongTag = videoTag === "first_seconds_strong" || videoTag === "visual_mismatch" || videoTag === "scene_surprise" || videoTag === "actress_fit";
-    return strongTag && linesFit ? 98 : linesFit ? 88 : 72;
+  switch (variant.mediaType) {
+    case "sample_movie": return sampleMovieStoryFit(variant, videoTag);
+    case "data_card": return dataCardStoryFit(variant.text);
+    case "existing_link_image": return workImageStoryFit(variant);
+    default: return textStoryFit(variant.text);
   }
-  if (variant.mediaType === "data_card") {
-    return /カード|どこから見る|見るなら|迷う|差|ランキングだけ/.test(variant.text) && (variant.text.match(/\d/g) ?? []).length <= 8 ? 92 : 68;
-  }
-  if (variant.mediaType === "existing_link_image") {
-    return variant.intent === "MONEY" ? 84 : /ジャケ|画像|雰囲気|見た|止ま|流し|気にな|印象/.test(variant.text) ? 88 : 76;
-  }
-  return /ランキング|評価|半額|OFF|見落|差|迷|サンプル/.test(variant.text) ? 74 : 55;
 }
 
 function buildAttentionDimensions(input: XCreativeInput, variant: XCreativeQualityVariant, signals: QualityScoreSignals) {
