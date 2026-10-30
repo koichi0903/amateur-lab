@@ -502,32 +502,50 @@ function chooseFormat(input: XCreativeInput, hook: XHookType): XPostFormat {
   return "discovery";
 }
 
-function buildCreativeVariantForAlternative(input: XCreativeInput, hookScore: XHookScore, intent: XGrowthIntent, plan: ReturnType<typeof variantPlan>, mediaType: XCreativeMedia, alternatives: HookOpening[], alternative: HookOpening, alternativeIndex: number): XCreativeVariant {
-  const linkPlan = intent === "MONEY" && alternativeIndex === 4 ? "reply_link" as const : plan.linkPlan;
-  const reviewedCandidates = buildLastMileBodies(input, intent, linkPlan, alternative.direction)
+type ReviewedCreativeBody = {
+  text: string;
+  quality: ReturnType<typeof qualityFor>;
+  rewriteCount: number;
+};
+
+function reviewCreativeBodies(input: XCreativeInput, intent: XGrowthIntent, plan: ReturnType<typeof variantPlan>, mediaType: XCreativeMedia, linkPlan: XLinkPlan, direction: XHookDirection): ReviewedCreativeBody[] {
+  return buildLastMileBodies(input, intent, linkPlan, direction)
     .map((text, index) => ({
       text,
       quality: qualityFor(input, { intent, structure: plan.structure, mediaType, linkPlan, text }),
       rewriteCount: index,
     }));
+}
+
+function chooseReviewedCreativeBody(input: XCreativeInput, intent: XGrowthIntent, mediaType: XCreativeMedia, direction: XHookDirection, alternativeIndex: number, reviewedCandidates: ReviewedCreativeBody[]): ReviewedCreativeBody {
   // Keep A/B/C materially different when the same source produces several
   // valid bodies. The preferred index is stable, while failed variants still
   // fall back to the strongest passing body.
   const preferred = reviewedCandidates[alternativeIndex % Math.max(1, reviewedCandidates.length)];
   const primaryVideoFact = mediaType === "sample_movie" ? primaryUsableVisualFact(input.visualFacts) : null;
-  const factPhrase = primaryVideoFact ? concreteVisualPhrase(primaryVideoFact, [input.key, intent, alternative.direction].join("|")) : "";
+  const factPhrase = primaryVideoFact ? concreteVisualPhrase(primaryVideoFact, [input.key, intent, direction].join("|")) : "";
   const factPreserving = factPhrase && primaryVideoFact
     ? reviewedCandidates.find((candidate) => candidate.quality.passed && containsConcreteVisualPhrase(candidate.text, primaryVideoFact))
     : undefined;
-  const reviewed = factPreserving
+  return factPreserving
     ?? (preferred?.quality.passed
       ? preferred
       : reviewedCandidates.sort((a, b) => Number(b.quality.passed) - Number(a.quality.passed) || b.quality.total - a.quality.total)[0]);
-  const text = reviewed.text;
-  const quality = {
+}
+
+function finalCreativeQuality(input: XCreativeInput, intent: XGrowthIntent, mediaType: XCreativeMedia, linkPlan: XLinkPlan, reviewed: ReviewedCreativeBody) {
+  return {
     ...reviewed.quality,
-    lastMile: { ...lastMileGate(input, { intent, mediaType, linkPlan, text }, reviewed.rewriteCount), rewriteCount: reviewed.rewriteCount },
+    lastMile: { ...lastMileGate(input, { intent, mediaType, linkPlan, text: reviewed.text }, reviewed.rewriteCount), rewriteCount: reviewed.rewriteCount },
   };
+}
+
+function buildCreativeVariantForAlternative(input: XCreativeInput, hookScore: XHookScore, intent: XGrowthIntent, plan: ReturnType<typeof variantPlan>, mediaType: XCreativeMedia, alternatives: HookOpening[], alternative: HookOpening, alternativeIndex: number): XCreativeVariant {
+  const linkPlan = intent === "MONEY" && alternativeIndex === 4 ? "reply_link" as const : plan.linkPlan;
+  const reviewedCandidates = reviewCreativeBodies(input, intent, plan, mediaType, linkPlan, alternative.direction);
+  const reviewed = chooseReviewedCreativeBody(input, intent, mediaType, alternative.direction, alternativeIndex, reviewedCandidates);
+  const text = reviewed.text;
+  const quality = finalCreativeQuality(input, intent, mediaType, linkPlan, reviewed);
   const length = getXWeightedLength(text);
   const proof = strongestFacts(input).join(" / ") || "story_only";
   const buzzPotential = buildBuzzPotential(quality, intent, mediaType, alternative.direction);
