@@ -22,6 +22,17 @@ type MyfansPostedHistorySummary = {
   sameTopicPastCount: number;
 };
 
+function inspectPostedPost(candidate: MyfansNoveltyCandidate, post: MyfansAnalytics["posts"][number]) {
+  const postSource = post.quote_x_url || post.source_x_url || "";
+  const postTopic = `${post.product_id ?? ""}:${post.post_type ?? ""}:${post.creative_strategy ?? ""}`;
+  const candidateTopic = `${candidate.product?.id ?? ""}:${candidate.postType}:${candidate.creativeStrategy}`;
+  return {
+    similarity: myfansBodySimilarity(candidate.body, post.body),
+    sameSource: Boolean(postSource && candidate.quoteXUrl && postSource === candidate.quoteXUrl),
+    sameTopic: postTopic === candidateTopic,
+  };
+}
+
 export type MyfansCandidateNoveltyInput = {
   posts: MyfansAnalytics["posts"];
   pastUsage: {
@@ -64,16 +75,13 @@ function summarizePostedHistory(
   let sameSourcePastCount = 0;
   let sameTopicPastCount = 0;
   for (const post of posted) {
-    const similarity = myfansBodySimilarity(candidate.body, post.body);
-    if (similarity > maxPastSimilarity) {
-      maxPastSimilarity = similarity;
+    const signals = inspectPostedPost(candidate, post);
+    if (signals.similarity > maxPastSimilarity) {
+      maxPastSimilarity = signals.similarity;
       nearestPastPostId = post.id;
     }
-    const postSource = post.quote_x_url || post.source_x_url || "";
-    if (postSource && candidate.quoteXUrl && postSource === candidate.quoteXUrl) sameSourcePastCount += 1;
-    const postTopic = `${post.product_id ?? ""}:${post.post_type ?? ""}:${post.creative_strategy ?? ""}`;
-    const candidateTopic = `${candidate.product?.id ?? ""}:${candidate.postType}:${candidate.creativeStrategy}`;
-    if (postTopic === candidateTopic) sameTopicPastCount += 1;
+    if (signals.sameSource) sameSourcePastCount += 1;
+    if (signals.sameTopic) sameTopicPastCount += 1;
   }
   return { maxPastSimilarity, nearestPastPostId, sameSourcePastCount, sameTopicPastCount };
 }
