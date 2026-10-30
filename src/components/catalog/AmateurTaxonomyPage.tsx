@@ -4,6 +4,7 @@ import WorkImage from "@/components/home/WorkImage";
 import { getFanzaAmateurTaxonomy } from "@/lib/dmm/fanzaAmateurCatalog";
 import CollectionPageJsonLd from "@/app/components/CollectionPageJsonLd";
 import { SITE_URL } from "@/lib/seo";
+import { getPaginationItems } from "@/lib/catalog/pagination";
 
 type Kind = "genre" | "maker";
 type Sort = "count-desc" | "count-asc";
@@ -19,6 +20,7 @@ export default async function AmateurTaxonomyPage({ kind, query = "", page = 1, 
   const sorted = [...filtered].sort((a, b) => sort === "count-asc" ? a.count - b.count || a.name.localeCompare(b.name, "ja") : b.count - a.count || a.name.localeCompare(b.name, "ja"));
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const currentPage = Math.min(Math.max(1, page), totalPages);
+  const paginationItems = getPaginationItems(totalPages, currentPage);
   const visible = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   const basePath = `/amateur/${kind}`;
   const pageHref = (target: number) => {
@@ -58,7 +60,7 @@ export default async function AmateurTaxonomyPage({ kind, query = "", page = 1, 
         <div className="relative aspect-square overflow-hidden rounded-xl bg-slate-100"><WorkImage src={item.imageUrl} alt={`${item.name}の素人作品`} sizes="(max-width: 640px) 45vw, (max-width: 1024px) 30vw, 220px" unoptimized className="object-cover" /></div>
         <div className="flex flex-1 flex-col px-1 pb-1 pt-3"><h2 className="mt-1 line-clamp-2 break-all text-base font-black sm:text-lg">{item.name}</h2><div className="mt-auto flex items-end justify-between gap-2 border-t border-slate-100 pt-3"><div><p className="text-[10px] font-bold text-slate-400">登録作品数</p><p className="text-xl font-black text-pink-600">{item.count.toLocaleString("ja-JP")}<span className="ml-0.5 text-xs">作品</span></p></div><ArrowRight size={17} className="mb-1 shrink-0 text-pink-600" /></div></div>
       </Link>)}</div> : <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><p className="font-black">該当する素人作品の{label}が見つかりませんでした</p><Link href={basePath} className="mt-3 inline-block text-sm font-black text-pink-600">一覧に戻る</Link></div>}
-      {totalPages > 1 && <nav aria-label={`${label}一覧のページ送り`} className="mt-10 flex items-center justify-center gap-3">{currentPage > 1 && <Link href={pageHref(currentPage - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black">← 前へ</Link>}<span className="text-xs font-bold text-slate-400">{currentPage} / {totalPages}</span>{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white hover:bg-pink-600">次へ →</Link>}</nav>}
+      {totalPages > 1 && <nav aria-label={`${label}一覧のページ送り`} className="mt-10 flex flex-wrap items-center justify-center gap-2">{currentPage > 1 && <Link href={pageHref(currentPage - 1)} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black">← 前へ</Link>}{paginationItems.map((item, index) => item === "ellipsis" ? <span key={`ellipsis-${index}`} aria-hidden="true" className="px-1 text-sm text-slate-400">…</span> : <Link key={item} href={pageHref(item)} aria-current={item === currentPage ? "page" : undefined} aria-label={`${item}ページ目`} className={`min-w-9 rounded-full px-3 py-2 text-sm font-black ${item === currentPage ? "bg-slate-950 text-white" : "border border-slate-200 bg-white text-slate-700 hover:border-pink-300 hover:text-pink-600"}`}>{item}</Link>)}{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white hover:bg-pink-600">次へ →</Link>}</nav>}
     </section>
   </main>;
 }

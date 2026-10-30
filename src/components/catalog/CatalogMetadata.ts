@@ -31,7 +31,8 @@ export async function catalogMetadata(kind: CatalogKind, name: string, page = 1,
       pageResult &&
       !pageResult.error &&
       pageResult.works.length > 0 &&
-      (kind === "genre" || kind === "maker" || (summary && isEntityIndexable(kind, summary)))
+      summary &&
+      isEntityIndexable(kind, summary)
     ) {
       robots = undefined;
     }
