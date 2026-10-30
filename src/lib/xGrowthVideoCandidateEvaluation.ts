@@ -19,8 +19,13 @@ import { withCreativeQuality } from "./xGrowthCreativeQuality";
 import { getXPostCandidates, type XPostCandidate } from "./xPostPlanner";
 import type { XPostLog } from "./xPostLogs";
 import { isFanzaXGrowthTechnicalSampleMovie } from "./xMediaAssets";
-import type { XGrowthOpportunity } from "./xGrowthOS";
 import { syncAndProbeCandidateMedia } from "./xGrowthMediaPreflight";
+import {
+  buildXGrowthVideoCandidateSignals,
+  collectHardGatePassedVideoIds,
+  collectVideoQualityFailureCounts,
+  selectBestVideoOpportunityByWorkId,
+} from "./xGrowthVideoCandidateSummary";
 
 export type XGrowthVideoCandidateEvaluation = {
   evaluatedWorks: number;
@@ -83,67 +88,17 @@ export async function buildXGrowthVideoCandidateEvaluation(logs: XPostLog[]): Pr
   const afterMediaVideoIds = officialVideoWorkIds(rankedOpportunities);
   const prefilterVideoIds = officialVideoWorkIds(narrowedOpportunities);
   const qualityVideoWorkIds = officialVideoWorkIds(opportunities);
-  const hardGateVideoIds = new Set(opportunities
-    .filter((item) => isOfficialEligibleVideoCandidate(item)
-      && item.creativeVariants.some((variant) => variant.mediaType === "sample_movie" && variant.quality.passed))
-    .map((item) => item.workId));
-  const videoQualityFailureCounts: Record<string, number> = {};
-  for (const item of opportunities) {
-    if (!isOfficialEligibleVideoCandidate(item)) continue;
-    for (const variant of item.creativeVariants.filter((candidate) => candidate.mediaType === "sample_movie" && !candidate.quality.passed)) {
-      for (const axis of variant.quality.gate.failed) {
-        const key = `axis:${axis}`;
-        videoQualityFailureCounts[key] = (videoQualityFailureCounts[key] ?? 0) + 1;
-      }
-      for (const reason of variant.quality.lastMile.reasons) {
-        const key = `last-mile:${reason}`;
-        videoQualityFailureCounts[key] = (videoQualityFailureCounts[key] ?? 0) + 1;
-      }
-    }
-  }
-
+  const eligibleVideoOpportunities = opportunities.filter(isOfficialEligibleVideoCandidate);
+  const hardGateVideoIds = collectHardGatePassedVideoIds(eligibleVideoOpportunities);
+  const videoQualityFailureCounts = collectVideoQualityFailureCounts(eligibleVideoOpportunities);
   const candidateByWorkId = new Map(candidateResult.candidates.map((item) => [item.workId, item]));
-  const opportunityByWorkId = new Map<number, XGrowthOpportunity>();
-  for (const item of opportunities) {
-    if (!isOfficialEligibleVideoCandidate(item)) continue;
-    const current = opportunityByWorkId.get(item.workId);
-    const currentQuality = Math.max(0, ...(current?.creativeVariants
-      .filter((variant) => variant.mediaType === "sample_movie" && variant.quality.passed)
-      .map((variant) => variant.quality.total) ?? []));
-    const nextQuality = Math.max(0, ...item.creativeVariants
-      .filter((variant) => variant.mediaType === "sample_movie" && variant.quality.passed)
-      .map((variant) => variant.quality.total));
-    if (!current || nextQuality > currentQuality) opportunityByWorkId.set(item.workId, item);
-  }
-
-  const candidates = [...candidateVideoIds].map((workId) => {
-    const candidate = candidateByWorkId.get(workId);
-    const opportunity = opportunityByWorkId.get(workId);
-    const expanded = expandedVideoIds.has(workId);
-    const scoreWindow = scoreWindowVideoIds.has(workId);
-    const afterMedia = afterMediaVideoIds.has(workId);
-    const prefilter = prefilterVideoIds.has(workId);
-    const hardGatePassed = hardGateVideoIds.has(workId);
-    const firstDropReason = !expanded ? "creative_supply_expansion"
-      : !scoreWindow ? "shared_score_window"
-        : !afterMedia ? "current_url_media_eligibility"
-          : !prefilter ? "shared_quality_prefilter"
-            : !hardGatePassed ? "creative_quality_gate" : null;
-    const creativeQualityScore = Math.max(0, ...(opportunity?.creativeVariants
-      .filter((variant) => variant.mediaType === "sample_movie" && variant.quality.passed)
-      .map((variant) => variant.quality.total) ?? []));
-    return {
-      workId,
-      title: candidate?.title ?? `作品 ${workId}`,
-      sampleUrlOfficial: true,
-      hardGatePassed,
-      firstDropReason,
-      rankingScore: candidate?.score ?? 0,
-      freshnessScore: opportunity?.freshness.total ?? 0,
-      discountRate: candidate?.discountRate ?? 0,
-      saleEndAt: candidate?.saleEndAt ?? null,
-      creativeQualityScore,
-    };
+  const opportunityByWorkId = selectBestVideoOpportunityByWorkId(eligibleVideoOpportunities);
+  const candidates = buildXGrowthVideoCandidateSignals(candidateVideoIds, candidateByWorkId, opportunityByWorkId, {
+    expandedVideoIds,
+    scoreWindowVideoIds,
+    afterMediaVideoIds,
+    prefilterVideoIds,
+    hardGateVideoIds,
   });
   const hardGatePassedWorks = hardGateVideoIds.size;
 
