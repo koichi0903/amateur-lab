@@ -15,6 +15,11 @@ export type MyfansLinkedCandidateFunnelCandidate = {
 };
 
 type SourceUsage = { date: string; actualPosted: boolean };
+type DropReasonCondition = readonly [condition: boolean, reason: string];
+
+function firstDropReason(conditions: readonly DropReasonCondition[]) {
+  return conditions.find(([condition]) => condition)?.[1] ?? "selected";
+}
 
 function appendByKey<T>(map: Map<string, T[]>, key: string, value: T) {
   const rows = map.get(key);
@@ -117,17 +122,18 @@ export function buildMyfansLinkedCandidateFunnel<
     const linkedAffiliateReady = input.allDailyOptions.some((candidate) =>
       input.creatorKeyForCandidateSource(candidate) === key && candidate.monetizableStatus === "linked_affiliate_ready",
     );
-    const primaryDropReason = !quotes.length ? "quote candidate未接続"
-      : !freshQuotes.length ? "fresh quoteなし"
-      : !creatorProducts.length ? "product linkageなし"
-      : !eligibleProducts.length ? "public/eligible productなし"
-      : !topicPass ? "Topic/quality eligibility未達"
-      : !cooldownPass ? "cooldown"
-      : !sourceStatusUrl ? "source/status URLなし"
-      : !candidatePool ? "candidate pool未採用"
-      : !daily12 ? "Daily 12未採用"
-      : !selected4 ? "selected 4未採用"
-      : "selected";
+    const primaryDropReason = firstDropReason([
+      [!quotes.length, "quote candidate未接続"],
+      [!freshQuotes.length, "fresh quoteなし"],
+      [!creatorProducts.length, "product linkageなし"],
+      [!eligibleProducts.length, "public/eligible productなし"],
+      [!topicPass, "Topic/quality eligibility未達"],
+      [!cooldownPass, "cooldown"],
+      [!sourceStatusUrl, "source/status URLなし"],
+      [!candidatePool, "candidate pool未採用"],
+      [!daily12, "Daily 12未採用"],
+      [!selected4, "selected 4未採用"],
+    ]);
     return {
       key,
       quotes,
