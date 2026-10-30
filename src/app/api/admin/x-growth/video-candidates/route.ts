@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
-import { buildXGrowthVideoCandidateEvaluation } from "@/lib/xGrowthVideoCandidateEvaluation";
+import { buildXGrowthVideoCandidateEvaluation } from "@/lib/xGrowthOS";
 import { getRecentXPostLogs } from "@/lib/xPostLogs";
 import {
   rankXGrowthVideoCandidates,
@@ -43,17 +43,17 @@ async function evaluateVideoPool(): Promise<SelectionSnapshot> {
     const prior = lastPostedAtByWorkId.get(log.work_id);
     if (!prior || Date.parse(log.posted_at) > Date.parse(prior)) lastPostedAtByWorkId.set(log.work_id, log.posted_at);
   }
-  const ranked = rankXGrowthVideoCandidates(evaluation.candidates.map((candidate) => ({
-    workId: candidate.workId,
-    title: candidate.title,
-    sampleUrlOfficial: candidate.sampleUrlOfficial,
-    hardGatePassed: candidate.hardGatePassed,
-    firstDropReason: candidate.firstDropReason,
-    rankingScore: candidate.rankingScore,
-    freshnessScore: candidate.freshnessScore,
-    discountRate: candidate.discountRate,
-    saleEndAt: candidate.saleEndAt,
-    creativeQualityScore: candidate.creativeQualityScore,
+  const ranked = rankXGrowthVideoCandidates(evaluation.candidates.map((stage) => ({
+    workId: stage.workId,
+    title: stage.title,
+    sampleUrlOfficial: stage.sampleUrlOfficial,
+    hardGatePassed: stage.hardGatePassed,
+    firstDropReason: stage.firstDropReason,
+    rankingScore: stage.rankingScore,
+    freshnessScore: stage.freshnessScore,
+    discountRate: stage.discountRate,
+    saleEndAt: stage.saleEndAt,
+    creativeQualityScore: stage.creativeQualityScore,
   })), lastPostedAtByWorkId);
   const passed = evaluation.hardGatePassedWorks;
   return {

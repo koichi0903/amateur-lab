@@ -1,18 +1,23 @@
 "use client";
 
 import { Bell, ChevronDown } from "lucide-react";
-import { useState } from "react";
-import { useIPhoneInstallGuide } from "@/components/useIPhoneInstallGuide";
+import { useEffect, useState } from "react";
 
 type Props = { contentId: string; workTitle: string; makers: string[] };
 
 export default function FanzaAmateurPriceAlertButton({ contentId, workTitle, makers }: Props) {
   const [open, setOpen] = useState(false);
-  const showIPhoneGuide = useIPhoneInstallGuide();
+  const [showIPhoneGuide, setShowIPhoneGuide] = useState(false);
   const [priceAlert, setPriceAlert] = useState(false);
   const [selectedMakers, setSelectedMakers] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const isIPhone = /iPhone/i.test(window.navigator.userAgent);
+    const isStandalone = (window.navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+    setShowIPhoneGuide(isIPhone && !isStandalone);
+  }, []);
 
   const enableNotifications = async () => {
     setMessage(null);

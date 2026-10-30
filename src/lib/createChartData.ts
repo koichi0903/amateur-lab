@@ -37,61 +37,33 @@ export function getPriceSeries(history: PriceHistoryItem[]): PriceSeries[] {
   return Array.from(
     new Map(
       history.map((item) => {
-        const series = {
-          displayName: normalizeDisplayName(item.display_name),
-          period: item.period ?? null,
-        };
+        const series = { displayName: normalizeDisplayName(item.display_name), period: item.period ?? null };
         return [priceSeriesKey(series), series] as const;
       }),
     ).values(),
-  ).sort(
-    (a, b) =>
-      a.displayName.localeCompare(b.displayName) ||
-      (a.period ?? "").localeCompare(b.period ?? ""),
-  );
+  ).sort((a, b) => a.displayName.localeCompare(b.displayName) || (a.period ?? "").localeCompare(b.period ?? ""));
 }
 
 export function getDefaultPriceSeriesKey(history: PriceHistoryItem[]) {
   const defaultSale = [...history]
     .filter((item) => item.sale_price != null && item.sale_price > 0)
-    .sort(
-      (a, b) =>
-        (a.sale_price ?? a.normal_price ?? 999999) -
-        (b.sale_price ?? b.normal_price ?? 999999),
-    )[0];
+    .sort((a, b) => (a.sale_price ?? a.normal_price ?? 999999) - (b.sale_price ?? b.normal_price ?? 999999))[0];
 
   if (defaultSale) {
-    return priceSeriesKey({
-      displayName: normalizeDisplayName(defaultSale.display_name),
-      period: defaultSale.period ?? null,
-    });
+    return priceSeriesKey({ displayName: normalizeDisplayName(defaultSale.display_name), period: defaultSale.period ?? null });
   }
 
   const firstSeries = getPriceSeries(history)[0];
   return firstSeries ? priceSeriesKey(firstSeries) : "";
 }
 
-export function getPriceSeriesSummary(
-  history: PriceHistoryItem[],
-  selectedKey: string,
-) {
-  const series = getPriceSeries(history).find(
-    (candidate) => priceSeriesKey(candidate) === selectedKey,
-  );
+export function getPriceSeriesSummary(history: PriceHistoryItem[], selectedKey: string) {
+  const series = getPriceSeries(history).find((candidate) => priceSeriesKey(candidate) === selectedKey);
   if (!series) return null;
 
   const entries = history
-    .filter(
-      (item) =>
-        normalizeDisplayName(item.display_name) === series.displayName &&
-        (item.period ?? null) === series.period,
-    )
-    .map((item) => ({
-      item,
-      date: parsePriceHistoryDate(item.changed_at),
-      price: effectiveHistoryPrice(item),
-      isSale: isSalePriceHistoryItem(item),
-    }))
+    .filter((item) => normalizeDisplayName(item.display_name) === series.displayName && (item.period ?? null) === series.period)
+    .map((item) => ({ item, date: parsePriceHistoryDate(item.changed_at), price: effectiveHistoryPrice(item), isSale: isSalePriceHistoryItem(item) }))
     .filter(({ date, price }) => Number.isFinite(date.getTime()) && price > 0)
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 

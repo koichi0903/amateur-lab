@@ -17,17 +17,10 @@ type Props = {
   onSelectedSeriesChange?: (key: string) => void;
 };
 
-export default function PriceChartTabs({
-  history,
-  selectedSeriesKey,
-  onSelectedSeriesChange,
-}: Props) {
+export default function PriceChartTabs({ history, selectedSeriesKey, onSelectedSeriesChange }: Props) {
   const priceTypes = getPriceSeries(history);
-  const [internalSelectedType, setInternalSelectedType] = useState(() =>
-    getDefaultPriceSeriesKey(history),
-  );
+  const [internalSelectedType, setInternalSelectedType] = useState(() => getDefaultPriceSeriesKey(history));
   const selectedType = selectedSeriesKey ?? internalSelectedType;
-
   const activeSeries = priceTypes.find((series) => priceSeriesKey(series) === selectedType);
   const chartData = activeSeries
     ? createChartData(history, activeSeries.displayName, activeSeries.period)

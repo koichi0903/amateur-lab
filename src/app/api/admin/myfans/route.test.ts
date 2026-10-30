@@ -22,10 +22,6 @@ function skipRequest() {
 
 async function captureFetches(responses: Response[]) {
   const requests: CapturedRequest[] = [];
-  const originalUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const originalServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  process.env.NEXT_PUBLIC_SUPABASE_URL = "http://127.0.0.1:54321";
-  process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const request = input instanceof Request ? input.clone() : undefined;
@@ -55,10 +51,6 @@ async function captureFetches(responses: Response[]) {
     requests,
     restore() {
       globalThis.fetch = originalFetch;
-      if (originalUrl === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-      else process.env.NEXT_PUBLIC_SUPABASE_URL = originalUrl;
-      if (originalServiceKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-      else process.env.SUPABASE_SERVICE_ROLE_KEY = originalServiceKey;
     },
   };
 }
@@ -123,9 +115,8 @@ test("permanent_candidate_skip maps a PostgREST 42P10 response to the safe API e
       error: "myfans操作に失敗しました。入力を確認して、時間をおいて再試行してください。",
     });
     assert.equal(fetchMock.requests.length, 1);
-    const [message, details] = errors[0] as [string, { action: string; errorCode?: string; errorType: string }];
-    assert.match(message, /myfans admin action failed/);
-    assert.deepEqual(details, {
+    assert.match(String((errors[0] as unknown[])[0]), /myfans admin action failed/);
+    assert.deepEqual((errors[0] as unknown[])[1], {
       action: "permanent_candidate_skip",
       errorCode: "42P10",
       errorType: "UnknownError",

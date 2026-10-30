@@ -36,6 +36,8 @@ export function workDetailHref(
   workId: number | string,
   source: AffiliateSource,
 ) {
+  // Keep attribution available to the client tracker without creating a
+  // query-string URL variant that search engines can discover from internal links.
   return `/works/${encodeURIComponent(String(workId))}#from=${source}`;
 }
 

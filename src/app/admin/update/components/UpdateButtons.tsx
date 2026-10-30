@@ -163,26 +163,6 @@ onStop,
 
 ];
 
-  const renderJobButton = (button: (typeof buttons)[number]) => {
-    const isRunning = runningJobs.includes(button.jobName);
-
-    return (
-      <button
-        key={button.label}
-        onClick={isRunning ? () => onStop?.(button.jobName) : button.onClick}
-        disabled={isUpdating && !isRunning}
-        className={`
-          h-16 rounded-xl font-bold text-white transition
-          disabled:cursor-not-allowed
-          disabled:opacity-50
-          ${isRunning ? "bg-red-600 hover:bg-red-500" : button.color}
-        `}
-      >
-        {isRunning ? `⏹ ${button.label}を停止` : button.label}
-      </button>
-    );
-  };
-
   return (
   <div className="space-y-8">
 
@@ -234,7 +214,25 @@ onStop,
           .filter((b) =>
   ["🏷 Stage同期"].includes(b.label)
 )
-          .map(renderJobButton)}
+          .map((button) => (
+            <button
+              key={button.label}
+              onClick={
+                runningJobs.includes(button.jobName)
+                  ? () => onStop?.(button.jobName)
+                  : button.onClick
+              }
+              disabled={isUpdating && !runningJobs.includes(button.jobName)}
+              className={`
+                h-16 rounded-xl font-bold text-white transition
+                disabled:cursor-not-allowed
+                disabled:opacity-50
+                ${runningJobs.includes(button.jobName) ? "bg-red-600 hover:bg-red-500" : button.color}
+              `}
+            >
+              {runningJobs.includes(button.jobName) ? `⏹ ${button.label}を停止` : button.label}
+            </button>
+          ))}
       </div>
     </section>
 
@@ -255,7 +253,25 @@ onStop,
 ]
             .includes(b.label)
           )
-          .map(renderJobButton)}
+          .map((button) => (
+            <button
+              key={button.label}
+              onClick={
+                runningJobs.includes(button.jobName)
+                  ? () => onStop?.(button.jobName)
+                  : button.onClick
+              }
+              disabled={isUpdating && !runningJobs.includes(button.jobName)}
+              className={`
+                h-16 rounded-xl font-bold text-white transition
+                disabled:cursor-not-allowed
+                disabled:opacity-50
+                ${runningJobs.includes(button.jobName) ? "bg-red-600 hover:bg-red-500" : button.color}
+              `}
+            >
+              {runningJobs.includes(button.jobName) ? `⏹ ${button.label}を停止` : button.label}
+            </button>
+          ))}
       </div>
     </section>
 
@@ -265,16 +281,37 @@ onStop,
         FANZA素人
       </h3>
       <div className="grid gap-4 md:grid-cols-2">
-        <a href="/admin/amateur-api-catalog?mode=full&start=1" className="flex min-h-16 flex-col items-start justify-center rounded-xl border border-zinc-700 bg-zinc-900 px-5 text-left transition hover:border-emerald-400 hover:bg-zinc-800">
-          <span className="font-bold text-white">🎞️ 素人・日次全作品API補完</span>
-          <span className="mt-1 text-xs text-zinc-400">全作品の価格・セール情報を再照合して保存</span>
+        <a
+          href="/admin/amateur-api-catalog?mode=daily&start=1"
+          className="flex min-h-16 flex-col items-start justify-center rounded-xl border border-zinc-700 bg-zinc-900 px-5 text-left transition hover:border-emerald-400 hover:bg-zinc-800"
+        >
+          <span className="font-bold text-white">🎞️ 素人・日次新作補完</span>
+          <span className="mt-1 text-xs text-zinc-400">直近期間を補完し、API返却情報をSupabaseに保存</span>
         </a>
-        <a href="/admin/amateur-api-catalog?mp4=full&startMp4=1" className="flex min-h-16 flex-col items-start justify-center rounded-xl border border-violet-900 bg-zinc-900 px-5 text-left transition hover:border-violet-400 hover:bg-zinc-800">
-          <span className="font-bold text-white">🎬 素人・日次全対象MP4補完</span>
-          <span className="mt-1 text-xs text-zinc-400">未取得作品を確認・保存（取得済み/3回失敗は除外）</span>
+        <a
+          href="/admin/amateur-api-catalog?mode=weekly&start=1"
+          className="flex min-h-16 flex-col items-start justify-center rounded-xl border border-zinc-700 bg-zinc-900 px-5 text-left transition hover:border-emerald-400 hover:bg-zinc-800"
+        >
+          <span className="font-bold text-white">🎞️ 素人・週次全作品補完</span>
+          <span className="mt-1 text-xs text-zinc-400">日付で分割して全体を再照合し、掲載状態も更新</span>
+        </a>
+        <a
+          href="/admin/amateur-api-catalog?mp4=daily&startMp4=1"
+          className="flex min-h-16 flex-col items-start justify-center rounded-xl border border-violet-900 bg-zinc-900 px-5 text-left transition hover:border-violet-400 hover:bg-zinc-800"
+        >
+          <span className="font-bold text-white">🎬 素人・日次MP4リンク補完</span>
+          <span className="mt-1 text-xs text-zinc-400">新着作品を確認し、素人専用テーブルに保存</span>
+        </a>
+        <a
+          href="/admin/amateur-api-catalog?mp4=weekly&startMp4=1"
+          className="flex min-h-16 flex-col items-start justify-center rounded-xl border border-violet-900 bg-zinc-900 px-5 text-left transition hover:border-violet-400 hover:bg-zinc-800"
+        >
+          <span className="font-bold text-white">🎬 素人・週次MP4リンク補完</span>
+          <span className="mt-1 text-xs text-zinc-400">全作品を確認。取得済み・3回失敗作品は除外</span>
         </a>
       </div>
     </section>
+
     {/* セール */}
     <section>
       <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-400">
@@ -290,7 +327,25 @@ onStop,
 ]
             .includes(b.label)
           )
-          .map(renderJobButton)}
+          .map((button) => (
+            <button
+              key={button.label}
+              onClick={
+                runningJobs.includes(button.jobName)
+                  ? () => onStop?.(button.jobName)
+                  : button.onClick
+              }
+              disabled={isUpdating && !runningJobs.includes(button.jobName)}
+              className={`
+                h-16 rounded-xl font-bold text-white transition
+                disabled:cursor-not-allowed
+                disabled:opacity-50
+                ${runningJobs.includes(button.jobName) ? "bg-red-600 hover:bg-red-500" : button.color}
+              `}
+            >
+              {runningJobs.includes(button.jobName) ? `⏹ ${button.label}を停止` : button.label}
+            </button>
+          ))}
       </div>
     </section>
 
@@ -314,7 +369,25 @@ onStop,
 ]
             .includes(b.label)
           )
-          .map(renderJobButton)}
+          .map((button) => (
+            <button
+              key={button.label}
+              onClick={
+                runningJobs.includes(button.jobName)
+                  ? () => onStop?.(button.jobName)
+                  : button.onClick
+              }
+              disabled={isUpdating && !runningJobs.includes(button.jobName)}
+              className={`
+                h-16 rounded-xl font-bold text-white transition
+                disabled:cursor-not-allowed
+                disabled:opacity-50
+                ${runningJobs.includes(button.jobName) ? "bg-red-600 hover:bg-red-500" : button.color}
+              `}
+            >
+              {runningJobs.includes(button.jobName) ? `⏹ ${button.label}を停止` : button.label}
+            </button>
+          ))}
       </div>
     </section>
 

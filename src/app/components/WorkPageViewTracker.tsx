@@ -32,7 +32,11 @@ function readUrlAttribution(fallbackSourcePage?: AffiliateSource) {
   const xPostKey = readXPostKey();
 
   return {
-    sourcePage: resolveAffiliateSource(window.location.search, window.location.hash, fallbackSourcePage),
+    sourcePage: resolveAffiliateSource(
+      window.location.search,
+      window.location.hash,
+      fallbackSourcePage,
+    ),
     xPostKey,
   };
 }

@@ -21,11 +21,7 @@ import type { Work } from "@/types/work";
 import Header from "@/components/layout/Header";
 import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
 import FanzaStyleWorkCard from "@/components/catalog/FanzaStyleWorkCard";
-import {
-  getCurrentWorkPriceOffers,
-  getWorkDetailPricePresentation,
-  selectPurchaseAlternatives,
-} from "@/lib/workDetailPricing";
+import { parseDatabaseDate } from "@/lib/dateTime";
 
 
 function currentTimeMs() {
@@ -170,14 +166,7 @@ const getWorkDetailData = cache(
       workPrices: workPrices.data ?? [],
     };
       },
-      // Versioned after adding period-aware price history. This prevents the old
-      // period-less payload from hiding the 7-day and unlimited series.
-      [
-        "work-detail-data-v5-seo-pilot-pinned-series",
-        productId,
-        defaultPriceSeries?.displayName ?? "",
-        defaultPriceSeries?.period ?? "__null",
-      ],
+      ["work-detail-data-v5-seo-pilot-pinned-series", productId, defaultPriceSeries?.displayName ?? "", defaultPriceSeries?.period ?? "__null"],
       { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [workDetailProductCacheTag(productId)] },
     )(),
 );
@@ -265,13 +254,25 @@ export async function generateMetadata(
 
   const title = `${work.title}｜FANZA価格・過去最安値・買い時 | 発掘LAB`;
   const description = buildWorkMetaDescription(work);
+  const defaultPriceSeries = getSeoPilotDefaultPriceSeries(work.id);
+  const workDetailData = defaultPriceSeries
+    ? await getWorkDetailData(work.product_id, defaultPriceSeries)
+    : null;
+  const hasPilotPriceSeries = Boolean(
+    defaultPriceSeries &&
+    workDetailData?.priceHistory.some(
+      (item) =>
+        item.display_name.replace(/\s+/g, "").trim() === defaultPriceSeries.displayName &&
+        (item.period ?? null) === defaultPriceSeries.period,
+    ),
+  );
   const encodedId = encodeURIComponent(id);
   const socialImage = work.image_url || `${SITE_URL}/ogp-20261028.png`;
   const metadata = pageMetadata({
     title,
     description,
     canonical: `/works/${encodedId}`,
-    robots: isWorkIndexable(work)
+    robots: isWorkIndexable(work) && (!defaultPriceSeries || hasPilotPriceSeries)
       ? undefined
       : { index: false, follow: true },
   });
@@ -316,15 +317,48 @@ export default async function WorkDetailPage(
   const defaultPriceSeries = getSeoPilotDefaultPriceSeries(work.id);
   const { sampleImages, priceHistory, workPrices } =
     await getWorkDetailData(work.product_id, defaultPriceSeries);
-  const currentOffers = getCurrentWorkPriceOffers(priceHistory ?? [], workPrices);
+  const latestOffers = new Map<string, (typeof priceHistory)[number]>();
+  for (const offer of priceHistory ?? []) {
+    const key = `${offer.display_name ?? offer.type ?? ""}\u0000${offer.period ?? ""}`;
+    if (!latestOffers.has(key)) latestOffers.set(key, offer);
+  }
+  // Current offers are authoritative. History can contain plans that ended,
+  // so deriving the purchase list from it can resurrect stale price options.
+  const currentOffers = workPrices?.length
+    ? workPrices
+    : [...latestOffers.values()];
 
   const splitEntities = (value: string | null) => value?.split(/\s*\/\s*|\s*／\s*|\s*,\s*|\s*、\s*/).filter(Boolean) ?? [];
   const actresses = splitEntities(work.actress);
   const genres = splitEntities(work.genre);
   const makers = splitEntities(work.maker);
   const series = splitEntities(work.series);
-  const { currentPrice, mobileDisplayPrice, mobileDisplayDiscountRate } =
-    getWorkDetailPricePresentation(work, currentOffers, currentTimeMs());
+  const saleActive = !work.sale_end_at || Date.parse(work.sale_end_at) > currentTimeMs();
+  const hasSaleEvidence =
+    saleActive &&
+    (work.is_on_sale || (work.sale_price != null && work.sale_price > 0) || (work.discount_rate != null && work.discount_rate > 0));
+  const representativePrice = hasSaleEvidence && work.sale_price > 0 ? work.sale_price : work.price;
+  const currentPrice = currentOffers.find((offer) =>
+    (offer.sale_price ?? offer.normal_price ?? 0) === representativePrice
+  ) ?? {
+    display_name: "代表価格",
+    type: null,
+    period: null,
+    normal_price: work.price,
+    sale_price: hasSaleEvidence ? work.sale_price || null : null,
+  };
+  const mobileDisplayPrice =
+    hasSaleEvidence && currentPrice.sale_price && currentPrice.sale_price > 0
+      ? currentPrice.sale_price
+      : currentPrice.normal_price;
+  const mobileDisplayDiscountRate =
+    hasSaleEvidence &&
+    currentPrice.sale_price &&
+    currentPrice.normal_price &&
+    mobileDisplayPrice &&
+    currentPrice.normal_price > mobileDisplayPrice
+      ? Math.round((1 - mobileDisplayPrice / currentPrice.normal_price) * 100)
+      : hasSaleEvidence ? work.discount_rate : 0;
   const mainActress = actresses[0] ?? "";
   const mainGenre = genres[0] ?? "";
   const mainMaker = makers[0] ?? "";
@@ -336,7 +370,23 @@ export default async function WorkDetailPage(
     mainGenre,
     mainMaker,
   );
-  const purchaseAlternatives = selectPurchaseAlternatives(relatedWorks, mobileDisplayPrice, currentTimeMs);
+
+  const purchaseAlternatives = (relatedWorks ?? []).filter((candidate) => {
+    const saleEnd = parseDatabaseDate(candidate.sale_end_at)?.getTime();
+    const saleExpired = candidate.sale_price > 0 &&
+      Boolean(candidate.sale_end_at) &&
+      (saleEnd == null || saleEnd <= currentTimeMs());
+    const price = !saleExpired && candidate.sale_price > 0 && candidate.sale_price < candidate.price
+      ? candidate.sale_price
+      : candidate.price;
+    return Boolean(
+      mobileDisplayPrice &&
+      price > 0 &&
+      price < mobileDisplayPrice &&
+      candidate.review_count >= 10 &&
+      candidate.review_average > 0,
+    );
+  }).slice(0, 3);
   const purchaseAlternativeIds = new Set(purchaseAlternatives.map((candidate) => candidate.id));
 
   return (
@@ -405,7 +455,7 @@ export default async function WorkDetailPage(
         </section>
       )}
 
-      <RelatedWorks works={relatedWorks.filter((candidate) => !purchaseAlternativeIds.has(candidate.id))} />
+      <RelatedWorks works={(relatedWorks ?? []).filter((candidate) => !purchaseAlternativeIds.has(candidate.id))} />
 
     </div>
   </main>

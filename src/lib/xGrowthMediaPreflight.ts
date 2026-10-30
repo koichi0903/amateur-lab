@@ -1,6 +1,20 @@
 export type CandidateMediaSyncResult = { error: string | null } & Record<string, unknown>;
 export type CandidateMediaProbeResult = { error: string | null; checked: number };
 
+/** Persist sample-media metadata without probing when only sync data is needed. */
+export async function syncCandidateMediaAssets<TSync extends CandidateMediaSyncResult>(
+  workIds: number[],
+  sync: (workIds: number[]) => Promise<TSync>,
+) {
+  const candidateWorkIds = [...new Set(workIds)].filter((id) => Number.isSafeInteger(id) && id > 0);
+  const syncStarted = Date.now();
+  const syncResult = await sync(candidateWorkIds);
+  return {
+    sync: syncResult,
+    syncElapsedMs: Date.now() - syncStarted,
+  };
+}
+
 /** Sync and probe the same candidate works before technical media eligibility runs. */
 export async function syncAndProbeCandidateMedia<TSync extends CandidateMediaSyncResult>(
   workIds: number[],
@@ -9,9 +23,7 @@ export async function syncAndProbeCandidateMedia<TSync extends CandidateMediaSyn
   batchSize = 100,
 ) {
   const candidateWorkIds = [...new Set(workIds)].filter((id) => Number.isSafeInteger(id) && id > 0);
-  const syncStarted = Date.now();
-  const syncResult = await sync(candidateWorkIds);
-  const syncElapsedMs = Date.now() - syncStarted;
+  const { sync: syncResult, syncElapsedMs } = await syncCandidateMediaAssets(candidateWorkIds, sync);
   if (syncResult.error || candidateWorkIds.length === 0) {
     return {
       sync: syncResult,

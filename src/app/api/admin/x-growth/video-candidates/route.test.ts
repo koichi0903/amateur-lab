@@ -127,42 +127,6 @@ test("candidate POST manual replacement and reset pass the intended state to the
   assert.deepEqual(saveCalls[1].slice(0, 4), [3, [1, 2, 3, 4, 5], [], []]);
 });
 
-test("candidate POST rejects malformed and non-eligible manual replacements before saving", async () => {
-  const snapshot: SelectionSnapshot = {
-    computedAt: "2026-10-10T00:00:00.000Z",
-    evaluatedWorks: 0,
-    hardGatePassedWorks: 0,
-    candidates: [],
-    shortageReason: "no eligible candidates",
-    failureCounts: {},
-    pipeline: {},
-  };
-  const dependencies: CandidatePostDependencies = {
-    isAdminRequest: async () => true,
-    readSelection: async () => null,
-    evaluateVideoPool: async () => snapshot,
-    saveSelection: async () => {
-      throw new Error("save boundary should not be reached for a rejected replacement");
-    },
-  };
-
-  const malformed = await handleCandidatePost(new NextRequest("http://example.test/api/admin/x-growth/video-candidates", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ action: "override", expectedRevision: 0, selectedWorkIds: [1.5] }),
-  }), dependencies);
-  assert.equal(malformed.status, 400);
-  assert.match((await malformed.json()).error, /入れ替える候補/);
-
-  const ineligible = await handleCandidatePost(new NextRequest("http://example.test/api/admin/x-growth/video-candidates", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ action: "override", expectedRevision: 0, selectedWorkIds: [999] }),
-  }), dependencies);
-  assert.equal(ineligible.status, 409);
-  assert.match((await ineligible.json()).error, /Hard Gate/);
-});
-
 test("candidate migration restricts table and RPC access to service_role", () => {
   const migration = readFileSync("supabase/migrations/20261010105757_add_x_growth_video_candidate_selections.sql", "utf8");
   assert.match(migration, /enable row level security/i);

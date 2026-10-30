@@ -1,6 +1,7 @@
 "use client";
 
 import { trackFanzaAmateurAffiliateClick } from "@/lib/trackFanzaAmateurAffiliateClick";
+import { withHakkutsuSiteAffiliateId } from "@/lib/dmm/siteAffiliateUrl";
 
 export default function FanzaAmateurAffiliateLink({ href, contentId, sourcePage, placement = "detail-sidebar", price }: {
   href: string;
@@ -11,7 +12,7 @@ export default function FanzaAmateurAffiliateLink({ href, contentId, sourcePage,
 }) {
   return (
     <a
-      href={href}
+      href={withHakkutsuSiteAffiliateId(href)}
       target="_blank"
       rel="noopener noreferrer sponsored"
       className="flex h-14 min-h-12 items-center justify-center rounded-xl bg-pink-600 px-5 text-sm font-black text-white shadow-sm transition hover:bg-pink-700"

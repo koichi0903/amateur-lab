@@ -6,17 +6,14 @@ const PUBLIC_API_PATHS = new Set([
   "/api/amateur-affiliate-click",
   "/api/affiliate-impression",
   "/api/compare",
-  "/api/amateur",
   "/api/contact",
   "/api/favorites",
-  "/api/amateur/genres",
-  "/api/amateur/personal-pick",
+  "/api/amateur",
   "/api/push/subscribe",
   "/api/work-page-view",
 ]);
 const LOCAL_UPDATE_API_PATHS = new Set([
   "/api/admin/browser-health",
-  "/api/admin/fanza-amateur-api-catalog",
   "/api/admin/server-health",
   "/api/admin/local-playwright-update",
   "/api/actress-profile-update",
@@ -146,9 +143,17 @@ async function authenticatedAdminResponse(request: NextRequest) {
   return response;
 }
 
-function unprotectedPathResponse(request: NextRequest, pathname: string, isLocalDevelopmentRequest: boolean, isLoopbackRequest: boolean) {
+export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const isLoopbackRequest = ["localhost", "127.0.0.1"].includes(
+    request.nextUrl.hostname,
+  );
+  const isLocalDevelopmentRequest =
+    process.env.NODE_ENV === "development" &&
+    isLoopbackRequest;
+
   if (WORK_SOCIAL_IMAGE_PATH_PATTERN.test(pathname)) {
-    return NextResponse.redirect(new URL("/ogp.png", request.url), {
+    return NextResponse.redirect(new URL("/ogp-20261028.png", request.url), {
       status: 308,
       headers: {
         "Cache-Control": "public, s-maxage=604800, stale-while-revalidate=2592000",
@@ -185,10 +190,6 @@ function unprotectedPathResponse(request: NextRequest, pathname: string, isLocal
     return NextResponse.next();
   }
 
-  return null;
-}
-
-function specialApiResponse(request: NextRequest, pathname: string) {
   if (pathname === "/api/cron/fanza-x-metrics") {
     return NextResponse.json(
       { error: "X APIによる閲覧数取得は停止中です。X Growth OSの手入力タスクを使ってください。" },
@@ -208,24 +209,6 @@ function specialApiResponse(request: NextRequest, pathname: string) {
           { status: 401, headers: { "Cache-Control": "no-store" } },
         );
   }
-
-  return null;
-}
-
-export async function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-  const isLoopbackRequest = ["localhost", "127.0.0.1"].includes(
-    request.nextUrl.hostname,
-  );
-  const isLocalDevelopmentRequest =
-    process.env.NODE_ENV === "development" &&
-    isLoopbackRequest;
-
-  const unprotectedResponse = unprotectedPathResponse(request, pathname, isLocalDevelopmentRequest, isLoopbackRequest);
-  if (unprotectedResponse) return unprotectedResponse;
-
-  const specialResponse = specialApiResponse(request, pathname);
-  if (specialResponse) return specialResponse;
 
   if (!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) {
     return unavailable();

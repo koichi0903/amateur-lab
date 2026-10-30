@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { AmateurActressDetailPage, amateurActressMetadata } from "@/components/catalog/AmateurActressDetailPage";
-import { getCanonicalFanzaAmateurActressName } from "@/lib/dmm/fanzaAmateurActressCatalog";
+import { getCanonicalFanzaAmateurActressName } from "@/lib/dmm/fanzaAmateurCatalog";
 
 export const revalidate = 3600;
 

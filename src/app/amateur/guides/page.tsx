@@ -6,8 +6,8 @@ import { analyzerGuideArticles } from "@/lib/analyzerGuideContent";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 
 export const metadata: Metadata = pageMetadata({
-  title: "FANZAの使い方ガイド｜セール・登録・見放題・VR | 発掘LAB",
-  description: "FANZAのセールの買い時、会員登録、見放題サービス、VRの始め方をテーマ別に解説。ライブチャットなど各サービスの違いや、利用前に確認したい手順をまとめています。",
+  title: "FANZAガイド・使い方まとめ | 発掘LAB",
+  description: "FANZAをお得に・賢く使うためのガイド記事一覧です。",
   canonical: "/guides",
   robots: { index: false, follow: true },
 });
@@ -24,12 +24,12 @@ export default function AmateurGuidesPage() {
   return <>
     <Header />
     <main className="min-h-screen bg-[#f8fafc] text-slate-950">
-      <CollectionPageJsonLd title="FANZAの使い方ガイド｜セール・登録・見放題・VR" description="FANZAのセールの買い時、会員登録、見放題サービス、VRの始め方をテーマ別に解説。ライブチャットなど各サービスの違いや、利用前に確認したい手順をまとめています。" url={`${SITE_URL}/guides`} items={guideCards.map(({ guide, title }) => ({ name: title, url: `${SITE_URL}/guides/${guide.slug}` }))} />
+      <CollectionPageJsonLd title="FANZAガイド・使い方まとめ" description="FANZAをお得に・賢く使うためのガイド記事一覧です。" url={`${SITE_URL}/guides`} items={guideCards.map(({ guide, title }) => ({ name: title, url: `${SITE_URL}/guides/${guide.slug}` }))} />
       <div className="mx-auto max-w-[740px] px-4 py-6 sm:px-6 sm:py-8">
         <span className="inline-flex rounded border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-500">広告・PR</span>
-        <nav aria-label="パンくず" className="mt-5 text-xs font-bold text-slate-500"><Link href="/amateur" className="hover:text-pink-600">素人作品</Link><span className="mx-2">/</span><span aria-current="page">ガイド</span></nav>
-        <h1 className="mt-7 text-2xl font-black tracking-tight sm:text-3xl">FANZAの使い方ガイド｜セール・登録・見放題・VR</h1>
-        <p className="mt-2 text-sm text-slate-600">FANZAのセールの買い時、会員登録、見放題サービス、VRの始め方をテーマ別に解説。ライブチャットなど各サービスの違いや、利用前に確認したい手順をまとめています。</p>
+        <nav aria-label="パンくず" className="mt-5 text-xs font-bold text-slate-500"><Link href="/amateur" className="hover:text-pink-600">素人作品</Link><span className="mx-2">/</span><span>ガイド</span></nav>
+        <h1 className="mt-7 text-2xl font-black tracking-tight sm:text-3xl">FANZAガイド・使い方まとめ</h1>
+        <p className="mt-2 text-sm text-slate-400">FANZAをお得に・賢く使うためのガイド記事一覧です。</p>
         <div className="mt-8 space-y-4">
           {guideCards.map(({ guide, badge, title, description }) => <Link key={guide.slug} href={`/amateur/guides/${guide.slug}`} className="block rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm transition hover:border-pink-300 hover:shadow-md"><div className="flex items-start gap-4"><span className="shrink-0 rounded border border-pink-200 bg-pink-50 px-2 py-1 text-xs font-bold text-pink-600">{badge}</span><div className="min-w-0"><h2 className="font-black text-slate-950">{title}</h2><p className="mt-1 text-xs leading-5 text-slate-600">{description}</p></div></div></Link>)}
         </div>

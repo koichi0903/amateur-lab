@@ -1,33 +1,134 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import {
-  getRequiredFanzaAmateurPriceHistoryKeys,
-  reconstructChangedFanzaAmateurPriceHistoryRows,
-  rememberNewestFanzaAmateurPriceHistoryValues,
-  selectDailyFanzaAmateurPriceHistoryRows,
-  type FanzaAmateurPriceHistoryBackfillSourceRow,
-  type FanzaAmateurPriceHistoryValuesByWork,
-} from "./fanzaAmateurPriceHistoryBackfill";
-import {
-  type FanzaAmateurPriceHistoryRow,
-} from "./fanzaAmateurPriceHistoryRows";
 
-export {
-  expandFanzaAmateurPriceSnapshotRows,
-  extractFanzaAmateurPriceHistoryRows,
-  getFanzaAmateurPriceValues,
-  selectChangedFanzaAmateurPriceHistoryRows,
-  selectChangedFanzaAmateurPriceHistoryRowsByWork,
-} from "./fanzaAmateurPriceHistoryRows";
-export type {
-  FanzaAmateurPriceHistoryRow,
-  FanzaAmateurPriceSnapshotRow,
-  FanzaAmateurPriceValue,
-} from "./fanzaAmateurPriceHistoryRows";
+type JsonRecord = Record<string, unknown>;
+type RawCatalogRow = {
+  run_id: string;
+  content_id: string;
+  fetched_at: string;
+  raw_item: JsonRecord;
+};
+
+export type FanzaAmateurPriceValue = { price: string | null; list_price: string | null };
+type PriceValue = FanzaAmateurPriceValue;
+type PriceValuesByWork = Map<string, Map<string, PriceValue>>;
+
+export type FanzaAmateurPriceHistoryRow = {
+  content_id: string;
+  source_run_id: string;
+  observed_at: string;
+  price_type: string;
+  price: string | null;
+  list_price: string | null;
+  price_data: unknown;
+};
+
+export type FanzaAmateurPriceSnapshotRow = {
+  source_run_id: string;
+  content_id: string;
+  observed_at: string;
+  prices: unknown;
+};
 
 const BACKFILL_BATCH_SIZE = 500;
 const UPSERT_BATCH_SIZE = 500;
+
+function isRecord(value: unknown): value is JsonRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function priceText(value: unknown): string | null {
+  return typeof value === "string" || typeof value === "number" ? String(value) : null;
+}
+
+export function extractFanzaAmateurPriceHistoryRows(
+  contentId: string,
+  runId: string,
+  rawItem: JsonRecord,
+  observedAt: string,
+): FanzaAmateurPriceHistoryRow[] {
+  const prices = isRecord(rawItem.prices) ? rawItem.prices : {};
+  const rows: FanzaAmateurPriceHistoryRow[] = [{
+    content_id: contentId,
+    source_run_id: runId,
+    observed_at: observedAt,
+    price_type: "summary",
+    price: priceText(prices.price),
+    list_price: priceText(prices.list_price),
+    price_data: prices,
+  }];
+
+  const deliveries = isRecord(prices.deliveries) ? prices.deliveries.delivery : null;
+  const deliveryRows = Array.isArray(deliveries) ? deliveries : deliveries ? [deliveries] : [];
+  const typeOccurrences = new Map<string, number>();
+  for (const [index, delivery] of deliveryRows.entries()) {
+    if (!isRecord(delivery)) continue;
+    const type = priceText(delivery.type)?.trim() || `unknown_${index + 1}`;
+    const occurrence = (typeOccurrences.get(type) ?? 0) + 1;
+    typeOccurrences.set(type, occurrence);
+    rows.push({
+      content_id: contentId,
+      source_run_id: runId,
+      observed_at: observedAt,
+      price_type: occurrence === 1 ? type : `${type}#${occurrence}`,
+      price: priceText(delivery.price),
+      list_price: priceText(delivery.list_price),
+      price_data: delivery,
+    });
+  }
+  return rows;
+}
+
+function priceValuesFromRows(rows: FanzaAmateurPriceHistoryRow[]): Map<string, PriceValue> {
+  return new Map(rows.map((row) => [row.price_type, {
+    price: row.price,
+    list_price: row.list_price,
+  }]));
+}
+
+export function getFanzaAmateurPriceValues(rawItem: JsonRecord): Map<string, FanzaAmateurPriceValue> {
+  return priceValuesFromRows(extractFanzaAmateurPriceHistoryRows("", "", rawItem, ""));
+}
+
+export function expandFanzaAmateurPriceSnapshotRows(
+  snapshot: FanzaAmateurPriceSnapshotRow,
+): FanzaAmateurPriceHistoryRow[] {
+  return extractFanzaAmateurPriceHistoryRows(
+    snapshot.content_id,
+    snapshot.source_run_id,
+    { prices: isRecord(snapshot.prices) ? snapshot.prices : {} },
+    snapshot.observed_at,
+  );
+}
+
+export function selectChangedFanzaAmateurPriceHistoryRows(
+  rows: FanzaAmateurPriceHistoryRow[],
+  previous: Map<string, FanzaAmateurPriceValue> | undefined,
+) {
+  const current = priceValuesFromRows(rows);
+  return rows.filter((row) => {
+    const before = previous?.get(row.price_type);
+    const after = current.get(row.price_type);
+    return !before || !after || before.price !== after.price || before.list_price !== after.list_price;
+  });
+}
+
+export function selectChangedFanzaAmateurPriceHistoryRowsByWork(
+  rows: FanzaAmateurPriceHistoryRow[],
+  previousByWork: PriceValuesByWork,
+) {
+  const changed: FanzaAmateurPriceHistoryRow[] = [];
+  const nextByWork = new Map<string, Map<string, PriceValue>>();
+  for (const row of rows) {
+    const previous = nextByWork.get(row.content_id) ?? new Map(previousByWork.get(row.content_id) ?? []);
+    const priorValue = previous.get(row.price_type);
+    if (!priorValue || priorValue.price !== row.price || priorValue.list_price !== row.list_price) changed.push(row);
+    previous.set(row.price_type, { price: row.price, list_price: row.list_price });
+    nextByWork.set(row.content_id, previous);
+  }
+  return { changed, nextByWork };
+}
 
 async function upsertHistoryRows(rows: FanzaAmateurPriceHistoryRow[]) {
   for (let index = 0; index < rows.length; index += UPSERT_BATCH_SIZE) {
@@ -61,9 +162,14 @@ export async function backfillFanzaAmateurPriceHistory(offset: number) {
     .range(safeOffset, safeOffset + BACKFILL_BATCH_SIZE - 1);
   if (error) throw new Error(`保存済みAPI履歴を読めませんでした: ${error.message}`);
 
-  const sourceRows = (data ?? []) as FanzaAmateurPriceHistoryBackfillSourceRow[];
-  const previousByWork: FanzaAmateurPriceHistoryValuesByWork = new Map();
-  const requiredKeys = getRequiredFanzaAmateurPriceHistoryKeys(sourceRows);
+  const sourceRows = (data ?? []) as RawCatalogRow[];
+  const previousByWork = new Map<string, Map<string, PriceValue>>();
+  const requiredKeys = new Set<string>();
+  for (const row of sourceRows) {
+    for (const price of extractFanzaAmateurPriceHistoryRows(row.content_id, row.run_id, row.raw_item, row.fetched_at)) {
+      requiredKeys.add(`${row.content_id}\u0000${price.price_type}`);
+    }
+  }
 
   if (sourceRows.length > 0) {
     const contentIds = [...new Set(sourceRows.map((row) => row.content_id))];
@@ -80,13 +186,35 @@ export async function backfillFanzaAmateurPriceHistory(offset: number) {
       if (prior.error) throw new Error(`直前の価格履歴を読めませんでした: ${prior.error.message}`);
       const priorRows = (prior.data ?? []) as Pick<FanzaAmateurPriceHistoryRow, "content_id" | "price_type" | "price" | "list_price">[];
       if (priorRows.length === 0) break;
-      rememberNewestFanzaAmateurPriceHistoryValues(priorRows, requiredKeys, seenKeys, previousByWork);
+      for (const priorRow of priorRows) {
+        const key = `${priorRow.content_id}\u0000${priorRow.price_type}`;
+        if (!requiredKeys.has(key) || seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        const workValues = previousByWork.get(priorRow.content_id) ?? new Map<string, PriceValue>();
+        workValues.set(priorRow.price_type, { price: priorRow.price, list_price: priorRow.list_price });
+        previousByWork.set(priorRow.content_id, workValues);
+      }
       if (priorRows.length < BACKFILL_BATCH_SIZE) break;
     }
   }
 
-  const changedRows = reconstructChangedFanzaAmateurPriceHistoryRows(sourceRows, previousByWork);
-  const dailyChangedRows = selectDailyFanzaAmateurPriceHistoryRows(changedRows);
+  const orderedRows = [...sourceRows].sort((a, b) => a.fetched_at.localeCompare(b.fetched_at)
+    || a.run_id.localeCompare(b.run_id));
+  const changedRows: FanzaAmateurPriceHistoryRow[] = [];
+  for (const row of orderedRows) {
+    const extracted = extractFanzaAmateurPriceHistoryRows(row.content_id, row.run_id, row.raw_item, row.fetched_at);
+    const selected = selectChangedFanzaAmateurPriceHistoryRowsByWork(extracted, previousByWork);
+    changedRows.push(...selected.changed);
+    for (const [contentId, values] of selected.nextByWork) previousByWork.set(contentId, values);
+  }
+  const dailyRows = new Map<string, FanzaAmateurPriceHistoryRow>();
+  for (const row of changedRows) {
+    const observedAtMs = Date.parse(row.observed_at);
+    if (!Number.isFinite(observedAtMs)) throw new Error("価格履歴の取得日時が不正です。");
+    const observedDateJst = new Date(observedAtMs + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    dailyRows.set(`${row.content_id}\u0000${observedDateJst}\u0000${row.price_type}`, row);
+  }
+  const dailyChangedRows = [...dailyRows.values()];
   await upsertHistoryRows(dailyChangedRows);
 
   const nextOffset = safeOffset + sourceRows.length;

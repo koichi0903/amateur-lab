@@ -22,7 +22,7 @@ export default function AdvancedSearchModal({ open, onClose, catalog = "fanza" }
   useEffect(() => {
     if (!open || !isAmateur || amateurGenresLoaded) return;
     let cancelled = false;
-    fetch("/api/amateur/genres")
+    fetch("/api/amateur")
       .then(async (response) => {
         if (!response.ok) throw new Error("素人作品のジャンルを読み込めませんでした");
         return response.json() as Promise<{ genres?: unknown }>;
@@ -70,7 +70,7 @@ export default function AdvancedSearchModal({ open, onClose, catalog = "fanza" }
           {isAmateur && <label className="mt-5 block text-xs font-black text-slate-600">女優名（登録名と一致）<input name="performer" maxLength={100} autoComplete="off" className="mt-2 h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-100" placeholder="例：美園和花" /></label>}
           <fieldset className="mt-5">
             <legend className="text-xs font-black text-slate-600">ジャンル</legend>
-            <input name="genres" value={selectedGenres.join(",")} readOnly className="sr-only" aria-label="選択したジャンル" />
+            <input name={isAmateur ? "genres" : "genres"} value={selectedGenres.join(",")} readOnly className="sr-only" aria-label="選択したジャンル" />
             <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-slate-300 bg-slate-50 p-2">
               {isAmateur && !amateurGenresLoaded && !amateurGenresError ? <p className="px-2 py-3 text-xs text-slate-500">素人作品のジャンルを読み込み中...</p> : amateurGenresError ? <p role="status" className="px-2 py-3 text-xs text-rose-600">{amateurGenresError}</p> : availableGenres.length ? <div className="flex flex-wrap gap-2">{availableGenres.map((genre) => <button key={genre} type="button" onClick={() => toggleGenre(genre)} className={`shrink-0 whitespace-nowrap rounded-md border px-3 py-2 text-xs font-bold transition ${selectedGenres.includes(genre) ? "border-pink-500 bg-pink-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-pink-300 hover:text-pink-600"}`}>{genre}</button>)}</div> : <p className="px-2 py-3 text-xs text-slate-500">登録済みのジャンルはありません。</p>}
             </div>

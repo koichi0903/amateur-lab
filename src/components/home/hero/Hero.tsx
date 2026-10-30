@@ -25,7 +25,7 @@ export default function Hero({ activeCatalog = "fanza" }: { activeCatalog?: "fan
           <button type="button" aria-label="使い方ガイドを閉じる" onClick={() => setIsOpen(false)} className="text-xl leading-none text-slate-400 transition hover:text-slate-700">×</button>
         </div>
         <div className="mt-4 grid gap-5 lg:grid-cols-2 lg:gap-10">
-          <div className="flex items-center gap-3 text-sm font-bold text-slate-700"><Heart size={19} className="shrink-0 text-pink-600" />{"気になった作品のハートをタップしてお気に入りに保存できます"}</div>
+          <div className="flex items-center gap-3 text-sm font-bold text-slate-700"><Heart size={19} className="shrink-0 text-pink-600" />気になった作品のハートをタップしてお気に入りに保存できます</div>
           <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3 text-sm font-bold text-slate-700"><Sparkles size={19} className="shrink-0 text-violet-600" /><span><strong>好み発掘</strong>がお気に入りを分析して、あなたの好みの作品をおすすめします</span></div><Link href={isAmateur ? "/amateur/personal-pick" : "/personal-pick"} className="shrink-0 rounded-lg bg-violet-600 px-4 py-2.5 text-xs font-black text-white transition hover:bg-violet-700">✦ 好みを発掘する</Link></div>
         </div>
       </div>}

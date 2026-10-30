@@ -1,3 +1,5 @@
+import { withHakkutsuSiteAffiliateId } from "@/lib/dmm/siteAffiliateUrl";
+
 type Work = {
   title: string;
   image_url: string | null;
@@ -35,7 +37,7 @@ export default function ProductJsonLd({
       "@type": "Offer",
       price,
       priceCurrency: "JPY",
-      ...(work.affiliate_url ? { url: work.affiliate_url } : {}),
+      ...(work.affiliate_url ? { url: withHakkutsuSiteAffiliateId(work.affiliate_url) } : {}),
     };
   }
 

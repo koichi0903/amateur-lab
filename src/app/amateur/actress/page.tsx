@@ -6,7 +6,7 @@ import Header from "@/components/layout/Header";
 import WorkCategorySwitch from "@/components/catalog/WorkCategorySwitch";
 import WorkImage from "@/components/home/WorkImage";
 import CollectionPageJsonLd from "@/app/components/CollectionPageJsonLd";
-import { getFanzaAmateurActressIndex, type FanzaAmateurActressSort } from "@/lib/dmm/fanzaAmateurActressCatalog";
+import { getFanzaAmateurActressIndex, type FanzaAmateurActressSort } from "@/lib/dmm/fanzaAmateurCatalog";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 
 export const revalidate = 3600;
