@@ -45,6 +45,8 @@ export { publicCopyInputHash } from "@/lib/myfansPublicCopyFacts";
 import { buildPermanentExclusionSets } from "@/lib/myfansPermanentExclusions";
 import { detectPublicCopyLeak, hasPublicCopyDiversityIssue } from "@/lib/myfansPublicCopyRules";
 import { evaluateMyfansCandidateNovelty } from "@/lib/myfansCandidateNovelty";
+import { MYFANS_DAILY_SELECTED_MAX } from "./myfansDailyPlanSelection";
+export { MYFANS_DAILY_SELECTED_MAX } from "./myfansDailyPlanSelection";
 
 export { MYFANS_VISUAL_ANALYZER_VERSION } from "@/lib/myfansCreativeEvidence";
 export { buildMyfansLearning, compareByStrategy, MYFANS_DIAGNOSIS_THRESHOLDS } from "@/lib/myfansLearning";
@@ -85,7 +87,6 @@ const MYFANS_DAILY_AVERAGE_QUALITY_MINIMUM = 90;
 export const MYFANS_DAILY_SLOT_COUNT = 4;
 export const MYFANS_DAILY_CANDIDATES_PER_SLOT = 3;
 export const MYFANS_DAILY_SELECTED_MIN = 2;
-export const MYFANS_DAILY_SELECTED_MAX = 3;
 
 type MyfansRecoveryHistory = ReturnType<typeof buildMyfansCandidateRecovery>["recoveryHistory"];
 type MyfansInitialAttempts = ReturnType<typeof buildMyfansCandidateRecovery>["initialAttempts"];

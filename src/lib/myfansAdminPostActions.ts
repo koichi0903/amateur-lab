@@ -1,5 +1,5 @@
 import { audit, intValue, nullableId, rowKey, text } from "./myfansAdminShared";
-import { MYFANS_DAILY_SELECTED_MAX } from "./myfansXExecution";
+import { selectDailyPlanOption } from "./myfansDailyPlanSelection";
 import { exclusionTargetForCandidate, manualCandidateExclusionTarget, recordMyfansPermanentExclusion } from "./myfansPermanentExclusions";
 import { supabaseAdmin } from "./supabaseAdmin";
 import { buildMyfansPatternLearningValues, buildMyfansPostExecutionRecord, type MyfansAttributedPostMetrics, type MyfansPatternLearningRow, type MyfansPostExecutionRecord } from "./myfansPostExecutionData";
@@ -94,18 +94,11 @@ export async function selectDailyPlanCandidate(formData: FormData) {
   if (!plan) throw new Error("今日のDaily Planが見つかりません。先に候補を生成してください。");
 
   const strategyJson = plan.strategy_json && typeof plan.strategy_json === "object" ? plan.strategy_json as Record<string, unknown> : {};
-  const previousSelection = strategyJson.daily_option_selection && typeof strategyJson.daily_option_selection === "object"
-    ? strategyJson.daily_option_selection as Record<string, string>
-    : {};
-  const selectingNewSlot = !previousSelection[String(postOrder)];
-  if (selectingNewSlot && Object.keys(previousSelection).length >= MYFANS_DAILY_SELECTED_MAX) {
-    throw new Error(`selectedは${MYFANS_DAILY_SELECTED_MAX}件までです。4枠目を選ぶには、既存のselectedを見直してください。`);
-  }
-  const nextSelection = { ...previousSelection, [String(postOrder)]: optionLabel };
+  const nextStrategyJson = selectDailyPlanOption(strategyJson, postOrder, optionLabel);
   const { error: planUpdateError } = await supabaseAdmin
     .from("myfans_daily_plans")
     .update({
-      strategy_json: { ...strategyJson, daily_option_selection: nextSelection },
+      strategy_json: nextStrategyJson,
       updated_at: new Date().toISOString(),
     })
     .eq("id", plan.id);
