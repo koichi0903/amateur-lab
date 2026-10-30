@@ -118,9 +118,35 @@ const visualMismatchOpening = buildXCreativeVariants({
   visualFacts: buildVisualVideoFacts({ sampleMovieUrl: movieUrl, manualTags: ["visual_mismatch"] }),
 })[0]?.hookAlternatives[0];
 assert.equal(visualMismatchOpening?.direction, "contrast");
+const lastMileSourceCases = [
+  { sourceType: "PRICE_EVENT" as const, expected: "半額だけでなく、評価まで高いのが少し気になります。" },
+  { sourceType: "MARKET" as const, expected: "ランキングだけ見ていると、今日の当たりを外しそうです。" },
+  { sourceType: "COMPARISON" as const, expected: "同じ50%OFFでも、サンプルを見るなら差があります。" },
+  { sourceType: "JUDGMENT" as const, expected: "50%OFFだけど、これは今日は見送っていいかもしれません。" },
+];
+for (const routeCase of lastMileSourceCases) {
+  const routed = buildXCreativeVariants({
+    ...baseInput,
+    key: `last-mile-route-${routeCase.sourceType}`,
+    sourceType: routeCase.sourceType,
+    sampleMovieUrl: null,
+    hasRightsCheckedMovie: false,
+    visualFacts: null,
+    mediaManualTags: [],
+  })[0];
+  assert.ok(routed?.bodyText.includes(routeCase.expected), `${routeCase.sourceType} route should retain its opening`);
+}
 assert.ok(videoVariants.length > 0);
 const openingFactPhrases = ["冒頭の展開が予想と少し違う", "再生してすぐ、想像していた流れと変わった", "冒頭の入り方が、思っていた流れと少し違う"];
 assert.ok(videoVariants.every((variant) => openingFactPhrases.some((phrase) => variant.bodyText.includes(phrase))));
+const priceEventVideoVariants = buildXCreativeVariants({
+  ...baseInput,
+  key: "price-event-video-route-fixture",
+  sourceType: "PRICE_EVENT",
+  imageUrl: null,
+}).filter((variant) => variant.mediaType === "sample_movie");
+assert.ok(priceEventVideoVariants.length > 0);
+assert.ok(priceEventVideoVariants.every((variant) => openingFactPhrases.some((phrase) => variant.bodyText.includes(phrase))));
 assert.ok(new Set(videoVariants.flatMap((variant) => openingFactPhrases.filter((phrase) => variant.bodyText.includes(phrase)))).size >= 2);
 assert.ok(videoVariants.filter((variant) => variant.intent === "AUTHORITY").every((variant) => variant.quality.dimensions.replyability >= 58));
 assert.ok(videoVariants.every((variant) => variant.quality.lastMile.humanVoice.checks.readerAction));

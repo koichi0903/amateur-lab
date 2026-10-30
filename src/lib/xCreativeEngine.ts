@@ -426,10 +426,10 @@ function buildGeneralLastMileBodies(context: LastMileBodyContext) {
   return uniqueLastMileBodies(context, bodies);
 }
 
-function buildLastMileBodies(input: XCreativeInput, intent: XGrowthIntent, linkPlan: XLinkPlan, direction: XHookDirection) {
+function buildLastMileBodyContext(input: XCreativeInput, intent: XGrowthIntent, linkPlan: XLinkPlan, direction: XHookDirection): LastMileBodyContext {
   const actress = primaryActress(input);
   const proof = voiceProof(input, intent, direction);
-  const context: LastMileBodyContext = {
+  return {
     input,
     intent,
     linkPlan,
@@ -443,6 +443,10 @@ function buildLastMileBodies(input: XCreativeInput, intent: XGrowthIntent, linkP
     reachReason: input.imageUrl ? "ジャケだけだと少し流してた。" : "知らなかった人でも、サンプルからなら入りやすい。",
     videoLines: input.hasRightsCheckedMovie && input.sampleMovieUrl ? videoSpecificLines(input, intent, linkPlan, direction) : null,
   };
+}
+
+function routeLastMileBodies(context: LastMileBodyContext) {
+  const { input, intent } = context;
   if (context.videoLines) return finalizeLastMileBodies(context, [formatText(context.videoLines, input.title)].map(sanitizePublicText));
   if (input.sourceType === "PRICE_EVENT") return buildPriceEventBodies(context);
   if (input.hasRightsCheckedMovie && input.sampleMovieUrl && intent !== "MONEY") return buildSampleMovieBodies(context);
@@ -450,6 +454,10 @@ function buildLastMileBodies(input: XCreativeInput, intent: XGrowthIntent, linkP
   if (input.sourceType === "COMPARISON") return buildComparisonBodies(context);
   if (input.sourceType === "JUDGMENT") return buildJudgmentBodies(context);
   return buildGeneralLastMileBodies(context);
+}
+
+function buildLastMileBodies(input: XCreativeInput, intent: XGrowthIntent, linkPlan: XLinkPlan, direction: XHookDirection) {
+  return routeLastMileBodies(buildLastMileBodyContext(input, intent, linkPlan, direction));
 }
 
 function ensureFactlessReaderAction(input: XCreativeInput, intent: XGrowthIntent, direction: XHookDirection, text: string) {
