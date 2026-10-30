@@ -10,6 +10,7 @@ import type { XDailyMission, XDailyTopPick } from "@/lib/xGrowthOS";
 import { mergePersistedTopPickMediaAsset, serializeTopPick } from "./xGrowthDailyPlanSerialization";
 import { buildPersistedTopPickFallback } from "./xGrowthDailyPlanFallback";
 import type { PersistedTopPickMediaAsset, PersistedXDailyPlan, SerializedTopPick, XDailyPlanStatus } from "./xGrowthDailyPlanSerialization";
+import { buildCandidateSelectionAuditIdentity } from "./xGrowthSelectionAudit";
 export { mergePersistedTopPickMediaAsset };
 export type { PersistedXDailyPlan, SerializedTopPick, XDailyPlanStatus };
 import { auditXGrowth } from "@/lib/xGrowthMediaOperations";
@@ -94,19 +95,6 @@ function resolveCandidateSelectionAuditSource(source: CandidateSelectionAuditSou
   return { pick: source as SerializedTopPick | undefined, row: null, isFallback: false };
 }
 
-function candidateSelectionAuditIdentity(input: { slotId: string; candidateId: string }, pick: Partial<SerializedTopPick> | undefined, row: { work_id: number | null; intent: string | null; media_type: string | null } | null) {
-  const intent = row ? pick?.intent ?? row.intent ?? null : pick?.intent ?? (pick as SerializedTopPick | undefined)?.role ?? null;
-  return {
-    date: todayTokyo(),
-    slot_role: pick?.slotRole ?? null,
-    slot_id: input.slotId,
-    candidate_rank: pick?.candidateRank ?? null,
-    candidate_id: input.candidateId,
-    work_id: pick?.workId ?? row?.work_id ?? null,
-    intent,
-  };
-}
-
 function candidateSelectionAuditCreative(pick: Partial<SerializedTopPick> | undefined, row: { media_type: string | null } | null) {
   return {
     creativeAngle: pick?.creativeAngle ?? null,
@@ -121,7 +109,7 @@ async function auditDailyPlanCandidateSelection(
 ) {
   const resolved = resolveCandidateSelectionAuditSource(source);
   await auditXGrowth("daily_plan_candidate_selected", {
-    ...candidateSelectionAuditIdentity(input, resolved.pick, resolved.row),
+    ...buildCandidateSelectionAuditIdentity({ ...input, date: todayTokyo() }, resolved.pick, resolved.row),
     ...candidateSelectionAuditCreative(resolved.pick, resolved.row),
     selected_at: new Date().toISOString(),
     ...(resolved.isFallback ? { storage: "x_growth_opportunities_fallback" } : {}),
