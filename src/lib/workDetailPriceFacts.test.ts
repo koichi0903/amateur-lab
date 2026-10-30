@@ -52,3 +52,20 @@ test("価格未取得時は未取得文言と系列なしの説明を保つ", ()
   assert.match(facts.workSummary, /価格取得日：—/);
   assert.match(facts.workSummary, /価格履歴から最安値を確認できません/);
 });
+
+test("選択系列がない場合は履歴の日付fallbackと通常価格の文言を保つ", () => {
+  const facts = buildWorkDetailPriceFacts({
+    displayPrice: 800,
+    regularPrice: 800,
+    discountRate: 0,
+    history,
+    selectedSummary: null,
+    durationLabel: null,
+  });
+
+  assert.equal(facts.currentLabel, "¥800");
+  assert.equal(facts.hasDiscount, false);
+  assert.match(facts.workSummary, /現在の代表価格：800円/);
+  assert.match(facts.workSummary, /価格取得日：2026\/10\/28/);
+  assert.doesNotMatch(facts.workSummary, /収録時間は/);
+});
