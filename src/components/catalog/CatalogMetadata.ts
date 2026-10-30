@@ -16,7 +16,7 @@ export function decodeCatalogName(value: string) {
   }
 }
 
-export async function catalogMetadata(kind: CatalogKind, name: string, page = 1): Promise<Metadata> {
+export async function catalogMetadata(kind: CatalogKind, name: string, page = 1, sort?: string): Promise<Metadata> {
   const suffix = page > 1 ? ` ${page}ページ目` : "";
   let robots: Metadata["robots"] = { index: false, follow: true };
 
@@ -44,6 +44,6 @@ export async function catalogMetadata(kind: CatalogKind, name: string, page = 1)
     title: `${subject}のFANZA作品一覧${suffix} | 人気・発売日・価格順 | 発掘LAB`,
     description: `${subject}のFANZA作品を人気順・発売日順・価格順に並び替えて探せます。各作品の現在価格、レビュー、価格推移を確認できます。`,
     canonical: `/${kind}/${encodeURIComponent(name)}${page > 1 ? `/page/${page}` : ""}`,
-    robots,
+    robots: sort && sort !== "popular" ? { index: false, follow: true } : robots,
   });
 }

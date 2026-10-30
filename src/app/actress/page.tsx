@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Search, Sparkles, UserRound } from "lucide-react";
 import Header from "@/components/layout/Header";
@@ -12,6 +13,12 @@ import { getActressProfiles, type ActressProfile } from "@/lib/catalog/actressPr
 import WorkCategorySwitch from "@/components/catalog/WorkCategorySwitch";
 
 export const revalidate = 43200;
+
+const ACTRESS_SORTS = [
+  "count-desc", "count-asc", "birthday-desc", "birthday-asc",
+  "cup-desc", "cup-asc", "height-desc", "height-asc",
+  "bust-desc", "bust-asc", "waist-desc", "waist-asc", "hip-desc", "hip-asc",
+] as const;
 
 function normalizeActressSearchText(value: string | null | undefined) {
   return (value ?? "")
@@ -29,7 +36,9 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
     title: `${query ? `「${query}」のFANZA女優検索結果` : "FANZA女優一覧｜出演作品数・プロフィール"}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
     description: "FANZA作品の出演女優を、生年月日・身長・スリーサイズ・カップと出演作品数から探せます。",
     canonical: query ? "/actress" : `/actress${page > 1 ? `?page=${page}` : ""}`,
-    robots: query ? { index: false, follow: true } : undefined,
+    robots: query || (params.sort !== undefined && params.sort !== "count-desc")
+      ? { index: false, follow: true }
+      : undefined,
   });
 }
 
@@ -38,7 +47,9 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
   const query = (params.q ?? "").trim();
   const requestedPage = Number.parseInt(params.page ?? "1", 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  const sort = params.sort ?? "count-desc";
+  const sort = ACTRESS_SORTS.includes(params.sort as (typeof ACTRESS_SORTS)[number])
+    ? params.sort as (typeof ACTRESS_SORTS)[number]
+    : "count-desc";
   const pageSize = 24;
   const ranked = (await getEntityIndexSummaries("actress")).filter((summary) =>
     isEntityIndexable("actress", summary),
@@ -82,7 +93,8 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
     return descending ? bValue - aValue : aValue - bValue;
   });
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
+  if (page > totalPages) notFound();
+  const currentPage = page;
   const visible = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const pageHref = (target: number) => {
     const next = new URLSearchParams();

@@ -5,8 +5,9 @@ import GenreDetailPage from "@/components/catalog/GenreDetailPage";
 export const revalidate = 86400;
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ params }: { params: Promise<{ name: string }> }): Promise<Metadata> {
-  return catalogMetadata("maker", decodeCatalogName((await params).name), 1);
+export async function generateMetadata({ params, searchParams }: { params: Promise<{ name: string }>; searchParams: Promise<{ sort?: string }> }): Promise<Metadata> {
+  const [{ name }, query] = await Promise.all([params, searchParams]);
+  return catalogMetadata("maker", decodeCatalogName(name), 1, query.sort);
 }
 
 export default async function MakerDetailPage({ params, searchParams }: { params: Promise<{ name: string }>; searchParams: Promise<{ sort?: string }> }) {
