@@ -17,6 +17,22 @@ test("creator reuse is allowed with a diversity penalty", () => {
   assert.equal(ranked[0].guard.penalty, 8);
 });
 
+test("expired product cooldown becomes a penalty instead of a block", () => {
+  const decision = evaluateCrossAccountGuard(base, [{ productId: 10, cooldownUntil: "2026-09-27T00:00:00.000Z" }], new Date("2026-09-28T00:00:00.000Z"));
+
+  assert.equal(decision.blocked, false);
+  assert.equal(decision.penalty, 12);
+  assert.deepEqual(decision.reasons, []);
+});
+
+test("active product cooldown blocks while creator reuse keeps its separate penalty", () => {
+  const decision = evaluateCrossAccountGuard(base, [{ productId: 10, creatorId: 20, cooldownUntil: "2026-09-29T00:00:00.000Z" }], new Date("2026-09-28T00:00:00.000Z"));
+
+  assert.equal(decision.blocked, true);
+  assert.equal(decision.penalty, 8);
+  assert.deepEqual(decision.reasons, ["product_cooldown"]);
+});
+
 test("learning feedback changes the next score without changing the source row", () => {
   const neutral = evaluateCrossAccountGuard(base, []);
   const priorScore = calculateWinnerScore({ ...base, learningWeight: 1 }, neutral);
