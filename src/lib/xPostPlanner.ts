@@ -255,24 +255,28 @@ function sourceErrors(sources: CandidateSourceResults) {
     .filter(Boolean).map((error) => error?.message ?? "候補取得エラー");
 }
 
+function asCandidateWorks(rows: unknown[] | null): CandidateWork[] {
+  return (rows ?? []) as unknown as CandidateWork[];
+}
+
 function createCandidatePools(sources: CandidateSourceResults): CandidatePool[] {
   return [
-    ["market_scan", (sources.dealResult.data ?? []) as unknown as CandidateWork[]],
-    ["comparison_pick", (sources.dealResult.data ?? []) as unknown as CandidateWork[]],
-    ["judgment_pick", (sources.judgmentResult.data ?? []) as unknown as CandidateWork[]],
-    ["review_gap", (sources.reviewGapResult.data ?? []) as unknown as CandidateWork[]],
-    ["discovery_gap", (sources.hiddenGemResult.data ?? []) as unknown as CandidateWork[]],
-    ["today_buy", (sources.dealResult.data ?? []) as unknown as CandidateWork[]],
-    ["today_discovery", (sources.hiddenGemResult.data ?? []) as unknown as CandidateWork[]],
-    ["actress_best", (sources.actressResult.data ?? []) as unknown as CandidateWork[]],
-    ["genre_best", (sources.genreResult.data ?? []) as unknown as CandidateWork[]],
-    ["deal", (sources.dealResult.data ?? []) as unknown as CandidateWork[]],
-    ["hidden_gem", (sources.hiddenGemResult.data ?? []) as unknown as CandidateWork[]],
-    ["score", (sources.scoreResult.data ?? []) as unknown as CandidateWork[]],
-    ["new", (sources.newResult.data ?? []) as unknown as CandidateWork[]],
-    ["sales", (sources.salesResult.data ?? []) as unknown as CandidateWork[]],
-    ["maker_best", (sources.makerResult.data ?? []) as unknown as CandidateWork[]],
-    ["series_best", (sources.seriesResult.data ?? []) as unknown as CandidateWork[]],
+    ["market_scan", asCandidateWorks(sources.dealResult.data)],
+    ["comparison_pick", asCandidateWorks(sources.dealResult.data)],
+    ["judgment_pick", asCandidateWorks(sources.judgmentResult.data)],
+    ["review_gap", asCandidateWorks(sources.reviewGapResult.data)],
+    ["discovery_gap", asCandidateWorks(sources.hiddenGemResult.data)],
+    ["today_buy", asCandidateWorks(sources.dealResult.data)],
+    ["today_discovery", asCandidateWorks(sources.hiddenGemResult.data)],
+    ["actress_best", asCandidateWorks(sources.actressResult.data)],
+    ["genre_best", asCandidateWorks(sources.genreResult.data)],
+    ["deal", asCandidateWorks(sources.dealResult.data)],
+    ["hidden_gem", asCandidateWorks(sources.hiddenGemResult.data)],
+    ["score", asCandidateWorks(sources.scoreResult.data)],
+    ["new", asCandidateWorks(sources.newResult.data)],
+    ["sales", asCandidateWorks(sources.salesResult.data)],
+    ["maker_best", asCandidateWorks(sources.makerResult.data)],
+    ["series_best", asCandidateWorks(sources.seriesResult.data)],
   ];
 }
 
@@ -438,6 +442,27 @@ function recordDecisionSupplyDrop(
   entry.firstDropByWorkId[String(workId)] = reason;
 }
 
+function isSelectedGroupWorkExcluded(
+  work: CandidateWork,
+  group: SelectedCandidateGroup,
+  used: Set<number>,
+  postedWorkIds: ReadonlySet<number>,
+) {
+  return postedWorkIds.has(work.id) || (!group.decisionType && used.has(work.id));
+}
+
+function requiresSelectedGroupPriceDrop(group: SelectedCandidateGroup) {
+  return !group.decisionType && (group.category === "deal" || group.category === "today_buy");
+}
+
+function selectedGroupCandidateDropReason(candidate: XPostCandidate, group: SelectedCandidateGroup) {
+  if (candidate.weightedLength > 280) return "weighted_length_exceeded" as const;
+  if (group.decisionType && !candidate.decisionFacts.eligibleDecisionTypes.includes(group.decisionType)) {
+    return "decision_type_mismatch" as const;
+  }
+  return null;
+}
+
 function createSelectedGroupCandidate(input: {
   work: CandidateWork;
   group: SelectedCandidateGroup;
@@ -449,12 +474,11 @@ function createSelectedGroupCandidate(input: {
   logs: XPostLog[];
 }) {
   const { work, group, used, postedWorkIds, decisionSupply, rowsByProduct, funnels, logs } = input;
-  if (postedWorkIds.has(work.id)) return null;
-  if (!group.decisionType && used.has(work.id)) return null;
+  if (isSelectedGroupWorkExcluded(work, group, used, postedWorkIds)) return null;
 
   const decisionSupplyEntry = group.decisionType ? decisionSupply[group.decisionType] : null;
   const chart = buildXPostPriceChart(currentPrice(work), rowsByProduct.get(work.product_id) ?? []);
-  if (!group.decisionType && (group.category === "deal" || group.category === "today_buy") && !chart?.hadPriceDrop) return null;
+  if (requiresSelectedGroupPriceDrop(group) && !chart?.hadPriceDrop) return null;
 
   const candidate = makeCandidate(
     work,
@@ -465,12 +489,9 @@ function createSelectedGroupCandidate(input: {
     logs,
     group.decisionType ?? undefined,
   );
-  if (candidate.weightedLength > 280) {
-    recordDecisionSupplyDrop(decisionSupplyEntry, "weighted_length_exceeded", work.id);
-    return null;
-  }
-  if (group.decisionType && !candidate.decisionFacts.eligibleDecisionTypes.includes(group.decisionType)) {
-    recordDecisionSupplyDrop(decisionSupplyEntry, "decision_type_mismatch", work.id);
+  const dropReason = selectedGroupCandidateDropReason(candidate, group);
+  if (dropReason) {
+    recordDecisionSupplyDrop(decisionSupplyEntry, dropReason, work.id);
     return null;
   }
   return candidate;
