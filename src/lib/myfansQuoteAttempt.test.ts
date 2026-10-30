@@ -44,6 +44,7 @@ function context(options: {
   acceptedCreators?: string[];
   linkageEvidence?: Array<{ product_id: number; source_status_url: string }>;
   latestSource?: (source: string) => { actualPosted: boolean; date: string } | null;
+  latestTopic?: (topicIdentity: string, semanticKey: string) => { actualPosted: boolean; date: string } | null;
 } = {}): MyfansQuoteAttemptContext {
   return {
     analytics: { quoteCandidates: options.quotes ?? [] } as unknown as MyfansAnalytics,
@@ -54,7 +55,7 @@ function context(options: {
     acceptedQuoteCreators: new Set(options.acceptedCreators ?? []),
     pastUsage: {
       latestSource: options.latestSource ?? (() => null),
-      latestTopic: () => null,
+      latestTopic: options.latestTopic ?? (() => null),
     } as unknown as MyfansQuoteAttemptContext["pastUsage"],
     planDate: "2026-10-29",
   };
@@ -93,6 +94,30 @@ test("recently used sources stay excluded by the selected-source cooldown", () =
   });
 
   assert.equal(selectMyfansQuoteForAttempt(product, "ranking_note", 0, 0, attemptContext), null);
+});
+
+test("posted sources use a seven-day cooldown while selected sources use three days", () => {
+  const direct = quote();
+  const slotQuotes: Array<[string, MyfansQuoteCandidate]> = [["ranking_note:0", direct]];
+  const postedAtSixDays = context({ slotQuotes, latestSource: () => ({ actualPosted: true, date: "2026-10-23" }) });
+  const postedAtSevenDays = context({ slotQuotes, latestSource: () => ({ actualPosted: true, date: "2026-10-22" }) });
+  const selectedAtTwoDays = context({ slotQuotes, latestSource: () => ({ actualPosted: false, date: "2026-10-27" }) });
+  const selectedAtThreeDays = context({ slotQuotes, latestSource: () => ({ actualPosted: false, date: "2026-10-26" }) });
+
+  assert.equal(selectMyfansQuoteForAttempt(product, "ranking_note", 0, 0, postedAtSixDays), null);
+  assert.equal(selectMyfansQuoteForAttempt(product, "ranking_note", 0, 0, postedAtSevenDays), direct);
+  assert.equal(selectMyfansQuoteForAttempt(product, "ranking_note", 0, 0, selectedAtTwoDays), null);
+  assert.equal(selectMyfansQuoteForAttempt(product, "ranking_note", 0, 0, selectedAtThreeDays), direct);
+});
+
+test("topic reuse observes the three-day cooldown boundary", () => {
+  const direct = quote();
+  const slotQuotes: Array<[string, MyfansQuoteCandidate]> = [["ranking_note:0", direct]];
+  const topicAtTwoDays = context({ slotQuotes, latestTopic: () => ({ actualPosted: false, date: "2026-10-27" }) });
+  const topicAtThreeDays = context({ slotQuotes, latestTopic: () => ({ actualPosted: false, date: "2026-10-26" }) });
+
+  assert.equal(selectMyfansQuoteForAttempt(product, "ranking_note", 0, 0, topicAtTwoDays), null);
+  assert.equal(selectMyfansQuoteForAttempt(product, "ranking_note", 0, 0, topicAtThreeDays), direct);
 });
 
 test("direct product fallback still picks the most-viewed eligible quote", () => {

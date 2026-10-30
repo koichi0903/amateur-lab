@@ -359,12 +359,12 @@ function isQuoteAvailableForUse(candidate: MyfansQuoteCandidate, now: string, us
     !candidate.last_used_at;
 }
 
-function isOutsideSourceCooldown(sourceUsage: ReturnType<QuotePoolHistory["latestSource"]>, sourceAge: number | null) {
+export function isOutsideSourceCooldown(sourceUsage: { actualPosted: boolean } | null, sourceAge: number | null) {
   if (sourceUsage?.actualPosted && sourceAge !== null && sourceAge < POSTED_SOURCE_COOLDOWN_DAYS) return false;
   return !(sourceUsage && sourceAge !== null && sourceAge < SELECTED_SOURCE_SOFT_COOLDOWN_DAYS);
 }
 
-function isOutsideTopicCooldown(topicUsage: ReturnType<QuotePoolHistory["latestTopic"]> | null, topicAge: number | null) {
+export function isOutsideTopicCooldown(topicUsage: { date: string } | null, topicAge: number | null) {
   return !(topicUsage && topicAge !== null && topicAge < TOPIC_COOLDOWN_DAYS);
 }
 

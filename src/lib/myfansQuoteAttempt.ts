@@ -1,5 +1,5 @@
 import { daysBetweenDates } from "@/lib/myfansTime";
-import { POSTED_SOURCE_COOLDOWN_DAYS, SELECTED_SOURCE_SOFT_COOLDOWN_DAYS, TOPIC_COOLDOWN_DAYS, buildMyfansQuotePool, buildPastUsageIndex, creatorKeyFromProduct, creatorKeyFromQuote, normalizeSourceUrl, quoteUrlFromCandidate, topicSemanticKeyFor, visualPriority } from "@/lib/myfansQuotePool";
+import { buildMyfansQuotePool, buildPastUsageIndex, creatorKeyFromProduct, creatorKeyFromQuote, isOutsideSourceCooldown, isOutsideTopicCooldown, normalizeSourceUrl, quoteUrlFromCandidate, topicSemanticKeyFor, visualPriority } from "@/lib/myfansQuotePool";
 import type { MyfansAnalytics, MyfansProduct, MyfansQuoteCandidate } from "@/lib/myfansAnalytics";
 import { hasGroundedSourceText } from "@/lib/myfansTopicValue";
 
@@ -30,12 +30,10 @@ function matchesProduct(product: MyfansProduct, candidate: MyfansQuoteCandidate)
 function quoteAllowedByHistory(candidate: MyfansQuoteCandidate, product: MyfansProduct, context: MyfansQuoteAttemptContext) {
   const sourceUsage = context.pastUsage.latestSource(candidate.x_post_url) ?? context.pastUsage.latestSource(quoteUrlFromCandidate(candidate));
   const sourceAge = sourceUsage ? daysBetweenDates(context.planDate, sourceUsage.date) : null;
-  if (sourceUsage?.actualPosted && sourceAge !== null && sourceAge < POSTED_SOURCE_COOLDOWN_DAYS) return false;
-  if (sourceUsage && sourceAge !== null && sourceAge < SELECTED_SOURCE_SOFT_COOLDOWN_DAYS) return false;
+  if (!isOutsideSourceCooldown(sourceUsage, sourceAge)) return false;
   const topicUsage = context.pastUsage.latestTopic(`quote:${candidate.id}`, topicSemanticKeyFor(product, candidate, null));
   const topicAge = topicUsage ? daysBetweenDates(context.planDate, topicUsage.date) : null;
-  if (topicUsage && topicAge !== null && topicAge < TOPIC_COOLDOWN_DAYS) return false;
-  return true;
+  return isOutsideTopicCooldown(topicUsage, topicAge);
 }
 
 function directSlotQuote(product: MyfansProduct, postType: string, index: number, attempt: number, context: MyfansQuoteAttemptContext) {
