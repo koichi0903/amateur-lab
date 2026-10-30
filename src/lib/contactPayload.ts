@@ -45,6 +45,35 @@ function validOptionalUrl(value: string) {
   }
 }
 
+function getContactIdentityError(category: string, name: string, replyEmail: string) {
+  if (!categories.has(category)) return "お問い合わせ種別を確認してください。";
+  if (name.length > 80) return "お名前が長すぎます。";
+  if (!emailPattern.test(replyEmail) || replyEmail.length > 254) {
+    return "返信先メールアドレスを確認してください。";
+  }
+  return null;
+}
+
+function getContactDetailsError(
+  targetUrl: string,
+  details: string,
+  consent: unknown,
+  startedAt: number,
+  now: number,
+) {
+  if (targetUrl.length > 1000 || !validOptionalUrl(targetUrl)) {
+    return "対象ページURLを確認してください。";
+  }
+  if (details.length < 20 || details.length > 5000) {
+    return "お問い合わせ内容は20〜5000文字で入力してください。";
+  }
+  if (consent !== true) return "個人情報の取り扱いへの同意が必要です。";
+  if (!startedAt || now - startedAt < 2_000 || now - startedAt > 2 * 60 * 60 * 1000) {
+    return "ページを再読み込みして、もう一度お試しください。";
+  }
+  return null;
+}
+
 export function validateContactPayload(payload: ContactPayload, getNow: () => number): ContactPayloadValidation {
   const category = optionalString(payload.category);
   const name = optionalString(payload.name);
@@ -56,21 +85,10 @@ export function validateContactPayload(payload: ContactPayload, getNow: () => nu
   const now = getNow();
 
   if (website) return { kind: "honeypot" };
-  if (!categories.has(category)) return { kind: "invalid", message: "お問い合わせ種別を確認してください。" };
-  if (name.length > 80) return { kind: "invalid", message: "お名前が長すぎます。" };
-  if (!emailPattern.test(replyEmail) || replyEmail.length > 254) {
-    return { kind: "invalid", message: "返信先メールアドレスを確認してください。" };
-  }
-  if (targetUrl.length > 1000 || !validOptionalUrl(targetUrl)) {
-    return { kind: "invalid", message: "対象ページURLを確認してください。" };
-  }
-  if (details.length < 20 || details.length > 5000) {
-    return { kind: "invalid", message: "お問い合わせ内容は20〜5000文字で入力してください。" };
-  }
-  if (payload.consent !== true) return { kind: "invalid", message: "個人情報の取り扱いへの同意が必要です。" };
-  if (!startedAt || now - startedAt < 2_000 || now - startedAt > 2 * 60 * 60 * 1000) {
-    return { kind: "invalid", message: "ページを再読み込みして、もう一度お試しください。" };
-  }
+  const identityError = getContactIdentityError(category, name, replyEmail);
+  if (identityError) return { kind: "invalid", message: identityError };
+  const detailsError = getContactDetailsError(targetUrl, details, payload.consent, startedAt, now);
+  if (detailsError) return { kind: "invalid", message: detailsError };
 
   return { kind: "valid", payload: { category, name, replyEmail, targetUrl, details }, now };
 }
