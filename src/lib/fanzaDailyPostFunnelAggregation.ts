@@ -152,6 +152,38 @@ export function collectFanzaDailyPostFunnelCounts<T extends { x_post_key: string
   return counts;
 }
 
+function isSnapshotNotNewerThanCurrent(
+  row: FanzaDailyPostFunnelSnapshotRow,
+  current: FanzaDailyPostFunnelSnapshot | undefined,
+) {
+  return Boolean(current && Date.parse(current.capturedAt) >= Date.parse(row.captured_at));
+}
+
+function getSnapshotCaptureAgeHours(
+  row: FanzaDailyPostFunnelSnapshotRow,
+  postByKey: Map<string, FanzaDailyPostFunnelPostReference>,
+) {
+  const post = postByKey.get(row.post_key);
+  return post
+    ? (Date.parse(row.captured_at) - Date.parse(post.posted_at)) / HOUR_MS
+    : Number.NaN;
+}
+
+function buildFanzaDailyPostFunnelSnapshot(
+  row: FanzaDailyPostFunnelSnapshotRow,
+  captureAgeHours: number,
+): FanzaDailyPostFunnelSnapshot {
+  const notes = String(row.notes ?? "");
+  return {
+    impressions: notes && row.source !== "manual" ? null : Number(row.impressions ?? 0),
+    capturedAt: String(row.captured_at),
+    source: row.source === "manual" ? "manual" : "x_api",
+    captureAgeHours,
+    siteVisits: Number(row.site_visits ?? 0),
+    affiliateClicks: Number(row.affiliate_clicks ?? 0),
+  };
+}
+
 export function collectFanzaDailyPostFunnelSnapshots(
   rows: FanzaDailyPostFunnelSnapshotRow[],
   postByKey: Map<string, FanzaDailyPostFunnelPostReference>,
@@ -159,23 +191,12 @@ export function collectFanzaDailyPostFunnelSnapshots(
   const snapshots = new Map<string, FanzaDailyPostFunnelSnapshot>();
   for (const row of rows) {
     const existingSnapshot = snapshots.get(row.post_key);
-    if (existingSnapshot && Date.parse(existingSnapshot.capturedAt) >= Date.parse(row.captured_at)) continue;
+    if (isSnapshotNotNewerThanCurrent(row, existingSnapshot)) continue;
 
-    const post = postByKey.get(row.post_key);
-    const captureAgeHours = post
-      ? (Date.parse(row.captured_at) - Date.parse(post.posted_at)) / (60 * 60 * 1000)
-      : Number.NaN;
+    const captureAgeHours = getSnapshotCaptureAgeHours(row, postByKey);
     if (captureAgeHours < 24) continue;
 
-    const notes = String(row.notes ?? "");
-    snapshots.set(row.post_key, {
-      impressions: notes && row.source !== "manual" ? null : Number(row.impressions ?? 0),
-      capturedAt: String(row.captured_at),
-      source: row.source === "manual" ? "manual" : "x_api",
-      captureAgeHours,
-      siteVisits: Number(row.site_visits ?? 0),
-      affiliateClicks: Number(row.affiliate_clicks ?? 0),
-    });
+    snapshots.set(row.post_key, buildFanzaDailyPostFunnelSnapshot(row, captureAgeHours));
   }
   return snapshots;
 }
