@@ -2,6 +2,7 @@ import type { DmmItem } from "@/types/dmm";
 
 export type RankedDmmItem = DmmItem & { rank: number };
 export type EntityScoreRow = { name: string; score: number; rank: number };
+type NamedEntity = { name: string };
 
 function getRankingPoint(rank: number) {
   return Math.max(1, Math.floor(500 / Math.sqrt(rank)));
@@ -13,6 +14,25 @@ function addScore(target: Record<string, number>, name: string, point: number) {
   target[normalized] = (target[normalized] ?? 0) + point;
 }
 
+function addNamedEntityScores(
+  target: Record<string, number>,
+  entities: NamedEntity[] | undefined,
+  point: number,
+) {
+  for (const entity of entities ?? []) addScore(target, entity.name, point);
+}
+
+function addGenreScores(
+  target: Record<string, number>,
+  genres: NamedEntity[] | undefined,
+  ignoredGenres: string[],
+  point: number,
+) {
+  for (const genre of genres ?? []) {
+    if (!ignoredGenres.includes(genre.name)) addScore(target, genre.name, point);
+  }
+}
+
 function toRankedRows(scores: Record<string, number>, limit: number): EntityScoreRow[] {
   return Object.entries(scores)
     .sort((a, b) => b[1] - a[1])
@@ -21,26 +41,26 @@ function toRankedRows(scores: Record<string, number>, limit: number): EntityScor
 }
 
 export function projectEntityRankingItems(rankingItems: RankedDmmItem[], ignoredGenres: string[]) {
-  const genreScores: Record<string, number> = {};
-  const actressScores: Record<string, number> = {};
-  const makerScores: Record<string, number> = {};
-  const seriesScores: Record<string, number> = {};
+  const scores = {
+    genre: {} as Record<string, number>,
+    actress: {} as Record<string, number>,
+    maker: {} as Record<string, number>,
+    series: {} as Record<string, number>,
+  };
 
   for (const item of rankingItems) {
     const point = getRankingPoint(item.rank);
-    for (const genre of item.iteminfo?.genre ?? []) {
-      if (!ignoredGenres.includes(genre.name)) addScore(genreScores, genre.name, point);
-    }
-    for (const actress of item.iteminfo?.actress ?? []) addScore(actressScores, actress.name, point);
-    for (const maker of item.iteminfo?.maker ?? []) addScore(makerScores, maker.name, point);
-    for (const series of item.iteminfo?.series ?? []) addScore(seriesScores, series.name, point);
+    addGenreScores(scores.genre, item.iteminfo?.genre, ignoredGenres, point);
+    addNamedEntityScores(scores.actress, item.iteminfo?.actress, point);
+    addNamedEntityScores(scores.maker, item.iteminfo?.maker, point);
+    addNamedEntityScores(scores.series, item.iteminfo?.series, point);
   }
 
   return {
-    actressRows: toRankedRows(actressScores, 100),
-    genreRows: toRankedRows(genreScores, 30),
-    makerRows: toRankedRows(makerScores, 50),
-    seriesRows: toRankedRows(seriesScores, 100),
+    actressRows: toRankedRows(scores.actress, 100),
+    genreRows: toRankedRows(scores.genre, 30),
+    makerRows: toRankedRows(scores.maker, 50),
+    seriesRows: toRankedRows(scores.series, 100),
   };
 }
 
