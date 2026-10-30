@@ -1,34 +1,17 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { readFanzaDailyPostFunnelRows, readFanzaDailyPostFunnelRowsForKeys } from "@/lib/fanzaDailyPostFunnelPagination";
 import {
-  canRecordFanzaPostImpressions,
   collectFanzaDailyPostFunnelCounts,
   collectFanzaDailyPostFunnelSnapshots,
+  projectFanzaDailyPostFunnelRow,
+  type FanzaDailyPostFunnelRow,
   type FanzaDailyPostFunnelPostReference,
   type FanzaDailyPostFunnelSnapshotRow,
 } from "@/lib/fanzaDailyPostFunnelAggregation";
+export type { FanzaDailyPostFunnelRow };
 
 const ACCOUNTS = ["hakkutsu_lab", "bijyo1010"] as const;
 const DAY_MS = 24 * 60 * 60 * 1000;
-export type FanzaDailyPostFunnelRow = {
-  account: (typeof ACCOUNTS)[number];
-  postKey: string;
-  workId: number;
-  title: string;
-  postedAt: string;
-  xPostId: string | null;
-  impressionsAtCapture: number | null;
-  impressionCapturedAt: string | null;
-  impressionSource: "manual" | "x_api" | null;
-  impressionCaptureAgeHours: number | null;
-  canRecordImpressions: boolean;
-  siteViews24h: number;
-  fanzaClicks24h: number;
-  siteViewsAtImpressionCapture: number;
-  fanzaClicksAtImpressionCapture: number;
-  siteViews7d: number;
-  fanzaClicks7d: number;
-};
 
 export async function getFanzaDailyPostFunnel(days = 30) {
   const evaluatedAt = new Date().toISOString();
@@ -106,28 +89,13 @@ export async function getFanzaDailyPostFunnel(days = 30) {
   );
 
   return {
-    rows: posts.map((post) => {
-      const snapshot = snapshots.get(post.post_key);
-      return {
-        account: post.account_handle as (typeof ACCOUNTS)[number],
-        postKey: post.post_key,
-        workId: post.work_id,
-        title: post.title,
-        postedAt: post.posted_at,
-        xPostId: post.x_post_id,
-        impressionsAtCapture: snapshot?.impressions ?? null,
-        impressionCapturedAt: snapshot?.capturedAt ?? null,
-        impressionSource: snapshot?.source ?? null,
-        impressionCaptureAgeHours: snapshot?.captureAgeHours ?? null,
-        canRecordImpressions: canRecordFanzaPostImpressions(Boolean(snapshot), post.x_post_id, post.posted_at, now),
-        siteViews24h: views.within24h.get(post.post_key) ?? 0,
-        fanzaClicks24h: clicks.within24h.get(post.post_key) ?? 0,
-        siteViewsAtImpressionCapture: snapshot?.siteVisits ?? views.within24h.get(post.post_key) ?? 0,
-        fanzaClicksAtImpressionCapture: snapshot?.affiliateClicks ?? clicks.within24h.get(post.post_key) ?? 0,
-        siteViews7d: views.within7d.get(post.post_key) ?? 0,
-        fanzaClicks7d: clicks.within7d.get(post.post_key) ?? 0,
-      };
-    }),
+    rows: posts.map((post) => projectFanzaDailyPostFunnelRow(
+      post,
+      snapshots.get(post.post_key),
+      views,
+      clicks,
+      now,
+    )),
     error: null,
     evaluatedAt,
   };

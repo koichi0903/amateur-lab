@@ -30,6 +30,95 @@ export type FanzaDailyPostFunnelSnapshot = {
   affiliateClicks: number;
 };
 
+export type FanzaDailyPostFunnelAccount = "hakkutsu_lab" | "bijyo1010";
+
+export type FanzaDailyPostFunnelPost = FanzaDailyPostFunnelPostReference & {
+  account_handle: string;
+  work_id: number;
+  title: string;
+  x_post_id: string | null;
+};
+
+export type FanzaDailyPostFunnelRow = {
+  account: FanzaDailyPostFunnelAccount;
+  postKey: string;
+  workId: number;
+  title: string;
+  postedAt: string;
+  xPostId: string | null;
+  impressionsAtCapture: number | null;
+  impressionCapturedAt: string | null;
+  impressionSource: "manual" | "x_api" | null;
+  impressionCaptureAgeHours: number | null;
+  canRecordImpressions: boolean;
+  siteViews24h: number;
+  fanzaClicks24h: number;
+  siteViewsAtImpressionCapture: number;
+  fanzaClicksAtImpressionCapture: number;
+  siteViews7d: number;
+  fanzaClicks7d: number;
+};
+
+function projectImpressionSnapshot(
+  post: FanzaDailyPostFunnelPost,
+  snapshot: FanzaDailyPostFunnelSnapshot | undefined,
+  now: number,
+) {
+  return {
+    impressionsAtCapture: snapshot?.impressions ?? null,
+    impressionCapturedAt: snapshot?.capturedAt ?? null,
+    impressionSource: snapshot?.source ?? null,
+    impressionCaptureAgeHours: snapshot?.captureAgeHours ?? null,
+    canRecordImpressions: canRecordFanzaPostImpressions(
+      Boolean(snapshot),
+      post.x_post_id,
+      post.posted_at,
+      now,
+    ),
+  };
+}
+
+function countForPost(counts: Map<string, number>, postKey: string) {
+  return counts.get(postKey) ?? 0;
+}
+
+function projectFunnelCounts(
+  postKey: string,
+  snapshot: FanzaDailyPostFunnelSnapshot | undefined,
+  views: FanzaDailyPostFunnelCounts,
+  clicks: FanzaDailyPostFunnelCounts,
+) {
+  const siteViews24h = countForPost(views.within24h, postKey);
+  const fanzaClicks24h = countForPost(clicks.within24h, postKey);
+  return {
+    siteViews24h,
+    fanzaClicks24h,
+    siteViewsAtImpressionCapture: snapshot?.siteVisits ?? siteViews24h,
+    fanzaClicksAtImpressionCapture: snapshot?.affiliateClicks ?? fanzaClicks24h,
+    siteViews7d: countForPost(views.within7d, postKey),
+    fanzaClicks7d: countForPost(clicks.within7d, postKey),
+  };
+}
+
+export function projectFanzaDailyPostFunnelRow(
+  post: FanzaDailyPostFunnelPost,
+  snapshot: FanzaDailyPostFunnelSnapshot | undefined,
+  views: FanzaDailyPostFunnelCounts,
+  clicks: FanzaDailyPostFunnelCounts,
+  now: number,
+): FanzaDailyPostFunnelRow {
+  return {
+    account: post.account_handle as FanzaDailyPostFunnelAccount,
+    postKey: post.post_key,
+    workId: post.work_id,
+    title: post.title,
+    postedAt: post.posted_at,
+    xPostId: post.x_post_id,
+    ...projectImpressionSnapshot(post, snapshot, now),
+    ...projectFunnelCounts(post.post_key, snapshot, views, clicks),
+  };
+}
+
 export function canRecordFanzaPostImpressions(
   hasSnapshot: boolean,
   xPostId: string | null,

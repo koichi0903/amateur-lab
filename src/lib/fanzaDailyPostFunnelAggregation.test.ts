@@ -4,6 +4,8 @@ import {
   canRecordFanzaPostImpressions,
   collectFanzaDailyPostFunnelCounts,
   collectFanzaDailyPostFunnelSnapshots,
+  projectFanzaDailyPostFunnelRow,
+  type FanzaDailyPostFunnelCounts,
   type FanzaDailyPostFunnelSnapshotRow,
 } from "./fanzaDailyPostFunnelAggregation.ts";
 
@@ -77,4 +79,62 @@ test("uses the newest eligible snapshot when non-manual notes invalidate impress
 
   assert.equal(snapshots.get("post-a")?.impressions, null);
   assert.equal(snapshots.get("post-a")?.siteVisits, 2);
+});
+
+test("projects snapshots and funnel counts with the same per-capture fallbacks", () => {
+  const post = {
+    account_handle: "hakkutsu_lab",
+    post_key: "post-a",
+    work_id: 101,
+    title: "作品名",
+    posted_at: postedAt,
+    x_post_id: "x-post",
+  };
+  const views: FanzaDailyPostFunnelCounts = {
+    within24h: new Map([["post-a", 2]]),
+    within7d: new Map([["post-a", 5]]),
+  };
+  const clicks: FanzaDailyPostFunnelCounts = {
+    within24h: new Map([["post-a", 1]]),
+    within7d: new Map([["post-a", 3]]),
+  };
+  const snapshot = {
+    impressions: 120,
+    capturedAt: "2026-10-02T00:00:00.000Z",
+    source: "manual" as const,
+    captureAgeHours: 24,
+    siteVisits: 8,
+    affiliateClicks: 4,
+  };
+
+  assert.deepEqual(projectFanzaDailyPostFunnelRow(post, snapshot, views, clicks, Date.parse("2026-10-02T00:00:00.000Z")), {
+    account: "hakkutsu_lab",
+    postKey: "post-a",
+    workId: 101,
+    title: "作品名",
+    postedAt,
+    xPostId: "x-post",
+    impressionsAtCapture: 120,
+    impressionCapturedAt: "2026-10-02T00:00:00.000Z",
+    impressionSource: "manual",
+    impressionCaptureAgeHours: 24,
+    canRecordImpressions: false,
+    siteViews24h: 2,
+    fanzaClicks24h: 1,
+    siteViewsAtImpressionCapture: 8,
+    fanzaClicksAtImpressionCapture: 4,
+    siteViews7d: 5,
+    fanzaClicks7d: 3,
+  });
+
+  const withoutSnapshot = projectFanzaDailyPostFunnelRow(
+    post,
+    undefined,
+    views,
+    clicks,
+    Date.parse(postedAt) + 24 * 60 * 60 * 1000,
+  );
+  assert.equal(withoutSnapshot.canRecordImpressions, true);
+  assert.equal(withoutSnapshot.siteViewsAtImpressionCapture, 2);
+  assert.equal(withoutSnapshot.fanzaClicksAtImpressionCapture, 1);
 });
