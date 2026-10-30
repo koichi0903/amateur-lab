@@ -2,7 +2,18 @@ import "server-only";
 
 import { unstable_cache } from "next/cache";
 import { buildFanzaAmateurAffiliateUrl, getFanzaAmateurAffiliateId as getAmateurAffiliateId } from "@/lib/dmm/fanzaAmateurAffiliate";
-import { hasActiveCampaign } from "@/lib/dmm/fanzaAmateurCatalogBrowseRules";
+import {
+  buildFanzaAmateurBrowseCriteria,
+  hasActiveCampaign,
+  isAllFanzaAmateurEntityWorksBrowse,
+  matchesFanzaAmateurAdvancedFilters,
+  matchesFanzaAmateurRankedFilters,
+  sortFanzaAmateurCampaignItems,
+  type FanzaAmateurBrowseCriteria,
+  type FanzaAmateurBrowseRuleInput,
+  type RankedFanzaAmateurItem,
+} from "@/lib/dmm/fanzaAmateurCatalogBrowseRules";
+import { requiresFullFanzaAmateurBrowseScan, sortStandardFanzaAmateurBrowseItems } from "@/lib/dmm/fanzaAmateurBrowseProjection";
 import {
   asText,
   isRecord,
@@ -618,23 +629,8 @@ export async function getFanzaAmateurHomeSections() {
   return getCachedFanzaAmateurHomeSections();
 }
 
-export type FanzaAmateurBrowseFilter = {
-  page?: number;
-  query?: string;
-  performer?: string;
-  genre?: string;
-  genres?: string[];
-  maker?: string;
-  sort?: FanzaAmateurBrowseSort;
-  campaignOnly?: boolean;
-  maxPrice?: number;
-  minRating?: number;
-  minPrice?: number;
-  releaseFrom?: string;
-  releaseTo?: string;
-};
-
-export type FanzaAmateurBrowseSort = "rank" | "date_desc" | "date_asc" | "review" | "discount" | "price" | "ending";
+export type FanzaAmateurBrowseFilter = FanzaAmateurBrowseRuleInput & { page?: number };
+export type { FanzaAmateurBrowseSort } from "@/lib/dmm/fanzaAmateurCatalogBrowseRules";
 
 async function loadFanzaAmateurEntityContentIds(kind: "genre" | "maker", name: string) {
   const { data, error } = await supabaseAdmin.rpc("get_fanza_amateur_entity_content_ids", {
@@ -671,193 +667,223 @@ async function loadFanzaAmateurPerformerContentIds(name: string) {
 
 const getCachedFanzaAmateurPerformerContentIds = unstable_cache(loadFanzaAmateurPerformerContentIds, ["fanza-amateur-performer-content-ids-v1"], { revalidate: 3600 });
 
-async function loadFanzaAmateurBrowsePage({ page = 1, query, performer, genre, genres = [], maker, sort = "date_desc", campaignOnly = false, maxPrice, minRating, minPrice, releaseFrom, releaseTo }: FanzaAmateurBrowseFilter) {
-  const safePage = Math.max(1, Math.trunc(page));
-  let items: FanzaAmateurCatalogItem[];
-  let totalCount: number;
-  const rankByContentId = new Map<string, number>();
-  const safeQuery = query?.trim().slice(0, 100);
-  const safePerformer = performer?.trim().slice(0, 100);
-  const performerContentIds = safePerformer ? await getCachedFanzaAmateurPerformerContentIds(safePerformer) : null;
-  const performerContentIdSet = performerContentIds ? new Set(performerContentIds) : null;
-  const selectedGenres = [...new Set([...genres, ...(genre ? [genre] : [])].map((value) => value.trim().slice(0, 100)).filter(Boolean))].slice(0, 30);
-  const matchesAdvancedFilters = (item: FanzaAmateurCatalogItem) => {
-    const releaseDate = item.date ?? "";
-    if (releaseFrom && releaseDate && releaseDate.slice(0, 10) < releaseFrom) return false;
-    if (releaseTo && releaseDate && releaseDate.slice(0, 10) > releaseTo) return false;
-    if (selectedGenres.some((selected) => !item.iteminfo?.genre?.some((entry) => entry.name === selected))) return false;
-    if (minPrice != null && (item.currentPrice == null || item.currentPrice < minPrice)) return false;
-    return true;
-  };
-  if (sort === "rank" || campaignOnly) {
-    const rankedCatalog = await getDmmFanzaAmateurRankedCatalog();
-    const matchesFilters = (item: FanzaAmateurCatalogItem) => {
-      if (performerContentIdSet && !performerContentIdSet.has(item.content_id)) return false;
-      if (safeQuery && !`${item.title} ${item.content_id} ${item.product_id ?? ""}`.toLocaleLowerCase("ja").includes(safeQuery.toLocaleLowerCase("ja"))) return false;
-      if (genre && !item.iteminfo?.genre?.some((entry) => entry.name === genre)) return false;
-      if (maker && !item.iteminfo?.maker?.some((entry) => entry.name === maker)) return false;
-      if (campaignOnly && !hasActiveCampaign(item, Date.now())) return false;
-      if (maxPrice != null && (item.currentPrice == null || item.currentPrice > maxPrice)) return false;
-      if (minRating != null && (item.reviewAverage == null || item.reviewAverage < minRating)) return false;
-      if (!matchesAdvancedFilters(item)) return false;
-      return true;
-    };
-    const rankedItems = rankedCatalog
-      .map((item, index) => ({ item, rank: index + 1 }))
-      .filter(({ item }) => matchesFilters(item));
-    const rankedIds = new Set(rankedCatalog.map((item) => item.content_id));
-    const archivedCampaignItems = new Map<string, FanzaAmateurCatalogItem>();
+type CatalogBrowseSelection = {
+  items: FanzaAmateurCatalogItem[];
+  totalCount: number;
+  rankByContentId: Map<string, number>;
+};
 
-    if (campaignOnly) {
-      const pageSize = 1_000;
-      const nowIso = new Date().toISOString();
-      const activeCampaignIds = new Set<string>();
-      for (let from = 0; ; from += pageSize) {
-        const { data, error } = await supabaseAdmin
-          .from("fanza_amateur_campaigns")
-          .select("content_id")
-          .or(`and(starts_at.is.null,ends_at.gte.${nowIso}),and(starts_at.lte.${nowIso},ends_at.is.null),and(starts_at.lte.${nowIso},ends_at.gte.${nowIso})`)
-          .order("content_id", { ascending: true })
-          .order("campaign_index", { ascending: true })
-          .range(from, from + pageSize - 1);
-        if (error) throw new Error(`順位未取得の素人セール作品を読み込めませんでした: ${error.message}`);
+async function loadUnrankedActiveCampaignItems(rankedIds: ReadonlySet<string>) {
+  const activeCampaignIds = new Set<string>();
+  const pageSize = 1_000;
+  const nowIso = new Date().toISOString();
 
-        for (const row of data ?? []) activeCampaignIds.add(row.content_id);
-        if (!data || data.length < pageSize) break;
-      }
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabaseAdmin
+      .from("fanza_amateur_campaigns")
+      .select("content_id")
+      .or("and(starts_at.is.null,ends_at.gte." + nowIso + "),and(starts_at.lte." + nowIso + ",ends_at.is.null),and(starts_at.lte." + nowIso + ",ends_at.gte." + nowIso + ")")
+      .order("content_id", { ascending: true })
+      .order("campaign_index", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error("順位未取得の素人セール作品を読み込めませんでした: " + error.message);
 
-      const unrankedCampaignIds = [...activeCampaignIds].filter((contentId) => !rankedIds.has(contentId));
-      for (let offset = 0; offset < unrankedCampaignIds.length; offset += 300) {
-        const contentIds = unrankedCampaignIds.slice(offset, offset + 300);
-        const { data, error } = await supabaseAdmin
-          .from("fanza_amateur_works")
-          .select("raw_item")
-          .in("content_id", contentIds);
-        if (error) throw new Error(`順位未取得の素人セール作品を読み込めませんでした: ${error.message}`);
-        for (const row of data ?? []) {
-          const item = normalizeFanzaAmateurCatalogItem(row.raw_item);
-          if (item) archivedCampaignItems.set(item.content_id, item);
-        }
-      }
-    }
-    const catalogItems = campaignOnly
-      ? [
-          ...rankedCatalog.map((item, index) => ({ item, rank: index + 1 })),
-          ...[...archivedCampaignItems.values()].map((item) => ({ item, rank: null as number | null })),
-        ]
-      : rankedCatalog.map((item, index) => ({ item, rank: index + 1 }));
-    const matchedItems = catalogItems.filter(({ item }) => matchesFilters(item));
-    const campaignEnd = (item: FanzaAmateurCatalogItem) => {
-      const parseJst = (value: string) => {
-        if (!value) return Number.NaN;
-        const normalized = value.replace(" ", "T");
-        return Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(normalized) ? normalized : `${normalized}+09:00`);
-      };
-      const ends = item.campaigns.map(({ dateEnd }) => parseJst(dateEnd)).filter(Number.isFinite);
-      return ends.length ? Math.min(...ends) : Number.POSITIVE_INFINITY;
-    };
-    const listPrice = (item: FanzaAmateurCatalogItem) => priceNumber(item.prices?.list_price);
-    const discountRate = (item: FanzaAmateurCatalogItem) => {
-      const current = item.currentPrice;
-      const regular = listPrice(item);
-      return current != null && regular != null && regular > current ? (regular - current) / regular : 0;
-    };
-    const allEntityWorks = !campaignOnly && sort === "rank" && !safeQuery && !safePerformer && genres.length === 0 && maxPrice == null && minRating == null && minPrice == null && !releaseFrom && !releaseTo && Boolean((genre && !maker) || (!genre && maker));
-    if (allEntityWorks) {
-      const entityIds = [...new Set(await getCachedFanzaAmateurEntityContentIds(genre ? "genre" : "maker", genre ?? maker ?? ""))];
-      const entityIdSet = new Set(entityIds);
-      const rankedEntityItems = rankedItems.filter(({ item }) => entityIdSet.has(item.content_id));
-      const rankedEntityIds = new Set(rankedEntityItems.map(({ item }) => item.content_id));
-      const unrankedIds = entityIds.filter((contentId) => !rankedEntityIds.has(contentId));
-      totalCount = entityIds.length;
-      const start = (safePage - 1) * FANZA_AMATEUR_PAGE_SIZE;
-      items = rankedEntityItems.slice(start, start + FANZA_AMATEUR_PAGE_SIZE).map(({ item, rank }) => {
-        rankByContentId.set(item.content_id, rank);
-        return item;
-      });
-      const unrankedStart = Math.max(0, start - rankedEntityItems.length);
-      const unrankedSlots = FANZA_AMATEUR_PAGE_SIZE - items.length;
-      const pageIds = unrankedIds.slice(unrankedStart, unrankedStart + unrankedSlots);
-      if (pageIds.length) {
-        const { data, error } = await supabaseAdmin.from("fanza_amateur_works").select("raw_item").in("content_id", pageIds);
-        if (error) throw new Error("順位未取得の素人作品を読み込めませんでした: " + error.message);
-        const itemsById = new Map<string, FanzaAmateurCatalogItem>();
-        for (const row of data ?? []) {
-          const item = normalizeFanzaAmateurCatalogItem(row.raw_item);
-          if (item) itemsById.set(item.content_id, item);
-        }
-        items = [...items, ...pageIds.map((contentId) => itemsById.get(contentId)).filter((item): item is FanzaAmateurCatalogItem => item !== undefined)];
-      }
-    } else {
-      const ordered = campaignOnly ? [...matchedItems] : [...rankedItems];
-      if (campaignOnly && sort === "rank") {
-        ordered.sort((a, b) => {
-          if (a.rank != null && b.rank != null) return a.rank - b.rank;
-          if (a.rank != null) return -1;
-          if (b.rank != null) return 1;
-          return (b.item.review?.count ?? 0) - (a.item.review?.count ?? 0)
-            || a.item.content_id.localeCompare(b.item.content_id);
-        });
-      } else if (campaignOnly && sort === "discount") ordered.sort((a, b) => discountRate(b.item) - discountRate(a.item) || (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
-      else if (campaignOnly && sort === "price") ordered.sort((a, b) => (a.item.currentPrice ?? Number.POSITIVE_INFINITY) - (b.item.currentPrice ?? Number.POSITIVE_INFINITY) || (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
-      else if (campaignOnly && sort === "review") ordered.sort((a, b) => (b.item.reviewAverage ?? -1) - (a.item.reviewAverage ?? -1) || (b.item.review?.count ?? 0) - (a.item.review?.count ?? 0) || (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
-      else if (campaignOnly && sort === "ending") ordered.sort((a, b) => campaignEnd(a.item) - campaignEnd(b.item) || (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
-      totalCount = ordered.length;
-      const pageItems = ordered.slice((safePage - 1) * FANZA_AMATEUR_PAGE_SIZE, safePage * FANZA_AMATEUR_PAGE_SIZE);
-      items = pageItems.map(({ item, rank }) => {
-        if (rank != null) rankByContentId.set(item.content_id, rank);
-        return item;
-      });
-    }
-  } else {
-    let request = supabaseAdmin
+    for (const row of data ?? []) activeCampaignIds.add(row.content_id);
+    if (!data || data.length < pageSize) break;
+  }
+
+  const unrankedIds = [...activeCampaignIds].filter((contentId) => !rankedIds.has(contentId));
+  const archivedItems = new Map<string, FanzaAmateurCatalogItem>();
+  for (let offset = 0; offset < unrankedIds.length; offset += 300) {
+    const contentIds = unrankedIds.slice(offset, offset + 300);
+    const { data, error } = await supabaseAdmin
       .from("fanza_amateur_works")
-      .select("raw_item,fetched_at", { count: "exact" });
-    if (performerContentIds) request = request.in("content_id", performerContentIds.length ? performerContentIds : ["__no_confirmed_performer_match__"]);
-    if (sort === "date_asc") request = request.order("api_date", { ascending: true, nullsFirst: true });
-    else if (sort === "review") request = request.order("raw_item->review->count", { ascending: false, nullsFirst: false }).order("raw_item->review->average", { ascending: false, nullsFirst: false });
-    else request = request.order("api_date", { ascending: false, nullsFirst: false });
-    request = request.order("content_id", { ascending: true });
-    if (safeQuery) {
-      const escaped = safeQuery.replace(/[\\%_]/g, "\\$&").replace(/[(),]/g, " ");
-      request = request.or(`title.ilike.%${escaped}%,product_id.ilike.%${escaped}%`);
-    }
-    for (const selectedGenre of selectedGenres) request = request.contains("iteminfo", { genre: [{ name: selectedGenre }] });
-    if (maker) request = request.contains("iteminfo", { maker: [{ name: maker.slice(0, 100) }] });
-    if (releaseFrom) request = request.gte("api_date", releaseFrom);
-    if (releaseTo) request = request.lte("api_date", releaseTo);
-    if (campaignOnly) request = request.not("campaign", "is", null);
-    if (minPrice != null || sort === "price") {
-      const allItems: FanzaAmateurCatalogItem[] = [];
-      const batchSize = 1_000;
-      for (let from = 0; ; from += batchSize) {
-        const { data, error } = await request.range(from, from + batchSize - 1);
-        if (error) throw new Error(`素人作品を検索できませんでした: ${error.message}`);
-        const batch = (data ?? []).map((row) => normalizeFanzaAmateurCatalogItem(row.raw_item)).filter((item): item is FanzaAmateurCatalogItem => item !== null).filter(matchesAdvancedFilters);
-        allItems.push(...batch);
-        if (!data || data.length < batchSize) break;
-      }
-      if (sort === "price") allItems.sort((a, b) => (a.currentPrice ?? Number.POSITIVE_INFINITY) - (b.currentPrice ?? Number.POSITIVE_INFINITY) || a.content_id.localeCompare(b.content_id));
-      else if (sort === "date_asc") allItems.sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || a.content_id.localeCompare(b.content_id));
-      else if (sort === "review") allItems.sort((a, b) => (b.reviewAverage ?? -1) - (a.reviewAverage ?? -1) || (b.review?.count ?? 0) - (a.review?.count ?? 0));
-      else allItems.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || a.content_id.localeCompare(b.content_id));
-      totalCount = allItems.length;
-      items = allItems.slice((safePage - 1) * FANZA_AMATEUR_PAGE_SIZE, safePage * FANZA_AMATEUR_PAGE_SIZE);
-    } else {
-      const { data, count, error } = await request.range((safePage - 1) * FANZA_AMATEUR_PAGE_SIZE, safePage * FANZA_AMATEUR_PAGE_SIZE - 1);
-      if (error) throw new Error(`素人作品を検索できませんでした: ${error.message}`);
-      const rows = (data ?? []) as Array<{ raw_item: unknown; fetched_at: string }>;
-      items = rows.map((row) => normalizeFanzaAmateurCatalogItem(row.raw_item)).filter((item): item is FanzaAmateurCatalogItem => item !== null).filter(matchesAdvancedFilters);
-      totalCount = count ?? 0;
+      .select("raw_item")
+      .in("content_id", contentIds);
+    if (error) throw new Error("順位未取得の素人セール作品を読み込めませんでした: " + error.message);
+
+    for (const row of data ?? []) {
+      const item = normalizeFanzaAmateurCatalogItem(row.raw_item);
+      if (item) archivedItems.set(item.content_id, item);
     }
   }
+  return archivedItems;
+}
+
+function buildRankedBrowseSelection(
+  items: RankedFanzaAmateurItem[],
+  safePage: number,
+): CatalogBrowseSelection {
+  const start = (safePage - 1) * FANZA_AMATEUR_PAGE_SIZE;
+  const pageItems = items.slice(start, start + FANZA_AMATEUR_PAGE_SIZE);
+  const rankByContentId = new Map<string, number>();
+  const selectedItems = pageItems.map(({ item, rank }) => {
+    if (rank != null) rankByContentId.set(item.content_id, rank);
+    return item;
+  });
+  return { items: selectedItems, totalCount: items.length, rankByContentId };
+}
+
+async function loadRankedEntityBrowseSelection(
+  criteria: FanzaAmateurBrowseCriteria,
+  rankedItems: RankedFanzaAmateurItem[],
+  safePage: number,
+): Promise<CatalogBrowseSelection> {
+  const entityIds = [...new Set(await getCachedFanzaAmateurEntityContentIds(
+    criteria.genre ? "genre" : "maker",
+    criteria.genre ?? criteria.maker ?? "",
+  ))];
+  const entityIdSet = new Set(entityIds);
+  const rankedEntityItems = rankedItems.filter(({ item }) => entityIdSet.has(item.content_id));
+  const rankedEntityIds = new Set(rankedEntityItems.map(({ item }) => item.content_id));
+  const unrankedIds = entityIds.filter((contentId) => !rankedEntityIds.has(contentId));
+  const totalCount = entityIds.length;
+  const start = (safePage - 1) * FANZA_AMATEUR_PAGE_SIZE;
+  const rankByContentId = new Map<string, number>();
+  const items = rankedEntityItems.slice(start, start + FANZA_AMATEUR_PAGE_SIZE).map(({ item, rank }) => {
+    if (rank != null) rankByContentId.set(item.content_id, rank);
+    return item;
+  });
+  const unrankedStart = Math.max(0, start - rankedEntityItems.length);
+  const unrankedSlots = FANZA_AMATEUR_PAGE_SIZE - items.length;
+  const pageIds = unrankedIds.slice(unrankedStart, unrankedStart + unrankedSlots);
+
+  if (pageIds.length) {
+    const { data, error } = await supabaseAdmin
+      .from("fanza_amateur_works")
+      .select("raw_item")
+      .in("content_id", pageIds);
+    if (error) throw new Error("順位未取得の素人作品を読み込めませんでした: " + error.message);
+
+    const itemsById = new Map<string, FanzaAmateurCatalogItem>();
+    for (const row of data ?? []) {
+      const item = normalizeFanzaAmateurCatalogItem(row.raw_item);
+      if (item) itemsById.set(item.content_id, item);
+    }
+    items.push(...pageIds.map((contentId) => itemsById.get(contentId))
+      .filter((item): item is FanzaAmateurCatalogItem => item !== undefined));
+  }
+
+  return { items, totalCount, rankByContentId };
+}
+
+async function loadRankedBrowseSelection(
+  criteria: FanzaAmateurBrowseCriteria,
+  safePage: number,
+): Promise<CatalogBrowseSelection> {
+  const rankedCatalog = await getDmmFanzaAmateurRankedCatalog();
+  const rankedItems = rankedCatalog
+    .map((item, index) => ({ item, rank: index + 1 }))
+    .filter(({ item }) => matchesFanzaAmateurRankedFilters(item, criteria, Date.now()));
+  if (isAllFanzaAmateurEntityWorksBrowse(criteria)) {
+    return loadRankedEntityBrowseSelection(criteria, rankedItems, safePage);
+  }
+
+  const rankedIds = new Set(rankedCatalog.map((item) => item.content_id));
+  const catalogItems = criteria.campaignOnly
+    ? [
+        ...rankedCatalog.map((item, index) => ({ item, rank: index + 1 })),
+        ...[...(await loadUnrankedActiveCampaignItems(rankedIds)).values()]
+          .map((item) => ({ item, rank: null })),
+      ]
+    : rankedItems;
+  const matchedItems = criteria.campaignOnly
+    ? catalogItems.filter(({ item }) => matchesFanzaAmateurRankedFilters(item, criteria, Date.now()))
+    : rankedItems;
+  const orderedItems = [...matchedItems];
+  if (criteria.campaignOnly) sortFanzaAmateurCampaignItems(orderedItems, criteria.sort);
+  return buildRankedBrowseSelection(orderedItems, safePage);
+}
+
+function buildStandardFanzaAmateurBrowseRequest(
+  criteria: FanzaAmateurBrowseCriteria,
+  performerContentIds: string[] | null,
+) {
+  const { sort, campaignOnly, maker, releaseFrom, releaseTo, safeQuery, selectedGenres } = criteria;
+  let request = supabaseAdmin
+    .from("fanza_amateur_works")
+    .select("raw_item,fetched_at", { count: "exact" });
+  if (sort === "date_asc") request = request.order("api_date", { ascending: true, nullsFirst: true });
+  else if (sort === "review") request = request.order("raw_item->review->count", { ascending: false, nullsFirst: false }).order("raw_item->review->average", { ascending: false, nullsFirst: false });
+  else request = request.order("api_date", { ascending: false, nullsFirst: false });
+  request = request.order("content_id", { ascending: true });
+  if (safeQuery) {
+    const escaped = safeQuery.replace(/[\\%_]/g, "\\$&").replace(/[(),]/g, " ");
+    request = request.or("title.ilike.%" + escaped + "%,product_id.ilike.%" + escaped + "%");
+  }
+  if (performerContentIds) request = request.in("content_id", performerContentIds.length ? performerContentIds : ["__no_confirmed_performer_match__"]);
+  for (const selectedGenre of selectedGenres) request = request.contains("iteminfo", { genre: [{ name: selectedGenre }] });
+  if (maker) request = request.contains("iteminfo", { maker: [{ name: maker.slice(0, 100) }] });
+  if (releaseFrom) request = request.gte("api_date", releaseFrom);
+  if (releaseTo) request = request.lte("api_date", releaseTo);
+  if (campaignOnly) request = request.not("campaign", "is", null);
+  return request;
+}
+
+async function loadStandardBrowseSelection(
+  criteria: FanzaAmateurBrowseCriteria,
+  performerContentIds: string[] | null,
+  safePage: number,
+): Promise<CatalogBrowseSelection> {
+  const request = buildStandardFanzaAmateurBrowseRequest(criteria, performerContentIds);
+  let items: FanzaAmateurCatalogItem[];
+  let totalCount: number;
+
+  if (requiresFullFanzaAmateurBrowseScan(criteria)) {
+    const allItems: FanzaAmateurCatalogItem[] = [];
+    const batchSize = 1_000;
+    for (let from = 0; ; from += batchSize) {
+      const { data, error } = await request.range(from, from + batchSize - 1);
+      if (error) throw new Error("素人作品を検索できませんでした: " + error.message);
+      allItems.push(...(data ?? [])
+        .map((row) => normalizeFanzaAmateurCatalogItem(row.raw_item))
+        .filter((item): item is FanzaAmateurCatalogItem => item !== null)
+        .filter((item) => matchesFanzaAmateurAdvancedFilters(item, criteria)));
+      if (!data || data.length < batchSize) break;
+    }
+    sortStandardFanzaAmateurBrowseItems(allItems, criteria.sort);
+    totalCount = allItems.length;
+    items = allItems.slice((safePage - 1) * FANZA_AMATEUR_PAGE_SIZE, safePage * FANZA_AMATEUR_PAGE_SIZE);
+  } else {
+    const { data, count, error } = await request.range(
+      (safePage - 1) * FANZA_AMATEUR_PAGE_SIZE,
+      safePage * FANZA_AMATEUR_PAGE_SIZE - 1,
+    );
+    if (error) throw new Error("素人作品を検索できませんでした: " + error.message);
+    items = (data ?? [])
+      .map((row) => normalizeFanzaAmateurCatalogItem(row.raw_item))
+      .filter((item): item is FanzaAmateurCatalogItem => item !== null)
+      .filter((item) => matchesFanzaAmateurAdvancedFilters(item, criteria));
+    totalCount = count ?? 0;
+  }
+
+  return { items, totalCount, rankByContentId: new Map() };
+}
+
+async function loadFanzaAmateurBrowseSelection(
+  filters: FanzaAmateurBrowseFilter,
+  safePage: number,
+): Promise<CatalogBrowseSelection> {
+  const inputCriteria = buildFanzaAmateurBrowseCriteria(filters, null);
+  const performerContentIds = inputCriteria.safePerformer
+    ? await getCachedFanzaAmateurPerformerContentIds(inputCriteria.safePerformer)
+    : null;
+  const criteria = buildFanzaAmateurBrowseCriteria(filters, performerContentIds);
+  return criteria.sort === "rank" || criteria.campaignOnly
+    ? loadRankedBrowseSelection(criteria, safePage)
+    : loadStandardBrowseSelection(criteria, performerContentIds, safePage);
+}
+
+async function loadFanzaAmateurBrowsePage(filters: FanzaAmateurBrowseFilter) {
+  const safePage = Math.max(1, Math.trunc(filters.page ?? 1));
+  const selection = await loadFanzaAmateurBrowseSelection(filters, safePage);
   const now = Date.now();
   const priceWindowEndAt = new Date(now).toISOString();
   const priceWindowStartAt = new Date(now - 90 * 24 * 60 * 60 * 1000).toISOString();
-  const contentIds = items.map((item) => item.content_id);
+  const contentIds = selection.items.map((item) => item.content_id);
   const historyResult = await loadAmateurSummaryPriceHistory(contentIds, priceWindowStartAt);
-
   const historyByContentId = new Map<string, Array<{ price: number; changedAt: string; priceKind: "regular" | "sale" | null }>>();
+
   for (const row of historyResult) {
     const price = priceNumber(row.price);
     if (price == null) continue;
@@ -866,7 +892,7 @@ async function loadFanzaAmateurBrowsePage({ page = 1, query, performer, genre, g
     historyByContentId.set(row.content_id, history);
   }
 
-  const enrichedItems = await addConfirmedPerformersToAmateurItems(items);
+  const enrichedItems = await addConfirmedPerformersToAmateurItems(selection.items);
   const cards: FanzaAmateurHomeCard[] = enrichedItems.map((item) => {
     const history = [...(historyByContentId.get(item.content_id) ?? [])].sort((a, b) => a.changedAt.localeCompare(b.changedAt));
     const priceHistory = item.currentPrice == null ? history : [
@@ -875,16 +901,21 @@ async function loadFanzaAmateurBrowsePage({ page = 1, query, performer, genre, g
     ];
     return {
       item,
-      rank: rankByContentId.get(item.content_id),
+      rank: selection.rankByContentId.get(item.content_id),
       priceHistory,
       priceWindowStartAt,
       priceWindowEndAt,
       lowestObservedPrice: priceHistory.length ? Math.min(...priceHistory.map((point) => point.price)) : null,
     };
   });
-  return { items, cards, page: safePage, totalCount, totalPages: Math.ceil(totalCount / FANZA_AMATEUR_PAGE_SIZE) };
+  return {
+    items: selection.items,
+    cards,
+    page: safePage,
+    totalCount: selection.totalCount,
+    totalPages: Math.ceil(selection.totalCount / FANZA_AMATEUR_PAGE_SIZE),
+  };
 }
-
 const getCachedFanzaAmateurBrowsePage = unstable_cache(
   loadFanzaAmateurBrowsePage,
   ["fanza-amateur-browse-page-v2-weekly-price-snapshots"],
