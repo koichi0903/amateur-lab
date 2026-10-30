@@ -21,6 +21,121 @@ export type MediaSupplyStageDiagnostics = {
   firstDropReasonCounts: Record<string, number>;
 };
 
+type WorkMediaStageCounts = Pick<
+  MediaSupplyStageDiagnostics,
+  | "usableFetchableWorks"
+  | "generatedVariants"
+  | "generatedVariantWorks"
+  | "creativeQualityVariants"
+  | "creativeQualityWorks"
+  | "nativeXVoiceVariants"
+  | "nativeXVoiceWorks"
+  | "videoHookFactWorks"
+  | "technicalGateRejectedWorks"
+  | "finalEligibleWorks"
+> & { firstDropReason: string | null };
+
+function groupOpportunitiesByWork(opportunities: XGrowthOpportunity[]) {
+  const grouped = new Map<number, XGrowthOpportunity[]>();
+  for (const item of opportunities) {
+    const items = grouped.get(item.workId) ?? [];
+    items.push(item);
+    grouped.set(item.workId, items);
+  }
+  return grouped;
+}
+
+function hasUsableMedia(items: XGrowthOpportunity[], mediaType: "sample_movie" | "existing_link_image") {
+  return items.some((item) => mediaType === "sample_movie"
+    ? officialSampleVideoAllowed(item)
+    : Boolean(item.imageUrl));
+}
+
+function mediaTypeVariants(items: XGrowthOpportunity[], mediaType: "sample_movie" | "existing_link_image") {
+  return items.flatMap((item) => item.creativeVariants.filter((variant) =>
+    variant.intent !== "CONVERSATION" && variant.mediaType === mediaType,
+  ));
+}
+
+function hasVideoHookFact(items: XGrowthOpportunity[], variants: ReturnType<typeof mediaTypeVariants>, mediaType: "sample_movie" | "existing_link_image") {
+  return items.some((item) => videoEligibilityReasons({ ...item, mediaType }, variants[0])
+    .every((reason) => !reason.includes("video hook / fact strength")));
+}
+
+function emptyWorkMediaStageCounts(): WorkMediaStageCounts {
+  return {
+    usableFetchableWorks: 0,
+    generatedVariants: 0,
+    generatedVariantWorks: 0,
+    creativeQualityVariants: 0,
+    creativeQualityWorks: 0,
+    nativeXVoiceVariants: 0,
+    nativeXVoiceWorks: 0,
+    videoHookFactWorks: 0,
+    technicalGateRejectedWorks: 0,
+    finalEligibleWorks: 0,
+    firstDropReason: null,
+  };
+}
+
+function assessWorkMediaStages(
+  items: XGrowthOpportunity[],
+  mediaType: "sample_movie" | "existing_link_image",
+): WorkMediaStageCounts {
+  const counts = emptyWorkMediaStageCounts();
+  if (!hasUsableMedia(items, mediaType)) {
+    counts.technicalGateRejectedWorks = 1;
+    counts.firstDropReason = "official_sample_fetchability_or_media_unusable";
+    return counts;
+  }
+  counts.usableFetchableWorks = 1;
+
+  const variants = mediaTypeVariants(items, mediaType);
+  counts.generatedVariants = variants.length;
+  if (!variants.length) {
+    counts.firstDropReason = "generated_variants";
+    return counts;
+  }
+  counts.generatedVariantWorks = 1;
+
+  const qualityVariants = variants.filter((variant) => variant.quality.passed);
+  counts.creativeQualityVariants = qualityVariants.length;
+  if (!qualityVariants.length) {
+    counts.firstDropReason = "creative_quality_gate";
+    return counts;
+  }
+  counts.creativeQualityWorks = 1;
+
+  const nativeVariants = variants.filter((variant) => variant.quality.lastMile.nativeXVoice.passed);
+  counts.nativeXVoiceVariants = nativeVariants.length;
+  if (!nativeVariants.length) {
+    counts.firstDropReason = "native_x_voice_gate";
+    return counts;
+  }
+  counts.nativeXVoiceWorks = 1;
+
+  if (mediaType === "sample_movie") {
+    if (!hasVideoHookFact(items, variants, mediaType)) {
+      counts.firstDropReason = "video_hook_fact_gate";
+      return counts;
+    }
+    counts.videoHookFactWorks = 1;
+  }
+
+  const finalVariants = variants.filter((variant) => isSoftQualityEligible(variant)
+    && (mediaType !== "sample_movie" || (variant.quality.passed && variant.quality.dimensions.adSmell <= 30)));
+  if (!finalVariants.length) {
+    counts.firstDropReason = "soft_quality_or_ad_smell_gate";
+    return counts;
+  }
+  counts.finalEligibleWorks = 1;
+  return counts;
+}
+
+function countFirstDropReason(counts: Record<string, number>, reason: string) {
+  counts[reason] = (counts[reason] ?? 0) + 1;
+}
+
 export function buildMediaSupplyStageDiagnostics(
   opportunities: XGrowthOpportunity[],
   mediaType: "sample_movie" | "existing_link_image",
@@ -28,68 +143,41 @@ export function buildMediaSupplyStageDiagnostics(
   recentDailyPickWorkIds: ReadonlySet<number>,
 ) : MediaSupplyStageDiagnostics {
   const raw = opportunities.filter((item) => isVideoCandidate({ ...item, mediaType }) || (mediaType === "existing_link_image" && Boolean(item.imageUrl)));
-  const byWork = new Map<number, XGrowthOpportunity[]>();
-  for (const item of raw) byWork.set(item.workId, [...(byWork.get(item.workId) ?? []), item]);
-  const active = raw.filter((item) => !postedWorkIds.has(item.workId) && !recentDailyPickWorkIds.has(item.workId));
-  const activeByWork = new Map<number, XGrowthOpportunity[]>();
-  for (const item of active) activeByWork.set(item.workId, [...(activeByWork.get(item.workId) ?? []), item]);
-  const variantsFor = (items: XGrowthOpportunity[]) => items.flatMap((item) => item.creativeVariants.filter((variant) => variant.intent !== "CONVERSATION" && variant.mediaType === mediaType));
-  const usable = (items: XGrowthOpportunity[]) => items.some((item) => mediaType === "sample_movie" ? officialSampleVideoAllowed(item) : Boolean(item.imageUrl));
+  const byWork = groupOpportunitiesByWork(raw);
+  const activeByWork = new Map([...byWork].filter(([workId]) => !postedWorkIds.has(workId) && !recentDailyPickWorkIds.has(workId)));
   const firstDropReasonCounts: Record<string, number> = {};
-  const addDrop = (reason: string) => { firstDropReasonCounts[reason] = (firstDropReasonCounts[reason] ?? 0) + 1; };
-  let usableFetchableWorks = 0;
-  let generatedVariantWorks = 0;
-  let creativeQualityWorks = 0;
-  let nativeXVoiceWorks = 0;
-  let videoHookFactWorks = 0;
-  let technicalGateRejectedWorks = 0;
-  let finalEligibleWorks = 0;
-  let generatedVariants = 0;
-  let creativeQualityVariants = 0;
-  let nativeXVoiceVariants = 0;
-  for (const [workId, items] of activeByWork) {
-    if (!usable(items)) { technicalGateRejectedWorks += 1; addDrop("official_sample_fetchability_or_media_unusable"); continue; }
-    usableFetchableWorks += 1;
-    const variants = variantsFor(items);
-    generatedVariants += variants.length;
-    if (!variants.length) { addDrop("generated_variants"); continue; }
-    generatedVariantWorks += 1;
-    const qualityVariants = variants.filter((variant) => variant.quality.passed);
-    creativeQualityVariants += qualityVariants.length;
-    if (!qualityVariants.length) { addDrop("creative_quality_gate"); continue; }
-    creativeQualityWorks += 1;
-    const nativeVariants = variants.filter((variant) => variant.quality.lastMile.nativeXVoice.passed);
-    nativeXVoiceVariants += nativeVariants.length;
-    if (!nativeVariants.length) { addDrop("native_x_voice_gate"); continue; }
-    nativeXVoiceWorks += 1;
-    if (mediaType === "sample_movie") {
-      const hookWorks = items.some((item) => videoEligibilityReasons({ ...item, mediaType }, variants[0]).every((reason) => !reason.includes("video hook / fact strength")));
-      if (!hookWorks) { addDrop("video_hook_fact_gate"); continue; }
-      videoHookFactWorks += 1;
-    }
-    const finalVariants = variants.filter((variant) => isSoftQualityEligible(variant)
-      && (mediaType !== "sample_movie" || (variant.quality.passed && variant.quality.dimensions.adSmell <= 30)));
-    if (!finalVariants.length) { addDrop("soft_quality_or_ad_smell_gate"); continue; }
-    finalEligibleWorks += 1;
-    void workId;
+  const stageCounts = emptyWorkMediaStageCounts();
+  for (const items of activeByWork.values()) {
+    const workCounts = assessWorkMediaStages(items, mediaType);
+    stageCounts.usableFetchableWorks += workCounts.usableFetchableWorks;
+    stageCounts.generatedVariants += workCounts.generatedVariants;
+    stageCounts.generatedVariantWorks += workCounts.generatedVariantWorks;
+    stageCounts.creativeQualityVariants += workCounts.creativeQualityVariants;
+    stageCounts.creativeQualityWorks += workCounts.creativeQualityWorks;
+    stageCounts.nativeXVoiceVariants += workCounts.nativeXVoiceVariants;
+    stageCounts.nativeXVoiceWorks += workCounts.nativeXVoiceWorks;
+    stageCounts.videoHookFactWorks += workCounts.videoHookFactWorks;
+    stageCounts.technicalGateRejectedWorks += workCounts.technicalGateRejectedWorks;
+    stageCounts.finalEligibleWorks += workCounts.finalEligibleWorks;
+    if (workCounts.firstDropReason) countFirstDropReason(firstDropReasonCounts, workCounts.firstDropReason);
   }
   for (const workId of byWork.keys()) {
-    if (postedWorkIds.has(workId) || recentDailyPickWorkIds.has(workId)) addDrop("posted_or_recently_selected");
+    if (postedWorkIds.has(workId) || recentDailyPickWorkIds.has(workId)) countFirstDropReason(firstDropReasonCounts, "posted_or_recently_selected");
   }
   return {
     rawWorks: byWork.size,
     postedExcludedWorks: byWork.size - activeByWork.size,
     afterPostedWorks: activeByWork.size,
-    usableFetchableWorks,
-    generatedVariants,
-    generatedVariantWorks,
-    creativeQualityVariants,
-    creativeQualityWorks,
-    nativeXVoiceVariants,
-    nativeXVoiceWorks,
-    videoHookFactWorks,
-    technicalGateRejectedWorks,
-    finalEligibleWorks,
+    usableFetchableWorks: stageCounts.usableFetchableWorks,
+    generatedVariants: stageCounts.generatedVariants,
+    generatedVariantWorks: stageCounts.generatedVariantWorks,
+    creativeQualityVariants: stageCounts.creativeQualityVariants,
+    creativeQualityWorks: stageCounts.creativeQualityWorks,
+    nativeXVoiceVariants: stageCounts.nativeXVoiceVariants,
+    nativeXVoiceWorks: stageCounts.nativeXVoiceWorks,
+    videoHookFactWorks: stageCounts.videoHookFactWorks,
+    technicalGateRejectedWorks: stageCounts.technicalGateRejectedWorks,
+    finalEligibleWorks: stageCounts.finalEligibleWorks,
     firstDropReasonCounts,
   };
 }
