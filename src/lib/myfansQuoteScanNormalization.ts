@@ -9,14 +9,26 @@ export function buildQuoteScanCollectionEvidence(payload: QuoteScanPayload) {
     collection_session_id: cleanText(payload.collectionSessionId) || null,
     run_token: cleanText(payload.runToken) || null,
     collector_version: cleanText(payload.collectorVersion) || null,
-    stateTransitions: Array.isArray(payload.stateTransitions) ? payload.stateTransitions.slice(-80) : [],
-    profileCounts: payload.profileCounts && typeof payload.profileCounts === "object" ? payload.profileCounts : {},
-    profileScan: payload.profileScan && typeof payload.profileScan === "object" ? payload.profileScan : {},
-    statusCounts: payload.statusCounts && typeof payload.statusCounts === "object" ? payload.statusCounts : {},
-    collectionStatuses: Array.isArray(payload.collectionStatuses) ? payload.collectionStatuses : [],
+    stateTransitions: takeLastArrayEntries(payload.stateTransitions, 80),
+    profileCounts: recordOrEmpty(payload.profileCounts),
+    profileScan: recordOrEmpty(payload.profileScan),
+    statusCounts: recordOrEmpty(payload.statusCounts),
+    collectionStatuses: arrayOrEmpty(payload.collectionStatuses),
     final_collection_state: null,
     final_error: null,
   };
+}
+
+function takeLastArrayEntries<T>(value: T[] | undefined, limit: number) {
+  return Array.isArray(value) ? value.slice(-limit) : [];
+}
+
+function recordOrEmpty(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function arrayOrEmpty<T>(value: T[] | undefined) {
+  return Array.isArray(value) ? value : [];
 }
 
 export function normalizeQuoteScanCandidates(candidates: MyfansQuoteScanCandidate[], sourceXHandle: string) {
@@ -27,7 +39,6 @@ export function normalizeQuoteScanCandidates(candidates: MyfansQuoteScanCandidat
 }
 
 function normalizeQuoteScanCandidate(candidate: MyfansQuoteScanCandidate) {
-  const mediaType = cleanText(candidate.mediaType);
   return {
     ...candidate,
     xPostUrl: cleanXStatusUrl(candidate.xPostUrl),
@@ -35,20 +46,44 @@ function normalizeQuoteScanCandidate(candidate: MyfansQuoteScanCandidate) {
     parentStatusId: cleanText(candidate.parentStatusId) || null,
     ownReplyStatusUrl: cleanXStatusUrl(candidate.ownReplyStatusUrl),
     ownReplyStatusId: cleanText(candidate.ownReplyStatusId) || null,
-    myfansLinkSource: candidate.myfansLinkSource === "own_reply" ? "own_reply" : candidate.myfansLinkSource === "parent" ? "parent" : null,
+    myfansLinkSource: normalizeMyfansLinkSource(candidate.myfansLinkSource),
     threadCollectionStatus: cleanText(candidate.threadCollectionStatus) || "LEGACY",
     collectorMethod: cleanText(candidate.collectorMethod) || "legacy_profile_scan",
-    resolvedProductEvidence: candidate.resolvedProductEvidence && typeof candidate.resolvedProductEvidence === "object" ? candidate.resolvedProductEvidence : null,
+    resolvedProductEvidence: normalizeResolvedProductEvidence(candidate.resolvedProductEvidence),
     mediaPermalink: cleanXMediaPermalink(candidate.mediaPermalink),
     verifiedVideoPermalink: cleanXMediaPermalink(candidate.verifiedVideoPermalink),
     generatedVideoPermalink: cleanXMediaPermalink(candidate.generatedVideoPermalink),
     validationStatus: cleanValidationStatus(candidate.validationStatus),
-    mediaType: mediaType === "image" || mediaType === "video" ? mediaType : "none",
-    mediaCount: Math.max(0, Math.round(Number(candidate.mediaCount ?? 0) || 0)),
+    mediaType: normalizeMediaType(candidate.mediaType),
+    mediaCount: normalizeMediaCount(candidate.mediaCount),
     sourceXHandle: cleanText(candidate.sourceXHandle).replace(/^@/, ""),
     text: extractMyfansSourceText(candidate.text, candidate.articleText),
-    myfansUrls: Array.isArray(candidate.myfansUrls) ? candidate.myfansUrls.map(cleanMyfansUrl).filter(Boolean).slice(0, 5) : [],
+    myfansUrls: normalizeMyfansUrls(candidate.myfansUrls),
   } as MyfansQuoteScanCandidate;
+}
+
+function normalizeMyfansLinkSource(value: unknown): MyfansQuoteScanCandidate["myfansLinkSource"] {
+  if (value === "own_reply") return "own_reply";
+  return value === "parent" ? "parent" : null;
+}
+
+function normalizeResolvedProductEvidence(value: unknown): MyfansQuoteScanCandidate["resolvedProductEvidence"] {
+  return value && typeof value === "object" ? value as Record<string, unknown> : null;
+}
+
+function normalizeMediaType(value: unknown): NonNullable<MyfansQuoteScanCandidate["mediaType"]> {
+  const mediaType = cleanText(value);
+  if (mediaType === "image" || mediaType === "video") return mediaType;
+  return "none";
+}
+
+function normalizeMediaCount(value: unknown) {
+  return Math.max(0, Math.round(Number(value ?? 0) || 0));
+}
+
+function normalizeMyfansUrls(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.map(cleanMyfansUrl).filter(Boolean).slice(0, 5);
 }
 
 function candidateBelongsToSource(candidate: MyfansQuoteScanCandidate, sourceXHandle: string) {
