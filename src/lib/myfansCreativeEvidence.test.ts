@@ -50,15 +50,43 @@ assert.equal(humanObservationFromEvidence({
   motionCue: "",
 }, "video"), "");
 
-const understanding = visualUnderstandingFor({
+const facts = {
   sourceText: "",
   productFacts: { title: "sample", genre: "" },
   visualContext: "video",
   quoteVisualAnalysis: analysis,
-} as unknown as PublicCopyFacts);
+} as unknown as PublicCopyFacts;
+const understanding = visualUnderstandingFor(facts);
 assert.equal(understanding.visualAnalysisStatus, "verified");
 assert.equal(understanding.attentionMoment, "表情や目線で雰囲気が先に出る");
 assert.equal(understanding.humanObservation, "白っぽい部屋で動き出すところが先に目に入る");
 assert.equal(understanding.uncertaintyLevel, "low");
+assert.deepEqual({
+  analyzerVersion: understanding.analyzerVersion,
+  subjectSummary: understanding.subjectSummary,
+  visualMoment: understanding.visualMoment,
+  facialExpressionOrPoseCue: understanding.facialExpressionOrPoseCue,
+  cameraDistanceOrFraming: understanding.cameraDistanceOrFraming,
+  evidenceSource: understanding.evidenceSource,
+  standoutMoment: understanding.standoutMoment,
+}, {
+  analyzerVersion: "fixture-v1",
+  subjectSummary: "人物の表情",
+  visualMoment: "表情の変化",
+  facialExpressionOrPoseCue: "",
+  cameraDistanceOrFraming: "",
+  evidenceSource: "frame:0",
+  standoutMoment: "表情の変化",
+});
+
+const partialUnderstanding = visualUnderstandingFor({
+  ...facts,
+  quoteVisualAnalysis: { ...analysis, status: "partial" },
+});
+assert.equal(partialUnderstanding.visualAnalysisStatus, "partial");
+assert.equal(partialUnderstanding.analyzerVersion, "fixture-v1");
+assert.equal(partialUnderstanding.subjectSummary, "");
+assert.equal(partialUnderstanding.evidenceSource, "");
+assert.equal(partialUnderstanding.standoutMoment, "");
 
 console.log("myfans Creative Evidence tests passed");

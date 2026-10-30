@@ -387,6 +387,31 @@ function visualExplainsAppealFor(mediaType: PublicCopyFacts["visualContext"], so
   return mediaType === "image" || mediaType === "video" || Boolean(source);
 }
 
+function verifiedVisualAppearanceFieldsFor(
+  verified: QuoteVisualAnalysis | null,
+  visualMoment: string,
+): Pick<VisualUnderstanding, "subjectSummary" | "visualMoment" | "facialExpressionOrPoseCue" | "cameraDistanceOrFraming" | "standoutMoment"> {
+  return {
+    subjectSummary: verified?.subjectSummary || "",
+    visualMoment: verified?.standoutMoment || visualMoment,
+    facialExpressionOrPoseCue: verified?.facialExpressionOrPoseCue || "",
+    cameraDistanceOrFraming: verified?.cameraDistanceOrFraming || "",
+    standoutMoment: verified?.standoutMoment || "",
+  };
+}
+
+function visualAnalysisDisplayFieldsFor(
+  facts: PublicCopyFacts,
+  verified: QuoteVisualAnalysis | null,
+  visualMoment: string,
+): Pick<VisualUnderstanding, "analyzerVersion" | "evidenceSource" | "subjectSummary" | "visualMoment" | "facialExpressionOrPoseCue" | "cameraDistanceOrFraming" | "standoutMoment"> {
+  return {
+    analyzerVersion: facts.quoteVisualAnalysis?.analyzerVersion ?? MYFANS_VISUAL_ANALYZER_VERSION,
+    evidenceSource: verified?.evidenceSource || "",
+    ...verifiedVisualAppearanceFieldsFor(verified, visualMoment),
+  };
+}
+
 export function visualUnderstandingFor(facts: PublicCopyFacts): VisualUnderstanding {
   const {
     attentionMoment,
@@ -407,34 +432,28 @@ export function visualUnderstandingFor(facts: PublicCopyFacts): VisualUnderstand
   } = visualUnderstandingEvidenceFor(facts);
   return {
     visualAnalysisStatus: visualStatusFor(facts, verified),
-    analyzerVersion: facts.quoteVisualAnalysis?.analyzerVersion ?? MYFANS_VISUAL_ANALYZER_VERSION,
+    ...visualAnalysisDisplayFieldsFor(facts, verified, visualMoment),
     mediaType,
     frameOrImageCount: visualFrameCountFor(facts, mediaType),
     sceneOrSubjectSummary: sceneOrSubjectSummaryFor(verified, concreteCueFromProduct, concreteCueFromSource, source),
-    subjectSummary: verified?.subjectSummary || "",
     visibleChangeOrContrast: visibleChangeOrContrastFor(verified, concreteCueFromSource, contrastGap),
-    visualMoment: verified?.standoutMoment || visualMoment,
     firstImpressionCue,
     contrastGap,
     visualCue,
     motionCue: motionCueFor(verified, mediaType, concreteCueFromSource),
     compositionOrStyle: compositionOrStyleFor(verified, productSource, source),
-    facialExpressionOrPoseCue: verified?.facialExpressionOrPoseCue || "",
-    cameraDistanceOrFraming: verified?.cameraDistanceOrFraming || "",
     textOverlayCue: textOverlayCueFor(verified, facts.sourceText, source),
     sourceTextCue: concreteCueFromSource,
     sourceAngle: source,
     concreteVisualCue,
     cueConfidence,
     sourceEvidence: sourceEvidenceFor(verified, concreteCueFromSource, concreteCueFromProduct),
-    evidenceSource: verified?.evidenceSource || "",
     rawVisualEvidence,
     humanObservation,
     attentionMoment,
     attentionValue: attentionValueForText(attentionMoment),
     uncertaintyLevel: uncertaintyLevelFor(verified, concreteVisualCue, concreteCueFromSource),
     visualExplainsAppeal: visualExplainsAppealFor(mediaType, source),
-    standoutMoment: verified?.standoutMoment || "",
   };
 }
 
