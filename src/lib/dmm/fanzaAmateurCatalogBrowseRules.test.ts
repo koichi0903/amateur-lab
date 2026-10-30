@@ -81,6 +81,8 @@ test("ranked browse filters preserve performer, text, maker, campaign, price, ra
   assert.equal(matchesFanzaAmateurRankedFilters(item, criteria, now), true);
   assert.equal(matchesFanzaAmateurRankedFilters(makeItem({ content_id: "other" }), criteria, now), false);
   assert.equal(matchesFanzaAmateurRankedFilters(makeItem({ title: "別名" }), criteria, now), false);
+  assert.equal(matchesFanzaAmateurRankedFilters(makeItem({ iteminfo: { genre: [{ id: "g3", name: "genre-3" }] } }), criteria, now), false);
+  assert.equal(matchesFanzaAmateurRankedFilters(makeItem({ iteminfo: { maker: [{ id: "m2", name: "maker-2" }] } }), criteria, now), false);
   assert.equal(matchesFanzaAmateurRankedFilters(makeItem({ currentPrice: 101 }), criteria, now), false);
   assert.equal(matchesFanzaAmateurRankedFilters(makeItem({ reviewAverage: 3.9 }), criteria, now), false);
   assert.equal(matchesFanzaAmateurRankedFilters(makeItem({ campaigns: [{ title: "expired", dateBegin: "2026-09-01 00:00:00", dateEnd: "2026-09-30 23:59:59" }] }), criteria, now), false);
@@ -97,6 +99,8 @@ test("entity browse shortcut applies only to an unfiltered rank query", () => {
   assert.equal(isAllFanzaAmateurEntityWorksBrowse(buildFanzaAmateurBrowseCriteria({ sort: "rank", genre: "genre-1" }, null)), true);
   assert.equal(isAllFanzaAmateurEntityWorksBrowse(buildFanzaAmateurBrowseCriteria({ sort: "rank", genre: "genre-1", genres: ["genre-2"] }, null)), false);
   assert.equal(isAllFanzaAmateurEntityWorksBrowse(buildFanzaAmateurBrowseCriteria({ sort: "rank", maker: "maker-1", query: "text" }, null)), false);
+  assert.equal(isAllFanzaAmateurEntityWorksBrowse(buildFanzaAmateurBrowseCriteria({ sort: "rank", genre: "genre-1", maker: "maker-1" }, null)), false);
+  assert.equal(isAllFanzaAmateurEntityWorksBrowse(buildFanzaAmateurBrowseCriteria({ sort: "rank" }, null)), false);
 });
 
 test("campaign sort orders retain rank, discount, price, review, and ending tie-breakers", () => {

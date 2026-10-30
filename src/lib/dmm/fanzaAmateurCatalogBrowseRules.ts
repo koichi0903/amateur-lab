@@ -120,11 +120,28 @@ export function matchesFanzaAmateurRankedFilters(
 }
 
 function matchesRankedIdentityFilters(item: FanzaAmateurCatalogItem, criteria: FanzaAmateurBrowseCriteria) {
-  if (criteria.performerContentIdSet && !criteria.performerContentIdSet.has(item.content_id)) return false;
-  if (criteria.safeQuery && !(`${item.title} ${item.content_id} ${item.product_id ?? ""}`).toLocaleLowerCase("ja").includes(criteria.safeQuery.toLocaleLowerCase("ja"))) return false;
-  if (criteria.genre && !item.iteminfo?.genre?.some((entry) => entry.name === criteria.genre)) return false;
-  if (criteria.maker && !item.iteminfo?.maker?.some((entry) => entry.name === criteria.maker)) return false;
-  return true;
+  return matchesPerformerContentIds(item, criteria.performerContentIdSet)
+    && matchesSafeQuery(item, criteria.safeQuery)
+    && matchesSelectedGenre(item, criteria.genre)
+    && matchesSelectedMaker(item, criteria.maker);
+}
+
+function matchesPerformerContentIds(item: FanzaAmateurCatalogItem, contentIds: Set<string> | null) {
+  return !contentIds || contentIds.has(item.content_id);
+}
+
+function matchesSafeQuery(item: FanzaAmateurCatalogItem, query: string | undefined) {
+  if (!query) return true;
+  const searchableText = `${item.title} ${item.content_id} ${item.product_id ?? ""}`;
+  return searchableText.toLocaleLowerCase("ja").includes(query.toLocaleLowerCase("ja"));
+}
+
+function matchesSelectedGenre(item: FanzaAmateurCatalogItem, genre: string | undefined) {
+  return !genre || Boolean(item.iteminfo?.genre?.some((entry) => entry.name === genre));
+}
+
+function matchesSelectedMaker(item: FanzaAmateurCatalogItem, maker: string | undefined) {
+  return !maker || Boolean(item.iteminfo?.maker?.some((entry) => entry.name === maker));
 }
 
 function matchesRankedOfferFilters(item: FanzaAmateurCatalogItem, criteria: FanzaAmateurBrowseCriteria, now: number) {
@@ -135,17 +152,25 @@ function matchesRankedOfferFilters(item: FanzaAmateurCatalogItem, criteria: Fanz
 }
 
 export function isAllFanzaAmateurEntityWorksBrowse(criteria: FanzaAmateurBrowseCriteria) {
+  return criteria.sort === "rank"
+    && criteria.genres.length === 0
+    && hasNoBrowseTextOrPriceFilters(criteria)
+    && hasSingleEntityFilter(criteria);
+}
+
+function hasNoBrowseTextOrPriceFilters(criteria: FanzaAmateurBrowseCriteria) {
   return !criteria.campaignOnly
-    && criteria.sort === "rank"
     && !criteria.safeQuery
     && !criteria.safePerformer
-    && criteria.genres.length === 0
     && criteria.maxPrice == null
     && criteria.minRating == null
     && criteria.minPrice == null
     && !criteria.releaseFrom
-    && !criteria.releaseTo
-    && Boolean((criteria.genre && !criteria.maker) || (!criteria.genre && criteria.maker));
+    && !criteria.releaseTo;
+}
+
+function hasSingleEntityFilter(criteria: FanzaAmateurBrowseCriteria) {
+  return Boolean((criteria.genre && !criteria.maker) || (!criteria.genre && criteria.maker));
 }
 
 export function sortFanzaAmateurCampaignItems(
