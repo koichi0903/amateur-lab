@@ -11,7 +11,6 @@ import {
 } from "@/lib/domain/decisionFacts";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isOfficialFanzaDmmSampleUrl } from "@/lib/xMediaAssets";
-import { fnv1aHash } from "@/lib/fnv1aHash";
 import {
   type XCreativeVariant,
   type XHookScore,
@@ -30,6 +29,7 @@ import {
 } from "./xPostPlannerData";
 import { buildXPostPriceChart, type XChartPoint } from "./xPostPlannerPriceChart";
 import { activeSale, currentPrice, makeCandidate, todayKey } from "./xPostPlannerCandidate";
+import { selectWithDiversity } from "./xPostPlannerSelection";
 
 export type { XChartPoint } from "./xPostPlannerPriceChart";
 
@@ -135,7 +135,6 @@ const SELECT_COLUMNS = [
 // have had a chance to contribute distinct works.
 const CANDIDATE_WORK_LIMIT = 500;
 const SALE_SAMPLE_MOVIE_WORK_LIMIT = 300;
-const ABSOLUTE_COOLDOWN_DAYS = 3;
 
 type SaleSampleMovieSource = Pick<CandidateWork, "id" | "sample_movie_url" | "is_on_sale" | "sale_price" | "sale_end_at">;
 
@@ -182,38 +181,6 @@ export function classifyDecisionPoolWork(input: {
   reviewCount: number | null;
 }, decisionType: Exclude<DecisionType, "UNKNOWN">): DecisionSupplyRejectReason | null {
   return decisionFactEligibilityReason({ ...input, recordedLowestPrice: input.lowestPrice, isOnSale: input.isOnSale ?? false }, decisionType);
-}
-
-function latestLogDays(workId: number, logs: XPostLog[]) {
-  const latest = logs.find((log) => log.work_id === workId);
-  return latest ? Math.max(0, Math.floor((Date.now() - new Date(latest.posted_at).getTime()) / DAY_MS)) : Infinity;
-}
-
-function selectWithDiversity(works: CandidateWork[], logs: XPostLog[], limit: number, seed: string) {
-  const absoluteEligible = works.filter((work) => latestLogDays(work.id, logs) >= ABSOLUTE_COOLDOWN_DAYS);
-  const cooldownDays = [14, 7, 3].find(
-    (days) => absoluteEligible.filter((work) => latestLogDays(work.id, logs) >= days).length >= limit,
-  ) ?? 3;
-  const eligible = absoluteEligible
-    .filter((work) => latestLogDays(work.id, logs) >= cooldownDays)
-    .sort((a, b) => fnv1aHash(`${seed}:${a.id}`) - fnv1aHash(`${seed}:${b.id}`) || (b.score ?? 0) - (a.score ?? 0));
-  const selected: CandidateWork[] = [];
-  const makers = new Set<string>();
-  const actresses = new Set<string>();
-  for (const work of eligible) {
-    const maker = work.maker?.trim() ?? "";
-    const actress = work.actress?.split(/[,、/]/)[0]?.trim() ?? "";
-    if ((maker && makers.has(maker)) || (actress && actresses.has(actress))) continue;
-    selected.push(work);
-    if (maker) makers.add(maker);
-    if (actress) actresses.add(actress);
-    if (selected.length >= limit) break;
-  }
-  for (const work of eligible) {
-    if (selected.length >= limit) break;
-    if (!selected.some((item) => item.id === work.id)) selected.push(work);
-  }
-  return { selected, cooldownDays };
 }
 
 type CandidatePool = [XPostCandidate["category"], CandidateWork[]];
@@ -327,12 +294,12 @@ function selectCandidateGroups(sources: CandidateSourceResults, pools: Candidate
   const decisionSelectedGroups: SelectedCandidateGroup[] = decisionPools.map((pool) => ({
     category: pool.category,
     decisionType: pool.decisionType,
-    ...selectWithDiversity(eligibleWorks(pool.works), logs, 120, `${todayKey()}:decision:${pool.decisionType}`),
+    ...selectWithDiversity(eligibleWorks(pool.works), logs, 120, `${todayKey()}:decision:${pool.decisionType}`, DAY_MS),
   }));
   const regularSelectedGroups: SelectedCandidateGroup[] = pools.map(([category, works]) => ({
     category,
     decisionType: null,
-    ...selectWithDiversity(eligibleWorks(works), logs, ["deal", "hidden_gem", "today_buy", "today_discovery"].includes(category) ? 120 : 48, `${todayKey()}:${category}`),
+    ...selectWithDiversity(eligibleWorks(works), logs, ["deal", "hidden_gem", "today_buy", "today_discovery"].includes(category) ? 120 : 48, `${todayKey()}:${category}`, DAY_MS),
   }));
   const selectedGroups = [...decisionSelectedGroups, ...regularSelectedGroups];
   const decisionSupply: Record<Exclude<DecisionType, "UNKNOWN">, DecisionSupplyDiagnostics> = {
