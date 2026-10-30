@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  buildHeroInsight,
   buildPriceInsightFromRows,
   type HomePriceInsightWork,
   type PriceHistoryRow,
@@ -81,3 +82,42 @@ const discountedInsight = buildPriceInsightFromRows(
 assert.equal(discountedInsight?.dropRate, 20);
 assert.equal(discountedInsight?.buyScore, 96);
 assert.equal(discountedInsight?.badge, "過去最安");
+
+const heroInsight = buildHeroInsight(
+  work,
+  [
+    { ...rows[0], display_name: "単品", normal_price: 200 },
+    { ...rows[1], display_name: "単品", normal_price: 100 },
+    {
+      ...rows[1],
+      changed_at: "2026-10-29T00:00:00.000Z",
+      display_name: "10本セット",
+      normal_price: 900,
+    },
+  ],
+  "2026-08-01T00:00:00.000Z",
+  "2026-10-29T00:00:00.000Z",
+);
+
+assert.equal(heroInsight?.currentPrice, 100);
+assert.equal(heroInsight?.previousPrice, 200);
+assert.equal(heroInsight?.dropAmount, 100);
+assert.equal(heroInsight?.dropRate, 50);
+assert.equal(heroInsight?.badge, "急落");
+assert.deepEqual(
+  heroInsight?.priceHistory.map(({ price, isCurrent }) => [price, isCurrent ?? false]),
+  [[200, false], [100, false], [100, true]],
+);
+
+assert.equal(
+  buildHeroInsight(
+    { ...work, price: 200 },
+    [
+      { ...rows[0], normal_price: 100 },
+      { ...rows[1], normal_price: 200 },
+    ],
+    "2026-08-01T00:00:00.000Z",
+    "2026-10-29T00:00:00.000Z",
+  ),
+  null,
+);
