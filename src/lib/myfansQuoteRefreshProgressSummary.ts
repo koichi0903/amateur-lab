@@ -21,15 +21,33 @@ export function buildMyfansQuoteRefreshProgressSummary(
 ) {
   return {
     ...summary,
+    ...jobExecutionFields(job),
+    ...jobOutcomeFields(job),
+    ...evidenceProgressFields(evidenceCounts),
+  };
+}
+
+function jobExecutionFields(job: QuoteRefreshJobProgress) {
+  return {
     accounts_processed: job?.accounts_processed ?? 0,
-    profile_scan_ok: evidenceCounts.profile.scanOk,
-    status_navigation_attempted: evidenceCounts.status.navigationAttempted,
-    status_threads_observed: evidenceCounts.status.threadsObserved,
     complete_threads_found: job?.complete_threads_found ?? 0,
     candidates_saved: job?.candidates_saved ?? 0,
+  };
+}
+
+function jobOutcomeFields(job: QuoteRefreshJobProgress) {
+  return {
     no_match: job?.no_match ?? 0,
     retryable: job?.retryable_errors ?? 0,
     excluded: (job?.excluded_no_posts ?? 0) + (job?.excluded_private ?? 0),
+  };
+}
+
+function evidenceProgressFields(evidenceCounts: QuoteRefreshProgressEvidenceCounts) {
+  return {
+    profile_scan_ok: evidenceCounts.profile.scanOk,
+    status_navigation_attempted: evidenceCounts.status.navigationAttempted,
+    status_threads_observed: evidenceCounts.status.threadsObserved,
     profile_counts: evidenceCounts.profile,
     status_counts: evidenceCounts.status,
   };
