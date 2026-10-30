@@ -52,6 +52,38 @@ assert.equal(/見る|見て|迷|決め|止ま|流|拾|比べ|買|見送|気に�
 const variants = buildXCreativeVariants(baseInput);
 const videoVariants = variants.filter((variant) => variant.mediaType === "sample_movie");
 assert.deepEqual(buildXCreativeVariants(baseInput), variants);
+const genericOpeningFixture = {
+  ...baseInput,
+  key: "fixed-generic-opening-order-fixture",
+  title: "余白のある街",
+  actress: null,
+  genre: null,
+  currentPrice: null,
+  previousPrice: null,
+  discountRate: 0,
+  reviewAverage: null,
+  reviewCount: 0,
+  ranking: null,
+  score: 0,
+  discoveryScore: 0,
+  buyTimingScore: 0,
+  sampleMovieUrl: null,
+  imageUrl: null,
+  hasRightsCheckedMovie: false,
+  mediaManualTags: [],
+  mediaQuality: "weak" as const,
+  sourceType: "WORK" as const,
+  visualFacts: null,
+};
+const genericOpeningAlternatives = buildXCreativeVariants(genericOpeningFixture)[0]?.hookAlternatives ?? [];
+assert.deepEqual(genericOpeningAlternatives.map(({ direction, opening, score }) => ({ direction, opening, score })), [
+  { direction: "question", opening: "「余白のある街」、まだ見てない人は多そうです。", score: 80 },
+  { direction: "missed", opening: "「余白のある街」、最初は通りすぎてました。", score: 78 },
+  { direction: "curiosity", opening: "「余白のある街」、数字より先に雰囲気で気になります。", score: 76 },
+  { direction: "surprise", opening: "「余白のある街」、思ったより静かな顔をしてます。", score: 76 },
+  { direction: "hot_take", opening: "売れているかより、引っかかり方の方が気になります。", score: 73 },
+  { direction: "empathy", opening: "セール欄を流し見してる人ほど、「余白のある街」は一回止まっていいと思います。", score: 72 },
+]);
 assert.ok(videoVariants.length > 0);
 const openingFactPhrases = ["冒頭の展開が予想と少し違う", "再生してすぐ、想像していた流れと変わった", "冒頭の入り方が、思っていた流れと少し違う"];
 assert.ok(videoVariants.every((variant) => openingFactPhrases.some((phrase) => variant.bodyText.includes(phrase))));

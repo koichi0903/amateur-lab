@@ -145,20 +145,53 @@ function sourceTypeOpenings(input: XCreativeInput, context: HookOpeningContext):
   }
 }
 
-function genericOpenings(input: XCreativeInput, intent: XGrowthIntent, context: HookOpeningContext): HookOpening[] {
-  const { subject, facts, fact, hasTrend, topic, moneyReason } = context;
+function genericIntroOpenings(input: XCreativeInput, context: HookOpeningContext): HookOpening[] {
+  const { facts, fact, topic } = context;
   return [
     { direction: "missed", opening: `${topic}、最初は通りすぎてました。`, score: 78 + (input.imageUrl ? 4 : 0) },
     { direction: "curiosity", opening: `${topic}、数字より先に雰囲気で気になります。`, score: 76 + (input.reviewAverage ?? 0) * 3 },
     { direction: "contradiction", opening: fact && !fact.includes("ランキング") ? `${fact}まであるのに、押し出しは意外と静かです。` : "強く押されていないのに、妙に気になる。", score: 70 + (facts.length * 7) },
     { direction: "comparison", opening: "ランキングだけ見ていると、こういう候補を落としがちです。", score: 68 + (input.ranking && input.ranking <= 80 ? 10 : 0) },
     { direction: "social_proof", opening: input.reviewAverage ? "知らない作品でも、ここまで評価が高いと少し見方が変わります。" : "知らない作品ほど、最初のひっかかりで決めたいです。", score: 66 + Math.min(input.reviewCount, 60) / 3 },
+  ];
+}
+
+function genericIntentOpenings(input: XCreativeInput, intent: XGrowthIntent, context: HookOpeningContext): HookOpening[] {
+  const { moneyReason } = context;
+  return [
     { direction: "confession", opening: "正直、最初は通りすぎていました。", score: 68 + (input.imageUrl ? 4 : 0) },
     { direction: "hot_take", opening: intent === "MONEY" ? `安いだけなら流しますが、これは${moneyReason}のが引っかかります。` : "売れているかより、引っかかり方の方が気になります。", score: 73 + (input.isNinetyDayLow ? 6 : 0) },
-    { direction: "surprise", opening: `${topic}、思ったより静かな顔をしてます。`, score: 76 + (facts.length * 5) },
+  ];
+}
+
+function genericSurpriseOpening(context: HookOpeningContext): HookOpening {
+  return { direction: "surprise", opening: `${context.topic}、思ったより静かな顔をしてます。`, score: 76 + (context.facts.length * 5) };
+}
+
+function genericReaderOpenings(intent: XGrowthIntent, context: HookOpeningContext): HookOpening[] {
+  const { topic } = context;
+  return [
     { direction: "empathy", opening: `セール欄を流し見してる人ほど、${topic}は一回止まっていいと思います。`, score: intent === "MONEY" ? 84 : 72 },
     { direction: "question", opening: `${topic}、まだ見てない人は多そうです。`, score: 80 },
-    { direction: "follow_up", opening: hasTrend ? `前回${input.previousRanking}位から今日${input.ranking}位。これは続報で見たい。` : subject ? `${subject}周辺は、もう少し追っていい気がします。` : "これは次も追っていい。", score: hasTrend ? 92 : 50 },
+  ];
+}
+
+function genericFollowUpOpening(input: XCreativeInput, context: HookOpeningContext): HookOpening {
+  const { subject, hasTrend } = context;
+  const opening = hasTrend ? `前回${input.previousRanking}位から今日${input.ranking}位。これは続報で見たい。`
+    : subject ? `${subject}周辺は、もう少し追っていい気がします。` : "これは次も追っていい。";
+  return { direction: "follow_up", opening, score: hasTrend ? 92 : 50 };
+}
+
+function genericOpenings(input: XCreativeInput, intent: XGrowthIntent, context: HookOpeningContext): HookOpening[] {
+  // Preserve the original order: hookOpenings uses a stable score sort, so
+  // changing the order here would affect equal-score alternatives.
+  return [
+    ...genericIntroOpenings(input, context),
+    ...genericIntentOpenings(input, intent, context),
+    genericSurpriseOpening(context),
+    ...genericReaderOpenings(intent, context),
+    genericFollowUpOpening(input, context),
   ];
 }
 
