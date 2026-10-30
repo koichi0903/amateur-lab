@@ -145,6 +145,11 @@ test("evidence dimensions keep judgment language and intent-specific proof weigh
   assert.equal(follow.specificity, 36);
 });
 
+test("attention dimensions preserve ranking and text-phrase bonuses", () => {
+  assert.equal(qualityDimensionsFor("普通の文", { ranking: 50, isNinetyDayLow: true, discoveryScore: 60 }).scrollStop, 70);
+  assert.equal(qualityDimensionsFor("印象だけで決めない").curiosity, 69);
+});
+
 test("native voice gate keeps the forbidden-template reason and match visible", () => {
   const result = finalNativeXVoiceGate(input, {
     ...makeVariant("REACH", "profile_only", "今日、女優Aの冒頭が気になって、ちょっと止まった。今日は短く見て決められます"),

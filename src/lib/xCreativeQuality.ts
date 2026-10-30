@@ -462,11 +462,21 @@ function mediaStoryFit(variant: XCreativeQualityVariant, videoTag: ReturnType<ty
   }
 }
 
+function scrollStopContentBoost(input: XCreativeInput) {
+  return (input.ranking && input.ranking <= 50 ? 10 : 0) + (input.isNinetyDayLow ? 8 : 0) + (input.discoveryScore ?? 0) / 6;
+}
+
+function curiosityTextBoost(text: string, hasVerifiedVideoFact: boolean) {
+  const curiosityPhrase = text.includes("なぜ") || text.includes("ズレ") || text.includes("不自然") || text.includes("印象") || text.includes("流して") || text.includes("偏り");
+  const verifiedVideoPhrase = hasVerifiedVideoFact && /違い|違う|変わった/.test(text);
+  return curiosityPhrase || verifiedVideoPhrase ? 24 : 0;
+}
+
 function buildAttentionDimensions(input: XCreativeInput, variant: XCreativeQualityVariant, signals: QualityScoreSignals) {
   const { reachSourceSignal, reachTextHook, firstSecondsBoost, proofCount, hasVerifiedVideoFact } = signals;
   return {
-    scrollStop: clamp(42 + reachSourceSignal + reachTextHook + firstSecondsBoost + (input.ranking && input.ranking <= 50 ? 10 : 0) + (input.isNinetyDayLow ? 8 : 0) + (input.discoveryScore ?? 0) / 6),
-    curiosity: clamp(45 + reachTextHook + (variant.text.includes("なぜ") || variant.text.includes("ズレ") || variant.text.includes("不自然") || variant.text.includes("印象") || variant.text.includes("流して") || variant.text.includes("偏り") || (hasVerifiedVideoFact && /違い|違う|変わった/.test(variant.text)) ? 24 : 0) + proofCount * 5),
+    scrollStop: clamp(42 + reachSourceSignal + reachTextHook + firstSecondsBoost + scrollStopContentBoost(input)),
+    curiosity: clamp(45 + reachTextHook + curiosityTextBoost(variant.text, hasVerifiedVideoFact) + proofCount * 5),
   };
 }
 
