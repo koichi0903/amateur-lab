@@ -72,15 +72,31 @@ export function topicThresholdFor(role: DailyRole) {
   return MYFANS_TOPIC_VALUE_THRESHOLDS[role];
 }
 
+function isMetricOnlySourceText(text: string) {
+  return /^[\d\s.,、。!?！？%％¥￥円+-]+$/.test(text);
+}
+
+function hasStrongSourceValueEvidence(sourceValue: ReturnType<typeof sourceValueForQuote> | null) {
+  return sourceValue?.verdict === "PASS"
+    && sourceValue.breakdown.selfContainedContext >= 8
+    && sourceValue.reactionAngles.length > 0;
+}
+
+function hasLegacySourceTextEvidence(text: string) {
+  const hasTopic = /(新着|新作|更新|公開|発売|解禁|追加|再販|固定|本人|投稿|返信|リプ|変化|急上昇|ランキング|価格|続編|表情|衣装|シーン)/.test(text);
+  const hasChange = /(変わ|違|出|上が|下が|伸び|残|見え|始ま|終わ|気にな|分かれ)/.test(text);
+  const hasSentenceEnding = /[。！？!?]/.test(text);
+  return hasTopic && (hasChange || hasSentenceEnding);
+}
+
 export function hasConcreteSourceContext(quote: MyfansQuoteCandidate | null) {
   const text = quote?.text_excerpt?.replace(/\s+/g, " ").trim() ?? "";
   if (!text) return false;
-  if (/^[\d\s.,、。!?！？%％¥￥円+-]+$/.test(text)) return false;
+  if (isMetricOnlySourceText(text)) return false;
   const sourceValue = quote ? sourceValueForQuote(quote) : null;
-  if (isUsableQuoteMedia(quote)) return true;
-  if (sourceValue?.verdict === "PASS" && sourceValue.breakdown.selfContainedContext >= 8 && sourceValue.reactionAngles.length > 0) return true;
-  return /(新着|新作|更新|公開|発売|解禁|追加|再販|固定|本人|投稿|返信|リプ|変化|急上昇|ランキング|価格|続編|表情|衣装|シーン)/.test(text)
-    && (/(変わ|違|出|上が|下が|伸び|残|見え|始ま|終わ|気にな|分かれ)/.test(text) || /[。！？!?]/.test(text));
+  return isUsableQuoteMedia(quote)
+    || hasStrongSourceValueEvidence(sourceValue)
+    || hasLegacySourceTextEvidence(text);
 }
 
 export function hasGroundedSourceText(quote: MyfansQuoteCandidate | null) {
@@ -125,14 +141,22 @@ function addProductPopularitySignals(product: MyfansProduct, productLikePercenti
   }
 }
 
+function hasHighViewQuoteSignal(quote: MyfansQuoteCandidate | null, percentile: number | null) {
+  return Boolean(quote && (percentile ?? 0) >= 85 && (quote.views ?? 0) >= 50_000);
+}
+
+function hasHighLikeQuoteSignal(quote: MyfansQuoteCandidate | null, percentile: number | null) {
+  return Boolean(quote && (percentile ?? 0) >= 85 && (quote.likes ?? 0) >= 1000);
+}
+
 function addQuotePopularitySignals(quote: MyfansQuoteCandidate | null, quoteViewPercentile: number | null, quoteLikePercentile: number | null, target: TopicEvidenceAccumulator) {
-  if (quote && (quoteViewPercentile ?? 0) >= 85 && (quote.views ?? 0) >= 50_000) {
+  if (hasHighViewQuoteSignal(quote, quoteViewPercentile)) {
     target.reasons.push("rapid_growth");
-    target.evidence.push(`X表示${(quote.views ?? 0).toLocaleString("ja-JP")}で全体上位${quoteViewPercentile}%`);
+    target.evidence.push(`X表示${(quote?.views ?? 0).toLocaleString("ja-JP")}で全体上位${quoteViewPercentile}%`);
   }
-  if (quote && (quoteLikePercentile ?? 0) >= 85 && (quote.likes ?? 0) >= 1000) {
+  if (hasHighLikeQuoteSignal(quote, quoteLikePercentile)) {
     target.reasons.push("unexpected_popularity");
-    target.evidence.push(`Xいいね${(quote.likes ?? 0).toLocaleString("ja-JP")}で全体上位${quoteLikePercentile}%`);
+    target.evidence.push(`Xいいね${(quote?.likes ?? 0).toLocaleString("ja-JP")}で全体上位${quoteLikePercentile}%`);
   }
 }
 

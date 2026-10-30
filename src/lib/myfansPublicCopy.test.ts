@@ -496,6 +496,8 @@ const visualGapTopic = evaluateMyfansTopicValue({
 assert.equal(visualGapTopic.verdict, "PASS");
 assert.ok(visualGapTopic.reasonToCare);
 assert.ok(visualGapTopic.evidence.some((item) => item.includes("verified visual")));
+assert.ok(visualGapTopic.evidence.some((item) => item.includes("X表示120,000")));
+assert.ok(visualGapTopic.evidence.some((item) => item.includes("Xいいね5,000")));
 
 const sourceValuePassWithoutLegacyKeyword = {
   ...analytics.quoteCandidates[0],
