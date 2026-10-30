@@ -66,3 +66,19 @@ test("keeps the first row on equivalent quality and skips non-video or missing-w
   assert.deepEqual([...selected.keys()], [20]);
   assert.equal(selected.get(20), first);
 });
+
+test("technical usability takes priority over opening strength", () => {
+  const unusableStrong = asset({
+    id: 8,
+    work_id: 30,
+    media_type: "video",
+    fetch_status: "dead",
+    media_quality: "strong",
+    manual_tags: ["first_seconds_strong"],
+  });
+  const usableNormal = asset({ id: 9, work_id: 30, media_type: "sample_movie", fetch_status: "ok" });
+
+  const selected = selectPreferredXMediaAssetsByWork([unusableStrong, usableNormal], isUsable);
+
+  assert.equal(selected.get(30), usableNormal);
+});
