@@ -1,5 +1,9 @@
-import { audit, intValue, nullableId, rowKey, text } from "./myfansAdminShared";
-import { selectDailyPlanOption } from "./myfansDailyPlanSelection";
+import { audit, nullableId, rowKey, text } from "./myfansAdminShared";
+import {
+  readMyfansDailyPlanSelectionInput,
+  requireMyfansDailyPlanSelectionPlan,
+  selectDailyPlanOption,
+} from "./myfansDailyPlanSelection";
 import { exclusionTargetForCandidate, manualCandidateExclusionTarget, recordMyfansPermanentExclusion } from "./myfansPermanentExclusions";
 import { supabaseAdmin } from "./supabaseAdmin";
 import { buildMyfansPatternLearningValues, buildMyfansPostExecutionRecord, type MyfansAttributedPostMetrics, type MyfansPatternLearningRow, type MyfansPostExecutionRecord } from "./myfansPostExecutionData";
@@ -76,22 +80,15 @@ export async function savePost(formData: FormData) {
 }
 
 export async function selectDailyPlanCandidate(formData: FormData) {
-  const approvedMediaId = nullableId(formData, "approved_media_id");
-  const planDate = text(formData, "plan_date");
-  const postOrder = intValue(formData, "post_order");
-  const optionLabel = text(formData, "option_label").toUpperCase();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(planDate)) throw new Error("対象日が不正です。");
-  if (!postOrder) throw new Error("投稿枠が不正です。");
-  if (!["A", "B", "C"].includes(optionLabel)) throw new Error("候補はA/B/Cから選んでください。");
+  const { approvedMediaId, planDate, postOrder, optionLabel } = readMyfansDailyPlanSelectionInput(formData);
 
   const planQuery = supabaseAdmin
     .from("myfans_daily_plans")
     .select("id,strategy_json")
     .eq("plan_date", planDate);
   const scopedPlanQuery = approvedMediaId ? planQuery.eq("approved_media_id", approvedMediaId) : planQuery.is("approved_media_id", null);
-  const { data: plan, error: planError } = await scopedPlanQuery.maybeSingle();
-  if (planError) throw planError;
-  if (!plan) throw new Error("今日のDaily Planが見つかりません。先に候補を生成してください。");
+  const { data: planData, error: planError } = await scopedPlanQuery.maybeSingle();
+  const plan = requireMyfansDailyPlanSelectionPlan(planData, planError);
 
   const strategyJson = plan.strategy_json && typeof plan.strategy_json === "object" ? plan.strategy_json as Record<string, unknown> : {};
   const nextStrategyJson = selectDailyPlanOption(strategyJson, postOrder, optionLabel);
