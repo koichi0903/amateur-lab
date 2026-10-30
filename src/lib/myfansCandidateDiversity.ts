@@ -195,19 +195,38 @@ export function recordAcceptedMyfansCandidate(
   allowSameProductAcrossDistinctRoles: boolean,
 ) {
   if (!allowSameProductAcrossDistinctRoles) usedProductIds.add(candidate.product?.id ?? -1);
+  recordAcceptedCandidateContent(candidate, context);
+  recordAcceptedCandidateCreator(candidate, context);
+  recordAcceptedQuoteUsage(candidate, context);
+}
+
+function recordAcceptedCandidateContent(
+  candidate: ReturnType<typeof evaluateMyfansCandidateDiversity>,
+  context: MyfansCandidateDiversityContext,
+) {
   context.acceptedBodies.push(candidate.body);
   if (candidate.topicIdentity) context.acceptedTopicIdentities.add(candidate.topicIdentity);
   if (candidate.topicSemanticKey) context.acceptedTopicSemanticKeys.push(candidate.topicSemanticKey);
   if (candidate.reasonToCare) context.acceptedReasonCounts.set(candidate.reasonToCare, (context.acceptedReasonCounts.get(candidate.reasonToCare) ?? 0) + 1);
-  if (candidate.product) {
-    const creatorKey = context.creatorKeyForCandidateSource(candidate);
-    context.acceptedCreatorCounts.set(creatorKey, (context.acceptedCreatorCounts.get(creatorKey) ?? 0) + 1);
-  }
-  if (candidate.creativeStrategy === "quote_post" && candidate.quoteXUrl && candidate.product) {
-    const quote = context.analytics.quoteCandidates.find((item) => quoteUrlFromCandidate(item) === candidate.quoteXUrl || item.x_post_url === candidate.quoteXUrl);
-    context.acceptedQuoteCreators.add(quote ? creatorKeyFromQuote(quote) : creatorKeyFromProduct(candidate.product));
-    if (candidate.reactionType) context.acceptedReactionTypes.add(candidate.reactionType);
-  }
+}
+
+function recordAcceptedCandidateCreator(
+  candidate: ReturnType<typeof evaluateMyfansCandidateDiversity>,
+  context: MyfansCandidateDiversityContext,
+) {
+  if (!candidate.product) return;
+  const creatorKey = context.creatorKeyForCandidateSource(candidate);
+  context.acceptedCreatorCounts.set(creatorKey, (context.acceptedCreatorCounts.get(creatorKey) ?? 0) + 1);
+}
+
+function recordAcceptedQuoteUsage(
+  candidate: ReturnType<typeof evaluateMyfansCandidateDiversity>,
+  context: MyfansCandidateDiversityContext,
+) {
+  if (candidate.creativeStrategy !== "quote_post" || !candidate.quoteXUrl || !candidate.product) return;
+  const quote = context.analytics.quoteCandidates.find((item) => quoteUrlFromCandidate(item) === candidate.quoteXUrl || item.x_post_url === candidate.quoteXUrl);
+  context.acceptedQuoteCreators.add(quote ? creatorKeyFromQuote(quote) : creatorKeyFromProduct(candidate.product));
+  if (candidate.reactionType) context.acceptedReactionTypes.add(candidate.reactionType);
 }
 export type MyfansDailyOptionDiversityCandidate = Pick<
   ReturnType<typeof evaluateMyfansCandidateDiversity>,

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { evaluateMyfansCandidateDiversity } from "@/lib/myfansCandidateDiversity";
+import { evaluateMyfansCandidateDiversity, recordAcceptedMyfansCandidate } from "@/lib/myfansCandidateDiversity";
 import type { MyfansCandidateDiversityContext, MyfansCandidateForDiversity } from "@/lib/myfansXExecution";
 
 const passingReason = "公開可能な具体性と根拠があります";
@@ -157,5 +157,36 @@ const roleCap = evaluateMyfansCandidateDiversity(makeCandidate(), makeContext({
   })),
 }));
 assert.deepEqual(roleCap.quality.reasons, ["同じrole DISCOVERY は1日4本までです"]);
+
+const recordedCandidate = evaluateMyfansCandidateDiversity(makeCandidate({
+  id: "recorded-candidate",
+  body: "記録する本文です",
+  product: { id: 31, creator_id: 7 } as NonNullable<MyfansCandidateForDiversity["product"]>,
+  topicIdentity: "quote:20",
+  topicSemanticKey: "quote:event:20",
+  reasonToCare: cappedReason,
+  creativeStrategy: "quote_post",
+  quoteXUrl: quoteUrl,
+  sourceSpecificityScore: 60,
+  reactionType: "agreement",
+}), makeContext());
+const acceptedRecordContext = makeContext({
+  analytics: { quoteCandidates: [matchedQuote] } as unknown as MyfansCandidateDiversityContext["analytics"],
+  creatorKeyForCandidateSource: () => "creator:accepted",
+});
+const usedProductIds = new Set<number>();
+recordAcceptedMyfansCandidate(recordedCandidate, acceptedRecordContext, usedProductIds, false);
+assert.deepEqual([...usedProductIds], [31]);
+assert.deepEqual(acceptedRecordContext.acceptedBodies, ["記録する本文です"]);
+assert.deepEqual([...acceptedRecordContext.acceptedTopicIdentities], ["quote:20"]);
+assert.deepEqual(acceptedRecordContext.acceptedTopicSemanticKeys, ["quote:event:20"]);
+assert.deepEqual([...acceptedRecordContext.acceptedReasonCounts], [[cappedReason, 1]]);
+assert.deepEqual([...acceptedRecordContext.acceptedCreatorCounts], [["creator:accepted", 1]]);
+assert.deepEqual([...acceptedRecordContext.acceptedQuoteCreators], ["creator:9"]);
+assert.deepEqual([...acceptedRecordContext.acceptedReactionTypes], ["agreement"]);
+
+const crossRoleProductIds = new Set<number>();
+recordAcceptedMyfansCandidate(recordedCandidate, makeContext(), crossRoleProductIds, true);
+assert.deepEqual([...crossRoleProductIds], []);
 
 console.log("myfansCandidateDiversity tests passed");
