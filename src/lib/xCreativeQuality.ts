@@ -470,12 +470,26 @@ function buildAttentionDimensions(input: XCreativeInput, variant: XCreativeQuali
   };
 }
 
+function hasJudgmentLanguage(text: string) {
+  return text.includes("近い") || text.includes("見落と") || text.includes("サンプル") || text.includes("中身") || text.includes("見たい") || text.includes("決め") || text.includes("外し") || text.includes("迷う") || text.includes("差");
+}
+
+function followValueScore(intent: XGrowthIntent, proofCount: number) {
+  if (intent === "FOLLOW") return 62 + proofCount * 8;
+  if (intent === "AUTHORITY") return 58 + proofCount * 6;
+  return 42 + proofCount * 4;
+}
+
+function specificityScore(input: XCreativeInput, proofCount: number) {
+  return 36 + proofCount * 14 + (input.currentPrice ? 8 : 0) + (input.reviewCount ? 8 : 0);
+}
+
 function buildEvidenceDimensions(input: XCreativeInput, variant: XCreativeQualityVariant, proofCount: number) {
   return {
     proof: clamp(30 + proofCount * 16 + (input.seriesObservationCount ?? 0) * 2),
-    judgment: clamp(variant.text.includes("近い") || variant.text.includes("見落と") || variant.text.includes("サンプル") || variant.text.includes("中身") || variant.text.includes("見たい") || variant.text.includes("決め") || variant.text.includes("外し") || variant.text.includes("迷う") || variant.text.includes("差") ? 80 : 48),
-    followValue: clamp(variant.intent === "FOLLOW" ? 62 + proofCount * 8 : variant.intent === "AUTHORITY" ? 58 + proofCount * 6 : 42 + proofCount * 4),
-    specificity: clamp(36 + proofCount * 14 + (input.currentPrice ? 8 : 0) + (input.reviewCount ? 8 : 0)),
+    judgment: clamp(hasJudgmentLanguage(variant.text) ? 80 : 48),
+    followValue: clamp(followValueScore(variant.intent, proofCount)),
+    specificity: clamp(specificityScore(input, proofCount)),
   };
 }
 

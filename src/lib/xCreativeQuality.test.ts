@@ -132,6 +132,19 @@ test("social dimensions preserve grouped text, source, link, and intent bonuses"
   assert.equal(qualityDimensionsFor("返事しやすい文", {}, "REACH").replyability, 38);
 });
 
+test("evidence dimensions keep judgment language and intent-specific proof weights", () => {
+  const authority = qualityDimensionsFor("サンプルまで見たい", { reviewCount: 20, currentPrice: 500 }, "AUTHORITY");
+  assert.equal(authority.judgment, 80);
+  assert.equal(authority.proof, 46);
+  assert.equal(authority.followValue, 64);
+  assert.equal(authority.specificity, 66);
+
+  const follow = qualityDimensionsFor("情報を整理した文", {}, "FOLLOW");
+  assert.equal(follow.judgment, 48);
+  assert.equal(follow.followValue, 62);
+  assert.equal(follow.specificity, 36);
+});
+
 test("native voice gate keeps the forbidden-template reason and match visible", () => {
   const result = finalNativeXVoiceGate(input, {
     ...makeVariant("REACH", "profile_only", "今日、女優Aの冒頭が気になって、ちょっと止まった。今日は短く見て決められます"),
