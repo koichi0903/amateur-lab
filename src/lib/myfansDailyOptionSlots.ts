@@ -2,19 +2,50 @@ import type { MyfansDailyOptionCandidate, MyfansDailyOptionGenerationInput, Myfa
 import { myfansOptionMetadata } from "@/lib/myfansOptionMetadata";
 
 type EvaluatedDailyOption = ReturnType<MyfansDailyOptionGenerationInput["evaluateDiversity"]>;
+type DailyOptionNovelty = ReturnType<MyfansDailyOptionGenerationInput["noveltyFor"]>;
+type PublicCopyLeak = ReturnType<MyfansDailyOptionGenerationInput["detectPublicCopyLeak"]>;
+
+function hasUniqueOptionSource(source: string, usedSources: Set<string>) {
+  if (!source) return false;
+  return !usedSources.has(source);
+}
+
+function hasSafeOptionCopy(
+  candidate: EvaluatedDailyOption,
+  leak: PublicCopyLeak,
+  novelty: DailyOptionNovelty,
+  requireBody: boolean,
+) {
+  if (requireBody && !candidate.body) return false;
+  if (leak.hasLeak) return false;
+  return novelty.verdict !== "blocked";
+}
+
+function passesOptionQualityAndDiversity(
+  input: MyfansDailyOptionGenerationInput,
+  candidate: EvaluatedDailyOption,
+  options: MyfansDailyOptionCandidate[],
+  minimumQuality: number,
+) {
+  if (candidate.quality.verdict !== "PASS") return false;
+  if (candidate.quality.total < minimumQuality) return false;
+  return input.optionDiverseEnough(candidate, options);
+}
 
 function eligibleDailyOption(
   input: MyfansDailyOptionGenerationInput,
   candidate: EvaluatedDailyOption,
   options: MyfansDailyOptionCandidate[],
   usedSources: Set<string>,
+  minimumQuality = 80,
+  requireBody = false,
 ) {
   const leak = input.detectPublicCopyLeak(candidate.body);
   const novelty = input.noveltyFor(candidate);
   const source = input.normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl);
-  if (!source || usedSources.has(source) || leak.hasLeak || novelty.verdict === "blocked") return null;
-  if (candidate.quality.verdict !== "PASS" || candidate.quality.total < 80) return null;
-  if (!input.optionDiverseEnough(candidate, options)) return null;
+  if (!hasUniqueOptionSource(source, usedSources)) return null;
+  if (!hasSafeOptionCopy(candidate, leak, novelty, requireBody)) return null;
+  if (!passesOptionQualityAndDiversity(input, candidate, options, minimumQuality)) return null;
   return { candidate, novelty, source };
 }
 
@@ -83,9 +114,11 @@ function exactResolverOptionFor(
   const source = input.normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl);
   const leak = input.detectPublicCopyLeak(candidate.body);
   const novelty = input.noveltyFor(candidate);
-  return hasExactResolver && candidate.body && candidate.quality.verdict === "PASS" && candidate.quality.total >= input.qualityGateMinimum && !leak.hasLeak && novelty.verdict !== "blocked" && source && !usedSources.has(source) && input.optionDiverseEnough(candidate, options)
-    ? { source, novelty }
-    : null;
+  if (!hasExactResolver) return null;
+  if (!hasUniqueOptionSource(source, usedSources)) return null;
+  if (!hasSafeOptionCopy(candidate, leak, novelty, true)) return null;
+  if (!passesOptionQualityAndDiversity(input, candidate, options, input.qualityGateMinimum)) return null;
+  return { source, novelty };
 }
 
 function appendExactResolverOption(
@@ -113,7 +146,7 @@ function fillNonVisualTopicOptions(
   excludedProducts: Set<number>,
 ) {
   if (options.length >= 3) return;
-  const { buildCandidate, evaluateDiversity, slotRecoveryMaxAttempts, qualityGateMinimum, detectPublicCopyLeak, noveltyFor, normalizeSourceUrl, optionDiverseEnough } = input;
+  const { buildCandidate, evaluateDiversity, slotRecoveryMaxAttempts, qualityGateMinimum } = input;
   for (let attempt = 0; attempt < slotRecoveryMaxAttempts * 3 && options.length < 3; attempt += 1) {
     const candidate = evaluateDiversity(buildCandidate({
       postType: "ranking_note",
@@ -123,15 +156,10 @@ function fillNonVisualTopicOptions(
       slot: item.slot,
       role: "候補不足のため非visual Topicへfallback",
     }, index, 200 + attempt, excludedProducts));
-    const leak = detectPublicCopyLeak(candidate.body);
-    const novelty = noveltyFor(candidate);
-    const source = normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl);
-    if (!source || usedSources.has(source)) continue;
-    if (!candidate.body || leak.hasLeak || novelty.verdict === "blocked") continue;
-    if (candidate.quality.verdict !== "PASS" || candidate.quality.total < qualityGateMinimum) continue;
-    if (!optionDiverseEnough(candidate, options)) continue;
-    usedSources.add(source);
-    appendDailyOption(options, candidate, item.slot, novelty);
+    const eligible = eligibleDailyOption(input, candidate, options, usedSources, qualityGateMinimum, true);
+    if (!eligible) continue;
+    usedSources.add(eligible.source);
+    appendDailyOption(options, candidate, item.slot, eligible.novelty);
   }
 }
 
@@ -166,6 +194,49 @@ function dailyOptionsForSlot(
   };
 }
 
+type RankedQuoteRow = MyfansDailyOptionGenerationInput["quotePool"]["global"][number];
+type RankedQuoteFallback = {
+  candidate: EvaluatedDailyOption;
+  novelty: ReturnType<MyfansDailyOptionGenerationInput["noveltyFor"]>;
+  source: string;
+};
+
+function buildRankedQuoteFallback(
+  input: MyfansDailyOptionGenerationInput,
+  slot: MyfansDailyOptionSlot,
+  slotIndex: number,
+  attempt: number,
+  row: RankedQuoteRow,
+  source: string,
+): RankedQuoteFallback | null {
+  const candidate = input.evaluateDiversity(input.buildCandidate({
+    postType: "discovery_interest",
+    linkStrategy: "no_link",
+    objective: "impression",
+    cta: "保存用の発見メモ",
+    slot: slot.slot,
+    role: "ランキング済みTOP12のDiscovery候補",
+  }, slotIndex + 100 + attempt, 0, new Set(), row.candidate));
+  const novelty = input.noveltyFor(candidate);
+  const candidateSource = input.normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl);
+  const leak = input.detectPublicCopyLeak(candidate.body);
+  if (!candidateSource || candidateSource !== source || !candidate.body || leak.hasLeak) return null;
+  return { candidate, novelty, source: candidateSource };
+}
+
+function ensureRankedQuoteQuality(candidate: EvaluatedDailyOption, minimum: number): EvaluatedDailyOption {
+  if (candidate.quality.verdict === "PASS" && candidate.quality.total >= minimum) return candidate;
+  return {
+    ...candidate,
+    quality: {
+      ...candidate.quality,
+      total: Math.max(minimum, candidate.quality.total),
+      verdict: "PASS",
+      reasons: ["ranked TOP12のhard-eligible sourceを4x3へ補充"],
+    },
+  };
+}
+
 function backfillRankedQuoteOptions(
   input: MyfansDailyOptionGenerationInput,
   slots: MyfansDailyOptionSlot[],
@@ -181,31 +252,10 @@ function backfillRankedQuoteOptions(
       const source = input.normalizeSourceUrl(row.candidate.x_post_url);
       if (!source || usedSources.has(source)) continue;
       input.quoteBySlot.set("discovery_interest:" + slotIndex, row.candidate);
-      const fallbackCandidate = input.evaluateDiversity(input.buildCandidate({
-        postType: "discovery_interest",
-        linkStrategy: "no_link",
-        objective: "impression",
-        cta: "保存用の発見メモ",
-        slot: slot.slot,
-        role: "ランキング済みTOP12のDiscovery候補",
-      }, slotIndex + 100 + backfillCursor, 0, new Set(), row.candidate));
-      const fallbackNovelty = input.noveltyFor(fallbackCandidate);
-      const fallbackSource = input.normalizeSourceUrl(fallbackCandidate.quoteXUrl || fallbackCandidate.sourceXUrl);
-      const leak = input.detectPublicCopyLeak(fallbackCandidate.body);
-      if (!fallbackSource || fallbackSource !== source || !fallbackCandidate.body || leak.hasLeak) continue;
-      const acceptedFallbackCandidate: EvaluatedDailyOption = fallbackCandidate.quality.verdict === "PASS" && fallbackCandidate.quality.total >= input.qualityGateMinimum
-        ? fallbackCandidate
-        : {
-          ...fallbackCandidate,
-          quality: {
-            ...fallbackCandidate.quality,
-            total: Math.max(input.qualityGateMinimum, fallbackCandidate.quality.total),
-            verdict: "PASS",
-            reasons: ["ranked TOP12のhard-eligible sourceを4x3へ補充"],
-          },
-        };
-      usedSources.add(fallbackSource);
-      appendDailyOption(slot.candidates, acceptedFallbackCandidate, slot.slot, fallbackNovelty);
+      const fallback = buildRankedQuoteFallback(input, slot, slotIndex, backfillCursor, row, source);
+      if (!fallback) continue;
+      usedSources.add(fallback.source);
+      appendDailyOption(slot.candidates, ensureRankedQuoteQuality(fallback.candidate, input.qualityGateMinimum), slot.slot, fallback.novelty);
     }
   }
 }
