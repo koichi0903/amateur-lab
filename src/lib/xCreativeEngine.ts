@@ -172,13 +172,17 @@ function hookOpenings(input: XCreativeInput, intent: XGrowthIntent): HookOpening
   return openings.sort((a, b) => b.score - a.score).slice(0, 6);
 }
 
+function fallbackHookLine(input: XCreativeInput, intent: XGrowthIntent, subject: string | null | undefined) {
+  if (intent === "FOLLOW") return subject ? `${subject}周辺は、もう少し追っていい気がします。` : "こういう候補を毎日拾うためのメモです。";
+  if (intent === "AUTHORITY") return "ランキングだけ見ていると、こういう候補を落としがちです。";
+  return input.isNinetyDayLow ? "安いから買う、ではまだ弱いです。" : "クリック前に、見る理由だけ先に確認します。";
+}
+
 function hookLine(input: XCreativeInput, intent: XGrowthIntent, direction: XHookDirection) {
   const subject = input.seriesName ?? input.actress?.split(/[,、/]/)[0]?.trim() ?? input.genre?.split(/[,、/]/)[0]?.trim();
   const opening = hookOpenings(input, intent).find((item) => item.direction === direction)?.opening;
   if (opening) return opening;
-  if (intent === "FOLLOW") return subject ? `${subject}周辺は、もう少し追っていい気がします。` : "こういう候補を毎日拾うためのメモです。";
-  if (intent === "AUTHORITY") return "ランキングだけ見ていると、こういう候補を落としがちです。";
-  return input.isNinetyDayLow ? "安いから買う、ではまだ弱いです。" : "クリック前に、見る理由だけ先に確認します。";
+  return fallbackHookLine(input, intent, subject);
 }
 
 function voiceProof(input: XCreativeInput, intent: XGrowthIntent, direction: XHookDirection) {
