@@ -47,11 +47,12 @@ function newRecordedLowToday(
   return previous.length ? livePrice < Math.min(...previous) : null;
 }
 
-export function buildXPostPriceChart(livePrice: number | null, rows: PriceHistoryRow[], now = new Date()): XPostPriceChart | null {
-  if (!livePrice) return null;
+type PricedHistoryRow = PriceHistoryRow & { value: number };
+
+function currentPriceSeries(rows: PriceHistoryRow[], livePrice: number) {
   const sorted = rows
     .map((row) => ({ ...row, value: effectivePrice(row) }))
-    .filter((row): row is PriceHistoryRow & { value: number } => row.value !== null)
+    .filter((row): row is PricedHistoryRow => row.value !== null)
     .sort((a, b) => databaseDateTime(b.changed_at) - databaseDateTime(a.changed_at));
   const latestMatching = sorted.find((row) => row.value === livePrice);
   if (!latestMatching) return null;
@@ -61,7 +62,10 @@ export function buildXPostPriceChart(livePrice: number | null, rows: PriceHistor
     .filter((row) => normalizeDisplayName(row.display_name) === seriesName && (row.period ?? null) === seriesPeriod)
     .sort((a, b) => databaseDateTime(a.changed_at) - databaseDateTime(b.changed_at));
   if (!series.length || series.at(-1)?.value !== livePrice) return null;
+  return { latestMatching, seriesPeriod, series };
+}
 
+function priceSeriesSummary(series: PricedHistoryRow[], livePrice: number, now: Date) {
   const previousPrice = [...series].reverse().find((row) => row.value !== livePrice)?.value ?? null;
   const checkedAt = series.at(-1)?.changed_at ?? new Date().toISOString();
   const seriesPrices = series.map((row) => row.value);
@@ -79,8 +83,6 @@ export function buildXPostPriceChart(livePrice: number | null, rows: PriceHistor
     ],
     previousPrice,
     hadPriceDrop: Boolean(previousPrice && previousPrice > livePrice),
-    seriesName: latestMatching.display_name,
-    seriesPeriod,
     seriesMinimumPrice,
     seriesMaximumPrice,
     seriesObservationCount: series.length,
@@ -89,5 +91,18 @@ export function buildXPostPriceChart(livePrice: number | null, rows: PriceHistor
     newRecordedLowToday: newRecordedLowToday(series, livePrice, now),
     isNinetyDayLow: seriesMinimumPrice === livePrice && series.some((row) => row.value > livePrice),
     checkedAt,
+  };
+}
+
+export function buildXPostPriceChart(livePrice: number | null, rows: PriceHistoryRow[], now = new Date()): XPostPriceChart | null {
+  if (!livePrice) return null;
+  const currentSeries = currentPriceSeries(rows, livePrice);
+  if (!currentSeries) return null;
+  const { latestMatching, series, seriesPeriod } = currentSeries;
+  const summary = priceSeriesSummary(series, livePrice, now);
+  return {
+    ...summary,
+    seriesName: latestMatching.display_name,
+    seriesPeriod,
   };
 }
