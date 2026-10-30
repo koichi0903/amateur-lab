@@ -67,17 +67,22 @@ function labelForAxis(axis: MyfansCreativeLearningAxis, post: MyfansXPost, analy
   return directAxisLabel(axis, post);
 }
 
-function compareByAxis(analytics: MyfansAnalytics, axis: MyfansCreativeLearningAxis, days: number) {
-  const periodPosts = analytics.posts.filter((post) => inPeriod(post.posted_at ?? post.created_at, days));
-  const periodConversions = analytics.conversions.filter((conversion) => inPeriod(conversion.occurred_at, days));
-  const accountRows = (analytics.xAccountMetrics ?? []).filter((row) => inPeriod(row.metric_date, days));
-  const accountProfileVisits = accountRows.reduce((sum, row) => sum + row.profile_visits, 0);
-  const firstFollowers = accountRows[0]?.followers_count ?? 0;
-  const latestFollowers = accountRows[accountRows.length - 1]?.followers_count ?? firstFollowers;
-  const groups = new Map<string, { key: string; posts: number; impressions: number; clicks: number; conversions: number; reward: number }>();
+type LearningGroup = { key: string; posts: number; impressions: number; clicks: number; conversions: number; reward: number };
+
+function createLearningGroup(key: string): LearningGroup {
+  return { key, posts: 0, impressions: 0, clicks: 0, conversions: 0, reward: 0 };
+}
+
+function groupAxisRows(
+  periodPosts: MyfansXPost[],
+  periodConversions: MyfansAnalytics["conversions"],
+  axis: MyfansCreativeLearningAxis,
+  analytics: MyfansAnalytics,
+) {
+  const groups = new Map<string, LearningGroup>();
   for (const post of periodPosts) {
     const key = labelForAxis(axis, post, analytics);
-    const row = groups.get(key) ?? { key, posts: 0, impressions: 0, clicks: 0, conversions: 0, reward: 0 };
+    const row = groups.get(key) ?? createLearningGroup(key);
     row.posts += 1;
     row.impressions += post.impressions;
     row.clicks += post.clicks ?? 0;
@@ -86,35 +91,62 @@ function compareByAxis(analytics: MyfansAnalytics, axis: MyfansCreativeLearningA
   for (const conversion of periodConversions) {
     const post = periodPosts.find((item) => item.id === conversion.x_post_id);
     const key = post ? labelForAxis(axis, post, analytics) : "投稿未紐付け";
-    const row = groups.get(key) ?? { key, posts: 0, impressions: 0, clicks: 0, conversions: 0, reward: 0 };
+    const row = groups.get(key) ?? createLearningGroup(key);
     row.conversions += 1;
     row.reward += conversion.reward_amount;
     groups.set(key, row);
   }
+  return Array.from(groups.values());
+}
+
+function getLearningVerdict(confidence: number, reward: number, ctr: number | null, estimatedFollowsPerPost: number) {
+  if (confidence < 0.55) return "サンプル不足";
+  const winner = confidence >= 0.55 && (
+    reward > 0
+    || (ctr ?? 0) >= MYFANS_DIAGNOSIS_THRESHOLDS.clickRate
+    || estimatedFollowsPerPost >= 0.2
+  );
+  return winner ? "勝ち型" : "負け型";
+}
+
+function buildAxisLearningRow(
+  row: LearningGroup,
+  estimatedProfileVisitsPerPost: number,
+  estimatedFollowsPerPost: number,
+) {
+  const ctr = row.impressions > 0 ? row.clicks / row.impressions : null;
+  const cvr = row.clicks > 0 ? row.conversions / row.clicks : null;
+  const rewardPerPost = row.posts > 0 ? row.reward / row.posts : 0;
+  const realizedRewardPer1000Impressions = row.impressions > 0 ? Math.round((row.reward / row.impressions) * 1000) : 0;
+  const confidence = Math.min(1, row.posts / MYFANS_DIAGNOSIS_THRESHOLDS.minimumSamplePosts * 0.55 + row.clicks / 20 * 0.45);
+  return {
+    ...row,
+    impressionsPerPost: row.posts > 0 ? Math.round(row.impressions / row.posts) : 0,
+    profileVisitsPerPostEstimate: Number(estimatedProfileVisitsPerPost.toFixed(2)),
+    followsDeltaPerPostEstimate: Number(estimatedFollowsPerPost.toFixed(2)),
+    clicksPerPost: row.posts > 0 ? Number((row.clicks / row.posts).toFixed(2)) : 0,
+    ctr,
+    cvr,
+    rewardPerPost: Math.round(rewardPerPost),
+    realizedRewardPer1000Impressions,
+    confidence: Number(confidence.toFixed(2)),
+    verdict: getLearningVerdict(confidence, row.reward, ctr, estimatedFollowsPerPost),
+    attributionNote: "profile visits/followsは投稿へ厳密帰属できないため account-level estimate",
+  };
+}
+
+function compareByAxis(analytics: MyfansAnalytics, axis: MyfansCreativeLearningAxis, days: number) {
+  const periodPosts = analytics.posts.filter((post) => inPeriod(post.posted_at ?? post.created_at, days));
+  const periodConversions = analytics.conversions.filter((conversion) => inPeriod(conversion.occurred_at, days));
+  const accountRows = (analytics.xAccountMetrics ?? []).filter((row) => inPeriod(row.metric_date, days));
+  const accountProfileVisits = accountRows.reduce((sum, row) => sum + row.profile_visits, 0);
+  const firstFollowers = accountRows[0]?.followers_count ?? 0;
+  const latestFollowers = accountRows[accountRows.length - 1]?.followers_count ?? firstFollowers;
   const estimatedProfileVisitsPerPost = periodPosts.length > 0 ? accountProfileVisits / periodPosts.length : 0;
   const estimatedFollowsPerPost = periodPosts.length > 0 ? Math.max(0, latestFollowers - firstFollowers) / periodPosts.length : 0;
-  return Array.from(groups.values()).map((row) => {
-    const ctr = row.impressions > 0 ? row.clicks / row.impressions : null;
-    const cvr = row.clicks > 0 ? row.conversions / row.clicks : null;
-    const rewardPerPost = row.posts > 0 ? row.reward / row.posts : 0;
-    const realizedRewardPer1000Impressions = row.impressions > 0 ? Math.round((row.reward / row.impressions) * 1000) : 0;
-    const confidence = Math.min(1, row.posts / MYFANS_DIAGNOSIS_THRESHOLDS.minimumSamplePosts * 0.55 + row.clicks / 20 * 0.45);
-    const winner = confidence >= 0.55 && (row.reward > 0 || (ctr ?? 0) >= MYFANS_DIAGNOSIS_THRESHOLDS.clickRate || estimatedFollowsPerPost >= 0.2);
-    return {
-      ...row,
-      impressionsPerPost: row.posts > 0 ? Math.round(row.impressions / row.posts) : 0,
-      profileVisitsPerPostEstimate: Number(estimatedProfileVisitsPerPost.toFixed(2)),
-      followsDeltaPerPostEstimate: Number(estimatedFollowsPerPost.toFixed(2)),
-      clicksPerPost: row.posts > 0 ? Number((row.clicks / row.posts).toFixed(2)) : 0,
-      ctr,
-      cvr,
-      rewardPerPost: Math.round(rewardPerPost),
-      realizedRewardPer1000Impressions,
-      confidence: Number(confidence.toFixed(2)),
-      verdict: confidence < 0.55 ? "サンプル不足" : winner ? "勝ち型" : "負け型",
-      attributionNote: "profile visits/followsは投稿へ厳密帰属できないため account-level estimate",
-    };
-  }).sort((a, b) => b.confidence - a.confidence || b.realizedRewardPer1000Impressions - a.realizedRewardPer1000Impressions || b.clicksPerPost - a.clicksPerPost);
+  return groupAxisRows(periodPosts, periodConversions, axis, analytics)
+    .map((row) => buildAxisLearningRow(row, estimatedProfileVisitsPerPost, estimatedFollowsPerPost))
+    .sort((a, b) => b.confidence - a.confidence || b.realizedRewardPer1000Impressions - a.realizedRewardPer1000Impressions || b.clicksPerPost - a.clicksPerPost);
 }
 
 export function buildMyfansLearning(analytics: MyfansAnalytics) {
