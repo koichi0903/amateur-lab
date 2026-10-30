@@ -25,6 +25,31 @@ export function priceNumber(value: unknown): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+type CatalogSourceFields = {
+  image: Record<string, unknown> | null;
+  sampleMovie: Record<string, unknown> | null;
+  prices: Record<string, unknown> | null;
+  review: Record<string, unknown> | null;
+  itemInfo: Record<string, unknown>;
+  campaign: unknown[];
+  affiliateURL: string;
+};
+
+function catalogSourceFields(
+  value: Record<string, unknown>,
+  canonicalUrl: string,
+  buildAffiliateUrl: (canonicalUrl: string) => string,
+): CatalogSourceFields {
+  const image = isRecord(value.imageURL) ? value.imageURL : null;
+  const sampleMovie = isRecord(value.sampleMovieURL) ? value.sampleMovieURL : null;
+  const prices = isRecord(value.prices) ? value.prices : null;
+  const review = isRecord(value.review) ? value.review : null;
+  const itemInfo = isRecord(value.iteminfo) ? value.iteminfo : {};
+  const rawCampaign = Array.isArray(value.campaign) ? value.campaign : value.campaign ? [value.campaign] : [];
+  const affiliateURL = asText(value.affiliateURL) || buildAffiliateUrl(canonicalUrl);
+  return { image, sampleMovie, prices, review, itemInfo, campaign: rawCampaign, affiliateURL };
+}
+
 export function normalizeFanzaAmateurCatalogItem(
   value: unknown,
   buildAffiliateUrl: (canonicalUrl: string) => string,
@@ -35,13 +60,7 @@ export function normalizeFanzaAmateurCatalogItem(
   const canonicalUrl = asText(value.URL);
   if (!contentId || !title || !canonicalUrl) return null;
 
-  const image = isRecord(value.imageURL) ? value.imageURL : null;
-  const sampleMovie = isRecord(value.sampleMovieURL) ? value.sampleMovieURL : null;
-  const prices = isRecord(value.prices) ? value.prices : null;
-  const review = isRecord(value.review) ? value.review : null;
-  const rawItemInfo = isRecord(value.iteminfo) ? value.iteminfo : {};
-  const rawCampaign = Array.isArray(value.campaign) ? value.campaign : value.campaign ? [value.campaign] : [];
-  const affiliateURL = asText(value.affiliateURL) || buildAffiliateUrl(canonicalUrl);
+  const source = catalogSourceFields(value, canonicalUrl, buildAffiliateUrl);
 
   return {
     ...(value as unknown as DmmItem),
@@ -49,21 +68,21 @@ export function normalizeFanzaAmateurCatalogItem(
     title,
     product_id: asText(value.product_id),
     URL: canonicalUrl,
-    affiliateURL,
-    sampleMovieURL: approvedSampleMovieUrls(sampleMovie),
+    affiliateURL: source.affiliateURL,
+    sampleMovieURL: approvedSampleMovieUrls(source.sampleMovie),
     date: asText(value.date),
     prices: {
-      price: asText(prices?.price),
-      list_price: asText(prices?.list_price),
-      deliveries: normalizeDeliveries(prices),
+      price: asText(source.prices?.price),
+      list_price: asText(source.prices?.list_price),
+      deliveries: normalizeDeliveries(source.prices),
     },
-    iteminfo: normalizeItemInfo(rawItemInfo),
+    iteminfo: normalizeItemInfo(source.itemInfo),
     // DMM's list thumbnail can be only 90px wide; prefer the small variant
     // when the API does not provide a large cover.
-    imageUrl: catalogImageUrl(image),
-    currentPrice: priceNumber(prices?.price) ?? priceNumber(prices?.list_price),
-    reviewAverage: normalizedReviewAverage(review),
-    campaigns: normalizeCampaigns(rawCampaign),
+    imageUrl: catalogImageUrl(source.image),
+    currentPrice: priceNumber(source.prices?.price) ?? priceNumber(source.prices?.list_price),
+    reviewAverage: normalizedReviewAverage(source.review),
+    campaigns: normalizeCampaigns(source.campaign),
   };
 }
 

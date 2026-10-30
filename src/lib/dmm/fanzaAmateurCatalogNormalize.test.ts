@@ -88,3 +88,16 @@ test("catalog normalization preserves an API-provided affiliate URL", () => {
   assert.equal(item?.affiliateURL, "https://affiliate.example.test/prebuilt");
   assert.equal(affiliateCalls, 0);
 });
+
+test("catalog normalization accepts a single campaign object and falls back to list price", () => {
+  const item = normalizeFanzaAmateurCatalogItem({
+    content_id: "cid-3",
+    title: "単一キャンペーン",
+    URL: "https://video.dmm.co.jp/amateur/content/cid-3/",
+    prices: { price: "invalid", list_price: "1200円" },
+    campaign: { title: "単一割引", date_begin: "2026-10-01", date_end: "2026-10-31" },
+  }, affiliateBuilder);
+
+  assert.equal(item?.currentPrice, 1200);
+  assert.deepEqual(item?.campaigns, [{ title: "単一割引", dateBegin: "2026-10-01", dateEnd: "2026-10-31" }]);
+});
