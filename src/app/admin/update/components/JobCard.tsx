@@ -54,10 +54,13 @@ export default function JobCard({
   startedAt,
   finishedAt,
 }: JobCardProps) {
+  const isInformationalMessage = errorMessage?.startsWith("INFO: ") ?? false;
   const readableErrorMessage =
     errorMessage === "[object Object]" || errorMessage === "{}"
       ? "データベースとの通信が一時的に切断されました。再実行すると保存済みの位置から再開します。"
-      : errorMessage;
+      : isInformationalMessage
+        ? errorMessage?.slice("INFO: ".length)
+        : errorMessage;
   const percent =
     total > 0
       ? Math.min(Math.max(Math.round((processed / total) * 100), 0), 100)
@@ -128,7 +131,9 @@ const eta =
       <div className={`mt-3 whitespace-pre-wrap break-words rounded-lg border px-3 py-2 text-sm ${
         status === "failed"
           ? "border-red-900 bg-red-950/60 text-red-200"
-          : "border-amber-900 bg-amber-950/40 text-amber-200"
+          : isInformationalMessage
+            ? "border-cyan-900 bg-cyan-950/30 text-cyan-200"
+            : "border-amber-900 bg-amber-950/40 text-amber-200"
       }`}>
         {readableErrorMessage}
       </div>

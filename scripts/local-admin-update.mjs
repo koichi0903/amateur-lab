@@ -535,8 +535,8 @@ async function run(taskName) {
         throw new Error(result.message || `${task.label}に失敗しました（HTTP ${response.status}）。`);
       }
       if (name === "ended-sale" && Number(result.deferredCount ?? 0) > 0) {
-        console.warn(
-          `[警告] 終了セール更新は完了しました（要再確認${result.deferredCount}件）。` +
+        console.log(
+          `[情報] 終了セール更新は完了しました。価格を取得できなかった${result.deferredCount}件は別日に自動再確認します。` +
             "後続のランキング・スコア更新を継続します。",
         );
       }
