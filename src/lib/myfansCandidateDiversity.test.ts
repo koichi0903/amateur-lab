@@ -103,4 +103,59 @@ assert.deepEqual(cappedResult.quality.reasons, [
   "同じreason_to_care clear_comparison は最大3本までです",
 ]);
 
+const authorityHold = evaluateMyfansCandidateDiversity(makeCandidate({
+  dailyRole: "AUTHORITY",
+  topicIdentity: "product:1:authority",
+}), makeContext());
+assert.deepEqual(authorityHold.quality.reasons, [
+  "AUTHORITYは単一source/topicの言い換えでは採用しません",
+]);
+
+const authorityAggregate = evaluateMyfansCandidateDiversity(makeCandidate({
+  dailyRole: "AUTHORITY",
+  topicIdentity: "aggregate:comparison",
+}), makeContext());
+assert.equal(authorityAggregate.quality.verdict, "PASS");
+
+const weakQuote = evaluateMyfansCandidateDiversity(makeCandidate({
+  creativeStrategy: "quote_post",
+  sourceSpecificityScore: 34,
+  sourceXUrl: "",
+}), makeContext());
+assert.deepEqual(weakQuote.quality.reasons, [
+  "source_specificity_score 34/100: 元投稿固有要素が不足しています",
+  "sourceXUrlがないquote candidateはHard failです",
+]);
+
+const quoteUrl = "https://x.com/creator/status/20";
+const matchedQuote = {
+  id: 20,
+  creator_id: 9,
+  creator_x_url: "https://x.com/other_creator",
+  x_post_url: quoteUrl,
+} as MyfansCandidateDiversityContext["analytics"]["quoteCandidates"][number];
+const usedQuote = evaluateMyfansCandidateDiversity(makeCandidate({
+  creativeStrategy: "quote_post",
+  product: { id: 1, creator_id: 7 } as NonNullable<MyfansCandidateForDiversity["product"]>,
+  quoteXUrl: quoteUrl,
+  topicIdentity: "quote:20",
+  sourceSpecificityScore: 60,
+  reactionType: "agreement",
+}), makeContext({
+  analytics: { quoteCandidates: [matchedQuote] } as unknown as MyfansCandidateDiversityContext["analytics"],
+  acceptedQuoteCreators: new Set(["creator:9"]),
+  acceptedReactionTypes: new Set(["agreement"]),
+}));
+assert.deepEqual(usedQuote.quality.reasons, [
+  "同日の公開planでは同一creator quoteを1件までに制限しています",
+  "同日のquote reaction typeが重複しています",
+]);
+
+const roleCap = evaluateMyfansCandidateDiversity(makeCandidate(), makeContext({
+  publishableCandidates: Array.from({ length: 4 }, () => makeCandidate({
+    quality: { verdict: "PASS", total: 90, reasons: [passingReason] } as MyfansCandidateForDiversity["quality"],
+  })),
+}));
+assert.deepEqual(roleCap.quality.reasons, ["同じrole DISCOVERY は1日4本までです"]);
+
 console.log("myfansCandidateDiversity tests passed");

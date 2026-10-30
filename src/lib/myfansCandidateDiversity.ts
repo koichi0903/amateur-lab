@@ -123,23 +123,34 @@ function productPlanHoldReasons(candidate: Candidate, context: Context) {
   return reasons;
 }
 
-function roleHoldReasons(candidate: Candidate, context: Context) {
+function quoteCandidateHoldReasons(candidate: Candidate) {
   const reasons: string[] = [];
-  if (candidate.dailyRole === "AUTHORITY" && !candidate.topicIdentity.startsWith("aggregate:")) {
-    reasons.push("AUTHORITYは単一source/topicの言い換えでは採用しません");
-  }
   if (candidate.creativeStrategy === "quote_post" && candidate.sourceSpecificityScore < 35) {
     reasons.push(`source_specificity_score ${candidate.sourceSpecificityScore}/100: 元投稿固有要素が不足しています`);
   }
   if (candidate.creativeStrategy === "quote_post" && !candidate.sourceXUrl) {
     reasons.push("sourceXUrlがないquote candidateはHard failです");
   }
-  if (candidate.creativeStrategy === "quote_post" && candidate.quoteXUrl && candidate.product) {
-    const quote = context.analytics.quoteCandidates.find((item) => quoteUrlFromCandidate(item) === candidate.quoteXUrl || item.x_post_url === candidate.quoteXUrl);
-    const creatorKey = quote ? creatorKeyFromQuote(quote) : creatorKeyFromProduct(candidate.product);
-    if (context.acceptedQuoteCreators.has(creatorKey)) reasons.push("同日の公開planでは同一creator quoteを1件までに制限しています");
-    if (candidate.reactionType && context.acceptedReactionTypes.has(candidate.reactionType)) reasons.push("同日のquote reaction typeが重複しています");
+  return reasons;
+}
+
+function acceptedQuoteHoldReasons(candidate: Candidate, context: Context) {
+  if (candidate.creativeStrategy !== "quote_post" || !candidate.quoteXUrl || !candidate.product) return [];
+  const reasons: string[] = [];
+  const quote = context.analytics.quoteCandidates.find((item) => quoteUrlFromCandidate(item) === candidate.quoteXUrl || item.x_post_url === candidate.quoteXUrl);
+  const creatorKey = quote ? creatorKeyFromQuote(quote) : creatorKeyFromProduct(candidate.product);
+  if (context.acceptedQuoteCreators.has(creatorKey)) reasons.push("同日の公開planでは同一creator quoteを1件までに制限しています");
+  if (candidate.reactionType && context.acceptedReactionTypes.has(candidate.reactionType)) reasons.push("同日のquote reaction typeが重複しています");
+  return reasons;
+}
+
+function roleHoldReasons(candidate: Candidate, context: Context) {
+  const reasons: string[] = [];
+  if (candidate.dailyRole === "AUTHORITY" && !candidate.topicIdentity.startsWith("aggregate:")) {
+    reasons.push("AUTHORITYは単一source/topicの言い換えでは採用しません");
   }
+  reasons.push(...quoteCandidateHoldReasons(candidate));
+  reasons.push(...acceptedQuoteHoldReasons(candidate, context));
   const sameRoleCount = context.publishableCandidates.filter((item) => item.dailyRole === candidate.dailyRole).length;
   if (sameRoleCount >= 4) reasons.push(`同じrole ${candidate.dailyRole} は1日4本までです`);
   return reasons;
