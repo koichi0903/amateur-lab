@@ -20,6 +20,11 @@ export const PUBLIC_CACHE_TASKS = new Set([
   "amateur-api-catalog",
 ]);
 
+type MutablePlan = {
+  paths: Set<string>;
+  tags: Set<string>;
+};
+
 export type PublicCacheRevalidationPlan = {
   tasks: string[];
   paths: string[];
@@ -27,61 +32,54 @@ export type PublicCacheRevalidationPlan = {
   includesAmateurApiCatalog: boolean;
 };
 
-function addCatalogTargets(tasks: string[], paths: Set<string>, tags: Set<string>) {
-  if (!tasks.some((task) => CATALOG_TASKS.has(task))) return;
-  paths.add("/");
-  for (const path of ["/new", "/ranking", "/features", ...ENTITY_PATHS, "/sitemap.xml"]) paths.add(path);
-  tags.add("home-catalog");
-  tags.add("home-daily-discovery");
-  tags.add("entity-works");
+function addCatalogTargets(plan: MutablePlan) {
+  plan.paths.add("/");
+  for (const path of ["/new", "/ranking", "/features", ...ENTITY_PATHS, "/sitemap.xml"]) plan.paths.add(path);
+  plan.tags.add("home-catalog");
+  plan.tags.add("home-daily-discovery");
+  plan.tags.add("entity-works");
 }
 
-function addPriceTargets(tasks: string[], paths: Set<string>, tags: Set<string>) {
-  if (!tasks.some((task) => PRICE_TASKS.has(task))) return;
-  paths.add("/");
-  for (const path of ["/sale", "/deals", "/ranking"]) paths.add(path);
-  tags.add("home-price-insights");
-  tags.add("hero-price-drop");
-  tags.add("deals");
-  tags.add("entity-works");
+function addPriceTargets(plan: MutablePlan) {
+  plan.paths.add("/");
+  for (const path of ["/sale", "/deals", "/ranking"]) plan.paths.add(path);
+  plan.tags.add("home-price-insights");
+  plan.tags.add("hero-price-drop");
+  plan.tags.add("deals");
+  plan.tags.add("entity-works");
 }
 
-function addDiscoveryTargets(tasks: string[], paths: Set<string>, tags: Set<string>) {
-  if (!tasks.some((task) => DISCOVERY_TASKS.has(task))) return;
-  paths.add("/");
-  for (const path of ["/ranking", "/features", ...ENTITY_PATHS]) paths.add(path);
-  tags.add("home-ranking");
-  tags.add("ai-discoveries");
-  tags.add("latest-daily-update");
-  tags.add("entity-works");
+function addDiscoveryTargets(plan: MutablePlan) {
+  plan.paths.add("/");
+  for (const path of ["/ranking", "/features", ...ENTITY_PATHS]) plan.paths.add(path);
+  plan.tags.add("home-ranking");
+  plan.tags.add("ai-discoveries");
+  plan.tags.add("latest-daily-update");
+  plan.tags.add("entity-works");
 }
 
-function addAmateurCatalogTargets(paths: Set<string>, tags: Set<string>) {
+function addAmateurCatalogTargets(plan: MutablePlan, tasks: string[]) {
+  if (!tasks.includes("amateur-api-catalog")) return false;
   for (const path of ["/amateur", "/amateur/search", "/amateur/sale", "/amateur/genre", "/amateur/maker"]) {
-    paths.add(path);
+    plan.paths.add(path);
   }
-  tags.add("fanza-amateur-home");
-  tags.add("fanza-amateur-catalog");
+  plan.tags.add("fanza-amateur-home");
+  plan.tags.add("fanza-amateur-catalog");
+  return true;
 }
 
 export function buildPublicCacheRevalidationPlan(tasks: string[]): PublicCacheRevalidationPlan {
   const knownTasks = [...new Set(tasks)].filter((task) => PUBLIC_CACHE_TASKS.has(task));
-  if (knownTasks.length === 0) {
-    return { tasks: [], paths: [], tags: [], includesAmateurApiCatalog: false };
-  }
-
-  const paths = new Set<string>();
-  const tags = new Set<string>();
-  addCatalogTargets(knownTasks, paths, tags);
-  addPriceTargets(knownTasks, paths, tags);
-  addDiscoveryTargets(knownTasks, paths, tags);
-  const includesAmateurApiCatalog = knownTasks.includes("amateur-api-catalog");
-  if (includesAmateurApiCatalog) addAmateurCatalogTargets(paths, tags);
+  const plan: MutablePlan = { paths: new Set(), tags: new Set() };
+  if (knownTasks.some((task) => CATALOG_TASKS.has(task))) addCatalogTargets(plan);
+  if (knownTasks.some((task) => PRICE_TASKS.has(task))) addPriceTargets(plan);
+  if (knownTasks.some((task) => DISCOVERY_TASKS.has(task))) addDiscoveryTargets(plan);
+  const includesAmateurApiCatalog = addAmateurCatalogTargets(plan, knownTasks);
 
   return {
     tasks: knownTasks,
-    paths: [...paths],
-    tags: [...tags],
+    paths: [...plan.paths],
+    tags: [...plan.tags],
     includesAmateurApiCatalog,
   };
 }
