@@ -248,16 +248,22 @@ function candidateOptionSourceSummary(candidate: MyfansDailyCandidateOption) {
   };
 }
 
+function candidateOptionNoveltyHistorySummary(novelty: MyfansDailyCandidateOption["novelty"]) {
+  return {
+    same_source_status: novelty?.sameSourceLabel ?? null,
+    last_same_source_date: novelty?.lastSameSourceDate ?? null,
+    last_same_creator_date: novelty?.lastSameCreatorDate ?? null,
+    past_body_similarity_label: novelty?.pastBodySimilarityLabel ?? null,
+  };
+}
+
 function candidateOptionValueSummary(candidate: MyfansDailyCandidateOption) {
   const novelty = candidate.novelty;
   return {
     topic_value: candidate.topicValue?.score ?? null,
     novelty,
     novelty_label: novelty?.label ?? null,
-    same_source_status: novelty?.sameSourceLabel ?? null,
-    last_same_source_date: novelty?.lastSameSourceDate ?? null,
-    last_same_creator_date: novelty?.lastSameCreatorDate ?? null,
-    past_body_similarity_label: novelty?.pastBodySimilarityLabel ?? null,
+    ...candidateOptionNoveltyHistorySummary(novelty),
   };
 }
 

@@ -209,6 +209,9 @@ test("candidate option summaries retain recommendation, product, evidence, and n
   assert.equal(item.quality, 86);
   assert.equal(item.topic_value, 84);
   assert.equal(item.novelty_label, "new source");
+  assert.equal(item.same_source_status, "unused");
+  assert.equal(item.last_same_source_date, null);
+  assert.equal(item.last_same_creator_date, null);
   assert.equal(item.past_body_similarity_label, "unique");
 });
 
