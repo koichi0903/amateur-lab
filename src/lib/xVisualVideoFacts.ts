@@ -54,17 +54,15 @@ function fact(input: Omit<XVisualFact, "confidence"> & { confidence?: number }):
   return { ...input, confidence: input.confidence ?? 0.95 };
 }
 
-/**
- * Converts already-confirmed FANZA media metadata/manual tags into bounded facts.
- * It deliberately does not infer image content from an URL. Frame-derived facts
- * can be supplied later through videoEvidence without changing the guard.
- */
-export function buildVisualVideoFacts(input: XVisualFactInput, generatedAt = new Date().toISOString()): XVisualVideoFacts {
+function metadataFacts(input: XVisualFactInput): XVisualFact[] {
   const facts: XVisualFact[] = [];
-  const tags = new Set(input.manualTags ?? []);
   if (input.imageUrl) facts.push(fact({ kind: "image_focus", value: "unknown", source: "metadata", confidence: 0 }));
   if (input.sampleMovieUrl) facts.push(fact({ kind: "notable_video_hook", value: "sample_available", source: "metadata", confidence: 0 }));
+  return facts;
+}
 
+function manualTagFacts(tags: Set<string>): XVisualFact[] {
+  const facts: XVisualFact[] = [];
   if (tags.has("first_seconds_strong")) {
     facts.push(fact({ kind: "notable_video_hook", value: "first_seconds_attention", source: "manual_tag", safePhrase: "開いてすぐ、画面の変化に目が止まる。" }));
   }
@@ -81,48 +79,105 @@ export function buildVisualVideoFacts(input: XVisualFactInput, generatedAt = new
     // A single tag is not dual evidence. Keep it as a rejected candidate.
     facts.push(fact({ kind: "jacket_sample_mismatch", value: true, source: "manual_tag", safePhrase: "ジャケとサンプルで見え方が違う。" }));
   }
+  return facts;
+}
 
-  for (const evidence of input.videoEvidence ?? []) {
-    facts.push(fact({
-      kind: evidence.kind,
-      value: evidence.value,
-      source: "sample_video",
-      confidence: evidence.confidence,
-      evidenceTimeSec: evidence.timeSec,
-      safePhrase: evidence.safePhrase,
-    }));
-  }
-  for (const evidence of input.jacketEvidence ?? []) {
-    facts.push(fact({ kind: evidence.kind, value: evidence.value, source: "jacket", confidence: evidence.confidence, evidenceTimeSec: evidence.timeSec, safePhrase: evidence.safePhrase }));
-  }
+function videoEvidenceFacts(input: XVisualFactInput): XVisualFact[] {
+  return (input.videoEvidence ?? []).map((evidence) => fact({
+    kind: evidence.kind,
+    value: evidence.value,
+    source: "sample_video",
+    confidence: evidence.confidence,
+    evidenceTimeSec: evidence.timeSec,
+    safePhrase: evidence.safePhrase,
+  }));
+}
 
-  const hasDualMismatchEvidence = facts.some((candidate) => candidate.kind === "jacket_sample_mismatch" && (candidate.source === "jacket" || candidate.source === "sample_image"))
+function jacketEvidenceFacts(input: XVisualFactInput): XVisualFact[] {
+  return (input.jacketEvidence ?? []).map((evidence) => fact({
+    kind: evidence.kind,
+    value: evidence.value,
+    source: "jacket",
+    confidence: evidence.confidence,
+    evidenceTimeSec: evidence.timeSec,
+    safePhrase: evidence.safePhrase,
+  }));
+}
+
+function collectFacts(input: XVisualFactInput): XVisualFact[] {
+  const tags = new Set(input.manualTags ?? []);
+  return [
+    ...metadataFacts(input),
+    ...manualTagFacts(tags),
+    ...videoEvidenceFacts(input),
+    ...jacketEvidenceFacts(input),
+  ];
+}
+
+function hasDualMismatchEvidence(facts: XVisualFact[]): boolean {
+  return facts.some((candidate) => candidate.kind === "jacket_sample_mismatch" && (candidate.source === "jacket" || candidate.source === "sample_image"))
     && facts.some((candidate) => candidate.kind === "jacket_sample_mismatch" && candidate.source === "sample_video");
-  const usableFacts = facts.filter((candidate) => candidate.kind === "jacket_sample_mismatch"
-    ? hasDualMismatchEvidence && isUsableVisualFact({ ...candidate, kind: "visual_style", value: "jacket_video_mismatch" })
+}
+
+function usableFactsFor(facts: XVisualFact[]): XVisualFact[] {
+  const hasDualEvidence = hasDualMismatchEvidence(facts);
+  return facts.filter((candidate) => candidate.kind === "jacket_sample_mismatch"
+    ? hasDualEvidence && isUsableVisualFact({ ...candidate, kind: "visual_style", value: "jacket_video_mismatch" })
     : isUsableVisualFact(candidate));
-  const imageOnly = Boolean(input.imageUrl && !input.sampleMovieUrl);
-  const diagnostics = facts.length === 0
-    ? ["画像/動画の確定Factなし。メタデータfallbackを使用"]
-    : usableFacts.length < 1
-      ? imageOnly
-        ? ["画像候補: Visual Factは必須ではなく、本文はDecision Factsで検証"]
-        : ["Fact候補はあるがTruth Guardを通過したFactなし"]
-      : [];
+}
+
+function factDiagnostics(input: XVisualFactInput, facts: XVisualFact[], usableFacts: XVisualFact[]): string[] {
+  if (facts.length === 0) return ["画像/動画の確定Factなし。メタデータfallbackを使用"];
+  if (usableFacts.length > 0) return [];
+  if (input.imageUrl && !input.sampleMovieUrl) return ["画像候補: Visual Factは必須ではなく、本文はDecision Factsで検証"];
+  return ["Fact候補はあるがTruth Guardを通過したFactなし"];
+}
+
+/**
+ * Converts already-confirmed FANZA media metadata/manual tags into bounded facts.
+ * It deliberately does not infer image content from an URL. Frame-derived facts
+ * can be supplied later through videoEvidence without changing the guard.
+ */
+export function buildVisualVideoFacts(input: XVisualFactInput, generatedAt = new Date().toISOString()): XVisualVideoFacts {
+  const facts = collectFacts(input);
+  const usableFacts = usableFactsFor(facts);
+  const diagnostics = factDiagnostics(input, facts, usableFacts);
   return { version: "visual-video-facts-v1", generatedAt, facts, usableFacts, diagnostics };
 }
 
-export function isUsableVisualFact(candidate: XVisualFact): boolean {
+function hasEligibleConfidence(candidate: XVisualFact): boolean {
   if (!Number.isFinite(candidate.confidence) || candidate.confidence < 0.75) return false;
-  if (candidate.safePhrase && UNSUPPORTED_CLAIM_WORDS.test(candidate.safePhrase)) return false;
-  if (candidate.kind === "jacket_sample_mismatch") {
-    return false;
-  }
-  if (candidate.kind === "opening_strength" && candidate.source !== "sample_video") return false;
-  if (candidate.kind === "mood_shift_detected" && candidate.source !== "sample_video") return false;
-  if (candidate.kind === "notable_video_hook" && typeof candidate.value === "string" && !SUPPORTED_VIDEO_HOOKS.has(candidate.value) && candidate.value !== "actress_fit") return false;
-  if (["brightness", "framing", "setting", "visual_style", "costume_category"].includes(candidate.kind) && candidate.source === "metadata") return false;
+  return true;
+}
+
+function hasSupportedClaimPhrase(candidate: XVisualFact): boolean {
+  return !candidate.safePhrase || !UNSUPPORTED_CLAIM_WORDS.test(candidate.safePhrase);
+}
+
+function isVideoOnlyFact(candidate: XVisualFact): boolean {
+  return candidate.kind === "opening_strength" || candidate.kind === "mood_shift_detected";
+}
+
+function hasSupportedVideoHook(candidate: XVisualFact): boolean {
+  if (candidate.kind !== "notable_video_hook" || typeof candidate.value !== "string") return true;
+  return SUPPORTED_VIDEO_HOOKS.has(candidate.value) || candidate.value === "actress_fit";
+}
+
+function isMetadataSpecificFact(candidate: XVisualFact): boolean {
+  return ["brightness", "framing", "setting", "visual_style", "costume_category"].includes(candidate.kind)
+    && candidate.source === "metadata";
+}
+
+function hasSafeFactContent(candidate: XVisualFact): boolean {
   return Boolean(candidate.safePhrase || ["brightness", "framing", "setting", "visual_style", "costume_category", "motion_level", "pacing"].includes(candidate.kind));
+}
+
+export function isUsableVisualFact(candidate: XVisualFact): boolean {
+  if (!hasEligibleConfidence(candidate) || !hasSupportedClaimPhrase(candidate)) return false;
+  if (candidate.kind === "jacket_sample_mismatch") return false;
+  if (isVideoOnlyFact(candidate) && candidate.source !== "sample_video") return false;
+  if (!hasSupportedVideoHook(candidate) || isMetadataSpecificFact(candidate)) return false;
+  return hasSafeFactContent(candidate);
 }
 
 export function primaryUsableVisualFact(facts: XVisualVideoFacts | null | undefined) {
