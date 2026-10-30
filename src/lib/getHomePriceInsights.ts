@@ -276,6 +276,35 @@ function selectPriceInsightSeries(
   return { priceRows, observations };
 }
 
+function priceInsightDiscountRate(work: HomePriceInsightWork, currentPrice: number) {
+  if (work.discount_rate > 0) return work.discount_rate;
+  if (work.list_price && work.list_price > currentPrice) {
+    return Math.round((1 - currentPrice / work.list_price) * 100);
+  }
+  return 0;
+}
+
+function priceInsightBadge(dropRate: number, isBottomPrice: boolean, currentPrice: number, low90Price: number): HomePriceInsightWork["badge"] {
+  if (dropRate >= 25) return "急落";
+  if (isBottomPrice) return "過去最安";
+  if (currentPrice <= low90Price * 1.05) return "90日安値";
+  return "買い時";
+}
+
+function summarizePriceInsight(work: HomePriceInsightWork, currentPrice: number, observations: PriceObservation[]) {
+  const previousPrice = observations.find((row) => row.value !== currentPrice)?.value ?? null;
+  const historicalPrices = observations.map((row) => row.value);
+  const low90Price = Math.min(...historicalPrices, currentPrice);
+  const peak90Price = Math.max(...historicalPrices, currentPrice);
+  const dropAmount = previousPrice && previousPrice > currentPrice ? previousPrice - currentPrice : 0;
+  const dropRate = previousPrice && previousPrice > currentPrice ? Math.round((dropAmount / previousPrice) * 100) : 0;
+  const discountRate = priceInsightDiscountRate(work, currentPrice);
+  const isBottomPrice = currentPrice <= low90Price;
+  const buyScore = scoreBuyTiming({ currentPrice, previousPrice, low90Price, dropRate, discountRate, isBottomPrice });
+  const badge = priceInsightBadge(dropRate, isBottomPrice, currentPrice, low90Price);
+  return { previousPrice, dropAmount, dropRate, low90Price, peak90Price, buyScore, badge };
+}
+
 export function buildPriceInsightFromRows(
   work: HomePriceInsightWork,
   rows: PriceHistoryRow[],
@@ -289,21 +318,9 @@ export function buildPriceInsightFromRows(
   const series = selectPriceInsightSeries(rows, currentPrice, requireBuyTimingSignal);
   if (!series) return null;
   const { priceRows, observations } = series;
-
-  const chartRows = priceRows;
-  const previous = observations.find((row) => row.value !== currentPrice);
-  const historicalPrices = observations.map((row) => row.value);
-  const low90Price = Math.min(...historicalPrices, currentPrice);
-  const peak90Price = Math.max(...historicalPrices, currentPrice);
-  const previousPrice = previous?.value ?? null;
-  const dropAmount = previousPrice && previousPrice > currentPrice ? previousPrice - currentPrice : 0;
-  const dropRate = previousPrice && previousPrice > currentPrice ? Math.round((dropAmount / previousPrice) * 100) : 0;
-  const discountRate = work.discount_rate > 0 ? work.discount_rate : work.list_price && work.list_price > currentPrice ? Math.round((1 - currentPrice / work.list_price) * 100) : 0;
-  const isBottomPrice = currentPrice <= low90Price;
-  const buyScore = scoreBuyTiming({ currentPrice, previousPrice, low90Price, dropRate, discountRate, isBottomPrice });
-  const badge = dropRate >= 25 ? "急落" : isBottomPrice ? "過去最安" : currentPrice <= low90Price * 1.05 ? "90日安値" : "買い時";
+  const summary = summarizePriceInsight(work, currentPrice, observations);
   const priceHistory = buildPriceHistory(
-    chartRows,
+    priceRows,
     currentPrice,
     windowStartAt,
     windowEndAt,
@@ -311,13 +328,7 @@ export function buildPriceInsightFromRows(
   return {
     ...work,
     currentPrice,
-    previousPrice,
-    dropAmount,
-    dropRate,
-    low90Price,
-    peak90Price,
-    buyScore,
-    badge,
+    ...summary,
     priceHistory,
     priceWindowStartAt: windowStartAt,
     priceWindowEndAt: windowEndAt,

@@ -51,6 +51,7 @@ assert.equal(insight?.dropAmount, 100);
 assert.equal(insight?.dropRate, 50);
 assert.equal(insight?.low90Price, 100);
 assert.equal(insight?.peak90Price, 200);
+assert.equal(insight?.buyScore, 100);
 assert.equal(insight?.badge, "急落");
 assert.deepEqual(
   insight?.priceHistory.map(({ price, isCurrent }) => [price, isCurrent ?? false]),
@@ -66,3 +67,17 @@ assert.equal(
   ),
   null,
 );
+
+const discountedInsight = buildPriceInsightFromRows(
+  { ...work, price: 80, list_price: 100 },
+  [
+    { ...rows[0], normal_price: 100 },
+    { ...rows[1], normal_price: 80 },
+  ],
+  "2026-08-01T00:00:00.000Z",
+  "2026-10-29T00:00:00.000Z",
+);
+
+assert.equal(discountedInsight?.dropRate, 20);
+assert.equal(discountedInsight?.buyScore, 96);
+assert.equal(discountedInsight?.badge, "過去最安");
