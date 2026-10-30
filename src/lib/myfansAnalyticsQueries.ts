@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import type { MyfansCreator, MyfansDailyFunnelCreator, MyfansDailyFunnelInputs, MyfansDailyFunnelProduct, MyfansQuoteCandidate } from "./myfansAnalyticsTypes";
+import type { MyfansQuoteCandidate } from "./myfansAnalyticsTypes";
+export { fetchAllMyfansDailyFunnelInputs } from "./myfansDailyFunnelInputs";
 
 export function firstRelation<T>(value: T | T[] | null | undefined): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
@@ -45,44 +46,6 @@ export async function fetchMyfansProducts() {
     .select(MYFANS_PRODUCT_SELECT_BASE, { count: "exact" })
     .order("selection_score", { ascending: false })
     .limit(100);
-}
-
-export async function fetchAllMyfansDailyFunnelInputs(): Promise<MyfansDailyFunnelInputs> {
-  const pageSize = 1000;
-  const creators: MyfansDailyFunnelCreator[] = [];
-  let lastCreatorId: number | null = null;
-  while (true) {
-    const result = lastCreatorId === null
-      ? await supabaseAdmin.from("myfans_creators").select("id,x_url,creator_x_url").eq("is_active", true).order("id", { ascending: true }).limit(pageSize)
-      : await supabaseAdmin.from("myfans_creators").select("id,x_url,creator_x_url").eq("is_active", true).order("id", { ascending: true }).gt("id", lastCreatorId).limit(pageSize);
-    if (result.error) throw new Error(result.error.message);
-    const page: MyfansDailyFunnelCreator[] = (result.data ?? []) as MyfansDailyFunnelCreator[];
-    creators.push(...page);
-    if (page.length < pageSize) break;
-    lastCreatorId = page[page.length - 1]?.id ?? lastCreatorId;
-  }
-
-  const products: MyfansDailyFunnelProduct[] = [];
-  let lastProductId: number | null = null;
-  while (true) {
-    const result: { data: unknown; error: { message: string } | null } = lastProductId === null
-      ? await supabaseAdmin.from("myfans_products").select("id,creator_id,creator_x_url,status,product_url,approved_media_id,approved_media_name,affiliate_media_id,myfans_creators(myfans_url)").order("id", { ascending: true }).limit(pageSize)
-      : await supabaseAdmin.from("myfans_products").select("id,creator_id,creator_x_url,status,product_url,approved_media_id,approved_media_name,affiliate_media_id,myfans_creators(myfans_url)").order("id", { ascending: true }).gt("id", lastProductId).limit(pageSize);
-    if (result.error) throw new Error(result.error.message);
-    const page: MyfansDailyFunnelProduct[] = ((result.data ?? []) as Array<
-      Omit<MyfansDailyFunnelProduct, "myfans_creators"> & {
-        myfans_creators?: Pick<MyfansCreator, "myfans_url"> | Array<Pick<MyfansCreator, "myfans_url">> | null;
-      }
-    >).map((product) => ({
-      ...product,
-      myfans_creators: firstRelation(product.myfans_creators),
-    }));
-    products.push(...page);
-    if (page.length < pageSize) break;
-    lastProductId = page[page.length - 1]?.id ?? lastProductId;
-  }
-
-  return { creators, products };
 }
 
 export async function fetchAllMyfansQuoteCandidates() {
