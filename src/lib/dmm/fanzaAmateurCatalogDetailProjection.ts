@@ -123,13 +123,9 @@ function stringImages(value: unknown) {
   return Array.isArray(value) ? value.filter((url): url is string => typeof url === "string") : [];
 }
 
-export function mergeStoredCatalogMedia<T extends CatalogDetailMedia>(
-  item: T,
-  savedImagesValue: unknown,
-  savedSamplesValue: unknown,
-): T {
+function mergeStoredCatalogImages(item: CatalogDetailMedia, savedImagesValue: unknown): CatalogDetailMedia {
   const savedImages = isRecord(savedImagesValue) ? savedImagesValue : {};
-  const merged: CatalogDetailMedia = {
+  return {
     ...item,
     imageURL: {
       ...(item.imageURL ?? {}),
@@ -138,24 +134,38 @@ export function mergeStoredCatalogMedia<T extends CatalogDetailMedia>(
       list: asText(savedImages.list) || item.imageURL?.list,
     },
   };
+}
+
+function mergeStoredCatalogSamples(item: CatalogDetailMedia, savedSamplesValue: unknown): CatalogDetailMedia {
   const savedSamples = isRecord(savedSamplesValue) ? savedSamplesValue : {};
   const savedLargeSamples = isRecord(savedSamples.sample_l) ? savedSamples.sample_l : {};
   const savedSmallSamples = isRecord(savedSamples.sample_s) ? savedSamples.sample_s : {};
   const savedLargeSampleImages = stringImages(savedLargeSamples.image);
   const savedSmallSampleImages = stringImages(savedSmallSamples.image);
 
-  if (savedLargeSampleImages.length || savedSmallSampleImages.length) {
-    merged.sampleImageURL = {
-      ...(item.sampleImageURL ?? {}),
-      sample_l: savedLargeSampleImages.length
-        ? { image: savedLargeSampleImages }
-        : item.sampleImageURL?.sample_l,
-      sample_s: savedSmallSampleImages.length
-        ? { image: savedSmallSampleImages }
-        : item.sampleImageURL?.sample_s,
-    };
-  }
-  return merged as T;
+  return savedLargeSampleImages.length || savedSmallSampleImages.length
+    ? {
+      ...item,
+      sampleImageURL: {
+        ...(item.sampleImageURL ?? {}),
+        sample_l: savedLargeSampleImages.length
+          ? { image: savedLargeSampleImages }
+          : item.sampleImageURL?.sample_l,
+        sample_s: savedSmallSampleImages.length
+          ? { image: savedSmallSampleImages }
+          : item.sampleImageURL?.sample_s,
+      },
+    }
+    : item;
+}
+
+export function mergeStoredCatalogMedia<T extends CatalogDetailMedia>(
+  item: T,
+  savedImagesValue: unknown,
+  savedSamplesValue: unknown,
+): T {
+  const withStoredImages = mergeStoredCatalogImages(item, savedImagesValue);
+  return mergeStoredCatalogSamples(withStoredImages, savedSamplesValue) as T;
 }
 
 export function mergeCatalogDetailPriceHistory<TRow extends TimedPriceRow, TSnapshot>(
