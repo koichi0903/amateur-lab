@@ -4,8 +4,16 @@ import { officialSampleVideoAllowed } from "./xGrowthEligibility";
 import type { XGrowthOpportunity } from "./xGrowthOS";
 import type { XPostLog } from "./xPostLogs";
 
-function createCreativeInput(item: XGrowthOpportunity, logs: XPostLog[], visualFacts: XVisualVideoFacts) {
+function rankingHistoryFields(item: XGrowthOpportunity) {
   const rankingReady = item.rankingHistory.status === "ready";
+  return {
+    rankingHistoryCount: item.rankingHistory.observations,
+    previousRanking: rankingReady ? item.rankingHistory.previousRanking : null,
+    rankingDelta: rankingReady ? item.rankingHistory.rankingDelta : null,
+  };
+}
+
+function createCreativeInput(item: XGrowthOpportunity, logs: XPostLog[], visualFacts: XVisualVideoFacts) {
   return {
     key: item.key,
     title: item.title,
@@ -34,9 +42,7 @@ function createCreativeInput(item: XGrowthOpportunity, logs: XPostLog[], visualF
     xFanzaClicks: item.xFanzaClicks,
     seriesName: item.seriesName,
     seriesObservationCount: item.seriesObservationCount,
-    rankingHistoryCount: item.rankingHistory.observations,
-    previousRanking: rankingReady ? item.rankingHistory.previousRanking : null,
-    rankingDelta: rankingReady ? item.rankingHistory.rankingDelta : null,
+    ...rankingHistoryFields(item),
     recentLogs: logs,
     radarAvailable: item.intent === "CONVERSATION" || Boolean(item.seriesName || item.actress || item.genre),
     recommendedSlot: item.recommendedSlot,
@@ -94,6 +100,33 @@ function mediaUsageFor(mediaType: XGrowthOpportunity["mediaType"], mediaUrl: str
   return "not_available" as const;
 }
 
+function recommendedTextFields(item: XGrowthOpportunity, recommended: XCreativeVariant | undefined, hookScore: ReturnType<typeof calculateHookScore>) {
+  return {
+    postText: recommended?.bodyText ?? item.postText,
+    replyText: recommended?.replyText ?? null,
+    weightedLength: recommended?.weightedLength ?? item.weightedLength,
+    hookScore,
+    hookType: recommended?.hookType ?? item.hookType,
+  };
+}
+
+function recommendedStrategyFields(item: XGrowthOpportunity, recommended: XCreativeVariant | undefined) {
+  return {
+    creativeVariantId: recommended?.id ?? item.creativeVariantId,
+    imageStrategy: recommended?.imageStrategy ?? item.imageStrategy,
+    linkStrategy: recommended?.linkStrategy ?? item.linkStrategy,
+    ctaStrategy: recommended?.ctaStrategy ?? item.ctaStrategy,
+  };
+}
+
+function recommendedMediaFields(item: XGrowthOpportunity, mediaType: XGrowthOpportunity["mediaType"], mediaUrl: string | null) {
+  return {
+    mediaUsage: mediaUsageFor(mediaType, mediaUrl),
+    recommendedMediaUrl: mediaUrl,
+    mediaDecision: mediaDecisionFor(item, mediaType),
+  };
+}
+
 function mediaDecisionFor(item: XGrowthOpportunity, mediaType: XGrowthOpportunity["mediaType"]) {
   switch (mediaType) {
     case "sample_movie": return "公式FANZA/DMM sample_movie_urlを無加工投稿用のネイティブ動画として使用可";
@@ -123,19 +156,10 @@ function createCreativeQualityResult(input: {
     visualFacts: resolvedVisualFacts,
     visualScoring: visualFactScores(resolvedVisualFacts),
     creativeVariants: variants,
-    postText: recommended?.bodyText ?? item.postText,
-    replyText: recommended?.replyText ?? null,
-    weightedLength: recommended?.weightedLength ?? item.weightedLength,
-    hookScore,
-    hookType: recommended?.hookType ?? item.hookType,
-    creativeVariantId: recommended?.id ?? item.creativeVariantId,
-    imageStrategy: recommended?.imageStrategy ?? item.imageStrategy,
-    linkStrategy: recommended?.linkStrategy ?? item.linkStrategy,
-    ctaStrategy: recommended?.ctaStrategy ?? item.ctaStrategy,
+    ...recommendedTextFields(item, recommended, hookScore),
+    ...recommendedStrategyFields(item, recommended),
     mediaType,
-    mediaUsage: mediaUsageFor(mediaType, mediaUrl),
-    recommendedMediaUrl: mediaUrl,
-    mediaDecision: mediaDecisionFor(item, mediaType),
+    ...recommendedMediaFields(item, mediaType, mediaUrl),
     creativeGenome: recommended?.creativeGenome ?? item.creativeGenome,
   };
 }

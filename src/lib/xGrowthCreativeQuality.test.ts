@@ -75,4 +75,8 @@ test("official sample movie and real work image remain available as creative var
 
   assert.ok(result.creativeVariants.some((variant) => variant.mediaType === "sample_movie"));
   assert.ok(result.creativeVariants.some((variant) => variant.mediaType === "existing_link_image"));
+  assert.ok(result.creativeVariants.some((variant) => variant.bodyText === result.postText) || result.postText === opportunity.postText);
+  assert.ok(result.mediaType === "sample_movie" || result.mediaType === "existing_link_image");
+  assert.equal(result.recommendedMediaUrl, result.mediaType === "sample_movie" ? sampleMovieUrl : opportunity.imageUrl);
+  assert.equal(result.mediaUsage, "allowed");
 });
