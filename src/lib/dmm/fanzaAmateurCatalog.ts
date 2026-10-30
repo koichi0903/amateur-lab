@@ -2,6 +2,7 @@ import "server-only";
 
 import { unstable_cache } from "next/cache";
 import { buildFanzaAmateurAffiliateUrl, getFanzaAmateurAffiliateId as getAmateurAffiliateId } from "@/lib/dmm/fanzaAmateurAffiliate";
+import { hasActiveCampaign } from "@/lib/dmm/fanzaAmateurCatalogBrowseRules";
 import {
   asText,
   isRecord,
@@ -9,6 +10,7 @@ import {
   priceNumber,
   type FanzaAmateurCatalogItem,
 } from "@/lib/dmm/fanzaAmateurCatalogNormalize";
+import { buildFanzaAmateurRelatedWorkFilters, rankFanzaAmateurRelatedWorks } from "@/lib/dmm/fanzaAmateurRelatedWorks";
 import { HAKKUTSU_SITE_DMM_AFFILIATE_ID } from "@/lib/dmm/siteAffiliateUrl";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { expandFanzaAmateurPriceSnapshotRows, type FanzaAmateurPriceHistoryRow, type FanzaAmateurPriceSnapshotRow } from "@/lib/dmm/fanzaAmateurPriceHistory";
@@ -241,35 +243,12 @@ export async function getFanzaAmateurCatalogWork(contentId: string) {
   return getCachedFanzaAmateurCatalogWork(contentId);
 }
 
-function campaignIsActive(item: FanzaAmateurCatalogItem, now = Date.now()) {
-  const parseJst = (value: string) => {
-    if (!value) return Number.NaN;
-    const normalized = value.replace(" ", "T");
-    return Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(normalized) ? normalized : `${normalized}+09:00`);
-  };
-
-  return item.campaigns.some(({ dateBegin, dateEnd }) => {
-    const start = parseJst(dateBegin);
-    const end = parseJst(dateEnd);
-    return (!Number.isFinite(start) || start <= now) && (!Number.isFinite(end) || end >= now);
-  });
-}
-
 /**
  * Select related amateur works from the saved API catalog. Since amateur works
  * do not have actress metadata, relation is based on series, genre, and maker.
  */
 async function loadFanzaAmateurRelatedWorks(item: FanzaAmateurCatalogItem, limit = 12) {
-  const names = (values: Array<{ name: string }> | undefined) =>
-    [...new Set((values ?? []).map(({ name }) => asText(name)).filter(Boolean))];
-  const genres = names(item.iteminfo?.genre);
-  const makers = names(item.iteminfo?.maker);
-  const series = names(item.iteminfo?.series);
-  const filters = [
-    ...series.slice(0, 3).map((value) => ({ kind: "series" as const, value })),
-    ...genres.slice(0, 6).map((value) => ({ kind: "genre" as const, value })),
-    ...makers.slice(0, 3).map((value) => ({ kind: "maker" as const, value })),
-  ];
+  const filters = buildFanzaAmateurRelatedWorkFilters(item);
   if (filters.length === 0) return [];
 
   const queryResults = await Promise.all(filters.map(async ({ kind, value }) => {
@@ -285,41 +264,7 @@ async function loadFanzaAmateurRelatedWorks(item: FanzaAmateurCatalogItem, limit
     return (data ?? []).map((row) => normalizeFanzaAmateurCatalogItem(row.raw_item));
   }));
 
-  const candidates = new Map<string, FanzaAmateurCatalogItem>();
-  for (const candidate of queryResults.flat()) {
-    if (candidate && candidate.content_id !== item.content_id) candidates.set(candidate.content_id, candidate);
-  }
-
-  const currentGenres = new Set(genres);
-  const currentMakers = new Set(makers);
-  const currentSeries = new Set(series);
-  const now = Date.now();
-  const relevance = (candidate: FanzaAmateurCatalogItem) => {
-    const candidateGenres = names(candidate.iteminfo?.genre);
-    const candidateMakers = names(candidate.iteminfo?.maker);
-    const candidateSeries = names(candidate.iteminfo?.series);
-    const genreMatches = candidateGenres.filter((name) => currentGenres.has(name)).length;
-    const hasMakerMatch = candidateMakers.some((name) => currentMakers.has(name));
-    const hasSeriesMatch = candidateSeries.some((name) => currentSeries.has(name));
-    const reviewCount = candidate.review?.count ?? 0;
-    const reviewBonus = reviewCount > 0 && candidate.reviewAverage != null
-      ? Math.max(0, Math.min(5, candidate.reviewAverage)) * 2
-      : 0;
-
-    return (hasSeriesMatch ? 45 : 0)
-      + Math.min(50, genreMatches * 25)
-      + (hasMakerMatch ? 15 : 0)
-      + reviewBonus
-      + (campaignIsActive(candidate, now) ? 6 : 0);
-  };
-  const releaseTime = (candidate: FanzaAmateurCatalogItem) => Date.parse(candidate.date || "") || 0;
-
-  return [...candidates.values()]
-    .sort((a, b) => relevance(b) - relevance(a)
-      || releaseTime(b) - releaseTime(a)
-      || (b.review?.count ?? 0) - (a.review?.count ?? 0)
-      || a.content_id.localeCompare(b.content_id))
-    .slice(0, Math.max(0, limit));
+  return rankFanzaAmateurRelatedWorks(item, queryResults.flat(), limit);
 }
 
 const getCachedFanzaAmateurRelatedWorks = unstable_cache(
@@ -492,19 +437,6 @@ function uniqueAmateurItemsByContentId(items: FanzaAmateurCatalogItem[]) {
     if (seen.has(item.content_id)) return false;
     seen.add(item.content_id);
     return true;
-  });
-}
-
-function hasActiveCampaign(item: FanzaAmateurCatalogItem, now: number) {
-  return item.campaigns.some((campaign) => {
-    const parseJst = (value: string) => {
-      if (!value) return Number.NaN;
-      const normalized = value.replace(" ", "T");
-      return Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(normalized) ? normalized : `${normalized}+09:00`);
-    };
-    const begins = parseJst(campaign.dateBegin);
-    const ends = parseJst(campaign.dateEnd);
-    return (!Number.isFinite(begins) || begins <= now) && (!Number.isFinite(ends) || ends >= now);
   });
 }
 
