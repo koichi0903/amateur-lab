@@ -63,8 +63,9 @@ assert.equal(isPostableOfficialSampleMovie({ ...officialSample, media_quality: "
 assert.equal(canTrimOfficialSampleMovie(officialSample).usable, false);
 assert.equal(canTrimOfficialSampleMovie({ ...officialSample, rights_status: "allowed", x_usage_allowed: true, can_reupload: true, quote_only: false, commercial_use_allowed: true }).usable, true);
 assert.equal(canTrimOfficialSampleMovie({ ...officialSample, fetch_status: "forbidden" }).usable, false);
-assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "forbidden", fetch_status_code: 403, mime_type: "text/html", content_length: 919 }).usable, true);
-assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "dead", fetch_status_code: 404 }).usable, true);
+// An official URL does not override a failed availability or MIME probe.
+assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "forbidden", fetch_status_code: 403, mime_type: "text/html", content_length: 919 }).usable, false);
+assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "dead", fetch_status_code: 404 }).usable, false);
 
 assert.equal(isOfficialFanzaDmmSampleUrl("https://cc3001.dmm.co.jp/litevideo/freepv/example.mp4"), true);
 assert.equal(isOfficialFanzaDmmSampleUrl("http://cc3001.dmm.co.jp/example.mp4"), false);
@@ -74,6 +75,19 @@ assert.equal(isOfficialFanzaDmmSampleUrl("https://user@cc3001.dmm.co.jp/example.
 assert.equal(isFanzaXGrowthTechnicalSampleMovie(officialSample).usable, true);
 assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "forbidden", fetch_status_code: 403, mime_type: "text/html", content_length: 0 }).usable, false);
 assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, source_url: "https://example.invalid/sample.mp4" }).usable, false);
+assert.deepEqual(isFanzaXGrowthTechnicalSampleMovie(null, null).reasons, [
+  "sample_movie_urlなし",
+  "technical probe未確認",
+  "HTTP status未確認",
+  "MIME未確認",
+]);
+assert.deepEqual(isFanzaXGrowthTechnicalSampleMovie({
+  source_url: "https://cc3001.dmm.co.jp/sample.mp4",
+  fetch_status: "ok",
+  fetch_status_code: 200,
+  mime_type: "text/html",
+  content_length: 0,
+}).reasons, ["MIME=text/html", "content-length不正"]);
 assert.equal(isPostableOfficialSampleMovie({ ...officialSample, fetch_status: "forbidden" }).usable, false);
 
 assert.deepEqual(validateTrimStartSeconds(0, 12), { ok: true, value: 0 });

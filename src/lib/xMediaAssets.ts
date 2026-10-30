@@ -115,17 +115,41 @@ export function isOfficialSampleMovieAsset(asset: Partial<XMediaAsset> | null | 
  * FANZA X Growth's media gate validates the official source and its latest
  * HTTP/MIME probe. Rights metadata remains separate for review and posting.
  */
+function officialSampleMovieUrlReasons(sourceUrl: string | null | undefined) {
+  if (!sourceUrl) return ["sample_movie_urlなし"];
+  return isOfficialFanzaDmmSampleUrl(sourceUrl) ? [] : ["HTTPSの公式FANZA/DMM sample_movie_urlではない"];
+}
+
+function fetchStatusReasons(asset: Partial<XMediaAsset> | null | undefined) {
+  if (asset?.fetch_status === "ok") return [];
+  return [asset?.fetch_status ? `HTTP取得状態=${asset.fetch_status}` : "technical probe未確認"];
+}
+
+function fetchStatusCodeReasons(asset: Partial<XMediaAsset> | null | undefined) {
+  if (asset?.fetch_status_code == null) return ["HTTP status未確認"];
+  if (asset.fetch_status_code < 200 || asset.fetch_status_code >= 300) return [`HTTP ${asset.fetch_status_code}`];
+  return [];
+}
+
+function mimeTypeReasons(mimeType: string | null | undefined) {
+  if (!mimeType) return ["MIME未確認"];
+  const normalizedMimeType = mimeType.toLowerCase().split(";", 1)[0].trim();
+  return normalizedMimeType.includes("video/mp4") ? [] : [`MIME=${mimeType}`];
+}
+
+function contentLengthReasons(contentLength: number | null | undefined) {
+  return contentLength != null && contentLength <= 0 ? ["content-length不正"] : [];
+}
+
 export function isFanzaXGrowthTechnicalSampleMovie(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null): XFanzaXGrowthTechnicalVerdict {
   const sourceUrl = sampleMovieUrl ?? asset?.source_url;
-  const reasons: string[] = [];
-  if (!sourceUrl) reasons.push("sample_movie_urlなし");
-  else if (!isOfficialFanzaDmmSampleUrl(sourceUrl)) reasons.push("HTTPSの公式FANZA/DMM sample_movie_urlではない");
-  if (asset?.fetch_status !== "ok") reasons.push(asset?.fetch_status ? `HTTP取得状態=${asset.fetch_status}` : "technical probe未確認");
-  if (asset?.fetch_status_code == null) reasons.push("HTTP status未確認");
-  else if (asset.fetch_status_code < 200 || asset.fetch_status_code >= 300) reasons.push(`HTTP ${asset.fetch_status_code}`);
-  if (!asset?.mime_type) reasons.push("MIME未確認");
-  else if (!asset.mime_type.toLowerCase().split(";", 1)[0].trim().includes("video/mp4")) reasons.push(`MIME=${asset.mime_type}`);
-  if (asset?.content_length != null && asset.content_length <= 0) reasons.push("content-length不正");
+  const reasons = [
+    ...officialSampleMovieUrlReasons(sourceUrl),
+    ...fetchStatusReasons(asset),
+    ...fetchStatusCodeReasons(asset),
+    ...mimeTypeReasons(asset?.mime_type),
+    ...contentLengthReasons(asset?.content_length),
+  ];
   return { usable: reasons.length === 0, reasons: [...new Set(reasons)] };
 }
 
