@@ -43,7 +43,6 @@ export default async function PriceInsightsPage() {
     buyTiming = (await getHomePriceInsights()).buyTiming;
   } catch (error) {
     console.warn("[price-insights] data is temporarily unavailable", error);
-    throw error;
   }
   const structuredItems = buyTiming.map((work) => ({
     name: work.title,

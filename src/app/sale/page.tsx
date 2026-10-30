@@ -84,7 +84,6 @@ export default async function SalePage({ searchParams }: { searchParams: Promise
   else query = query.order("realtime_rank", { ascending: true, nullsFirst: false }).order("review_count", { ascending: false, nullsFirst: false });
 
   const { data, count, error } = await query.range(offset, offset + PAGE_SIZE - 1);
-  if (error) throw new Error("Failed to load sale works.");
 
   const works = (data ?? []) as unknown as Work[];
   let saleInsights: HomePriceInsightWork[] = [];
@@ -129,7 +128,9 @@ export default async function SalePage({ searchParams }: { searchParams: Promise
         </section>
 
         <section className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
-          {works.length ? (
+          {error ? (
+            <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center font-black">セール作品を読み込めませんでした</div>
+          ) : works.length ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">{works.map((work) => <SaleCard key={work.id} work={work} insight={saleInsightsById.get(work.id)} />)}</div>
           ) : (
             <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><p className="font-black">現在掲載中のセール作品はありません</p></div>
