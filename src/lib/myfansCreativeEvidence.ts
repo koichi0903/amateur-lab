@@ -128,7 +128,15 @@ function addFallbackHumanObservationOptions(raw: string, mediaType: PublicCopyFa
 }
 
 export function humanObservationFromEvidence(analysis: QuoteVisualAnalysis | null, mediaType: PublicCopyFacts["visualContext"], variant = 0) {
-  const raw = normalizeVisualEvidence([
+  const raw = humanObservationEvidenceText(analysis);
+  if (!hasVerifiedHumanObservation(analysis, raw)) return "";
+  const options = humanObservationOptions(raw);
+  addFallbackHumanObservationOptions(raw, mediaType, options);
+  return options[variant % options.length] ?? "";
+}
+
+function humanObservationEvidenceText(analysis: QuoteVisualAnalysis | null) {
+  return normalizeVisualEvidence([
     analysis?.concreteObservation,
     analysis?.standoutMoment,
     analysis?.sceneSummary,
@@ -137,10 +145,10 @@ export function humanObservationFromEvidence(analysis: QuoteVisualAnalysis | nul
     analysis?.visibleChangeOrContrast,
     analysis?.motionCue,
   ].filter(Boolean).join(" / "));
-  if (!analysis || analysis.status !== "verified" || raw.length < 5) return "";
-  const options = humanObservationOptions(raw);
-  addFallbackHumanObservationOptions(raw, mediaType, options);
-  return options[variant % options.length] ?? "";
+}
+
+function hasVerifiedHumanObservation(analysis: QuoteVisualAnalysis | null, raw: string) {
+  return Boolean(analysis && analysis.status === "verified" && raw.length >= 5);
 }
 
 export function weakAttentionCue(text: string) {

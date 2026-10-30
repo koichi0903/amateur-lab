@@ -37,6 +37,18 @@ assert.equal(analysis.frameOrImageCount, 3);
 assert.equal(analysis.analyzerVersion, "fixture-v1");
 assert.equal(humanObservationFromEvidence(analysis, "video", 0), "白っぽい部屋で動き出すところが先に目に入る");
 assert.equal(humanObservationFromEvidence(analysis, "video", 1), "部屋の明るさと動き出しで、最初の数秒が軽く見える");
+assert.equal(humanObservationFromEvidence(null, "video"), "");
+assert.equal(humanObservationFromEvidence({ ...analysis, status: "partial" }, "video"), "");
+assert.equal(humanObservationFromEvidence({
+  ...analysis,
+  concreteObservation: "短い",
+  standoutMoment: "",
+  sceneSummary: "",
+  composition: "",
+  cameraDistanceOrFraming: "",
+  visibleChangeOrContrast: "",
+  motionCue: "",
+}, "video"), "");
 
 const understanding = visualUnderstandingFor({
   sourceText: "",
