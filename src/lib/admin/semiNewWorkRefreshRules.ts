@@ -7,16 +7,24 @@ export type SemiNewWorkRefreshAssessmentInput = {
   captureSampleMovie: boolean;
 };
 
+function requiresSemiNewWorkRefresh(
+  input: SemiNewWorkRefreshAssessmentInput,
+  isPriceChanged: boolean,
+) {
+  return (
+    input.isPending ||
+    input.isUnavailable ||
+    input.isMissingData ||
+    input.dbPrice == null ||
+    input.latestPrice == null ||
+    isPriceChanged ||
+    input.captureSampleMovie
+  );
+}
+
 export function assessSemiNewWorkRefresh(input: SemiNewWorkRefreshAssessmentInput) {
   const isPriceChanged = input.latestPrice != null && input.dbPrice !== input.latestPrice;
-  const shouldSkip =
-    !input.isPending &&
-    !input.isUnavailable &&
-    !input.isMissingData &&
-    input.dbPrice != null &&
-    input.latestPrice != null &&
-    !isPriceChanged &&
-    !input.captureSampleMovie;
+  const shouldSkip = !requiresSemiNewWorkRefresh(input, isPriceChanged);
   const reasons = [
     input.isPending ? "PENDING" : null,
     input.isUnavailable ? "UNAVAILABLE" : null,

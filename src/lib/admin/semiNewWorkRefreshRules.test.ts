@@ -29,3 +29,10 @@ test("reports price changes without requesting an unnecessary refresh", () => {
     reasons: ["PRICE_CHANGED"],
   });
 });
+
+test("refreshes when the stored price is missing", () => {
+  assert.deepEqual(assessSemiNewWorkRefresh({ ...base, dbPrice: null }), {
+    shouldSkip: false,
+    reasons: ["PRICE_CHANGED"],
+  });
+});
