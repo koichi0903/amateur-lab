@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { buildVisualVideoFacts } from "./xVisualVideoFacts";
-import { buildXCreativeVariants, finalNativeXVoiceGate, validateXCopyGrammar } from "./xCreativeEngine";
+import { buildXCreativeVariants, finalNativeXVoiceGate, validateXCopyGrammar, voiceArchetype } from "./xCreativeEngine";
 import { buildDecisionFacts } from "./domain/decisionFacts";
 import type { XPostLog } from "./xPostLogs";
 
@@ -30,6 +30,21 @@ const baseInput = {
   sourceType: "WORK" as const,
   visualFacts: buildVisualVideoFacts({ sampleMovieUrl: movieUrl, manualTags: ["scene_surprise"] }),
 };
+
+const voiceArchetypeCases = [
+  ["confession", "spontaneous_reaction"], ["missed", "spontaneous_reaction"],
+  ["surprise", "surprise_mismatch"], ["contrast", "surprise_mismatch"],
+  ["social_proof", "social_proof_light"], ["follow_up", "conversational"], ["question", "conversational"],
+  ["curation", "quiet_recommendation"], ["anti_obvious", "quiet_recommendation"],
+  ["hot_take", "changed_mind"], ["comparison", "dry_observation"], ["pattern_break", "dry_observation"],
+  ["empathy", "actress_fit"],
+] as const;
+for (const [direction, expected] of voiceArchetypeCases) {
+  assert.equal(voiceArchetype(direction, 0), expected);
+}
+assert.equal(voiceArchetype("curiosity", 0), "hidden_find");
+assert.equal(voiceArchetype("curiosity", 1), "price_reason");
+assert.equal(voiceArchetype("curiosity", 2), "spontaneous_reaction");
 
 const oldRepresentative = "冒頭の展開が予想と少し違う。\nサンプルの方が強いかどうか、そこまで見たい。";
 assert.equal(/見る|見て|迷|決め|止ま|流|拾|比べ|買|見送|気にな|刺さ|引っかか|伝わ/.test(oldRepresentative), false);

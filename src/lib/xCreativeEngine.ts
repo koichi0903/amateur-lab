@@ -29,6 +29,21 @@ const INTENTS: XGrowthIntent[] = ["REACH", "FOLLOW", "AUTHORITY", "MONEY"];
 
 type HookOpening = { direction: XHookDirection; opening: string; score: number };
 type HookOpeningContext = { subject: string | null; facts: string[]; fact: string; hasTrend: boolean; actress: string | null; topic: string; moneyReason: string; genre: string | undefined; discount: string };
+const VOICE_ARCHETYPE_BY_DIRECTION: Partial<Record<XHookDirection, XHumanVoiceArchetype>> = {
+  confession: "spontaneous_reaction",
+  missed: "spontaneous_reaction",
+  surprise: "surprise_mismatch",
+  contrast: "surprise_mismatch",
+  social_proof: "social_proof_light",
+  follow_up: "conversational",
+  question: "conversational",
+  curation: "quiet_recommendation",
+  anti_obvious: "quiet_recommendation",
+  hot_take: "changed_mind",
+  comparison: "dry_observation",
+  pattern_break: "dry_observation",
+  empathy: "actress_fit",
+};
 
 function hookOpeningContext(input: XCreativeInput): HookOpeningContext {
   const subject = hookSubject(input);
@@ -176,15 +191,9 @@ function voiceProof(input: XCreativeInput, intent: XGrowthIntent, direction: XHo
   return humanProofLine(input, intent);
 }
 
-function voiceArchetype(direction: XHookDirection, index: number): XHumanVoiceArchetype {
-  if (direction === "confession" || direction === "missed") return "spontaneous_reaction";
-  if (direction === "surprise" || direction === "contrast") return "surprise_mismatch";
-  if (direction === "social_proof") return "social_proof_light";
-  if (direction === "follow_up" || direction === "question") return "conversational";
-  if (direction === "curation" || direction === "anti_obvious") return "quiet_recommendation";
-  if (direction === "hot_take") return "changed_mind";
-  if (direction === "comparison" || direction === "pattern_break") return "dry_observation";
-  if (direction === "empathy") return "actress_fit";
+export function voiceArchetype(direction: XHookDirection, index: number): XHumanVoiceArchetype {
+  const directionArchetype = VOICE_ARCHETYPE_BY_DIRECTION[direction];
+  if (directionArchetype) return directionArchetype;
   if (index % 3 === 0) return "hidden_find";
   if (index % 3 === 1) return "price_reason";
   return "spontaneous_reaction";
