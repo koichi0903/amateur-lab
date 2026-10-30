@@ -148,6 +148,40 @@ function calculateFreshnessScore(releaseDate?: string | null) {
   return { releaseAgeDays, score };
 }
 
+function getQualityDiscoveryReasons(input: {
+  work: DiscoveryScoreWork;
+  reviewAverage: number;
+  reviewCount: number;
+}) {
+  return [
+    input.reviewAverage >= 4.2 && input.reviewCount >= 20
+      ? `評価${input.reviewAverage.toFixed(2)}・レビュー${input.reviewCount}件で品質指標が強い`
+      : null,
+    (input.work.score ?? 0) >= 80 ? `既存発掘スコア${Math.round(input.work.score ?? 0)}の有力作` : null,
+  ];
+}
+
+function getPriceDiscoveryReasons(input: {
+  buyTimingScore: number;
+  discountRate: number;
+  currentPrice: number | null;
+  lowestPrice: number | null;
+}) {
+  return [
+    input.buyTimingScore >= 75 ? `買い時スコア${input.buyTimingScore}で価格条件も強い` : null,
+    input.discountRate >= 30 ? `${input.discountRate}%OFFで割安感がある` : null,
+    input.currentPrice && input.lowestPrice && input.currentPrice <= input.lowestPrice
+      ? "過去最安値クラスまで下がっている"
+      : null,
+  ];
+}
+
+function getFunnelDiscoveryReason(funnel: BuyTimingFunnelStats) {
+  return funnel.pageViews >= MIN_RELIABLE_PAGE_VIEWS && funnel.adjustedCtr >= 5
+    ? `直近30日の補正CTRが${funnel.adjustedCtr}%`
+    : null;
+}
+
 function buildDiscoveryReasons(input: {
   work: DiscoveryScoreWork;
   ranking: number | null;
@@ -161,18 +195,9 @@ function buildDiscoveryReasons(input: {
 }) {
   return [
     input.ranking && input.ranking > 80 ? `ランキング${input.ranking}位で上位定番に埋もれている` : null,
-    input.reviewAverage >= 4.2 && input.reviewCount >= 20
-      ? `評価${input.reviewAverage.toFixed(2)}・レビュー${input.reviewCount}件で品質指標が強い`
-      : null,
-    (input.work.score ?? 0) >= 80 ? `既存発掘スコア${Math.round(input.work.score ?? 0)}の有力作` : null,
-    input.buyTimingScore >= 75 ? `買い時スコア${input.buyTimingScore}で価格条件も強い` : null,
-    input.discountRate >= 30 ? `${input.discountRate}%OFFで割安感がある` : null,
-    input.currentPrice && input.lowestPrice && input.currentPrice <= input.lowestPrice
-      ? "過去最安値クラスまで下がっている"
-      : null,
-    input.funnel.pageViews >= MIN_RELIABLE_PAGE_VIEWS && input.funnel.adjustedCtr >= 5
-      ? `直近30日の補正CTRが${input.funnel.adjustedCtr}%`
-      : null,
+    ...getQualityDiscoveryReasons(input),
+    ...getPriceDiscoveryReasons(input),
+    getFunnelDiscoveryReason(input.funnel),
   ].filter((reason): reason is string => Boolean(reason));
 }
 

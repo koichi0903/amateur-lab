@@ -64,3 +64,18 @@ test("sparse high-ranking items stay low-confidence comparison candidates", () =
   assert.equal(result.funnelConfidence, 0);
   assert.deepEqual(result.reasons, ["ランキング10位で再評価余地あり"]);
 });
+
+test("discovery reasons keep price and funnel evidence in their existing order", () => {
+  const result = calculateDiscoveryScore({
+    work: { id: 3, price: 50, list_price: 100, discount_rate: 30, lowest_price: 50 },
+    priceHistory: [],
+    buyTimingScore: 0,
+    funnel: { ...emptyFunnel, pageViews: 20, adjustedCtr: 5 },
+  });
+
+  assert.deepEqual(result.reasons, [
+    "50%OFFで割安感がある",
+    "過去最安値クラスまで下がっている",
+    "直近30日の補正CTRが5%",
+  ]);
+});
