@@ -22,8 +22,30 @@ export type FunnelStat = {
   ctr: number;
 };
 
+type FunnelEventCount = "pageViews" | "fanzaClicks";
+type FunnelEventRow = { work_id: number };
+
 const HISTORY_BATCH_SIZE = 20;
 const HISTORY_PAGE_SIZE = 1000;
+const CATEGORY_FUNNEL_WEIGHTS: Record<XPostCandidate["category"], number> = {
+  sales: 18,
+  hidden_gem: 14,
+  today_discovery: 14,
+  deal: 12,
+  today_buy: 12,
+  score: 8,
+  actress_best: 8,
+  genre_best: 8,
+  new: 5,
+  market_scan: 5,
+  comparison_pick: 5,
+  judgment_pick: 5,
+  review_gap: 5,
+  discovery_gap: 5,
+  maker_best: 5,
+  series_best: 5,
+};
+
 export function buildFunnelScore(
   work: CandidateWork,
   category: XPostCandidate["category"],
@@ -33,11 +55,22 @@ export function buildFunnelScore(
   const score = Math.max(0, work.score ?? 0);
   const reviewWeight = Math.min(Math.max(work.review_count ?? 0, 0), 200) / 20;
   const priceDropWeight = chart?.hadPriceDrop ? 18 : 0;
-  const categoryWeight = category === "sales" ? 18 : category === "hidden_gem" || category === "today_discovery" ? 14 : category === "deal" || category === "today_buy" ? 12 : category === "score" || category === "actress_best" || category === "genre_best" ? 8 : 5;
+  const categoryWeight = CATEGORY_FUNNEL_WEIGHTS[category];
   const ctrWeight = funnel.pageViews >= 3 ? Math.min(funnel.ctr * 1.8, 45) : 0;
   const clickWeight = Math.min(funnel.fanzaClicks * 6, 30);
   const explorationWeight = funnel.pageViews === 0 ? 6 : funnel.pageViews < 3 ? 3 : 0;
   return Math.round(score + reviewWeight + priceDropWeight + categoryWeight + ctrWeight + clickWeight + explorationWeight);
+}
+
+export function accumulateXWorkFunnelEvents(
+  stats: Map<number, FunnelStat>,
+  rows: readonly FunnelEventRow[],
+  count: FunnelEventCount,
+) {
+  for (const row of rows) {
+    const current = stats.get(row.work_id);
+    if (current) current[count] += 1;
+  }
 }
 
 export async function fetchXWorkFunnels(workIds: number[]) {
@@ -66,19 +99,8 @@ export async function fetchXWorkFunnels(workIds: number[]) {
   const stats = new Map<number, FunnelStat>();
   for (const id of uniqueIds) stats.set(id, { pageViews: 0, fanzaClicks: 0, ctr: 0 });
 
-  if (!viewResult.error) {
-    for (const row of (viewResult.data ?? []) as Array<{ work_id: number }>) {
-      const current = stats.get(row.work_id);
-      if (current) current.pageViews += 1;
-    }
-  }
-
-  if (!clickResult.error) {
-    for (const row of (clickResult.data ?? []) as Array<{ work_id: number }>) {
-      const current = stats.get(row.work_id);
-      if (current) current.fanzaClicks += 1;
-    }
-  }
+  if (!viewResult.error) accumulateXWorkFunnelEvents(stats, (viewResult.data ?? []) as Array<{ work_id: number }>, "pageViews");
+  if (!clickResult.error) accumulateXWorkFunnelEvents(stats, (clickResult.data ?? []) as Array<{ work_id: number }>, "fanzaClicks");
 
   for (const current of stats.values()) {
     current.ctr = current.pageViews > 0
