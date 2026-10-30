@@ -59,6 +59,11 @@ export type DecisionFactEligibilityReason =
   | "review_count_below_threshold"
   | "higher_priority_decision_type";
 
+type DecisionFactEligibilityInput = Pick<
+  DecisionFactInput,
+  "currentPrice" | "recordedLowestPrice" | "isOnSale" | "discountRate" | "ranking" | "reviewAverage" | "reviewCount"
+>;
+
 type ObservedPriceFacts = {
   comparable: boolean;
   currentPrice: number | null;
@@ -126,20 +131,28 @@ function rankingEvidence(input: DecisionFactInput): DecisionFacts["ranking"] {
 }
 
 export function decisionFactEligibilityReason(
-  input: Pick<DecisionFactInput, "currentPrice" | "recordedLowestPrice" | "isOnSale" | "discountRate" | "ranking" | "reviewAverage" | "reviewCount">,
+  input: DecisionFactEligibilityInput,
   decisionType: Exclude<DecisionType, "UNKNOWN">,
 ): DecisionFactEligibilityReason | null {
   if (input.currentPrice == null) return "missing_current_price";
-  if (decisionType === "RECORD_LOW") {
-    if (input.recordedLowestPrice == null || input.recordedLowestPrice <= 0) return "missing_recorded_low";
-    return input.currentPrice === input.recordedLowestPrice ? null : "current_is_record_low";
-  }
+  if (decisionType === "RECORD_LOW") return recordLowEligibilityReason(input, input.currentPrice);
   if (!input.isOnSale) return "not_on_sale";
-  if (decisionType === "HIGH_DISCOUNT_NOT_LOW") {
-    if ((input.discountRate ?? -1) < HIGH_DISCOUNT_THRESHOLD) return "discount_below_threshold";
-    if (input.recordedLowestPrice == null || input.recordedLowestPrice <= 0) return "missing_recorded_low";
-    return input.currentPrice > input.recordedLowestPrice ? null : "current_is_record_low";
-  }
+  if (decisionType === "HIGH_DISCOUNT_NOT_LOW") return highDiscountEligibilityReason(input, input.currentPrice);
+  return hiddenValueEligibilityReason(input);
+}
+
+function recordLowEligibilityReason(input: DecisionFactEligibilityInput, currentPrice: number) {
+  if (input.recordedLowestPrice == null || input.recordedLowestPrice <= 0) return "missing_recorded_low";
+  return currentPrice === input.recordedLowestPrice ? null : "current_is_record_low";
+}
+
+function highDiscountEligibilityReason(input: DecisionFactEligibilityInput, currentPrice: number) {
+  if ((input.discountRate ?? -1) < HIGH_DISCOUNT_THRESHOLD) return "discount_below_threshold";
+  if (input.recordedLowestPrice == null || input.recordedLowestPrice <= 0) return "missing_recorded_low";
+  return currentPrice > input.recordedLowestPrice ? null : "current_is_record_low";
+}
+
+function hiddenValueEligibilityReason(input: DecisionFactEligibilityInput) {
   if ((input.discountRate ?? -1) < HIDDEN_VALUE_MIN_DISCOUNT) return "discount_below_threshold";
   if (!isRankingOutsideOrUnknown(input.ranking)) return "ranking_not_outside";
   if ((input.reviewAverage ?? -Infinity) < HIDDEN_VALUE_MIN_REVIEW_AVERAGE) return "review_average_below_threshold";
@@ -172,18 +185,32 @@ export function buildDecisionFacts(input: DecisionFactInput): DecisionFacts {
   };
 }
 
+function formatYen(value: number) {
+  return `${value.toLocaleString("ja-JP")}円`;
+}
+
+function recordLowProofLine(facts: DecisionFacts) {
+  if (facts.currentPrice == null) return "";
+  const discount = facts.discountRate != null && facts.discountRate > 0 ? ` / ${facts.discountRate}%OFF` : "";
+  return `発掘LABの記録上の最安値。現在${formatYen(facts.currentPrice)}${discount}`;
+}
+
+function highDiscountProofLine(facts: DecisionFacts) {
+  const { currentPrice, recordedLowestPrice, differenceFromLowest } = facts;
+  if (currentPrice == null || recordedLowestPrice == null || differenceFromLowest == null) return "";
+  return `${facts.discountRate ?? 0}%OFFでも記録上の最安値ではありません。現在${formatYen(currentPrice)}、記録最安${formatYen(recordedLowestPrice)}より${formatYen(differenceFromLowest)}高い`;
+}
+
+function hiddenValueProofLine(facts: DecisionFacts) {
+  const { currentPrice, review } = facts;
+  if (currentPrice == null || review.average == null || review.count == null) return "";
+  const discount = facts.discountRate != null && facts.discountRate > 0 ? ` / ${facts.discountRate}%OFF` : "";
+  return `ランキング外。評価${review.average.toFixed(1)} / レビュー${review.count}件 / 現在${formatYen(currentPrice)}${discount}`;
+}
+
 export function decisionFactProofLine(facts: DecisionFacts) {
-  const yen = (value: number | null) => value == null ? null : `${value.toLocaleString("ja-JP")}円`;
-  if (facts.decisionType === "RECORD_LOW" && facts.currentPrice != null) {
-    const discount = facts.discountRate != null && facts.discountRate > 0 ? ` / ${facts.discountRate}%OFF` : "";
-    return `発掘LABの記録上の最安値。現在${yen(facts.currentPrice)}${discount}`;
-  }
-  if (facts.decisionType === "HIGH_DISCOUNT_NOT_LOW" && facts.currentPrice != null && facts.recordedLowestPrice != null && facts.differenceFromLowest != null) {
-    return `${facts.discountRate ?? 0}%OFFでも記録上の最安値ではありません。現在${yen(facts.currentPrice)}、記録最安${yen(facts.recordedLowestPrice)}より${yen(facts.differenceFromLowest)}高い`;
-  }
-  if (facts.decisionType === "HIDDEN_VALUE" && facts.currentPrice != null && facts.review.average != null && facts.review.count != null) {
-    const discount = facts.discountRate != null && facts.discountRate > 0 ? ` / ${facts.discountRate}%OFF` : "";
-    return `ランキング外。評価${facts.review.average.toFixed(1)} / レビュー${facts.review.count}件 / 現在${yen(facts.currentPrice)}${discount}`;
-  }
+  if (facts.decisionType === "RECORD_LOW") return recordLowProofLine(facts);
+  if (facts.decisionType === "HIGH_DISCOUNT_NOT_LOW") return highDiscountProofLine(facts);
+  if (facts.decisionType === "HIDDEN_VALUE") return hiddenValueProofLine(facts);
   return "";
 }
