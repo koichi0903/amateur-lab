@@ -77,6 +77,56 @@ test("insert record preserves genre filtering, display text, score fields, and p
   assert.equal(record.sale_price, 400);
   assert.equal(record.list_price, 800);
   assert.equal(record.discount_rate, 50);
+  assert.equal(record.title, "作品タイトル");
+  assert.equal(record.product_id, "sample-001");
+  assert.equal(record.release_date, "2026-10-01");
   assert.equal(record.image_url, "https://example.test/large.jpg");
+  assert.equal(record.affiliate_url, "https://al.fanza.co.jp/?af_id=example");
+  assert.equal(record.url, "https://video.dmm.co.jp/amateur/content/sample-001/");
+  assert.equal(record.maker, "Studio");
+  assert.equal(record.series, "Series");
   assert.equal(record.stage, "OLD");
+});
+
+test("insert record preserves identity fallbacks for sparse source data", () => {
+  const sparseItem: DmmItem = {
+    ...item,
+    content_id: "",
+    date: "",
+    URL: "",
+    affiliateURL: "",
+    imageURL: { list: "https://example.test/list-only.jpg" },
+    iteminfo: {
+      actress: [],
+      genre: [],
+      maker: [],
+      series: [],
+    },
+  };
+  const entityScores = { actressScore: 0, genreScore: 0, makerScore: 0, seriesScore: 0 };
+  const score: DmmItemScore = {
+    score: 0,
+    actressPoint: 0,
+    genrePoint: 0,
+    reviewPoint: 0,
+    reviewCountPoint: 0,
+    discountPoint: 0,
+    popularityPoint: 0,
+    makerPoint: 0,
+    seriesPoint: 0,
+    newReleaseBonus: 0,
+    longHitPoint: 0,
+    decisionSupportPoint: 0,
+  };
+
+  const record = createDmmItemInsertRecord(sparseItem, "OLD", entityScores, score);
+
+  assert.equal(record.actress, "");
+  assert.equal(record.image_url, "https://example.test/list-only.jpg");
+  assert.equal(record.affiliate_url, "");
+  assert.equal(record.url, "");
+  assert.equal(record.product_id, "");
+  assert.equal(record.release_date, null);
+  assert.equal(record.maker, "");
+  assert.equal(record.series, "");
 });

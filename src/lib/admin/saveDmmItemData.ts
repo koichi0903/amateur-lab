@@ -122,13 +122,37 @@ function createDmmItemGenreFields(item: DmmItem, score: number) {
 
 function createDmmItemIdentityFields(item: DmmItem) {
   return {
-    title: item.title,
+    ...createDmmItemMediaIdentityFields(item),
+    ...createDmmItemLinkIdentityFields(item),
+    ...createDmmItemCatalogIdentityFields(item),
+    ...createDmmItemEntityIdentityFields(item),
+  };
+}
+
+function createDmmItemMediaIdentityFields(item: DmmItem) {
+  return {
     actress: formatDmmActresses(item) ?? "",
     image_url: item.imageURL?.large || item.imageURL?.list || "",
+  };
+}
+
+function createDmmItemLinkIdentityFields(item: DmmItem) {
+  return {
     affiliate_url: item.affiliateURL || "",
     url: item.URL || "",
+  };
+}
+
+function createDmmItemCatalogIdentityFields(item: DmmItem) {
+  return {
+    title: item.title,
     product_id: item.content_id || "",
     release_date: item.date || null,
+  };
+}
+
+function createDmmItemEntityIdentityFields(item: DmmItem) {
+  return {
     maker: item.iteminfo?.maker?.[0]?.name || "",
     series: item.iteminfo?.series?.[0]?.name || "",
   };
