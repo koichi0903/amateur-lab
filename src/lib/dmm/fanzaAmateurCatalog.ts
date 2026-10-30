@@ -2,6 +2,7 @@ import "server-only";
 
 import { unstable_cache } from "next/cache";
 import { buildFanzaAmateurAffiliateUrl, getFanzaAmateurAffiliateId as getAmateurAffiliateId } from "@/lib/dmm/fanzaAmateurAffiliate";
+import { projectFanzaAmateurActressWorkRow, type FanzaAmateurActressWorkRow } from "@/lib/dmm/fanzaAmateurActressWorkProjection";
 import {
   buildFanzaAmateurBrowseCriteria,
   hasActiveCampaign,
@@ -14,6 +15,7 @@ import {
   type RankedFanzaAmateurItem,
 } from "@/lib/dmm/fanzaAmateurCatalogBrowseRules";
 import { requiresFullFanzaAmateurBrowseScan, sortStandardFanzaAmateurBrowseItems } from "@/lib/dmm/fanzaAmateurBrowseProjection";
+import { mergeCatalogDetailPriceHistory, mergeStoredCatalogMedia } from "@/lib/dmm/fanzaAmateurCatalogDetailProjection";
 import {
   asText,
   isRecord,
@@ -190,25 +192,7 @@ async function loadFanzaAmateurCatalogWork(contentId: string) {
   const item = normalizeFanzaAmateurCatalogItem(data.raw_item);
   if (!item) return null;
 
-    const savedImages = isRecord(data.image_url) ? data.image_url : {};
-    item.imageURL = {
-      ...(item.imageURL ?? {}),
-      large: asText(savedImages.large) || item.imageURL?.large,
-      small: asText(savedImages.small) || item.imageURL?.small,
-      list: asText(savedImages.list) || item.imageURL?.list,
-    };
-    const savedSamples = isRecord(data.sample_image_url) ? data.sample_image_url : {};
-    const savedLargeSamples = isRecord(savedSamples.sample_l) ? savedSamples.sample_l : {};
-    const savedSmallSamples = isRecord(savedSamples.sample_s) ? savedSamples.sample_s : {};
-    const savedLargeSampleImages = Array.isArray(savedLargeSamples.image) ? savedLargeSamples.image.filter((url): url is string => typeof url === "string") : [];
-    const savedSmallSampleImages = Array.isArray(savedSmallSamples.image) ? savedSmallSamples.image.filter((url): url is string => typeof url === "string") : [];
-    if (savedLargeSampleImages.length || savedSmallSampleImages.length) {
-      item.sampleImageURL = {
-        ...(item.sampleImageURL ?? {}),
-        sample_l: savedLargeSampleImages.length ? { image: savedLargeSampleImages } : item.sampleImageURL?.sample_l,
-        sample_s: savedSmallSampleImages.length ? { image: savedSmallSampleImages } : item.sampleImageURL?.sample_s,
-      };
-    }
+  const itemWithSavedMedia = mergeStoredCatalogMedia(item, data.image_url, data.sample_image_url);
 
   const historyCutoffDate = new Date();
   historyCutoffDate.setUTCFullYear(historyCutoffDate.getUTCFullYear() - 1);
@@ -224,20 +208,11 @@ async function loadFanzaAmateurCatalogWork(contentId: string) {
       .limit(60),
   ]);
   if (weeklySnapshots.error) throw new Error(`素人作品の週次価格履歴を読み込めませんでした: ${weeklySnapshots.error.message}`);
-  const historyByTimestampAndType = new Map<string, FanzaAmateurPriceHistoryRow>();
-  for (const row of weeklySnapshots.data ?? []) {
-    const expanded = expandFanzaAmateurPriceSnapshotRows(row as FanzaAmateurPriceSnapshotRow);
-    for (const entry of expanded) historyByTimestampAndType.set(`${entry.observed_at}\u0000${entry.price_type}`, entry);
-  }
-  for (const row of history) {
-    const entry = row;
-    historyByTimestampAndType.set(`${entry.observed_at}\u0000${entry.price_type}`, entry);
-  }
-  const priceHistory = [...historyByTimestampAndType.values()]
-    .sort((a, b) => b.observed_at.localeCompare(a.observed_at) || a.price_type.localeCompare(b.price_type));
+  const snapshots = (weeklySnapshots.data ?? []) as FanzaAmateurPriceSnapshotRow[];
+  const priceHistory = mergeCatalogDetailPriceHistory(history, snapshots, expandFanzaAmateurPriceSnapshotRows);
 
   return {
-    item,
+    item: itemWithSavedMedia,
     fetchedAt: data.fetched_at as string,
     mp4Url: asText(data.mp4_url) || null,
     priceHistory: priceHistory as FanzaAmateurPriceHistoryEntry[],
@@ -343,15 +318,6 @@ export async function getFanzaAmateurActressIndex({ query, sort, page }: { query
   };
 }
 
-type AmateurActressWorkRow = {
-  raw_item: unknown;
-  fetched_at: string;
-  image_url: unknown;
-  sample_image_url: unknown;
-  confirmed_performers: string[] | null;
-  total_count: number | string;
-};
-
 export async function getFanzaAmateurActressWorks({ name, page = 1, pageSize = 60, sort = "newest" }: {
   name: string;
   page?: number;
@@ -368,32 +334,9 @@ export async function getFanzaAmateurActressWorks({ name, page = 1, pageSize = 6
   });
   if (error) throw new Error(`素人出演作品を読み込めませんでした: ${error.message}`);
 
-  const rows = (data ?? []) as AmateurActressWorkRow[];
-  const items = rows.flatMap((row) => {
-    const item = normalizeFanzaAmateurCatalogItem(row.raw_item);
-    if (!item) return [];
-    const savedImages = isRecord(row.image_url) ? row.image_url : {};
-    item.imageURL = {
-      ...(item.imageURL ?? {}),
-      large: asText(savedImages.large) || item.imageURL?.large,
-      small: asText(savedImages.small) || item.imageURL?.small,
-      list: asText(savedImages.list) || item.imageURL?.list,
-    };
-    const savedSamples = isRecord(row.sample_image_url) ? row.sample_image_url : {};
-    const savedLargeSamples = isRecord(savedSamples.sample_l) ? savedSamples.sample_l : {};
-    const savedSmallSamples = isRecord(savedSamples.sample_s) ? savedSamples.sample_s : {};
-    const largeSampleImages = Array.isArray(savedLargeSamples.image) ? savedLargeSamples.image.filter((url): url is string => typeof url === "string") : [];
-    const smallSampleImages = Array.isArray(savedSmallSamples.image) ? savedSmallSamples.image.filter((url): url is string => typeof url === "string") : [];
-    if (largeSampleImages.length || smallSampleImages.length) {
-      item.sampleImageURL = {
-        ...(item.sampleImageURL ?? {}),
-        sample_l: largeSampleImages.length ? { image: largeSampleImages } : item.sampleImageURL?.sample_l,
-        sample_s: smallSampleImages.length ? { image: smallSampleImages } : item.sampleImageURL?.sample_s,
-      };
-    }
-    item.confirmedPerformers = row.confirmed_performers ?? [];
-    return [{ item, fetchedAt: row.fetched_at }];
-  });
+  const rows = (data ?? []) as FanzaAmateurActressWorkRow[];
+  const projectedRows = rows.map((row) => projectFanzaAmateurActressWorkRow(row, normalizeFanzaAmateurCatalogItem));
+  const items = projectedRows.filter((row): row is NonNullable<typeof row> => row !== null);
   const totalCount = Number(rows[0]?.total_count ?? 0);
   const contentIds = items.map(({ item }) => item.content_id);
   const priceWindowEndAt = new Date().toISOString();
@@ -562,25 +505,9 @@ async function loadFanzaAmateurHomeSections() {
   for (const { item } of allCards) {
     const saved = mediaByContentId.get(item.content_id);
     if (!saved) continue;
-    const savedImages = isRecord(saved.image_url) ? saved.image_url : {};
-    item.imageURL = {
-      ...(item.imageURL ?? {}),
-      large: asText(savedImages.large) || item.imageURL?.large,
-      small: asText(savedImages.small) || item.imageURL?.small,
-      list: asText(savedImages.list) || item.imageURL?.list,
-    };
-    const savedSamples = isRecord(saved.sample_image_url) ? saved.sample_image_url : {};
-    const savedLargeSamples = isRecord(savedSamples.sample_l) ? savedSamples.sample_l : {};
-    const savedSmallSamples = isRecord(savedSamples.sample_s) ? savedSamples.sample_s : {};
-    const largeSampleImages = Array.isArray(savedLargeSamples.image) ? savedLargeSamples.image.filter((url): url is string => typeof url === "string") : [];
-    const smallSampleImages = Array.isArray(savedSmallSamples.image) ? savedSmallSamples.image.filter((url): url is string => typeof url === "string") : [];
-    if (largeSampleImages.length || smallSampleImages.length) {
-      item.sampleImageURL = {
-        ...(item.sampleImageURL ?? {}),
-        sample_l: largeSampleImages.length ? { image: largeSampleImages } : item.sampleImageURL?.sample_l,
-        sample_s: smallSampleImages.length ? { image: smallSampleImages } : item.sampleImageURL?.sample_s,
-      };
-    }
+    const mergedMedia = mergeStoredCatalogMedia(item, saved.image_url, saved.sample_image_url);
+    item.imageURL = mergedMedia.imageURL;
+    item.sampleImageURL = mergedMedia.sampleImageURL;
   }
 
   const histories = await loadAmateurSummaryPriceHistory(contentIds, windowStartAt);
