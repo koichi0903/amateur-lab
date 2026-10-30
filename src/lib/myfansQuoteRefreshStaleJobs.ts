@@ -1,62 +1,37 @@
 import { auditStaleJobFinalized } from "@/lib/myfansQuoteRefreshAudit";
 import { MYFANS_COLLECTION_KEY } from "@/lib/myfansCollectionRotation";
 import {
-  isProtectedQuoteRefreshRun,
   isStaleQuoteRefreshJob,
   STALE_QUOTE_REFRESH_ITEM_AGE_MS,
   staleQuoteRefreshCleanupPreview,
   type QuoteRefreshLifecycleItem,
   type QuoteRefreshStaleJob,
 } from "@/lib/myfansQuoteRefreshLifecycle";
+import {
+  buildStaleJobAuditMetadata,
+  buildStaleJobCancellationPatch,
+  buildStaleJobItemPatch,
+  type ProtectedQuoteRefreshRunIdentity,
+  type QuoteRefreshCursorSnapshot,
+} from "@/lib/myfansQuoteRefreshStaleJobFinalization";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const STALE_JOB_CLEANUP_REASON = "STALE_JOB_FINALIZED: Companion runの進行が長時間更新されなかったためexecution lifecycleのみ終了しました。rotation eligibilityとcursorは保持されています。";
 const LEGACY_JOB_RECONCILED_REASON = "LEGACY_JOB_RECONCILED: 旧Companion sessionのjobは自動再開しません。";
-type ProtectedRunIdentity = { jobId?: number | null; sessionId?: string | null; runToken?: string | null; collectorVersion?: string | null };
 
 async function finalizeStaleActiveJob(
   job: QuoteRefreshStaleJob,
   items: QuoteRefreshLifecycleItem[],
-  cursor: { cursor_order: number | null; cycle_no: number | null } | null,
-  protectedIdentity?: ProtectedRunIdentity,
+  cursor: QuoteRefreshCursorSnapshot,
+  protectedIdentity?: ProtectedQuoteRefreshRunIdentity,
 ) {
   if (!isStaleQuoteRefreshJob(job, items, Date.now(), protectedIdentity)) return null;
   const preview = staleQuoteRefreshCleanupPreview(job, items, STALE_JOB_CLEANUP_REASON);
   if (!preview.changed) return null;
   const now = new Date().toISOString();
-  const auditMetadata = {
-    reason: STALE_JOB_CLEANUP_REASON,
-    prior_status: job.status,
-    final_status: "cancelled",
-    cursor_before_order: cursor?.cursor_order ?? job.cursor_after_order ?? 0,
-    cursor_after_order: cursor?.cursor_order ?? job.cursor_after_order ?? 0,
-    job_cursor_before_order: job.cursor_before_order ?? null,
-    job_cursor_after_order: job.cursor_after_order ?? null,
-    cursor_unchanged: true,
-    cycle_no: job.collection_cycle_no ?? cursor?.cycle_no ?? 1,
-    cycle_completed: job.cycle_completed ?? false,
-    pending_count: preview.pendingCount,
-    rotation_eligibility_preserved: true,
-    protected_run: isProtectedQuoteRefreshRun(job, protectedIdentity),
-  };
   // Persist the proof before terminalizing the job so an audit failure cannot be reported as a successful cleanup.
-  await auditStaleJobFinalized(job.id, auditMetadata);
-  const itemPatch = {
-    status: "skipped",
-    error: STALE_JOB_CLEANUP_REASON,
-    processed_at: now,
-    finished_at: now,
-    request_type: "quote_scan",
-    result_code: "STALE_JOB_CANCELLED",
-    http_status: 200,
-    diagnostics: { rotation_eligibility_preserved: true },
-    collection_state: "CANCELLED",
-    collection_evidence: {
-      final_collection_state: "CANCELLED",
-      final_error: STALE_JOB_CLEANUP_REASON,
-      rotation_eligibility_preserved: true,
-    },
-  };
+  await auditStaleJobFinalized(job.id, buildStaleJobAuditMetadata(job, cursor, preview, STALE_JOB_CLEANUP_REASON, protectedIdentity));
+  const itemPatch = buildStaleJobItemPatch(STALE_JOB_CLEANUP_REASON, now);
   const { error: pendingError } = await supabaseAdmin
     .from("myfans_quote_refresh_job_items")
     .update(itemPatch)
@@ -72,7 +47,7 @@ async function finalizeStaleActiveJob(
   if (runningError) throw runningError;
   const { data: finalizedJob, error: jobError } = await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
-    .update({ status: "cancelled", completed_at: now, last_error: STALE_JOB_CLEANUP_REASON })
+    .update(buildStaleJobCancellationPatch(STALE_JOB_CLEANUP_REASON, now))
     .eq("id", job.id)
     .in("status", ["pending", "running"])
     .select("id")
@@ -106,7 +81,7 @@ export async function reconcileLegacyActiveJobs() {
 }
 
 export async function reconcileStaleActiveJobs(
-  protectedIdentity?: ProtectedRunIdentity,
+  protectedIdentity?: ProtectedQuoteRefreshRunIdentity,
 ) {
   const { data: jobs, error } = await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
