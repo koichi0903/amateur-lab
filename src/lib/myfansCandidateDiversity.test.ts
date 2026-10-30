@@ -73,4 +73,34 @@ const averageGuard = evaluateMyfansCandidateDiversity(makeCandidate({ quality: {
 assert.equal(averageGuard.quality.verdict, "HOLD");
 assert.deepEqual(averageGuard.quality.reasons, ["日次平均Quality 90未満になるためHOLD"]);
 
+const product = { id: 1 } as NonNullable<MyfansCandidateForDiversity["product"]>;
+const productScopedCandidate = makeCandidate({ product });
+const duplicateProductResult = evaluateMyfansCandidateDiversity(productScopedCandidate, makeContext({
+  publishableCandidates: [makeCandidate({ product })],
+}));
+assert.ok(duplicateProductResult.quality.reasons.includes("同じproductは日次planで1回までです"));
+
+const quoteCandidate = makeCandidate({
+  product,
+  creativeStrategy: "quote_post",
+  quoteXUrl: "https://x.com/creator/status/20",
+  topicIdentity: "quote:post-20",
+  sourceSpecificityScore: 60,
+});
+const quoteProductException = evaluateMyfansCandidateDiversity(quoteCandidate, makeContext({
+  publishableCandidates: [makeCandidate({ product, dailyRole: "REVENUE" })],
+}));
+assert.equal(quoteProductException.quality.verdict, "PASS");
+
+const cappedReason = "clear_comparison" as const;
+const cappedCandidate = makeCandidate({ product, reasonToCare: cappedReason });
+const cappedResult = evaluateMyfansCandidateDiversity(cappedCandidate, makeContext({
+  acceptedCreatorCounts: new Map([["creator:1", 4]]),
+  acceptedReasonCounts: new Map([[cappedReason, 3]]),
+}));
+assert.deepEqual(cappedResult.quality.reasons, [
+  "同じcreatorは日次planで最大4本までです",
+  "同じreason_to_care clear_comparison は最大3本までです",
+]);
+
 console.log("myfansCandidateDiversity tests passed");

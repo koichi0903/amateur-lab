@@ -100,13 +100,19 @@ function acceptedCopyHoldReasons(candidate: Candidate, context: Context) {
   return reasons;
 }
 
-function productPlanHoldReasons(candidate: Candidate, context: Context) {
-  const reasons: string[] = [];
+function hasDuplicateProductInPlan(candidate: Candidate, context: Context) {
   const quoteSourcedTopic = Boolean(candidate.sourceXUrl && candidate.topicIdentity.startsWith("quote:"));
   const productScopedPost = candidate.dailyRole === "REVENUE" || (candidate.creativeStrategy !== "quote_post" && !quoteSourcedTopic);
-  if (productScopedPost && candidate.product?.id && context.publishableCandidates.some((item) => item.product?.id === candidate.product?.id && (item.dailyRole === "REVENUE" || item.creativeStrategy !== "quote_post"))) {
-    reasons.push("同じproductは日次planで1回までです");
-  }
+  if (!productScopedPost || !candidate.product?.id) return false;
+  return context.publishableCandidates.some((item) =>
+    item.product?.id === candidate.product?.id &&
+    (item.dailyRole === "REVENUE" || item.creativeStrategy !== "quote_post")
+  );
+}
+
+function productPlanHoldReasons(candidate: Candidate, context: Context) {
+  const reasons: string[] = [];
+  if (hasDuplicateProductInPlan(candidate, context)) reasons.push("同じproductは日次planで1回までです");
   const creatorKeyForCandidate = context.creatorKeyForCandidateSource(candidate);
   if (creatorKeyForCandidate && (context.acceptedCreatorCounts.get(creatorKeyForCandidate) ?? 0) >= 4) {
     reasons.push("同じcreatorは日次planで最大4本までです");
