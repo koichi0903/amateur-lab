@@ -99,6 +99,36 @@ export async function updateEndedSaleWorks() {
     return (data ?? []) as EndedSaleTarget[];
   };
 
+  const loadRemainingTargets = async () => {
+    const targets: EndedSaleTarget[] = [];
+    let afterProductId: string | null = null;
+    while (true) {
+      let query = supabase
+        .from("works")
+        .select("product_id, sale_end_at, is_on_sale, playwright_status")
+        .not("sale_end_at", "is", null)
+        .eq("is_on_sale", true)
+        .lte("sale_end_at", now)
+        .order("product_id")
+        .limit(ENDED_SALE_MAX_TARGETS_PER_RUN);
+
+      if (afterProductId !== null) query = query.gt("product_id", afterProductId);
+
+      const { data, error } = await query;
+      if (error) throw error;
+      const page = (data ?? []) as EndedSaleTarget[];
+      if (page.length === 0) break;
+
+      const nextProductId = page.at(-1)?.product_id;
+      if (!nextProductId || nextProductId === afterProductId) {
+        throw new Error("終了セール更新の残件ページングカーソルが進みませんでした");
+      }
+      targets.push(...page);
+      afterProductId = nextProductId;
+    }
+    return targets;
+  };
+
   const processPage = async (page: EndedSaleTarget[]) => {
     for (let index = 0; index < page.length; index += UPDATE_CONFIG.parallel) {
       if (Date.now() - runStartedAt >= ENDED_SALE_RUN_TIME_BUDGET_MS) {
@@ -186,38 +216,11 @@ export async function updateEndedSaleWorks() {
       );
     }
 
-    const remainingTargets: EndedSaleTarget[] = [];
-    let remainingAfterProductId: string | null = null;
-    while (true) {
-      let remainingQuery = supabase
-        .from("works")
-        .select("product_id, sale_end_at, is_on_sale, playwright_status")
-        .not("sale_end_at", "is", null)
-        .eq("is_on_sale", true)
-        .lte("sale_end_at", now)
-        .order("product_id")
-        .limit(ENDED_SALE_MAX_TARGETS_PER_RUN);
-
-      if (remainingAfterProductId !== null) {
-        remainingQuery = remainingQuery.gt("product_id", remainingAfterProductId);
-      }
-
-      const { data, error } = await remainingQuery;
-      if (error) throw error;
-      const page = (data ?? []) as EndedSaleTarget[];
-      if (page.length === 0) break;
-
-      const nextProductId = page.at(-1)?.product_id;
-      if (!nextProductId || nextProductId === remainingAfterProductId) {
-        throw new Error("終了セール更新の残件ページングカーソルが進みませんでした");
-      }
-      remainingTargets.push(...page);
-      remainingAfterProductId = nextProductId;
-    }
-
-    const { deferred: remainingDeferred, fatal } = classifyEndedSaleRemaining(
-      remainingTargets,
-      processedProductIds,
+    let remainingTargets = await loadRemainingTargets();
+    let classification = classifyEndedSaleRemaining(remainingTargets, processedProductIds);
+    let { deferred: remainingDeferred, fatal } = classification;
+    let deferredRetryTargets = remainingTargets.filter((target) =>
+      remainingDeferred.some((deferredTarget) => deferredTarget.product_id === target.product_id),
     );
     if (fatal.length > 0) {
       throw new Error(
@@ -226,8 +229,58 @@ export async function updateEndedSaleWorks() {
       );
     }
 
+    if (
+      remainingDeferred.length > 0 &&
+      Date.now() - runStartedAt < ENDED_SALE_RUN_TIME_BUDGET_MS - 15_000
+    ) {
+      console.log(`価格を取得できなかった${remainingDeferred.length}件を同じ実行内で一度だけ再試行します`);
+      try {
+        await closeBrowser(browser);
+        browser = await createBrowser();
+        for (let index = 0; index < deferredRetryTargets.length; index += UPDATE_CONFIG.parallel) {
+          if (Date.now() - runStartedAt >= ENDED_SALE_RUN_TIME_BUDGET_MS - 15_000) {
+            console.warn("実行時間上限が近いため、残りの価格再試行を次回に回します");
+            break;
+          }
+          const batch = deferredRetryTargets.slice(index, index + UPDATE_CONFIG.parallel);
+          const results = await updateBatch(batch, browser);
+          const successfulResults = results.filter(
+            (result): result is Extract<typeof result, { result: unknown }> => "result" in result,
+          );
+          const retrySummary = summarizeEndedSaleOutcomes(
+            successfulResults.map((result) => result.result.status),
+          );
+          updated += retrySummary.updated;
+          deferred += retrySummary.deferred - successfulResults.length;
+          unchanged += retrySummary.unchanged;
+          for (const result of successfulResults) {
+            if (result.result.status === "updated") updatedWorkIds.add(result.productId);
+          }
+        }
+        remainingTargets = await loadRemainingTargets();
+        classification = classifyEndedSaleRemaining(remainingTargets, processedProductIds);
+        remainingDeferred = classification.deferred;
+        fatal = classification.fatal;
+        deferredRetryTargets = remainingTargets.filter((target) =>
+          remainingDeferred.some((deferredTarget) => deferredTarget.product_id === target.product_id),
+        );
+      } catch (error) {
+        console.warn(
+          "終了セールの保留作品を同じ実行内で再試行できませんでした。別日に再確認します。",
+          error,
+        );
+      }
+    }
+
+    if (fatal.length > 0) {
+      throw new Error(
+        `終了セール更新が一部未処理です（未処理または要確認分類外${fatal.length}件）。次回実行で再開してください` +
+          `: ${fatal.slice(0, 20).map((target) => target.product_id).join(", ")}`,
+      );
+    }
+
     const warningMessage = remainingDeferred.length > 0
-      ? `終了セール更新完了（要再確認${remainingDeferred.length}件）。利用不可確認待ち: ${remainingDeferred
+      ? `INFO: 終了セール更新は完了しました。価格を取得できなかった${remainingDeferred.length}件は別日に自動再確認します: ${remainingDeferred
           .slice(0, 20)
           .map((target) => target.product_id)
           .join(", ")}${remainingDeferred.length > 20 ? " …" : ""}`
@@ -235,7 +288,7 @@ export async function updateEndedSaleWorks() {
     await finishJob(JOBS.ENDED_SALE, warningMessage);
     console.log(
       `終了セール更新完了: ${processed}件（開始時点対象${totalCount}件）` +
-        (warningMessage ? ` / 要再確認${remainingDeferred.length}件` : ""),
+        (warningMessage ? ` / 別日で自動再確認中${remainingDeferred.length}件` : ""),
     );
     return {
       workIds: [...updatedWorkIds],
