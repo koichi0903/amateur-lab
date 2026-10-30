@@ -24,8 +24,8 @@ import {
   type XGrowthSystemStatus,
 } from "@/lib/xGrowthOperations";
 import { getXMediaSupplyStatus, getRightsReviewQueue } from "@/lib/xMediaAssets";
-import { isVideoCandidate } from "@/lib/xVideoCandidate";
 import { syncAndProbeCandidateMedia } from "./xGrowthMediaPreflight";
+import { finalizeXGrowthMediaMix } from "./xGrowthFinalMediaMix";
 
 import type { DecisionType } from "@/lib/domain/decisionFacts";
 import { auditCandidateUniqueness } from "./xGrowthCandidateIdentity";
@@ -335,22 +335,7 @@ export async function buildXGrowthOS({
   timings.final_diversity_check_ms = Date.now() - diversityStarted;
   timings.diversity_pass_ms = timings.final_diversity_check_ms;
   timings.diversity_target_count = dailySelection.picks.length;
-  const finalMediaMix = {
-    ...dailySelection.mediaMix,
-    uniqueAudit: auditCandidateUniqueness(diversityResult.picks, postedWorkIds),
-    selectedVideos: diversityResult.picks.filter((pick) => isVideoCandidate(pick)).length,
-    selectedVideosBySlot: diversityResult.picks.reduce((counts, pick) => {
-      if (isVideoCandidate(pick)) {
-        const slot = pick.slotId ?? "unassigned";
-        counts[slot] = (counts[slot] ?? 0) + 1;
-      }
-      return counts;
-      }, {} as Record<string, number>),
-    selectedVideosAfterReplenishment: diversityResult.picks.filter((pick) => isVideoCandidate(pick)).length,
-  };
-  finalMediaMix.unmetReason = finalMediaMix.targetVideos > finalMediaMix.selectedVideos
-    ? finalMediaMix.unmetReason ?? "最終Diversity Gate後に目標未達。安全性・semantic・重複制約を優先"
-    : finalMediaMix.unmetReason;
+  const finalMediaMix = finalizeXGrowthMediaMix(dailySelection.mediaMix, diversityResult.picks, postedWorkIds);
   const pipelineReport = buildXGrowthPipelineReport({
     candidates: candidateResult.candidates,
     expandedCandidates,
