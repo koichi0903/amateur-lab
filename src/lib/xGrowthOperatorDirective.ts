@@ -26,19 +26,31 @@ function hasText(value: unknown): value is string {
   return typeof value === "string" && Boolean(value.trim());
 }
 
-function hasValidDirectiveFields(value: Partial<Directive>): boolean {
+function hasValidDirectiveMetadata(value: Partial<Directive>): boolean {
   return value.version === 1 &&
     isDate(value.date) &&
-    hasText(value.experiment) &&
+    isDate(value.decisionDate);
+}
+
+function hasValidDirectiveContent(value: Partial<Directive>): boolean {
+  return hasText(value.experiment) &&
     hasText(value.hypothesis) &&
     hasText(value.postText) && value.postText.length <= 1000 &&
     hasText(value.visualPlan) &&
-    Array.isArray(value.evidence) &&
+    hasText(value.primaryMetric);
+}
+
+function hasValidDirectiveCollections(value: Partial<Directive>): boolean {
+  return Array.isArray(value.evidence) &&
     Array.isArray(value.channels) &&
     value.channels.length >= 1 &&
-    value.channels.length <= 2 &&
-    hasText(value.primaryMetric) &&
-    isDate(value.decisionDate);
+    value.channels.length <= 2;
+}
+
+function hasValidDirectiveFields(value: Partial<Directive>): boolean {
+  return hasValidDirectiveMetadata(value) &&
+    hasValidDirectiveContent(value) &&
+    hasValidDirectiveCollections(value);
 }
 
 function getWork(value: Partial<Directive>): Directive["work"] | null {
