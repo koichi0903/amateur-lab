@@ -488,10 +488,32 @@ function buildNoveltyMediaDimensions(input: XCreativeInput, variant: XCreativeQu
   };
 }
 
+function shareableSourceBonus(sourceType: XCreativeInput["sourceType"]) {
+  return sourceType === "MARKET" || sourceType === "COMPARISON" || sourceType === "JUDGMENT" ? 22 : 0;
+}
+
+function shareableTextBonus(text: string) {
+  const comparisonHook = text.includes("こういう") || text.includes("流して") || text.includes("ランキングだけ");
+  const stoppingReason = text.includes("見落と") || text.includes("一回止ま") || text.includes("外し") || text.includes("差が");
+  return (comparisonHook ? 18 : 0) + (stoppingReason ? 16 : 0);
+}
+
+function shareableLinkBonus(linkPlan: XLinkPlan) {
+  return linkPlan === "body_link" ? -10 : 8;
+}
+
+function replyabilityTextBonus(text: string) {
+  return text.includes("なぜ") || text.includes("気になります") || text.includes("弱いです") || text.includes("迷う") || text.includes("こっち") ? 20 : 0;
+}
+
+function replyabilityIntentBonus(intent: XGrowthIntent) {
+  return intent === "AUTHORITY" ? 10 : 0;
+}
+
 function buildSocialDimensions(input: XCreativeInput, variant: XCreativeQualityVariant) {
   return {
-    shareability: clamp(44 + (input.sourceType === "MARKET" || input.sourceType === "COMPARISON" || input.sourceType === "JUDGMENT" ? 22 : 0) + (variant.text.includes("こういう") || variant.text.includes("流して") || variant.text.includes("ランキングだけ") ? 18 : 0) + (variant.text.includes("見落と") || variant.text.includes("一回止ま") || variant.text.includes("外し") || variant.text.includes("差が") ? 16 : 0) + (variant.linkPlan === "body_link" ? -10 : 8)),
-    replyability: clamp(38 + (variant.text.includes("なぜ") || variant.text.includes("気になります") || variant.text.includes("弱いです") || variant.text.includes("迷う") || variant.text.includes("こっち") ? 20 : 0) + (variant.intent === "AUTHORITY" ? 10 : 0)),
+    shareability: clamp(44 + shareableSourceBonus(input.sourceType) + shareableTextBonus(variant.text) + shareableLinkBonus(variant.linkPlan)),
+    replyability: clamp(38 + replyabilityTextBonus(variant.text) + replyabilityIntentBonus(variant.intent)),
   };
 }
 

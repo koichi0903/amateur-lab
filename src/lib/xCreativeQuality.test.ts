@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { finalNativeXVoiceGate, lastMileGate, qualityFor } from "./xCreativeQuality";
-import type { XCreativeInput, XCreativeMedia, XLinkPlan } from "./xCreativeTypes";
+import type { XCreativeInput, XCreativeMedia, XGrowthIntent, XLinkPlan } from "./xCreativeTypes";
 
 const input: XCreativeInput = {
   key: "quality-test",
@@ -22,16 +22,20 @@ const input: XCreativeInput = {
   isNinetyDayLow: false,
 };
 
-function makeVariant(intent: "REACH" | "MONEY", linkPlan: XLinkPlan, text: string, mediaType: XCreativeMedia = "text") {
+function makeVariant(intent: XGrowthIntent, linkPlan: XLinkPlan, text: string, mediaType: XCreativeMedia = "text") {
   return { intent, mediaType, linkPlan, text };
 }
 
-function mediaFitFor(mediaType: XCreativeMedia, text: string, overrides: Partial<XCreativeInput> = {}, intent: "REACH" | "MONEY" = "REACH") {
+function qualityDimensionsFor(text: string, overrides: Partial<XCreativeInput> = {}, intent: XGrowthIntent = "REACH", linkPlan: XLinkPlan = "profile_only", mediaType: XCreativeMedia = "text") {
   const result = qualityFor({ ...input, ...overrides }, {
-    ...makeVariant(intent, "profile_only", text, mediaType),
+    ...makeVariant(intent, linkPlan, text, mediaType),
     structure: "short",
   });
-  return result.dimensions.mediaFit;
+  return result.dimensions;
+}
+
+function mediaFitFor(mediaType: XCreativeMedia, text: string, overrides: Partial<XCreativeInput> = {}, intent: XGrowthIntent = "REACH") {
+  return qualityDimensionsFor(text, overrides, intent, "profile_only", mediaType).mediaFit;
 }
 
 test("last-mile gate keeps a concrete, native REACH post eligible", () => {
@@ -118,6 +122,14 @@ test("media story fit preserves per-media score bands and gates", () => {
   assert.equal(mediaFitFor("text", "ランキングを確認"), 74);
   assert.equal(mediaFitFor("text", "展開の話"), 55);
   assert.equal(mediaFitFor("quote", "展開の話"), 55);
+});
+
+test("social dimensions preserve grouped text, source, link, and intent bonuses", () => {
+  assert.equal(qualityDimensionsFor("こういう投稿は差が出る。", { sourceType: "WORK" }).shareability, 86);
+  assert.equal(qualityDimensionsFor("こういう投稿は差が出る。", { sourceType: "MARKET" }, "REACH", "body_link").shareability, 90);
+  assert.equal(qualityDimensionsFor("こういう、流して見る。", { sourceType: "WORK" }).shareability, 70);
+  assert.equal(qualityDimensionsFor("なぜ気になりますか？", {}, "AUTHORITY").replyability, 68);
+  assert.equal(qualityDimensionsFor("返事しやすい文", {}, "REACH").replyability, 38);
 });
 
 test("native voice gate keeps the forbidden-template reason and match visible", () => {
