@@ -105,6 +105,12 @@ const duplicateImage = auditCandidateUniqueness([
 ]);
 assert.equal(duplicateImage.imageDuplicateCount, 1);
 assert.equal(duplicateImage.passed, false);
+const postedOverlap = auditCandidateUniqueness(
+  [{ workId: 14, productId: "already-posted", sampleMovieUrl: null, mediaAsset: null }],
+  new Set([14]),
+);
+assert.equal(postedOverlap.postedOverlap, 1);
+assert.equal(postedOverlap.passed, false);
 assert.equal(isDistinctCandidate(
   { workId: 12, productId: "image-c", sampleMovieUrl: null, imageUrl: "https://image/shared.jpg", mediaAsset: null },
   [{ workId: 13, productId: "image-d", sampleMovieUrl: null, imageUrl: "https://image/shared.jpg", mediaAsset: null }],

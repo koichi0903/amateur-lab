@@ -57,6 +57,10 @@ function validMediaAssetId(candidate: CandidateIdentity) {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
+function hasNoCandidateDuplicates(duplicateGroups: ReadonlySet<unknown>[]) {
+  return duplicateGroups.every((duplicates) => duplicates.size === 0);
+}
+
 /** Enforces media/url uniqueness first, then work uniqueness for a candidate set. */
 export function isDistinctCandidate(candidate: CandidateIdentity, selectedSet: CandidateIdentity[]) {
   return !selectedSet.some((selected) => {
@@ -103,7 +107,7 @@ export function auditCandidateUniqueness(candidates: readonly CandidateIdentity[
     duplicateUrls: [...duplicateMediaUrls],
     duplicateSampleMovieUrls: [...duplicateSampleMovieUrls],
     duplicateImageUrls: [...duplicateImageUrls],
-    passed: duplicateWorkIds.size === 0 && duplicateMediaIds.size === 0 && duplicateMediaUrls.size === 0
-      && duplicateSampleMovieUrls.size === 0 && duplicateImageUrls.size === 0 && postedOverlap === 0,
+    passed: hasNoCandidateDuplicates([duplicateWorkIds, duplicateMediaIds, duplicateMediaUrls, duplicateSampleMovieUrls, duplicateImageUrls])
+      && postedOverlap === 0,
   };
 }
