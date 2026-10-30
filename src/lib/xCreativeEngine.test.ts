@@ -52,6 +52,7 @@ assert.equal(/見る|見て|迷|決め|止ま|流|拾|比べ|買|見送|気に�
 const variants = buildXCreativeVariants(baseInput);
 const videoVariants = variants.filter((variant) => variant.mediaType === "sample_movie");
 assert.deepEqual(buildXCreativeVariants(baseInput), variants);
+assert.equal(variants[0]?.hookAlternatives[0]?.direction, "surprise");
 const genericOpeningFixture = {
   ...baseInput,
   key: "fixed-generic-opening-order-fixture",
@@ -84,6 +85,39 @@ assert.deepEqual(genericOpeningAlternatives.map(({ direction, opening, score }) 
   { direction: "hot_take", opening: "売れているかより、引っかかり方の方が気になります。", score: 73 },
   { direction: "empathy", opening: "セール欄を流し見してる人ほど、「余白のある街」は一回止まっていいと思います。", score: 72 },
 ]);
+const decisionOpeningCases = [
+  {
+    key: "decision-opening-record-low",
+    facts: buildDecisionFacts({ currentPrice: 500, recordedLowestPrice: 500, discountRate: 50, isOnSale: true, ranking: 9999, reviewAverage: 4.7, reviewCount: 120 }),
+    direction: "curiosity",
+    opening: "発掘LABの記録上の最安値。価格履歴を先に見たいです。",
+  },
+  {
+    key: "decision-opening-high-discount",
+    facts: buildDecisionFacts({ currentPrice: 1500, recordedLowestPrice: 1000, discountRate: 50, isOnSale: true, ranking: 9999, reviewAverage: 4.7, reviewCount: 120 }),
+    direction: "contrast",
+    opening: "50%OFFでも、発掘LABの記録上の最安値ではありません。",
+  },
+  {
+    key: "decision-opening-hidden-value",
+    facts: buildDecisionFacts({ currentPrice: 1500, recordedLowestPrice: null, discountRate: 50, isOnSale: true, ranking: 9999, reviewAverage: 4.7, reviewCount: 120 }),
+    direction: "comparison",
+    opening: "ランキング外。評価4.7 / レビュー120件 / 現在1,500円 / 50%OFF。ランキングだけでは見落としやすいです。",
+  },
+];
+for (const decisionCase of decisionOpeningCases) {
+  const opening = buildXCreativeVariants({ ...baseInput, key: decisionCase.key, decisionFacts: decisionCase.facts })[0]?.hookAlternatives[0];
+  assert.equal(opening?.direction, decisionCase.direction);
+  assert.equal(opening?.opening, decisionCase.opening);
+  assert.equal(opening?.score, 112);
+}
+const visualMismatchOpening = buildXCreativeVariants({
+  ...baseInput,
+  key: "fixed-video-mismatch-opening-fixture",
+  mediaManualTags: ["visual_mismatch" as const],
+  visualFacts: buildVisualVideoFacts({ sampleMovieUrl: movieUrl, manualTags: ["visual_mismatch"] }),
+})[0]?.hookAlternatives[0];
+assert.equal(visualMismatchOpening?.direction, "contrast");
 assert.ok(videoVariants.length > 0);
 const openingFactPhrases = ["冒頭の展開が予想と少し違う", "再生してすぐ、想像していた流れと変わった", "冒頭の入り方が、思っていた流れと少し違う"];
 assert.ok(videoVariants.every((variant) => openingFactPhrases.some((phrase) => variant.bodyText.includes(phrase))));

@@ -62,15 +62,39 @@ function hookOpeningContext(input: XCreativeInput): HookOpeningContext {
   };
 }
 
+function decisionFactOpening(input: XCreativeInput, decisionProof: string): HookOpening | null {
+  const facts = input.decisionFacts;
+  switch (facts?.decisionType) {
+    case "RECORD_LOW":
+      return { direction: "curiosity", opening: "発掘LABの記録上の最安値。価格履歴を先に見たいです。", score: 112 };
+    case "HIGH_DISCOUNT_NOT_LOW":
+      return { direction: "contrast", opening: `${facts.discountRate ?? 0}%OFFでも、発掘LABの記録上の最安値ではありません。`, score: 112 };
+    case "HIDDEN_VALUE":
+      return { direction: "comparison", opening: decisionProof ? `${decisionProof}。ランキングだけでは見落としやすいです。` : "ランキング外ですが、レビューと価格を先に見たいです。", score: 112 };
+    default:
+      return null;
+  }
+}
+
+function videoOpeningDirection(input: XCreativeInput): XHookDirection {
+  const videoTag = primaryVideoTag(input);
+  if (videoTag === "visual_mismatch") return "contrast";
+  if (videoTag === "scene_surprise") return "surprise";
+  return "curiosity";
+}
+
+function rightsCheckedVideoOpening(input: XCreativeInput, intent: XGrowthIntent): HookOpening | null {
+  if (!input.hasRightsCheckedMovie || !input.sampleMovieUrl) return null;
+  const videoLines = videoSpecificLines(input, intent, "no_link", "curiosity");
+  if (!videoLines) return null;
+  return { direction: videoOpeningDirection(input), opening: videoLines[0], score: 104 };
+}
+
 function decisionAndVideoOpenings(input: XCreativeInput, intent: XGrowthIntent): HookOpening[] {
   const decisionProof = input.decisionFacts ? decisionFactProofLine(input.decisionFacts) : "";
-  const videoLines = input.hasRightsCheckedMovie && input.sampleMovieUrl ? videoSpecificLines(input, intent, "no_link", "curiosity") : null;
-  return [
-    ...(input.decisionFacts?.decisionType === "RECORD_LOW" ? [{ direction: "curiosity" as const, opening: "発掘LABの記録上の最安値。価格履歴を先に見たいです。", score: 112 }] : []),
-    ...(input.decisionFacts?.decisionType === "HIGH_DISCOUNT_NOT_LOW" ? [{ direction: "contrast" as const, opening: `${input.decisionFacts.discountRate ?? 0}%OFFでも、発掘LABの記録上の最安値ではありません。`, score: 112 }] : []),
-    ...(input.decisionFacts?.decisionType === "HIDDEN_VALUE" ? [{ direction: "comparison" as const, opening: decisionProof ? `${decisionProof}。ランキングだけでは見落としやすいです。` : "ランキング外ですが、レビューと価格を先に見たいです。", score: 112 }] : []),
-    ...(videoLines ? [{ direction: primaryVideoTag(input) === "visual_mismatch" ? "contrast" as const : primaryVideoTag(input) === "scene_surprise" ? "surprise" as const : "curiosity" as const, opening: videoLines[0], score: 104 }] : []),
-  ];
+  const decision = decisionFactOpening(input, decisionProof);
+  const video = rightsCheckedVideoOpening(input, intent);
+  return [...(decision ? [decision] : []), ...(video ? [video] : [])];
 }
 
 function marketOpenings(context: HookOpeningContext): HookOpening[] {
