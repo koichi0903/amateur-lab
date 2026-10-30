@@ -82,7 +82,7 @@ export function buildFanzaAmateurDetailPriceProjection({
   return { priceTypes, activePriceType, listPrice, discount, activeHistory, chartHistory, chartData, lowestPrice };
 }
 
-export function buildFanzaAmateurDetailEntityProjection(item: {
+type FanzaAmateurDetailEntity = {
   imageURL?: { large?: string | null; small?: string | null; list?: string | null } | null;
   imageUrl?: string | null;
   confirmedPerformers?: string[] | null;
@@ -91,13 +91,23 @@ export function buildFanzaAmateurDetailEntityProjection(item: {
     series?: Array<{ name: string }> | null;
     genre?: Array<{ name: string }> | null;
   } | null;
-}) {
+};
+
+function detailCoverUrl(item: FanzaAmateurDetailEntity) {
+  return item.imageURL?.large || item.imageURL?.small || item.imageURL?.list || item.imageUrl;
+}
+
+function detailEntityNames(entries: Array<{ name: string }> | null | undefined) {
+  return entries?.map((entry) => entry.name).filter(Boolean) ?? [];
+}
+
+export function buildFanzaAmateurDetailEntityProjection(item: FanzaAmateurDetailEntity) {
   return {
-    coverUrl: item.imageURL?.large || item.imageURL?.small || item.imageURL?.list || item.imageUrl,
+    coverUrl: detailCoverUrl(item),
     performers: item.confirmedPerformers ?? [],
-    makers: item.iteminfo?.maker?.map((maker) => maker.name).filter(Boolean) ?? [],
-    seriesList: item.iteminfo?.series?.map((series) => series.name).filter(Boolean) ?? [],
-    genres: item.iteminfo?.genre?.map((genre) => genre.name).filter(Boolean) ?? [],
+    makers: detailEntityNames(item.iteminfo?.maker),
+    seriesList: detailEntityNames(item.iteminfo?.series),
+    genres: detailEntityNames(item.iteminfo?.genre),
   };
 }
 
