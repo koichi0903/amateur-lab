@@ -31,7 +31,8 @@ export async function catalogMetadata(kind: CatalogKind, name: string, page = 1)
       pageResult &&
       !pageResult.error &&
       pageResult.works.length > 0 &&
-      (kind === "genre" || kind === "maker" || (summary && isEntityIndexable(kind, summary)))
+      summary &&
+      isEntityIndexable(kind, summary)
     ) {
       robots = undefined;
     }
@@ -41,10 +42,8 @@ export async function catalogMetadata(kind: CatalogKind, name: string, page = 1)
 
   const subject = name;
   return pageMetadata({
-    title: kind === "genre"
-      ? `${subject}のFANZA作品一覧${suffix} | 発掘LAB`
-      : `${subject}のFANZA作品一覧${suffix} | 人気順・価格順で比較 | 発掘LAB`,
-    description: `${subject}のFANZA作品を、人気順・発売日順・価格順で並び替えて探せます。現在価格、レビュー、価格推移も作品ごとに確認できます。`,
+    title: `${subject}のFANZA作品一覧${suffix} | 人気・発売日・価格順 | 発掘LAB`,
+    description: `${subject}のFANZA作品を人気順・発売日順・価格順に並び替えて探せます。各作品の現在価格、レビュー、価格推移を確認できます。`,
     canonical: `/${kind}/${encodeURIComponent(name)}${page > 1 ? `/page/${page}` : ""}`,
     robots,
   });

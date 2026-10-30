@@ -18,6 +18,7 @@ const getPriceDrops = unstable_cache(async () => {
     .gt("price", 0)
     .order("discount_rate", { ascending: false, nullsFirst: false })
     .limit(30);
+  if (error) throw new Error("Failed to load editorial report works.");
   return { works: (data ?? []) as unknown as EditorialReportWork[], error };
 }, ["editorial-report-price-drops-v1"], { revalidate: 1800 });
 
@@ -30,6 +31,7 @@ const getRankingMovers = unstable_cache(async () => {
     .lte("realtime_rank", 200)
     .order("realtime_rank", { ascending: true })
     .limit(150);
+  if (error) throw new Error("Failed to load ranking movement report.");
   const works = ((data ?? []) as unknown as EditorialReportWork[])
     .filter((work) => (work.previous_realtime_rank ?? 0) > (work.realtime_rank ?? 0))
     .sort((a, b) => ((b.previous_realtime_rank ?? 0) - (b.realtime_rank ?? 0)) - ((a.previous_realtime_rank ?? 0) - (a.realtime_rank ?? 0)))
@@ -72,6 +74,7 @@ const getPriceBands = unstable_cache(async () => {
     fetchPriceBandSide(min, max, false),
   ])));
   const error = results.flat().find((result) => result.error)?.error ?? null;
+  if (error) throw new Error("Failed to load price band report.");
   const works = results.flatMap((sideResults) => {
     const candidates = sideResults.flatMap((result) => result.data ?? []) as unknown as EditorialReportWork[];
     return candidates
@@ -97,6 +100,7 @@ const getSaleEnding = unstable_cache(async () => {
     .lte("sale_end_at", limit.toISOString())
     .order("sale_end_at", { ascending: true })
     .limit(30);
+  if (error) throw new Error("Failed to load ending-soon sale report.");
   return { works: (data ?? []) as unknown as EditorialReportWork[], error };
 }, ["editorial-report-sale-ending-v1"], { revalidate: 1800 });
 

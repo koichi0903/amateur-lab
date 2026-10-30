@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatJstDateTime } from "@/lib/dateTime";
 import ManualXImpressionInput from "./ManualXImpressionInput";
 import RegisterXPostUrlInput from "./RegisterXPostUrlInput";
 
@@ -13,12 +14,6 @@ type QueueRow = {
   postedAt: string;
   xPostId?: string | null;
 };
-
-function formatJst(value: string) {
-  return new Intl.DateTimeFormat("ja-JP", {
-    month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo",
-  }).format(new Date(value));
-}
 
 function QueuePagination({ page, pageCount, total, onPageChange }: {
   page: number;
@@ -59,7 +54,7 @@ export default function XDailyTaskQueue({ kind, rows }: { kind: "unlinked" | "du
               {!isUnlinked && row.xPostId && <a href={`https://x.com/${row.account}/status/${row.xPostId}`} target="_blank" rel="noreferrer" className="rounded-lg bg-zinc-800 px-2 py-1.5 text-[11px] font-black text-cyan-200 hover:bg-zinc-700">X投稿を開く ↗</a>}
             </div>
             <p className="mt-1 line-clamp-2 text-sm font-bold leading-5 text-white">{row.title}</p>
-            <p className="mt-1 text-[10px] text-zinc-500">投稿 {formatJst(row.postedAt)}</p>
+            <p className="mt-1 text-[10px] text-zinc-500">投稿 {formatJstDateTime(row.postedAt)}</p>
             {isUnlinked
               ? <RegisterXPostUrlInput
                   postKey={row.postKey}

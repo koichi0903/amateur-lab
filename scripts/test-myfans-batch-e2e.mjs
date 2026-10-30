@@ -8,6 +8,64 @@ const root = process.cwd();
 const backgroundSource = fs.readFileSync(path.join(root, "public", "myfans-companion", "background.js"), "utf8");
 const stateSource = fs.readFileSync(path.join(root, "public", "myfans-companion", "state.js"), "utf8");
 
+function countTerminalItems(items) {
+  return items.filter((item) => ["success", "failed", "skipped"].includes(item.status)).length;
+}
+
+function handleNextQuoteRefreshAction({ job, items, audits, jsonResponse }) {
+  if (job.status !== "pending" && job.status !== "running") return jsonResponse({ done: true, job, items });
+  const running = items.find((item) => item.status === "running");
+  if (running) return jsonResponse({ done: false, busy: true, jobId: job.id, job });
+
+  const item = items.find((candidate) => candidate.status === "pending" && candidate.attempts < 3);
+  if (!item) {
+    job.status = "completed";
+    return jsonResponse({ done: true, job, items });
+  }
+
+  item.status = "running";
+  item.attempts += 1;
+  item.processed_at = new Date().toISOString();
+  audits.push({ action: "NEXT_CLAIMED", metadata: { itemId: item.id } });
+  return jsonResponse({ done: false, jobId: job.id, batchSize: job.batch_size, item });
+}
+
+function handleQuoteRefreshRequest(init, state) {
+  const { job, items, audits, jsonResponse } = state;
+  if (!init.method || init.method === "GET") return jsonResponse({ job, items });
+
+  const body = JSON.parse(init.body || "{}");
+  if (body.action === "start") {
+    job.status = "running";
+    return jsonResponse({ job, items });
+  }
+  if (body.action === "audit") {
+    audits.push({ action: body.continuationAction, metadata: body.metadata });
+    return jsonResponse({ ok: true });
+  }
+  if (body.action === "next") return handleNextQuoteRefreshAction(state);
+  return jsonResponse({ job, items });
+}
+
+function handleCompanionRequest(init, state) {
+  const { job, items, retryItem, jsonResponse } = state;
+  const body = JSON.parse(init.body || "{}");
+  const item = items.find((candidate) => candidate.id === Number(body.refreshJobItemId))
+    || items.find((candidate) => candidate.status === "running");
+
+  if (body.quoteCandidates && !body.failureReason && retryItem && item?.id === retryItem && item.attempts === 1) {
+    return jsonResponse({ ok: false, retryable: true, errorCode: "THREAD_NOT_FULLY_OBSERVED", error: "fixture retry" }, false, 202);
+  }
+
+  if (item) {
+    item.status = body.failureReason ? (item.attempts < 3 ? "pending" : "failed") : "success";
+    item.processed_at = new Date().toISOString();
+    job.processed_creators = countTerminalItems(items);
+    if (job.processed_creators === items.length) job.status = "completed";
+  }
+  return jsonResponse({ ok: true, candidatesCount: body.fixtureNoMatch ? 0 : 1, collectionStatuses: [] });
+}
+
 async function createHarness({ itemCount = 5, workerStopAfter = 0, retryItem = 0, jobStatus = "running", staleRunning = false } = {}) {
   const storage = {};
   const audits = [];
@@ -17,7 +75,7 @@ async function createHarness({ itemCount = 5, workerStopAfter = 0, retryItem = 0
   const items = Array.from({ length: itemCount }, (_, index) => ({ id: 500 + index, job_id: 77, creator_id: 600 + index, creator_x_url: `https://x.com/creator${index}`, attempts: 0, status: index === 0 && jobStatus === "completed" ? "success" : "pending", processed_at: null, myfans_creators: { display_name: `creator-${index + 1}` } }));
   if (jobStatus === "completed") items.forEach((item) => { item.status = "success"; item.processed_at = new Date().toISOString(); });
   if (staleRunning) { items[0].status = "running"; items[0].processed_at = new Date(Date.now() - 10 * 60_000).toISOString(); }
-  job.processed_creators = items.filter((item) => ["success", "failed", "skipped"].includes(item.status)).length;
+  job.processed_creators = countTerminalItems(items);
   const callbacks = {
     runtimeInstalled: () => {},
     tabsUpdated: () => {},
@@ -38,38 +96,13 @@ async function createHarness({ itemCount = 5, workerStopAfter = 0, retryItem = 0
     scripting: { executeScript: async () => [{ result: {} }] },
   };
   const jsonResponse = (body, ok = true, status = ok ? 200 : 409) => ({ ok, status, text: async () => JSON.stringify(body), json: async () => body, headers: { get: () => "application/json" } });
+  const fetchState = { job, items, audits, retryItem, jsonResponse };
   let collectCount = 0;
   let workerStopped = false;
   const fetchMock = async (input, init = {}) => {
     const url = new URL(String(input));
-    if (url.pathname.endsWith("/quote-refresh") && (!init.method || init.method === "GET")) return jsonResponse({ job, items });
-    if (url.pathname.endsWith("/quote-refresh")) {
-      const body = JSON.parse(init.body || "{}");
-      if (body.action === "start") { job.status = "running"; return jsonResponse({ job, items }); }
-      if (body.action === "audit") { audits.push({ action: body.continuationAction, metadata: body.metadata }); return jsonResponse({ ok: true }); }
-      if (body.action === "next") {
-        if (job.status !== "pending" && job.status !== "running") return jsonResponse({ done: true, job, items });
-        const running = items.find((item) => item.status === "running");
-        if (running) return jsonResponse({ done: false, busy: true, jobId: job.id, job });
-        const item = items.find((candidate) => candidate.status === "pending" && candidate.attempts < 3);
-        if (!item) { job.status = "completed"; return jsonResponse({ done: true, job, items }); }
-        item.status = "running"; item.attempts += 1; item.processed_at = new Date().toISOString(); audits.push({ action: "NEXT_CLAIMED", metadata: { itemId: item.id } });
-        return jsonResponse({ done: false, jobId: job.id, batchSize: job.batch_size, item });
-      }
-      return jsonResponse({ job, items });
-    }
-    if (url.pathname.endsWith("/companion")) {
-      const body = JSON.parse(init.body || "{}");
-      const item = items.find((candidate) => candidate.id === Number(body.refreshJobItemId)) || items.find((candidate) => candidate.status === "running");
-      if (body.quoteCandidates && !body.failureReason && retryItem && item?.id === retryItem && item.attempts === 1) return jsonResponse({ ok: false, retryable: true, errorCode: "THREAD_NOT_FULLY_OBSERVED", error: "fixture retry" }, false, 202);
-      if (item) {
-        item.status = body.failureReason ? (item.attempts < 3 ? "pending" : "failed") : "success";
-        item.processed_at = new Date().toISOString();
-        job.processed_creators = items.filter((candidate) => ["success", "failed", "skipped"].includes(candidate.status)).length;
-        if (job.processed_creators === items.length) job.status = "completed";
-      }
-      return jsonResponse({ ok: true, candidatesCount: body.fixtureNoMatch ? 0 : 1, collectionStatuses: [] });
-    }
+    if (url.pathname.endsWith("/quote-refresh")) return handleQuoteRefreshRequest(init, { ...fetchState, audits });
+    if (url.pathname.endsWith("/companion")) return handleCompanionRequest(init, fetchState);
     throw new Error(`unexpected fixture request: ${url}`);
   };
   const context = { chrome, fetch: fetchMock, crypto: webcrypto, URL, URLSearchParams, Date, console, setTimeout, clearTimeout, document: {}, location: { href: "about:blank" }, __MYFANS_COMPANION_TEST__: true, importScripts: () => vm.runInNewContext(stateSource, context) };

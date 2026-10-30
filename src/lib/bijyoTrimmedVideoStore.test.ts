@@ -24,7 +24,17 @@ try {
   assert.deepEqual(await readFile(saved.path), bytes);
   await assert.rejects(saveBijyoVideoWithoutOverwrite(42, Buffer.from("replacement"), output, mockAtomicNoReplaceLink), PreparedVideoAlreadyExistsError);
   assert.deepEqual(await readFile(saved.path), bytes, "existing files are not overwritten");
-  assert.equal(bijyoDesktopSaveDirectory("C:\\Users\\DELL\\OneDrive\\Desktop"), "C:\\Users\\DELL\\OneDrive\\Desktop\\Bijyo一時動画");
+  assert.equal(bijyoDesktopSaveDirectory("F:\\HakkutsuLAB\\workspace\\Users\\DELL\\OneDrive\\Desktop"), "F:\\HakkutsuLAB\\workspace\\Users\\DELL\\OneDrive\\Desktop\\Bijyo一時動画");
+  if (process.platform === "win32") {
+    const previousDesktopDirectory = process.env.BIJYO_VIDEO_DESKTOP_DIR;
+    try {
+      process.env.BIJYO_VIDEO_DESKTOP_DIR = "F:\\HakkutsuLAB\\workspace\\Users\\DELL\\OneDrive\\Desktop";
+      assert.equal(bijyoDesktopSaveDirectory(), "F:\\HakkutsuLAB\\workspace\\Users\\DELL\\OneDrive\\Desktop\\Bijyo一時動画");
+    } finally {
+      if (previousDesktopDirectory === undefined) delete process.env.BIJYO_VIDEO_DESKTOP_DIR;
+      else process.env.BIJYO_VIDEO_DESKTOP_DIR = previousDesktopDirectory;
+    }
+  }
   await assert.rejects(saveBijyoVideoWithoutOverwrite(0, bytes, output, mockAtomicNoReplaceLink), /workIdが不正です/);
   await assert.rejects(saveBijyoVideoWithoutOverwrite("../escape" as unknown as number, bytes, output, mockAtomicNoReplaceLink), /workIdが不正です/);
 } finally {

@@ -1,4 +1,5 @@
-import { getBijyoHistoryPage, getBijyoRecentReleasedWorks, getBijyoReservedQueueWorks } from "@/lib/bijyoReservedAutoPost";
+import { getBijyoRecentReleasedWorks } from "@/lib/bijyoReservedAutoPost";
+import { getBijyoHistoryPage, getBijyoReservedQueueWorks } from "@/lib/bijyoReadPages";
 import { BijyoHistory } from "./BijyoHistory";
 import { ReservedBijyoWorks } from "./ReservedBijyoWorks";
 import { UpcomingBijyoReleases } from "./UpcomingBijyoReleases";

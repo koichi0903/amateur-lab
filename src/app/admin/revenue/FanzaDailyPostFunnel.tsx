@@ -1,11 +1,6 @@
 import Link from "next/link";
 import { getFanzaDailyPostFunnel } from "@/lib/fanzaDailyPostFunnel";
-
-function dateTime(value: string) {
-  return new Intl.DateTimeFormat("ja-JP", {
-    month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo",
-  }).format(new Date(value));
-}
+import { formatJstDateTime } from "@/lib/dateTime";
 
 export default async function FanzaDailyPostFunnel() {
   const result = await getFanzaDailyPostFunnel(30);
@@ -17,7 +12,7 @@ export default async function FanzaDailyPostFunnel() {
         <p className="mt-2 text-xs leading-5 text-zinc-400">
           Xの表示数はX Growth OSの日次タスクで記録します（API不使用）。入力時刻までの作品PV・FANZA CTAを同じ投稿キーで照合します。表示数は入力時点の累計、PV・CTAはイベント数で購入数ではありません。
         </p>
-        <p className="mt-1 text-[10px] text-zinc-600">イベント集計 {dateTime(result.evaluatedAt)} JST / 対象は投稿後30日以内</p>
+        <p className="mt-1 text-[10px] text-zinc-600">イベント集計 {formatJstDateTime(result.evaluatedAt)} JST / 対象は投稿後30日以内</p>
       </div>
       {result.error ? (
         <p className="mt-4 rounded-lg border border-amber-800 bg-amber-950/20 p-3 text-sm text-amber-200">投稿別データを取得できません: {result.error}</p>
@@ -44,10 +39,10 @@ export default async function FanzaDailyPostFunnel() {
                     <p className="mt-1 truncate font-mono text-[10px] text-zinc-600">{row.postKey}</p>
                     {row.xPostId ? <a href={`https://x.com/${row.account}/status/${row.xPostId}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[10px] text-cyan-400 hover:underline">X投稿を開く</a> : <p className="mt-1 text-[10px] text-amber-300">X投稿ID未登録</p>}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-3 text-xs text-zinc-400">{dateTime(row.postedAt)}</td>
+                  <td className="whitespace-nowrap px-3 py-3 text-xs text-zinc-400">{formatJstDateTime(row.postedAt)}</td>
                   <td className="px-3 py-3 text-right font-black text-white">
                     {row.impressionsAtCapture === null ? <span className="text-amber-300">未取得</span> : row.impressionsAtCapture.toLocaleString("ja-JP")}
-                    {row.impressionCapturedAt && <span className="mt-1 block text-[10px] font-normal text-zinc-600">投稿 {row.impressionCaptureAgeHours?.toFixed(1)}時間後 / {dateTime(row.impressionCapturedAt)}</span>}
+                    {row.impressionCapturedAt && <span className="mt-1 block text-[10px] font-normal text-zinc-600">投稿 {row.impressionCaptureAgeHours?.toFixed(1)}時間後 / {formatJstDateTime(row.impressionCapturedAt)}</span>}
                     {row.impressionsAtCapture === null && !row.xPostId && <Link href="/admin/x-growth#x-daily-impression-tasks" className="mt-1 block text-[10px] font-normal text-amber-300 hover:underline">X Growth OSで投稿URLを登録</Link>}
                     {row.impressionsAtCapture === null && row.canRecordImpressions && <Link href="/admin/x-growth#x-daily-impression-tasks" className="mt-1 block text-[10px] font-normal text-cyan-300 hover:underline">X Growth OSで表示数を記録</Link>}
                   </td>

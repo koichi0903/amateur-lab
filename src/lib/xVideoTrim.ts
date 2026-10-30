@@ -4,13 +4,12 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { spawn } from "node:child_process";
+import ffmpeg from "@ffmpeg-installer/ffmpeg";
+import ffprobe from "@ffprobe-installer/ffprobe";
 import { validateTrimStartSeconds } from "@/lib/xMediaAssets";
 
 function bundledBinary(kind: "ffmpeg" | "ffprobe") {
-  if (process.platform !== "win32" || process.arch !== "x64") throw new Error("同梱ffmpegはWindows x64環境だけに対応しています。");
-  return kind === "ffmpeg"
-    ? join(process.cwd(), "node_modules", "@ffmpeg-installer", "win32-x64", "ffmpeg.exe")
-    : join(process.cwd(), "node_modules", "@ffprobe-installer", "win32-x64", "ffprobe.exe");
+  return kind === "ffmpeg" ? ffmpeg.path : ffprobe.path;
 }
 
 export type TrimVideoForXResult = {
@@ -22,6 +21,7 @@ export type TrimVideoForXResult = {
   codec: string | null;
   audioCodec: string | null;
   trimStartSeconds: number;
+  trimEndSeconds: number | null;
 };
 
 function runBinary(command: string, args: string[]) {
@@ -72,7 +72,7 @@ export async function probeVideoFile(file: string) {
   };
 }
 
-export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds: number }) {
+export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds: number; trimEndSeconds?: number | null }) {
   const dir = await mkdtemp(join(tmpdir(), "x-growth-trim-"));
   const sourceFile = join(dir, "source.mp4");
   const outputFile = join(dir, "x-post-trimmed.mp4");
@@ -81,10 +81,19 @@ export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds
     const sourceProbe = await probeVideoFile(sourceFile);
     const validation = validateTrimStartSeconds(input.trimStartSeconds, sourceProbe.durationSeconds);
     if (!validation.ok) throw new Error(validation.error);
-    await runBinary(bundledBinary("ffmpeg"), [
+    const rawEnd = input.trimEndSeconds;
+    let endSeconds: number | null = null;
+    if (rawEnd != null) {
+      if (!Number.isFinite(rawEnd)) throw new Error("終了秒が不正です。");
+      endSeconds = Math.round(rawEnd * 10) / 10;
+      if (endSeconds <= validation.value) throw new Error("終了位置は開始位置より後にしてください。");
+      if (endSeconds > sourceProbe.durationSeconds) throw new Error("終了秒が動画の長さを超えています。");
+    }
+    const args = [
       "-y",
       "-ss", validation.value.toFixed(1),
       "-i", sourceFile,
+      ...(endSeconds == null ? [] : ["-t", (endSeconds - validation.value).toFixed(1)]),
       "-map", "0:v:0",
       "-map", "0:a?",
       "-c:v", "libx264",
@@ -96,7 +105,8 @@ export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds
       "-movflags", "+faststart",
       "-avoid_negative_ts", "make_zero",
       outputFile,
-    ]);
+    ];
+    await runBinary(bundledBinary("ffmpeg"), args);
     const outputProbe = await probeVideoFile(outputFile);
     const outputStat = await stat(outputFile);
     if (outputStat.size <= 0) throw new Error("トリム後動画が空です。");
@@ -110,6 +120,7 @@ export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds
       codec: outputProbe.codec,
       audioCodec: outputProbe.audioCodec,
       trimStartSeconds: validation.value,
+      trimEndSeconds: endSeconds,
     } satisfies TrimVideoForXResult;
   } catch (error) {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);

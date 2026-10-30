@@ -38,6 +38,11 @@ const menus = [
     description: "毎日4件 / 動画・本文・自己リプ準備済み",
     href: "/admin/bijyo-reserved",
   },
+  {
+    title: "𝕏 素人動画 手動投稿",
+    description: "複数アカウント共通リスト・新作7日分・人気順TOP500",
+    href: "/admin/amateur-x-post",
+  },
 ];
 
 export default function AdminDashboard() {
@@ -59,6 +64,7 @@ export default function AdminDashboard() {
             <Link
               key={menu.href}
               href={menu.href}
+              prefetch={false}
               className="
                 rounded-2xl
                 border

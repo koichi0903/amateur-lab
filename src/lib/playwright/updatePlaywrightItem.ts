@@ -7,7 +7,7 @@
  * 年齢認証処理は確認済みのため、原則修正禁止。
  */
 
-import type { Browser } from "playwright-core";
+import type { Browser, Page } from "playwright-core";
 import { getDmmItem } from "@/lib/dmm/getDmmItem";
 import { createBrowser } from "@/lib/playwright/browserManager";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
@@ -134,96 +134,221 @@ async function recordUnavailable(
   };
 }
 
+async function resolveWorkUrl(productId: string, url?: string | null): Promise<string | null> {
+  let workUrl = url ?? undefined;
+  if (!workUrl) {
+    const { data: work, error } = await supabase
+      .from("works")
+      .select("url")
+      .eq("product_id", productId)
+      .single();
+    if (error) {
+      console.log("作品情報が見つかりません:", productId);
+      return null;
+    }
+    workUrl ??= work?.url ?? undefined;
+    if (!workUrl) {
+      console.log("URLが見つかりません:", productId);
+      return null;
+    }
+  }
+  return workUrl;
+}
+
+async function openUpdatePage(productId: string, browser?: Browser) {
+  let activeBrowser = browser;
+  let ownBrowser = !activeBrowser || !activeBrowser.isConnected();
+  if (!activeBrowser?.isConnected()) {
+    console.warn(`[browser] recreating disconnected Chromium for ${productId}`);
+    activeBrowser = await createBrowser();
+  }
+
+  let page: Page;
+  try {
+    page = await activeBrowser.newPage();
+  } catch (error) {
+    if (activeBrowser.isConnected()) throw error;
+    console.warn(`[browser] newPage failed after disconnect; retrying ${productId}`);
+    activeBrowser = await createBrowser();
+    ownBrowser = true;
+    page = await activeBrowser.newPage();
+  }
+  return { browser: activeBrowser, page, ownBrowser };
+}
+
+async function configureRequestRoutes(page: Page, captureSampleMovie: boolean, sampleMovieOnly: boolean) {
+  if (!(process.env.VERCEL || !captureSampleMovie || sampleMovieOnly)) return;
+  await page.route("**/*", async (route) => {
+    const resourceType = route.request().resourceType();
+    const requestUrl = route.request().url();
+    if (
+      ((process.env.VERCEL || sampleMovieOnly) &&
+        (resourceType === "image" ||
+          resourceType === "font" ||
+          (sampleMovieOnly && resourceType === "stylesheet"))) ||
+      (!captureSampleMovie &&
+        (resourceType === "media" || /\.mp4(?:$|[?#])/i.test(requestUrl)))
+    ) {
+      await route.abort();
+      return;
+    }
+    await route.continue();
+  });
+}
+
+function sampleMovieWaitMs(sampleMovieOnly: boolean, hasOfficialPlayer: boolean) {
+  return sampleMovieOnly ? (hasOfficialPlayer ? 7_000 : 1_000) : 15_000;
+}
+
+async function captureInitialSampleMovie(
+  productId: string,
+  page: Page,
+  watcher: ReturnType<typeof watchSampleMovie> | null,
+  sampleMovieOnly: boolean,
+): Promise<{ dataChanged: boolean; result?: PlaywrightUpdateResult }> {
+  if (!watcher) return { dataChanged: false };
+  console.log(`[SAMPLE_MOVIE_ATTEMPT] ${productId}`);
+  try {
+    const hasOfficialPlayer = await page
+      .locator('iframe[src*="/html5_player/"]')
+      .first()
+      .waitFor({
+        state: "attached",
+        timeout: sampleMovieOnly ? 8_000 : 5_000,
+      })
+      .then(() => true)
+      .catch(() => false);
+    const sampleMovieUrl = await watcher.waitForUrl(sampleMovieWaitMs(sampleMovieOnly, hasOfficialPlayer));
+    const checkedAt = new Date().toISOString();
+    let sampleMovieSaved = false;
+
+    if (sampleMovieUrl) {
+      const sampleMovieUpdate = sampleMovieUpdateFor({ status: "found", url: sampleMovieUrl, checkedAt });
+      const { data: savedMovie, error: sampleMovieError } = await supabase
+        .from("works")
+        .update(sampleMovieUpdate ?? {})
+        .eq("product_id", productId)
+        .is("sample_movie_url", null)
+        .select("product_id")
+        .maybeSingle();
+      if (sampleMovieError) throw sampleMovieError;
+      if (savedMovie) sampleMovieSaved = true;
+      console.log(savedMovie ? `[SAMPLE_MOVIE_INITIAL_SAVED] ${productId} ${sampleMovieUrl}` : `[SAMPLE_MOVIE_INITIAL_PRESERVED] ${productId}`);
+      console.log(`[SAMPLE_MOVIE_RESULT] ${productId} status=found`);
+    } else {
+      const sampleMovieUpdate = sampleMovieUpdateFor({ status: "confirmed-none", checkedAt });
+      const { error: checkedAtError } = await supabase
+        .from("works")
+        .update(sampleMovieUpdate ?? {})
+        .eq("product_id", productId)
+        .is("sample_movie_url", null);
+      if (checkedAtError) throw checkedAtError;
+      console.log(`[SAMPLE_MOVIE_INITIAL_MISSING] ${productId}`);
+      console.log(`[SAMPLE_MOVIE_RESULT] ${productId} status=confirmed-none`);
+    }
+
+    if (!sampleMovieOnly) return { dataChanged: sampleMovieSaved };
+    return {
+      dataChanged: sampleMovieSaved,
+      result: sampleMovieSaved ? "updated" : sampleMovieUrl ? "unchanged" : "sample_movie_missing",
+    };
+  } catch (error) {
+    console.error(`[SAMPLE_MOVIE_RESULT] ${productId} status=failed-or-unchecked`, error);
+    throw error;
+  }
+}
+
+async function logUnavailablePage(productId: string, page: Page, workUrl: string, unavailableMode: "legacy" | "record") {
+  const diagnostics = await page
+    .evaluate(() => ({
+      url: window.location.href,
+      title: document.title,
+      labelCount: document.querySelectorAll("label").length,
+      contentPriceCount: document.querySelectorAll('[data-e2eid="content-price"]').length,
+      bodyText: document.body?.innerText?.replace(/\s+/g, " ").trim().slice(0, 500),
+    }))
+    .catch((error) => ({ diagnosticError: error instanceof Error ? error.message : String(error) }));
+  console.log(`[PRICE_DIAGNOSTICS] ${productId}`, {
+    ...diagnostics,
+    productId,
+    dmmAvailable: unavailableMode === "record" ? "checked_below" : "not_checked",
+  });
+  console.log(`[SKIP] ${productId} prices=[] url=${workUrl}`);
+  const unavailableResult = await recordUnavailable(productId, unavailableMode, { productId, url: workUrl, page: diagnostics });
+  console.log(`[CHECKED] FANZA利用不可 ${productId} dmm=${unavailableResult.dmmAvailable} transition=${unavailableResult.nextStatus ?? "deferred"}`);
+}
+
+async function saveParsedWorkWithRetry(productId: string, data: Awaited<ReturnType<typeof parsePage>>, listPrice?: number | null) {
+  let dataChanged = false;
+  let saved = false;
+  let lastSaveError: unknown = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      dataChanged = await saveWork(productId, data, listPrice);
+      saved = true;
+      break;
+    } catch (error) {
+      lastSaveError = error;
+      console.error(`[ERROR] saveWork失敗 (${attempt}/3) ${productId}`, error);
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+  if (!saved) {
+    console.error(`[SKIP] saveWorkを3回試行しましたが失敗しました: ${productId}`);
+    throw lastSaveError instanceof Error ? lastSaveError : new Error(`saveWorkを3回試行しましたが失敗しました: ${productId}`);
+  }
+  return dataChanged;
+}
+
+async function parseAndPersistWork(
+  productId: string,
+  page: Page,
+  workUrl: string,
+  listPrice: number | null | undefined,
+  unavailableMode: "legacy" | "record",
+): Promise<PlaywrightUpdateResult> {
+  const data = await parsePage(page);
+  if (data.prices.length === 0) {
+    await logUnavailablePage(productId, page, workUrl, unavailableMode);
+    return "unavailable_deferred";
+  }
+  const dataChanged = await saveParsedWorkWithRetry(productId, data, listPrice);
+  console.log(`[OK] ${productId} 更新完了`);
+  return dataChanged ? "updated" : "unchanged";
+}
+
+async function cleanupUpdatePage(
+  page: Page,
+  browser: Browser,
+  ownBrowser: boolean,
+  watcher: ReturnType<typeof watchSampleMovie> | null,
+) {
+  watcher?.stop();
+  try {
+    await page.close();
+  } catch (error) {
+    console.error("page.close失敗", error);
+  }
+  if (ownBrowser) await browser.close();
+}
+
 export async function updatePlaywrightItem(
   productId: string,
   url?: string | null,
   browser?: Browser,
   listPrice?: number | null,
   options: PlaywrightUpdateOptions = {},
-): Promise<PlaywrightUpdateResult>
-{
+): Promise<PlaywrightUpdateResult> {
   const sampleMovieOnly = options.sampleMovieOnly === true;
   const unavailableMode = options.unavailableMode ?? "legacy";
   const captureSampleMovie = options.captureSampleMovie === true || sampleMovieOnly;
-  let dataChanged = false;
-  let workUrl: string | undefined =
-  url ?? undefined;
-
-if (!workUrl) {
-  const { data: work, error } = await supabase
-    .from("works")
-    .select("url")
-    .eq("product_id", productId)
-    .single();
-
-  if (error) {
-    console.log("作品情報が見つかりません:", productId);
-    return "unavailable";
-  }
-
-  workUrl ??= work?.url ?? undefined;
-
-  if (!workUrl) {
-    console.log("URLが見つかりません:", productId);
-    return "unavailable";
-  }
-}
-
-  // Serverless Chromium can exit after its last page closes. Treat a passed,
-  // disconnected instance like no browser so the next item can recover.
-  let ownBrowser = !browser || !browser.isConnected();
-
-  if (!browser?.isConnected()) {
-    console.warn(`[browser] recreating disconnected Chromium for ${productId}`);
-    browser = await createBrowser();
-  }
-
-  let page;
-
-  try {
-    page = await browser.newPage();
-  } catch (error) {
-    // The disconnected event may arrive just after isConnected() was checked.
-    // Retry once with a fresh process instead of failing the whole update job.
-    if (browser.isConnected()) throw error;
-
-    console.warn(`[browser] newPage failed after disconnect; retrying ${productId}`);
-    browser = await createBrowser();
-    ownBrowser = true;
-    page = await browser.newPage();
-  }
-
-  // Routine updates never need video traffic. Initial registration explicitly
-  // opts in so the sample URL can be captured once and then kept unchanged.
-  if (process.env.VERCEL || !captureSampleMovie || sampleMovieOnly) {
-    await page.route("**/*", async (route) => {
-      const resourceType = route.request().resourceType();
-      const requestUrl = route.request().url();
-
-      if (
-        ((process.env.VERCEL || sampleMovieOnly) &&
-          (resourceType === "image" ||
-            resourceType === "font" ||
-            (sampleMovieOnly && resourceType === "stylesheet"))) ||
-        (!captureSampleMovie &&
-          (resourceType === "media" || /\.mp4(?:$|[?#])/i.test(requestUrl)))
-      ) {
-        await route.abort();
-        return;
-      }
-
-      await route.continue();
-    });
-  }
-
+  const workUrl = await resolveWorkUrl(productId, url);
+  if (!workUrl) return "unavailable";
+  const { browser: activeBrowser, page, ownBrowser } = await openUpdatePage(productId, browser);
+  await configureRequestRoutes(page, captureSampleMovie, sampleMovieOnly);
   const sampleMovieWatcher = captureSampleMovie ? watchSampleMovie(page) : null;
 
   try {
-
-    if (!workUrl) {
-  console.log("URLが見つかりません:", productId);
-  return "unavailable";
-}
     // Mark the browser context as age-confirmed before the first request.
     // Following the English age-gate link redirects serverless visitors to
     // account login, while the same cookie is used by the normal storefront.
@@ -239,11 +364,9 @@ if (!workUrl) {
     ]);
 
     await page.goto(workUrl, {
-  waitUntil: "domcontentloaded",
-  timeout: 60000,
-});
-
-
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    });
 
     if (page.url().includes("/age_check/")) {
       await page.context().addCookies([
@@ -280,192 +403,10 @@ if (!workUrl) {
         .catch(() => undefined);
     }
 
-    if (captureSampleMovie && sampleMovieWatcher) {
-      console.log(`[SAMPLE_MOVIE_ATTEMPT] ${productId}`);
-      try {
-      const hasOfficialPlayer = await page
-        .locator('iframe[src*="/html5_player/"]')
-        .first()
-        .waitFor({
-          state: "attached",
-          timeout: sampleMovieOnly ? 8_000 : 5_000,
-        })
-        .then(() => true)
-        .catch(() => false);
-
-      const sampleMovieUrl = await sampleMovieWatcher.waitForUrl(
-        sampleMovieOnly
-          ? hasOfficialPlayer
-            ? 7_000
-            : 1_000
-          : 15_000,
-      );
-      const checkedAt = new Date().toISOString();
-      let sampleMovieSaved = false;
-      if (sampleMovieUrl) {
-        const sampleMovieUpdate = sampleMovieUpdateFor({
-          status: "found",
-          url: sampleMovieUrl,
-          checkedAt,
-        });
-        const { data: savedMovie, error: sampleMovieError } = await supabase
-          .from("works")
-          .update(sampleMovieUpdate ?? {})
-          .eq("product_id", productId)
-          .is("sample_movie_url", null)
-          .select("product_id")
-          .maybeSingle();
-        if (sampleMovieError) throw sampleMovieError;
-        if (savedMovie) {
-          sampleMovieSaved = true;
-          dataChanged = true;
-        }
-
-        console.log(
-          savedMovie
-            ? `[SAMPLE_MOVIE_INITIAL_SAVED] ${productId} ${sampleMovieUrl}`
-            : `[SAMPLE_MOVIE_INITIAL_PRESERVED] ${productId}`,
-        );
-        console.log(`[SAMPLE_MOVIE_RESULT] ${productId} status=found`);
-      } else {
-        const sampleMovieUpdate = sampleMovieUpdateFor({
-          status: "confirmed-none",
-          checkedAt,
-        });
-        const { error: checkedAtError } = await supabase
-          .from("works")
-          .update(sampleMovieUpdate ?? {})
-          .eq("product_id", productId)
-          .is("sample_movie_url", null);
-        if (checkedAtError) throw checkedAtError;
-
-        console.log(`[SAMPLE_MOVIE_INITIAL_MISSING] ${productId}`);
-        console.log(`[SAMPLE_MOVIE_RESULT] ${productId} status=confirmed-none`);
-      }
-
-        if (sampleMovieOnly) {
-          return sampleMovieSaved
-            ? "updated"
-            : sampleMovieUrl
-              ? "unchanged"
-              : "sample_movie_missing";
-        }
-      } catch (error) {
-        console.error(
-          `[SAMPLE_MOVIE_RESULT] ${productId} status=failed-or-unchecked`,
-          error,
-        );
-        throw error;
-      }
-    }
-
-    const data = await parsePage(page);
-
-// 価格取得失敗なら保存しない
-if (data.prices.length === 0) {
-  const diagnostics = await page
-    .evaluate(() => ({
-      url: window.location.href,
-      title: document.title,
-      labelCount: document.querySelectorAll("label").length,
-      contentPriceCount: document.querySelectorAll(
-        '[data-e2eid="content-price"]'
-      ).length,
-      bodyText: document.body?.innerText
-        ?.replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 500),
-    }))
-    .catch((error) => ({
-      diagnosticError:
-        error instanceof Error ? error.message : String(error),
-    }));
-
-  console.log(`[PRICE_DIAGNOSTICS] ${productId}`, {
-    ...diagnostics,
-    productId,
-    dmmAvailable: unavailableMode === "record" ? "checked_below" : "not_checked",
-  });
-  console.log(
-    `[SKIP] ${productId} prices=[] url=${workUrl}`
-  );
-
-  // An unavailable/removed FANZA page was still checked successfully. Move its
-  // timestamp forward so the oldest-first local batch does not select the same
-  // 404 product again on every run.
-  const unavailableResult = await recordUnavailable(
-    productId,
-    unavailableMode,
-    {
-      productId,
-      url: workUrl,
-      page: diagnostics,
-    },
-  );
-
-  console.log(
-    `[CHECKED] FANZA利用不可 ${productId} ` +
-      `dmm=${unavailableResult.dmmAvailable} ` +
-      `transition=${unavailableResult.nextStatus ?? "deferred"}`,
-  );
-  return "unavailable_deferred";
-}
-
-let saved = false;
-let lastSaveError: unknown = null;
-
-for (let attempt = 1; attempt <= 3; attempt++) {
-  try {
-dataChanged = await saveWork(
-  productId,
-  data,
-  listPrice
-);
-
-saved = true;
-break;
-  } catch (error) {
-    lastSaveError = error;
-
-    console.error(
-      `[ERROR] saveWork失敗 (${attempt}/3) ${productId}`,
-      error
-    );
-
-    if (attempt < 3) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, 2000)
-      );
-    }
-    }
-}
-
-if (!saved) {
-  console.error(
-    `[SKIP] saveWorkを3回試行しましたが失敗しました: ${productId}`
-  );
-
-  throw lastSaveError instanceof Error
-    ? lastSaveError
-    : new Error(
-        `saveWorkを3回試行しましたが失敗しました: ${productId}`
-      );
-}
-
-console.log(
-  `[OK] ${productId} 更新完了`
-);
-return dataChanged ? "updated" : "unchanged";
+    const sampleMovieResult = await captureInitialSampleMovie(productId, page, sampleMovieWatcher, sampleMovieOnly);
+    if (sampleMovieResult.result) return sampleMovieResult.result;
+    return await parseAndPersistWork(productId, page, workUrl, listPrice, unavailableMode);
   } finally {
-  sampleMovieWatcher?.stop();
-  try {
-    await page.close();
-  } catch (e) {
-    console.error("page.close失敗", e);
+    await cleanupUpdatePage(page, activeBrowser, ownBrowser, sampleMovieWatcher);
   }
-
-  if (ownBrowser) {
-    await browser.close();
-  }
-}
 }

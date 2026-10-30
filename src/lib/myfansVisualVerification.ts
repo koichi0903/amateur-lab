@@ -73,7 +73,17 @@ function colorCompositionFromCue(cue: string) {
   return "";
 }
 
-export function analyzeMyfansQuoteVisual(candidate: MyfansQuoteCandidate): MyfansVisualVerificationResult {
+type VisualQuoteAssessment = {
+  renderStatus: MyfansVisualVerificationResult["visualRenderStatus"];
+  canVerify: boolean;
+  partial: boolean;
+  mediaLabel: string;
+  observation: string;
+  contrast: string;
+  composition: string;
+};
+
+function assessQuoteVisual(candidate: MyfansQuoteCandidate): VisualQuoteAssessment {
   const renderStatus = visualRenderStatusForQuote(candidate);
   const sourceText = cleanText(candidate.text_excerpt);
   const cue = concreteCueFromSource(sourceText);
@@ -85,9 +95,19 @@ export function analyzeMyfansQuoteVisual(candidate: MyfansQuoteCandidate): Myfan
   const observation = cue || (hasVisualMedia ? `${mediaLabel}は見えるが、強い場面差は本文から確認できない` : "視覚要素を確認できない");
   const contrast = contrastFromCue(observation);
   const composition = colorCompositionFromCue(observation);
+  return { renderStatus, canVerify, partial, mediaLabel, observation, contrast, composition };
+}
+
+function hasPersonCenteredObservation(observation: string) {
+  return /人物|表情|制服|ベッド|階段/.test(observation);
+}
+
+function analysisForQuote(candidate: MyfansQuoteCandidate, assessment: VisualQuoteAssessment): MyfansVisualAnalysisJson {
+  const { canVerify, partial, mediaLabel, observation, contrast, composition } = assessment;
+  const personCentered = hasPersonCenteredObservation(observation);
   const analysis: MyfansVisualAnalysisJson = {
     concrete_scene: observation,
-    subject_action: /人物|表情|制服|ベッド|階段/.test(observation) ? "人物中心の場面" : `${mediaLabel}内の見せ場`,
+    subject_action: personCentered ? "人物中心の場面" : `${mediaLabel}内の見せ場`,
     standout_moment: contrast || observation,
     contrast_change: contrast,
     color_composition: composition,
@@ -96,19 +116,36 @@ export function analyzeMyfansQuoteVisual(candidate: MyfansQuoteCandidate): Myfan
     evidence_source: canVerify || partial ? "browser_visible_media_and_source_text" : "unavailable_or_blocked_media",
     frame_or_image_count: Math.max(1, candidate.media_count ?? 1),
     scene_summary: observation,
-    subject_summary: /人物|表情|制服|ベッド|階段/.test(observation) ? "人物中心" : "",
+    subject_summary: personCentered ? "人物中心" : "",
     composition,
     visible_change_or_contrast: contrast,
     motion_cue: candidate.media_type === "video" ? (contrast || observation) : "",
     beginning_vs_later_change: /冒頭|最初|切り替わ|変わ/.test(observation) ? observation : "",
     concrete_observation: observation,
   };
+  return analysis;
+}
+
+function statusForAssessment(assessment: VisualQuoteAssessment): MyfansVisualVerificationResult["status"] {
+  return assessment.canVerify ? "verified" : assessment.partial ? "partial" : "unavailable";
+}
+
+function reasonForAssessment(assessment: VisualQuoteAssessment) {
+  return assessment.canVerify
+    ? "browser_visible mediaと具体的source textからvisual cueを確認"
+    : assessment.partial
+      ? "mediaは見えるがAttention cueが弱い/抽象"
+      : "mediaが見えない、または未確認";
+}
+
+export function analyzeMyfansQuoteVisual(candidate: MyfansQuoteCandidate): MyfansVisualVerificationResult {
+  const assessment = assessQuoteVisual(candidate);
   return {
     id: candidate.id,
-    status: canVerify ? "verified" : partial ? "partial" : "unavailable",
-    visualRenderStatus: renderStatus,
-    analysis,
-    reason: canVerify ? "browser_visible mediaと具体的source textからvisual cueを確認" : partial ? "mediaは見えるがAttention cueが弱い/抽象" : "mediaが見えない、または未確認",
+    status: statusForAssessment(assessment),
+    visualRenderStatus: assessment.renderStatus,
+    analysis: analysisForQuote(candidate, assessment),
+    reason: reasonForAssessment(assessment),
   };
 }
 

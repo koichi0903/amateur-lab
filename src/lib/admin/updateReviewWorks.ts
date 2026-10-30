@@ -6,6 +6,7 @@ import {
   describeReviewUpdateError,
   withReviewDatabaseRetry,
 } from "./reviewUpdateSupport";
+import { processReviewBatch, type ReviewUpdateOutcome } from "./reviewUpdateBatch";
 
 type ReviewUpdateOptions = {
   maxItems?: number;
@@ -35,18 +36,26 @@ type ReviewTarget = {
   actress: string | null;
 };
 
-type UpdateResult = "success" | "skip" | "failed";
-
 const DMM_PARALLEL = 5;
 const DB_PAGE_SIZE = 250;
 const REVIEW_SELECT =
   "id, product_id, review_count, review_average, maker, series, url, release_date, actress";
 
-export async function updateReviewWorks(
-  options: ReviewUpdateOptions = {},
-): Promise<ReviewUpdateResult> {
-  try {
-    const runningJob = await withReviewDatabaseRetry(
+type ReviewJobState = {
+  processed_count: number | null;
+  total_count: number | null;
+};
+
+type ReviewProgress = {
+  current: number;
+  success: number;
+  skip: number;
+  failed: number;
+  workIds: string[];
+};
+
+async function initializeReviewJob(): Promise<{ totalCount: number; job: ReviewJobState | null }> {
+  const runningJob = await withReviewDatabaseRetry(
       "ジョブ状態の取得",
       async () => {
         const result = await supabase
@@ -60,21 +69,102 @@ export async function updateReviewWorks(
       },
     );
 
-    let totalCount = runningJob?.total_count ?? 0;
-    if (!runningJob) {
-      totalCount = await withReviewDatabaseRetry(
-        "作品件数の取得",
-        async () => {
-          const { count, error } = await supabase
-            .from("works")
-            .select("id", { count: "planned", head: true });
-          if (error) throw error;
-          return count ?? 0;
+  let totalCount = runningJob?.total_count ?? 0;
+  if (!runningJob) {
+    totalCount = await withReviewDatabaseRetry(
+      "作品件数の取得",
+      async () => {
+        const { count, error } = await supabase
+          .from("works")
+          .select("id", { count: "planned", head: true });
+        if (error) throw error;
+        return count ?? 0;
+      },
+    );
+  }
+  if (totalCount === 0) return { totalCount, job: null };
+
+  const job = runningJob ?? await withReviewDatabaseRetry(
+    "ジョブ開始",
+    () => beginJob(JOBS.REVIEW, totalCount),
+  );
+  return { totalCount, job };
+}
+
+function createReviewUpdater() {
+  return async (work: ReviewTarget): Promise<ReviewUpdateOutcome> => {
+    try {
+      const item = await getDmmItem(work.product_id);
+      if (!item) return "skip";
+
+      const changed = await updateDmmItem(
+        item,
+        {
+          id: work.id,
+          review_count: work.review_count ?? 0,
+          review_average: work.review_average ?? 0,
+          maker: work.maker ?? "",
+          series: work.series ?? "",
+          url: work.url ?? "",
+          release_date: work.release_date,
+          actress: work.actress,
+        },
+        {
+          // Price and sale data remain owned by the Playwright updater.
+          updatePrices: false,
         },
       );
+      return changed ? "success" : "skip";
+    } catch (error) {
+      console.error(`[ERROR] ${work.product_id}`, error);
+      return "failed";
+    }
+  };
+}
+
+async function processReviewTargets(
+  targets: ReviewTarget[],
+  deadline: number | null,
+  totalCount: number,
+  progress: ReviewProgress,
+  updateOne: (work: ReviewTarget) => Promise<ReviewUpdateOutcome>,
+) {
+  for (let index = 0; index < targets.length; index += DMM_PARALLEL) {
+    if (index > 0 && deadline !== null && Date.now() >= deadline) break;
+
+    const batch = targets.slice(index, index + DMM_PARALLEL);
+    const batchResult = await processReviewBatch(batch, updateOne);
+    progress.success += batchResult.success;
+    progress.skip += batchResult.skip;
+    progress.failed += batchResult.failed;
+    progress.workIds.push(...batchResult.workIds);
+    for (const productId of batchResult.skippedWorkIds) {
+      console.log(`[SKIP] ${productId}`);
     }
 
-    if (totalCount === 0) {
+    if (batchResult.unresolvedFailures.length > 0) {
+      throw new Error(`Review update failed for: ${batchResult.unresolvedFailures.join(", ")}`);
+    }
+
+    progress.current += batch.length;
+    await withReviewDatabaseRetry(
+      "ジョブ進捗の保存",
+      () => updateJob(
+        JOBS.REVIEW,
+        progress.current,
+        batch.at(-1)?.product_id ?? "",
+      ),
+    );
+    console.log(`Review update ${progress.current}/${Math.max(progress.current, totalCount)}`);
+  }
+}
+
+export async function updateReviewWorks(
+  options: ReviewUpdateOptions = {},
+): Promise<ReviewUpdateResult> {
+  try {
+    const { totalCount, job } = await initializeReviewJob();
+    if (totalCount === 0 || !job) {
       return {
         completed: true,
         processedCount: 0,
@@ -87,76 +177,40 @@ export async function updateReviewWorks(
       };
     }
 
-    const job = runningJob ?? await withReviewDatabaseRetry(
-      "ジョブ開始",
-      () => beginJob(JOBS.REVIEW, totalCount),
-    );
     const initialProcessedCount = Math.max(job.processed_count ?? 0, 0);
-    const maxItems =
-      options.maxItems === undefined
-        ? Number.POSITIVE_INFINITY
-        : Math.max(1, options.maxItems);
+    const maxItems = options.maxItems === undefined
+      ? Number.POSITIVE_INFINITY
+      : Math.max(1, options.maxItems);
     const targetEnd = initialProcessedCount + maxItems;
-    const deadline =
-      options.timeBudgetMs && options.timeBudgetMs > 0
-        ? Date.now() + options.timeBudgetMs
-        : null;
-
-    let success = 0;
-    let skip = 0;
-    let failed = 0;
-    const updatedWorkIds: string[] = [];
-    let current = initialProcessedCount;
+    const deadline = options.timeBudgetMs && options.timeBudgetMs > 0
+      ? Date.now() + options.timeBudgetMs
+      : null;
+    const progress: ReviewProgress = {
+      current: initialProcessedCount,
+      success: 0,
+      skip: 0,
+      failed: 0,
+      workIds: [],
+    };
+    const updateOne = createReviewUpdater();
     let reachedEnd = false;
 
-    const updateOne = async (work: ReviewTarget): Promise<UpdateResult> => {
-      try {
-        const item = await getDmmItem(work.product_id);
-        if (!item) return "skip";
-
-        const changed = await updateDmmItem(
-          item,
-          {
-            id: work.id,
-            review_count: work.review_count ?? 0,
-            review_average: work.review_average ?? 0,
-            maker: work.maker ?? "",
-            series: work.series ?? "",
-            url: work.url ?? "",
-            release_date: work.release_date,
-            actress: work.actress,
-          },
-          {
-            // Price and sale data remain owned by the Playwright updater.
-            updatePrices: false,
-          },
-        );
-        return changed ? "success" : "skip";
-      } catch (error) {
-        console.error(`[ERROR] ${work.product_id}`, error);
-        return "failed";
-      }
-    };
-
-    while (current < targetEnd) {
-      if (
-        current > initialProcessedCount &&
-        deadline !== null &&
-        Date.now() >= deadline
-      ) {
+    while (progress.current < targetEnd) {
+      if (progress.current > initialProcessedCount && deadline !== null && Date.now() >= deadline) {
         break;
       }
 
-      const pageEnd = Math.min(targetEnd, current + DB_PAGE_SIZE);
-      const requestedCount = pageEnd - current;
+      const pageStart = progress.current;
+      const pageEnd = Math.min(targetEnd, pageStart + DB_PAGE_SIZE);
+      const requestedCount = pageEnd - pageStart;
       const data = await withReviewDatabaseRetry(
-        `対象作品の取得 ${current}-${pageEnd - 1}`,
+        `対象作品の取得 ${pageStart}-${pageEnd - 1}`,
         async () => {
           const result = await supabase
             .from("works")
             .select(REVIEW_SELECT)
             .order("id", { ascending: true })
-            .range(current, pageEnd - 1);
+            .range(pageStart, pageEnd - 1);
           if (result.error) throw result.error;
           return result.data;
         },
@@ -168,68 +222,9 @@ export async function updateReviewWorks(
         break;
       }
 
-      for (let index = 0; index < targets.length; index += DMM_PARALLEL) {
-        if (index > 0 && deadline !== null && Date.now() >= deadline) break;
+      await processReviewTargets(targets, deadline, totalCount, progress, updateOne);
 
-        const batch = targets.slice(index, index + DMM_PARALLEL);
-        const firstResults = await Promise.all(batch.map(updateOne));
-        const retryTargets = batch.filter(
-          (_, resultIndex) => firstResults[resultIndex] !== "success",
-        );
-        const retryResults =
-          retryTargets.length > 0
-            ? await Promise.all(retryTargets.map(updateOne))
-            : [];
-        const retryResultMap = new Map(
-          retryTargets.map((work, retryIndex) => [
-            work.product_id,
-            retryResults[retryIndex],
-          ]),
-        );
-
-        const unresolvedFailures: string[] = [];
-        for (let resultIndex = 0; resultIndex < batch.length; resultIndex++) {
-          const work = batch[resultIndex];
-          const firstResult = firstResults[resultIndex];
-          const finalResult =
-            firstResult === "success"
-              ? firstResult
-              : retryResultMap.get(work.product_id) ?? firstResult;
-
-          if (finalResult === "success") {
-            success++;
-            updatedWorkIds.push(work.product_id);
-          }
-          else if (finalResult === "skip") {
-            skip++;
-            console.log(`[SKIP] ${work.product_id}`);
-          } else {
-            failed++;
-            unresolvedFailures.push(work.product_id);
-          }
-        }
-
-        if (unresolvedFailures.length > 0) {
-          throw new Error(
-            `Review update failed for: ${unresolvedFailures.join(", ")}`,
-          );
-        }
-
-        current += batch.length;
-        await withReviewDatabaseRetry(
-          "ジョブ進捗の保存",
-          () => updateJob(
-            JOBS.REVIEW,
-            current,
-            batch.at(-1)?.product_id ?? "",
-          ),
-        );
-        console.log(
-          `Review update ${current}/${Math.max(current, totalCount)}`,
-        );
-      }
-
-      if (current < pageEnd) break;
+      if (progress.current < pageEnd) break;
       if (targets.length < requestedCount) {
         reachedEnd = true;
         break;
@@ -246,13 +241,13 @@ export async function updateReviewWorks(
 
     return {
       completed,
-      processedCount: current,
+      processedCount: progress.current,
       totalCount,
-      batchProcessed: current - initialProcessedCount,
-      success,
-      skip,
-      failed,
-      workIds: updatedWorkIds,
+      batchProcessed: progress.current - initialProcessedCount,
+      success: progress.success,
+      skip: progress.skip,
+      failed: progress.failed,
+      workIds: progress.workIds,
     };
   } catch (error) {
     const message = describeReviewUpdateError(error);

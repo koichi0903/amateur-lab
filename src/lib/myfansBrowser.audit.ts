@@ -5,7 +5,7 @@ import { chromium as playwrightChromium } from "playwright-core";
 async function main() {
   const bundledPath = await chromium.executablePath();
   const executablePath = process.platform === "win32"
-    ? "C:/Program Files/Google/Chrome/Application/chrome.exe"
+    ? playwrightChromium.executablePath()
     : bundledPath;
   const browser = await playwrightChromium.launch({
     executablePath,

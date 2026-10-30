@@ -1,26 +1,8 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { buildPublicCacheRevalidationPlan } from "@/lib/admin/publicCacheRevalidationPlan";
 
-const CATALOG_TASKS = new Set(["reserve", "new", "semi-new", "old", "stage"]);
-const PRICE_TASKS = new Set(["sale", "ended-sale", "missing-prices"]);
-const DISCOVERY_TASKS = new Set(["review", "ranking", "score"]);
-
-const ENTITY_PATHS = ["/actress", "/genre", "/maker"];
-
-export const PUBLIC_CACHE_TASKS = new Set([
-  "reserve",
-  "new",
-  "semi-new",
-  "old",
-  "sale",
-  "ended-sale",
-  "stage",
-  "review",
-  "ranking",
-  "score",
-  "missing-prices",
-  "sample-movie",
-]);
+export { PUBLIC_CACHE_TASKS } from "@/lib/admin/publicCacheRevalidationPlan";
 
 export type PublicCacheRevalidationOptions = {
   workIds?: Iterable<string | number>;
@@ -30,14 +12,10 @@ export async function revalidatePublicCacheForTasks(
   tasks: string[],
   options: PublicCacheRevalidationOptions = {},
 ) {
-  const knownTasks = [...new Set(tasks)].filter((task) => PUBLIC_CACHE_TASKS.has(task));
-  if (knownTasks.length === 0) return { tasks: [], paths: [], tags: [] };
+  const plan = buildPublicCacheRevalidationPlan(tasks);
+  if (plan.tasks.length === 0) return { tasks: [], paths: [], tags: [] };
 
-  const paths = new Set<string>();
-  const tags = new Set<string>();
-  const productIds = [...(options.workIds ?? [])]
-      .map((id) => String(id).trim())
-      .filter(Boolean);
+  const productIds = [...(options.workIds ?? [])].map((id) => String(id).trim()).filter(Boolean);
   const workTags = new Set<string>();
   if (productIds.length > 0) {
     // Keep the REST query URL below Supabase/undici header limits when a
@@ -58,41 +36,21 @@ export async function revalidatePublicCacheForTasks(
     }
   }
 
-  if (knownTasks.some((task) => CATALOG_TASKS.has(task))) {
-    paths.add("/");
-    for (const path of ["/new", "/ranking", "/features", ...ENTITY_PATHS, "/sitemap.xml"]) {
-      paths.add(path);
+  for (const path of plan.paths) revalidatePath(path);
+
+  if (plan.includesAmateurApiCatalog) {
+    for (const path of ["/amateur/[contentId]", "/amateur/genre/[name]", "/amateur/maker/[name]"]) {
+      revalidatePath(path, "page");
     }
-    tags.add("home-catalog");
-    tags.add("home-daily-discovery");
-    tags.add("entity-works");
-  }
-  if (knownTasks.some((task) => PRICE_TASKS.has(task))) {
-    paths.add("/");
-    for (const path of ["/sale", "/deals", "/ranking"]) paths.add(path);
-    tags.add("home-price-insights");
-    tags.add("hero-price-drop");
-    tags.add("deals");
-    tags.add("entity-works");
-  }
-  if (knownTasks.some((task) => DISCOVERY_TASKS.has(task))) {
-    paths.add("/");
-    for (const path of ["/ranking", "/features", ...ENTITY_PATHS]) paths.add(path);
-    tags.add("home-ranking");
-    tags.add("ai-discoveries");
-    tags.add("latest-daily-update");
-    tags.add("entity-works");
   }
 
-  for (const path of paths) revalidatePath(path);
-
-  for (const tag of tags) revalidateTag(tag, tag === "home-price-insights" ? "max" : { expire: 0 });
+  for (const tag of plan.tags) revalidateTag(tag, tag === "home-price-insights" ? "max" : { expire: 0 });
   for (const tag of workTags) revalidateTag(tag, { expire: 0 });
 
   return {
-    tasks: knownTasks,
-    paths: [...paths],
-    tags: [...tags, ...workTags],
+    tasks: plan.tasks,
+    paths: plan.paths,
+    tags: [...plan.tags, ...workTags],
     // Work detail caches are fully covered by their two data tags above:
     // one for the works row and one for product-keyed offers/history/images.
     // Avoid an additional per-work revalidatePath call.

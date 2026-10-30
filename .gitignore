@@ -37,6 +37,13 @@ yarn-error.log*
 # local development and visual QA artifacts
 /.codex-*.log
 /.codex-*.png
+# Retained local worktree and release evidence; keep on disk, exclude from the root repository.
+/.worktrees/
+/.fanza-release-candidate/
+/.fanza-release-candidate-baseline/
+/.fanza-release-candidate-main.zip
+/fanza-release-candidate-verify/
+/.amateur-actress-prod-release/
 /work/
 /work-npm-cache/
 /.npm-cache/

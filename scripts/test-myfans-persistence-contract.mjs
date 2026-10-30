@@ -5,12 +5,14 @@ const page = fs.readFileSync("src/app/admin/myfans/page.tsx", "utf8");
 const forms = fs.readFileSync("src/app/admin/myfans/MyfansAdminForms.tsx", "utf8");
 const route = fs.readFileSync("src/app/api/admin/myfans/daily-plan/reevaluate/route.ts", "utf8");
 const view = fs.readFileSync("src/lib/myfansDailySnapshotView.ts", "utf8");
+const projection = fs.readFileSync("src/lib/myfansDailyPageProjection.ts", "utf8");
 
 assert.match(page, /restorePersistedDailySnapshot/);
-assert.match(page, /currentPlan = analytics\.dailyPlans[\s\S]*board\.planDate/);
-assert.match(page, /\.sort\(\(a, b\) => \(b\.revision \?\? 0\) - \(a\.revision \?\? 0\)/);
+assert.match(page, /currentPlan = selectCurrentMyfansDailyPlan\(analytics\.dailyPlans, board\.planDate, selectedMediaId\)/);
+assert.ok(projection.includes(".filter((plan) => plan.plan_date === planDate && plan.approved_media_id === approvedMediaId)"));
+assert.ok(projection.includes(".sort((a, b) => (b.revision ?? 0) - (a.revision ?? 0)"));
 assert.match(page, /persistedSnapshot && <PersistedDailyPlanBoard/);
-assert.match(page, /<XExecutionBoard candidates=\{board\.candidates\}/);
+assert.match(page, /<XExecutionBoard\s+candidates=\{board\.candidates\}/);
 assert.match(page, /4 Slot × 最大3/);
 assert.match(page, /displaySelectedCount/);
 assert.doesNotMatch(page, /snapshot\?\.selectedOptions/);

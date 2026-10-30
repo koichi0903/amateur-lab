@@ -2,6 +2,7 @@ export const ACTIVE_QUOTE_REFRESH_STATUSES = ["pending", "running", "paused"] as
 export const TERMINAL_QUOTE_REFRESH_STATUSES = ["completed", "failed", "cancelled"] as const;
 export const AUTO_STALE_QUOTE_REFRESH_STATUSES = ["pending", "running"] as const;
 export const STALE_QUOTE_REFRESH_AGE_MS = 30 * 60_000;
+export const STALE_QUOTE_REFRESH_ITEM_AGE_MS = 5 * 60_000;
 
 export type QuoteRefreshLifecycleItem = {
   status: string;

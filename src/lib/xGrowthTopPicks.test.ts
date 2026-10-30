@@ -24,6 +24,14 @@ const posted = normalizeTopPickCandidates([
 ], new Set([123]));
 assert.deepEqual(posted.map((candidate) => candidate.workId), [124]);
 
+const duplicateMedia = normalizeTopPickCandidates([
+  { workId: 201, mediaAsset: { id: 31 }, sampleMovieUrl: "https://example.com/one.mp4" },
+  { workId: 202, mediaAsset: { id: 31 }, sampleMovieUrl: "https://example.com/two.mp4" },
+  { workId: 203, sampleMovieUrl: "https://example.com/one.mp4" },
+  { workId: 204, sampleMovieUrl: "https://example.com/four.mp4" },
+]);
+assert.deepEqual(duplicateMedia.map((candidate) => candidate.workId), [201, 204]);
+
 const legacy = normalizeTopPickCandidates([
   { work_id: 7, pick_order: 1, selected: true },
   { work_id: 8, pick_order: 1, selected: false },

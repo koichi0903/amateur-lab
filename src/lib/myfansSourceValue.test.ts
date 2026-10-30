@@ -5,14 +5,27 @@ const fresh = new Date().toISOString();
 const shortConcrete = evaluateMyfansSourceValue({ text: "新作、階段から表情が変わる。", collectedAt: fresh, mediaType: "none" });
 assert.equal(shortConcrete.verdict, "PASS");
 assert.ok(shortConcrete.reactionAngles.includes("contrast"));
+assert.equal(shortConcrete.score, 69);
+assert.deepEqual(shortConcrete.breakdown, {
+  concreteSubjectEvent: 20,
+  reactionAffordance: 7,
+  selfContainedContext: 16,
+  noveltyFreshness: 12,
+  evidenceRichness: 5,
+  downstreamFit: 10,
+  spamPromoPenalty: 0,
+  ambiguityPenalty: 0,
+});
 
 const promo = evaluateMyfansSourceValue({ text: "新商品発売中！詳しくはリンクから購入できます。", collectedAt: fresh });
 assert.equal(promo.verdict, "LOW_SOURCE_VALUE");
+assert.equal(promo.score, 48);
 
 const visualDependent = evaluateMyfansSourceValue({ text: "雰囲気がすごい", collectedAt: fresh, mediaType: "image", mediaPermalink: null });
 assert.equal(visualDependent.verdict, "LOW_SOURCE_VALUE");
 const verifiedVisual = evaluateMyfansSourceValue({ text: "雰囲気がすごい", collectedAt: fresh, mediaType: "image", mediaPermalink: "https://x.com/a/status/1/photo/1", quoteVisualReady: true });
 assert.equal(verifiedVisual.verdict, "PASS");
+assert.equal(verifiedVisual.score, 58);
 
 const metrics = evaluateMyfansSourceValue({ text: "100000 5000 300", collectedAt: fresh, views: 100000 });
 assert.equal(metrics.verdict, "LOW_SOURCE_VALUE");

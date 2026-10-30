@@ -40,8 +40,138 @@ type ApiResponse = { ok: boolean; selection: SavedSelection | null; error?: stri
 
 const CANDIDATES_PER_PAGE = 20;
 
+function CandidatePager({
+  candidateCount,
+  currentPage,
+  pageCount,
+  onPrevious,
+  onNext,
+}: {
+  candidateCount: number;
+  currentPage: number;
+  pageCount: number;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  if (candidateCount <= CANDIDATES_PER_PAGE) return null;
+  const first = currentPage * CANDIDATES_PER_PAGE + 1;
+  const last = Math.min((currentPage + 1) * CANDIDATES_PER_PAGE, candidateCount);
+  return (
+    <nav aria-label="動画候補ページ" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2">
+      <p aria-live="polite" className="text-xs font-bold text-zinc-300">{candidateCount}作品中 {first}〜{last}件を表示（{currentPage + 1}/{pageCount}ページ）</p>
+      <div className="flex gap-2">
+        <button type="button" onClick={onPrevious} disabled={currentPage === 0} className="rounded border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-200 disabled:opacity-40">前へ</button>
+        <button type="button" onClick={onNext} disabled={currentPage >= pageCount - 1} className="rounded border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-200 disabled:opacity-40">次へ</button>
+      </div>
+    </nav>
+  );
+}
+
+function CandidateCard({
+  candidate,
+  checked,
+  manual,
+  loading,
+  selectionAvailable,
+  onReplace,
+}: {
+  candidate: VideoCandidate;
+  checked: boolean;
+  manual: boolean;
+  loading: boolean;
+  selectionAvailable: boolean;
+  onReplace: (workId: number) => void;
+}) {
+  return (
+    <article className={`rounded-lg border p-3 ${checked ? "border-emerald-600 bg-emerald-950/40" : "border-zinc-800 bg-zinc-950"}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-bold">{candidate.title}</p>
+          <p className="mt-1 text-xs text-zinc-400">work {candidate.workId} · 自動スコア {candidate.rankScore.toFixed(1)} · 動画品質Gate合格</p>
+        </div>
+        {checked && <span className="shrink-0 rounded bg-emerald-900 px-2 py-1 text-xs font-bold text-emerald-200">{manual ? "手動入替" : "自動選定"}</span>}
+      </div>
+      <p className="mt-2 text-xs text-zinc-400">{candidate.rankReasons.join(" / ")}</p>
+      <div className="mt-2 flex items-center gap-3">
+        <a href={`/works/${candidate.workId}`} target="_blank" rel="noreferrer" className="text-xs text-cyan-300 underline">作品情報を開く</a>
+        {!checked && <button type="button" onClick={() => onReplace(candidate.workId)} disabled={loading || !selectionAvailable} className="rounded border border-zinc-700 px-2 py-1 text-xs font-bold text-zinc-200 disabled:opacity-50">この作品に入れ替え</button>}
+      </div>
+    </article>
+  );
+}
+
+function CandidateResults({
+  snapshot,
+  selection,
+  selectedIds,
+  selectedSet,
+  visibleCandidates,
+  currentPage,
+  pageCount,
+  loading,
+  onPagePrevious,
+  onPageNext,
+  onReplace,
+  onReset,
+}: {
+  snapshot: SavedSelection["candidate_snapshot"];
+  selection: SavedSelection | null;
+  selectedIds: number[];
+  selectedSet: Set<number>;
+  visibleCandidates: VideoCandidate[];
+  currentPage: number;
+  pageCount: number;
+  loading: boolean;
+  onPagePrevious: () => void;
+  onPageNext: () => void;
+  onReplace: (workId: number) => void;
+  onReset: () => void;
+}) {
+  const pager = (
+    <CandidatePager
+      candidateCount={snapshot.candidates.length}
+      currentPage={currentPage}
+      pageCount={pageCount}
+      onPrevious={onPagePrevious}
+      onNext={onPageNext}
+    />
+  );
+  return (
+    <>
+      <p className="mt-4 text-sm font-bold text-cyan-100">
+        品質評価 {snapshot.evaluatedWorks}作品 / Hard Gate通過 {snapshot.hardGatePassedWorks}作品 / 保存中 {selectedIds.length}/5
+      </p>
+      <p className="mt-1 text-xs text-zinc-400">
+        候補 {snapshot.pipeline.candidateWorks ?? 0} → 品質評価 {snapshot.pipeline.qualityEvaluatedWorks ?? 0} / 最終評価 {new Date(snapshot.computedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
+      </p>
+      {snapshot.shortageReason && <p className="mt-2 text-sm font-bold text-amber-200">{snapshot.shortageReason} 品質基準は維持しています。</p>}
+      {snapshot.hardGatePassedWorks < 10 && Object.keys(snapshot.failureCounts).length > 0 && <p className="mt-1 text-xs text-zinc-400">Gateの主な不合格理由: {Object.entries(snapshot.failureCounts).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([reason, count]) => `${reason} ${count}`).join(" / ")}</p>}
+      {pager}
+      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {visibleCandidates.map((candidate) => (
+          <CandidateCard
+            key={candidate.workId}
+            candidate={candidate}
+            checked={selectedSet.has(candidate.workId)}
+            manual={selection?.manual_override_work_ids.includes(candidate.workId) ?? false}
+            loading={loading}
+            selectionAvailable={Boolean(selection)}
+            onReplace={onReplace}
+          />
+        ))}
+      </div>
+      {pager}
+      {(selection?.manual_override_work_ids.length || selection?.excluded_work_ids.length) ? (
+        <button type="button" onClick={onReset} disabled={loading} className="mt-3 rounded border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-300 disabled:opacity-50">手動入替を解除して自動選定に戻す</button>
+      ) : null}
+      {!snapshot.hardGatePassedWorks && <p className="mt-3 text-sm text-amber-200">この評価ではHard Gate通過作品がありません。Gateを緩めず、表示された除外理由を確認してください。</p>}
+    </>
+  );
+}
+
 export default function VideoCandidatePool() {
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [selection, setSelection] = useState<SavedSelection | null>(null);
   const [error, setError] = useState("");
   const [candidatePage, setCandidatePage] = useState(0);
@@ -56,6 +186,9 @@ export default function VideoCandidatePool() {
       })
       .catch((cause) => {
         if (active) setError(cause instanceof Error ? cause.message : "保存済み候補を読み込めませんでした。");
+      })
+      .finally(() => {
+        if (active) setInitialLoading(false);
       });
     return () => { active = false; };
   }, []);
@@ -67,21 +200,6 @@ export default function VideoCandidatePool() {
   const pageCount = Math.max(1, Math.ceil(candidates.length / CANDIDATES_PER_PAGE));
   const currentPage = Math.min(candidatePage, pageCount - 1);
   const visibleCandidates = candidates.slice(currentPage * CANDIDATES_PER_PAGE, (currentPage + 1) * CANDIDATES_PER_PAGE);
-
-  function candidatePager() {
-    if (candidates.length <= CANDIDATES_PER_PAGE) return null;
-    const first = currentPage * CANDIDATES_PER_PAGE + 1;
-    const last = Math.min((currentPage + 1) * CANDIDATES_PER_PAGE, candidates.length);
-    return (
-      <nav aria-label="動画候補ページ" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2">
-        <p aria-live="polite" className="text-xs font-bold text-zinc-300">{candidates.length}作品中 {first}〜{last}件を表示（{currentPage + 1}/{pageCount}ページ）</p>
-        <div className="flex gap-2">
-          <button type="button" onClick={() => setCandidatePage((page) => Math.max(0, page - 1))} disabled={currentPage === 0} className="rounded border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-200 disabled:opacity-40">前へ</button>
-          <button type="button" onClick={() => setCandidatePage((page) => Math.min(pageCount - 1, page + 1))} disabled={currentPage >= pageCount - 1} className="rounded border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-200 disabled:opacity-40">次へ</button>
-        </div>
-      </nav>
-    );
-  }
 
   async function save(action: "refresh" | "override" | "reset", selectedWorkIds?: number[]) {
     setLoading(true);
@@ -115,52 +233,26 @@ export default function VideoCandidatePool() {
           <h2 className="text-xl font-black">動画候補の自動選定</h2>
           <p className="mt-1 text-sm text-zinc-300">動画Creative Quality Hard Gateを通過した作品から、スコア・鮮度・セール・直近投稿を使って上位5作品を選びます。</p>
         </div>
-        <button type="button" onClick={() => void save("refresh")} disabled={loading} className="h-10 shrink-0 rounded-lg border border-cyan-700 bg-cyan-950 px-4 text-sm font-black text-cyan-100 disabled:opacity-60">
-          {loading ? "読み取り・自動選定・保存中…" : selection ? "候補を更新して自動選定" : "動画候補を自動選定"}
+        <button type="button" onClick={() => void save("refresh")} disabled={loading || initialLoading} className="h-10 shrink-0 rounded-lg border border-cyan-700 bg-cyan-950 px-4 text-sm font-black text-cyan-100 disabled:opacity-60">
+          {initialLoading ? "保存済み候補を読み込み中…" : loading ? "読み取り・自動選定・保存中…" : selection ? "候補を更新して自動選定" : "動画候補を自動選定"}
         </button>
       </div>
       <p className="mt-2 text-xs text-zinc-400">選定は専用保存先に記録します。Top Picks・投稿・Schedulerには反映しません。公式HTTPSサンプル動画URLはX掲載許可済みとして扱い、独自の許諾審査や追加除外条件は設けません。</p>
       {error && <p role="alert" className="mt-3 text-sm font-bold text-rose-300">{error}</p>}
-      {snapshot && (
-        <>
-          <p className="mt-4 text-sm font-bold text-cyan-100">
-            品質評価 {snapshot.evaluatedWorks}作品 / Hard Gate通過 {snapshot.hardGatePassedWorks}作品 / 保存中 {selectedIds.length}/5
-          </p>
-          <p className="mt-1 text-xs text-zinc-400">
-            候補 {snapshot.pipeline.candidateWorks ?? 0} → 品質評価 {snapshot.pipeline.qualityEvaluatedWorks ?? 0} / 最終評価 {new Date(snapshot.computedAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
-          </p>
-          {snapshot.shortageReason && <p className="mt-2 text-sm font-bold text-amber-200">{snapshot.shortageReason} 品質基準は維持しています。</p>}
-          {snapshot.hardGatePassedWorks < 10 && Object.keys(snapshot.failureCounts).length > 0 && <p className="mt-1 text-xs text-zinc-400">Gateの主な不合格理由: {Object.entries(snapshot.failureCounts).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([reason, count]) => `${reason} ${count}`).join(" / ")}</p>}
-          {candidatePager()}
-          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {visibleCandidates.map((candidate) => {
-              const checked = selectedSet.has(candidate.workId);
-              const manual = selection?.manual_override_work_ids.includes(candidate.workId) ?? false;
-              return (
-                <article key={candidate.workId} className={`rounded-lg border p-3 ${checked ? "border-emerald-600 bg-emerald-950/40" : "border-zinc-800 bg-zinc-950"}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold">{candidate.title}</p>
-                      <p className="mt-1 text-xs text-zinc-400">work {candidate.workId} · 自動スコア {candidate.rankScore.toFixed(1)} · 動画品質Gate合格</p>
-                    </div>
-                    {checked && <span className="shrink-0 rounded bg-emerald-900 px-2 py-1 text-xs font-bold text-emerald-200">{manual ? "手動入替" : "自動選定"}</span>}
-                  </div>
-                  <p className="mt-2 text-xs text-zinc-400">{candidate.rankReasons.join(" / ")}</p>
-                  <div className="mt-2 flex items-center gap-3">
-                    <a href={`/works/${candidate.workId}`} target="_blank" rel="noreferrer" className="text-xs text-cyan-300 underline">作品情報を開く</a>
-                    {!checked && <button type="button" onClick={() => replaceWith(candidate.workId)} disabled={loading || !selection} className="rounded border border-zinc-700 px-2 py-1 text-xs font-bold text-zinc-200 disabled:opacity-50">この作品に入れ替え</button>}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-          {candidatePager()}
-          {selection?.manual_override_work_ids.length || selection?.excluded_work_ids.length ? (
-            <button type="button" onClick={() => void save("reset")} disabled={loading} className="mt-3 rounded border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-300 disabled:opacity-50">手動入替を解除して自動選定に戻す</button>
-          ) : null}
-          {!snapshot.hardGatePassedWorks && <p className="mt-3 text-sm text-amber-200">この評価ではHard Gate通過作品がありません。Gateを緩めず、表示された除外理由を確認してください。</p>}
-        </>
-      )}
+      {snapshot && <CandidateResults
+        snapshot={snapshot}
+        selection={selection}
+        selectedIds={selectedIds}
+        selectedSet={selectedSet}
+        visibleCandidates={visibleCandidates}
+        currentPage={currentPage}
+        pageCount={pageCount}
+        loading={loading}
+        onPagePrevious={() => setCandidatePage((page) => Math.max(0, page - 1))}
+        onPageNext={() => setCandidatePage((page) => Math.min(pageCount - 1, page + 1))}
+        onReplace={replaceWith}
+        onReset={() => void save("reset")}
+      />}
       {!snapshot && !error && <p className="mt-4 text-sm text-zinc-400">まだ自動選定結果がありません。ボタンを押すと候補評価後に上位作品を専用保存先へ記録します。</p>}
     </section>
   );

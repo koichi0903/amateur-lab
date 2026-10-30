@@ -3,8 +3,6 @@ type Work = {
   image_url: string | null;
   product_id: string;
   maker: string | null;
-  review_average: number | null;
-  review_count: number | null;
   sale_price: number | null;
   price: number | null;
   affiliate_url?: string | null;
@@ -32,9 +30,6 @@ export default function ProductJsonLd({
 
   if (work.image_url) jsonLd.image = [work.image_url];
   if (work.maker) jsonLd.brand = { "@type": "Brand", name: work.maker };
-  if (work.review_average && work.review_average > 0 && work.review_count && work.review_count > 0) {
-    jsonLd.aggregateRating = { "@type": "AggregateRating", ratingValue: work.review_average, reviewCount: work.review_count };
-  }
   if (price && price > 0) {
     jsonLd.offers = {
       "@type": "Offer",

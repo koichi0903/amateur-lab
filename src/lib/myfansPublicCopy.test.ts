@@ -477,6 +477,15 @@ const creatorOutlierTopic = evaluateMyfansTopicValue({
 });
 assert.equal(creatorOutlierTopic.verdict, "PASS");
 assert.equal(creatorOutlierTopic.reasonToCare, "creator_outlier");
+assert.equal(creatorOutlierTopic.score, 84);
+assert.deepEqual(creatorOutlierTopic.breakdown, {
+  surprise: 17,
+  concreteDifference: 20,
+  humanCuriosity: 8,
+  socialProofMomentum: 4,
+  visualStoryValue: 0,
+  explainability: 10,
+});
 
 const visualGapTopic = evaluateMyfansTopicValue({
   product: product as never,

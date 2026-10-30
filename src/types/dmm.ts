@@ -18,12 +18,26 @@ sampleImageURL?: {
     image: string[];
   };
 };
+  sampleMovieURL?: {
+    size_476_306?: string;
+    size_560_360?: string;
+    size_644_414?: string;
+    size_720_480?: string;
+    [key: string]: string | undefined;
+  };
   URL?: string;           // FANZA作品URL
 affiliateURL?: string;  // アフィリエイトURL
 
   prices: {
     price: string;
     list_price: string;
+    deliveries?: {
+      delivery?: Array<{
+        type: string;
+        price: string;
+        list_price: string;
+      }>;
+    };
   };
 
   review?: {

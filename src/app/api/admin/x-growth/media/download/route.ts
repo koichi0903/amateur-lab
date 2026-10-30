@@ -4,11 +4,16 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { canTrimFanzaXGrowthSampleMovie, isFanzaXGrowthTechnicalSampleMovie, sourceDomain, sourceKindFor } from "@/lib/xMediaAssets";
 import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
 import { xGrowthMediaResponseHeaders } from "@/lib/xGrowthMediaPreview";
-import { parseDatabaseDate } from "@/lib/dateTime";
+import { xGrowthMediaDataCard } from "@/lib/xGrowthMediaDataCard";
 
 export const dynamic = "force-dynamic";
 
 const ACCOUNT = "hakkutsu_lab";
+
+type MediaResolution =
+  | { error: string; status: 400 | 403 | 404 }
+  | { body: string; contentType: string; basename: string; fallbackExt: string }
+  | { url: string; basename: string; fallbackExt: string; asset?: Record<string, unknown> };
 
 function extFromContentType(contentType: string, fallback: string) {
   if (contentType.includes("mp4")) return "mp4";
@@ -51,147 +56,195 @@ async function fetchAllowedUpstream(url: string, mediaType: string, range?: stri
   throw new Error("素材URLのリダイレクト回数が上限を超えました。");
 }
 
-function escapeXml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-function splitText(value: string, limit: number, maxLines: number) {
-  const chars = [...value.replace(/\s+/g, " ").trim()];
-  const lines: string[] = [];
-  let line = "";
-  for (const char of chars) {
-    line += char;
-    if (line.length >= limit) {
-      lines.push(line);
-      line = "";
-      if (lines.length >= maxLines) break;
-    }
+async function resolveSampleMovie(workId: number, mediaType: string, assetId: number | null): Promise<MediaResolution> {
+  let data: Record<string, unknown> | null = null;
+  if (assetId) {
+    const result = await supabaseAdmin
+      .from("x_media_assets")
+      .select("*")
+      .eq("account_handle", ACCOUNT)
+      .eq("id", assetId)
+      .single();
+    if (result.error || !result.data) return { error: result.error?.message ?? "動画素材が見つかりません。", status: 404 };
+    data = result.data as Record<string, unknown>;
+  } else {
+    const result = await supabaseAdmin
+      .from("works")
+      .select("id,product_id,sample_movie_url")
+      .eq("id", workId)
+      .single();
+    const work = result.data as { id: number; product_id: string | null; sample_movie_url: string | null } | null;
+    if (result.error || !work?.sample_movie_url) return { error: result.error?.message ?? "動画素材が見つかりません。", status: 404 };
+    data = {
+      id: undefined,
+      work_id: work.id,
+      product_id: work.product_id,
+      media_type: "sample_movie",
+      source_url: work.sample_movie_url,
+      source_domain: sourceDomain(work.sample_movie_url),
+      source_kind: sourceKindFor(work.sample_movie_url),
+      fetch_status: null,
+      media_quality: "unreviewed",
+      manual_tags: [],
+      can_modify: false,
+      trim_start_seconds: 0,
+      trim_modify_confirmed: false,
+    };
   }
-  if (line && lines.length < maxLines) lines.push(line);
-  return lines;
+  const asset = data as { id?: number; work_id: number | null; source_url: string; media_type: string };
+  const allowed = (asset.media_type === "sample_movie" || asset.media_type === "video") && asset.work_id === workId && (
+    isFanzaXGrowthTechnicalSampleMovie(data, asset.source_url).usable
+  );
+  if (!allowed) {
+    await auditXGrowth("media_download_blocked", { workId, mediaType, assetId, reasons: isFanzaXGrowthTechnicalSampleMovie(data, asset.source_url).reasons });
+    return { error: "このmp4はX投稿用に保存できません。", status: 403 };
+  }
+  return { url: asset.source_url, basename: `hakkutsu-${workId}-sample`, fallbackExt: "mp4", asset: data };
 }
 
-function dataCardSvg(work: {
-  title: string;
-  actress: string | null;
-  genre: string | null;
-  ranking: number | null;
-  discount_rate: number | null;
-  review_average: number | null;
-  review_count: number | null;
-  sale_price: number | null;
-  price: number | null;
-  list_price: number | null;
-  lowest_price: number | null;
-  is_bottom_price: boolean | null;
-  is_on_sale: boolean | null;
-  sale_end_at: string | null;
+async function resolveDataCard(workId: number): Promise<MediaResolution> {
+  const { data, error } = await supabaseAdmin
+    .from("works")
+    .select("id,title,actress,genre,ranking,discount_rate,review_average,review_count,sale_price,price,list_price,lowest_price,is_bottom_price,is_on_sale,sale_end_at")
+    .eq("id", workId)
+    .single();
+  const work = data as Parameters<typeof xGrowthMediaDataCard>[0] | null;
+  if (error || !work) return { error: error?.message ?? "カード素材が見つかりません。", status: 404 };
+  return { body: xGrowthMediaDataCard(work), contentType: "image/svg+xml; charset=utf-8", basename: `hakkutsu-${workId}-market-card`, fallbackExt: "svg" };
+}
+
+async function resolveExistingLinkImage(workId: number): Promise<MediaResolution> {
+  const { data, error } = await supabaseAdmin
+    .from("works")
+    .select("id,image_url")
+    .eq("id", workId)
+    .single();
+  const work = data as { id: number; image_url: string | null } | null;
+  if (error || !work?.image_url) return { error: error?.message ?? "画像素材が見つかりません。", status: 404 };
+  return { url: work.image_url, basename: `hakkutsu-${workId}-image`, fallbackExt: "jpg" };
+}
+
+async function resolveMedia(workId: number, mediaType: string, assetId: number | null): Promise<MediaResolution> {
+  if (mediaType === "sample_movie") return resolveSampleMovie(workId, mediaType, assetId);
+  if (mediaType === "data_card") return resolveDataCard(workId);
+  if (mediaType === "existing_link_image") return resolveExistingLinkImage(workId);
+  return { error: "保存できる素材タイプではありません。", status: 400 };
+}
+
+type UrlMediaResolution = Extract<MediaResolution, { url: string }>;
+type InlineMediaResolution = Extract<MediaResolution, { body: string }>;
+
+async function respondWithInlineMedia(
+  resolved: InlineMediaResolution,
+  workId: number,
+  mediaType: string,
+  assetId: number | null,
+  preview: boolean,
+) {
+  await auditXGrowth("media_download_allowed", { workId, mediaType, assetId, contentType: resolved.contentType });
+  return new NextResponse(resolved.body, {
+    headers: {
+      "Content-Type": resolved.contentType,
+      "Content-Disposition": `${mediaType === "data_card" && preview ? "inline" : "attachment"}; filename="${safeFilename(resolved.basename)}.${resolved.fallbackExt}"`,
+      "Cache-Control": "private, no-store",
+    },
+  });
+}
+
+async function respondWithTrimmedMovie(input: {
+  resolved: UrlMediaResolution;
+  workId: number;
+  mediaType: string;
+  assetId: number | null;
+  preview: boolean;
+}): Promise<NextResponse | null> {
+  const { resolved, workId, mediaType, assetId, preview } = input;
+  const trimStartSeconds = Number((resolved.asset as { trim_start_seconds?: unknown } | undefined)?.trim_start_seconds ?? 0);
+  if (mediaType !== "sample_movie" || trimStartSeconds <= 0 || preview) return null;
+
+  const trimVerdict = canTrimFanzaXGrowthSampleMovie(resolved.asset, resolved.url);
+  if (!trimVerdict.usable) {
+    await auditXGrowth("media_trim_download_blocked", { workId, mediaType, assetId, reasons: trimVerdict.reasons });
+    return NextResponse.json({ error: `トリムに失敗しました: ${trimVerdict.reasons.join(" / ")}` }, { status: 403 });
+  }
+
+  const trimmed = await trimVideoForX({ sourceUrl: resolved.url, trimStartSeconds });
+  const body = await readAndCleanupTrimmedVideo(trimmed);
+  await auditXGrowth("media_trim_download_allowed", {
+    workId,
+    mediaType,
+    assetId,
+    trimStartSeconds: trimmed.trimStartSeconds,
+    sourceDuration: trimmed.durationSeconds,
+    outputDuration: trimmed.outputDurationSeconds,
+    codec: trimmed.codec,
+    audioCodec: trimmed.audioCodec,
+  });
+  return new NextResponse(body, {
+    headers: {
+      "Content-Type": "video/mp4",
+      "Content-Disposition": `attachment; filename="${safeFilename(`${resolved.basename}-trim${trimmed.trimStartSeconds.toFixed(1)}`)}.mp4"`,
+      "Cache-Control": "private, no-store",
+      "X-Trim-Start-Seconds": trimmed.trimStartSeconds.toFixed(1),
+      "X-Video-Duration-Seconds": trimmed.outputDurationSeconds.toFixed(3),
+      "X-Video-Codec": trimmed.codec ?? "",
+      "X-Audio-Codec": trimmed.audioCodec ?? "",
+    },
+  });
+}
+
+async function respondWithUpstreamMedia(input: {
+  resolved: UrlMediaResolution;
+  workId: number;
+  mediaType: string;
+  assetId: number | null;
+  preview: boolean;
+  range: string | null;
 }) {
-  const now = Date.now();
-  const saleEndAt = parseDatabaseDate(work.sale_end_at)?.getTime() ?? null;
-  const saleIsCurrent = Boolean(work.is_on_sale && work.sale_price && work.sale_price > 0 && (!work.sale_end_at || (saleEndAt != null && saleEndAt > now)));
-  const currentPrice = saleIsCurrent ? work.sale_price : work.price;
-  const regularPrice = work.list_price && currentPrice && work.list_price > currentPrice ? work.list_price : null;
-  const discountRate = regularPrice && currentPrice ? Math.round((1 - currentPrice / regularPrice) * 100) : null;
-  const recordedLow = work.lowest_price && work.lowest_price > 0 ? work.lowest_price : null;
-  const isRecordedLow = Boolean(work.is_bottom_price && recordedLow && currentPrice === recordedLow);
-  const saleEnd = work.sale_end_at && saleEndAt && saleEndAt > now
-    ? new Date(saleEndAt).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric" })
-    : null;
-  const titleLines = splitText(work.title, 22, 3);
-  const actress = work.actress?.split(/[,、/]/)[0]?.trim() || "";
-  const priceText = (value: number | null) => value && value > 0 ? `¥${value.toLocaleString("ja-JP")}` : "未取得";
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
-  <rect width="1200" height="675" fill="#09090b"/>
-  <rect x="42" y="42" width="1116" height="591" rx="24" fill="#101316" stroke="#ec4899" stroke-width="3"/>
-  <text x="82" y="106" fill="#f9a8d4" font-size="28" font-weight="800" font-family="Arial, sans-serif">発掘LAB｜価格をチェック</text>
-  ${isRecordedLow ? `<rect x="865" y="70" width="235" height="54" rx="27" fill="#831843"/><text x="982" y="106" text-anchor="middle" fill="#fff1f2" font-size="24" font-weight="900" font-family="Arial, sans-serif">記録最安と同額</text>` : ""}
-  ${actress ? `<text x="82" y="154" fill="#a1a1aa" font-size="24" font-weight="700" font-family="Arial, sans-serif">${escapeXml(actress)}</text>` : ""}
-  ${titleLines.map((line, index) => `<text x="82" y="${202 + index * 40}" fill="#ffffff" font-size="32" font-weight="900" font-family="Arial, sans-serif">${escapeXml(line)}</text>`).join("")}
-  <g><rect x="82" y="354" width="318" height="142" rx="18" fill="#18181b" stroke="#3f3f46"/><text x="112" y="397" fill="#a1a1aa" font-size="23" font-weight="700" font-family="Arial, sans-serif">通常価格</text><text x="112" y="463" fill="#f4f4f5" font-size="46" font-weight="900" font-family="Arial, sans-serif">${escapeXml(priceText(regularPrice))}</text></g>
-  <g><rect x="440" y="354" width="318" height="142" rx="18" fill="#3b102b" stroke="#ec4899" stroke-width="2"/><text x="470" y="397" fill="#fbcfe8" font-size="23" font-weight="700" font-family="Arial, sans-serif">${saleIsCurrent ? "現在価格" : "掲載価格"}</text><text x="470" y="463" fill="#ffffff" font-size="50" font-weight="900" font-family="Arial, sans-serif">${escapeXml(priceText(currentPrice))}</text></g>
-  <g><rect x="798" y="354" width="318" height="142" rx="18" fill="#18181b" stroke="#3f3f46"/><text x="828" y="397" fill="#a1a1aa" font-size="23" font-weight="700" font-family="Arial, sans-serif">発掘LABの記録最安</text><text x="828" y="463" fill="#f4f4f5" font-size="46" font-weight="900" font-family="Arial, sans-serif">${escapeXml(priceText(recordedLow))}</text></g>
-  <text x="82" y="550" fill="#f9a8d4" font-size="28" font-weight="800" font-family="Arial, sans-serif">${discountRate ? `通常価格から${discountRate}%OFF` : work.review_average ? `レビュー評価 ${work.review_average.toFixed(1)}（${work.review_count ?? 0}件）` : "価格・記録を作品ページで確認"}</text>
-  <text x="82" y="594" fill="#a1a1aa" font-size="21" font-weight="700" font-family="Arial, sans-serif">${saleEnd ? `セール期限 ${saleEnd}（サイト掲載情報）` : isRecordedLow ? "価格は発掘LABで記録した範囲の比較です" : "価格・セール状況は遷移先でご確認ください"}</text>
-  <text x="1110" y="594" text-anchor="end" fill="#71717a" font-size="20" font-weight="700" font-family="Arial, sans-serif">@hakkutsu_lab</text>
-</svg>`;
+  const { resolved, workId, mediaType, assetId, preview, range } = input;
+  const upstream = await fetchAllowedUpstream(resolved.url, mediaType, range);
+  if ((!upstream.ok && upstream.status !== 416) || (!upstream.body && upstream.status !== 416)) {
+    await auditXGrowth("media_download_failed", { workId, mediaType, assetId, status: upstream.status });
+    return NextResponse.json({ error: "素材を取得できませんでした。" }, { status: 502 });
+  }
+  const contentType = upstream.headers.get("content-type") ?? "application/octet-stream";
+  const ext = extFromContentType(contentType, resolved.fallbackExt);
+  const headers = xGrowthMediaResponseHeaders({
+    contentType,
+    contentLength: upstream.headers.get("content-length"),
+    contentRange: upstream.headers.get("content-range"),
+    acceptRanges: mediaType === "sample_movie" ? (upstream.headers.get("accept-ranges") ?? "bytes") : upstream.headers.get("accept-ranges"),
+    preview,
+    filename: `${safeFilename(resolved.basename)}.${ext}`,
+  });
+  if (upstream.status === 416) {
+    await auditXGrowth("media_download_failed", { workId, mediaType, assetId, status: upstream.status });
+    return new NextResponse(null, { status: 416, headers });
+  }
+  await auditXGrowth("media_download_allowed", { workId, mediaType, assetId, contentType });
+  return new NextResponse(upstream.body, {
+    status: upstream.status === 206 ? 206 : 200,
+    headers,
+  });
 }
 
-async function resolveMedia(workId: number, mediaType: string, assetId: number | null) {
-  if (mediaType === "sample_movie") {
-    let data: Record<string, unknown> | null = null;
-    if (assetId) {
-      const result = await supabaseAdmin
-        .from("x_media_assets")
-        .select("*")
-        .eq("account_handle", ACCOUNT)
-        .eq("id", assetId)
-        .single();
-      if (result.error || !result.data) return { error: result.error?.message ?? "動画素材が見つかりません。", status: 404 as const };
-      data = result.data as Record<string, unknown>;
-    } else {
-      const result = await supabaseAdmin
-        .from("works")
-        .select("id,product_id,sample_movie_url")
-        .eq("id", workId)
-        .single();
-      const work = result.data as { id: number; product_id: string | null; sample_movie_url: string | null } | null;
-      if (result.error || !work?.sample_movie_url) return { error: result.error?.message ?? "動画素材が見つかりません。", status: 404 as const };
-      data = {
-        id: undefined,
-        work_id: work.id,
-        product_id: work.product_id,
-        media_type: "sample_movie",
-        source_url: work.sample_movie_url,
-        source_domain: sourceDomain(work.sample_movie_url),
-        source_kind: sourceKindFor(work.sample_movie_url),
-        fetch_status: null,
-        media_quality: "unreviewed",
-        manual_tags: [],
-        can_modify: false,
-        trim_start_seconds: 0,
-        trim_modify_confirmed: false,
-      };
-    }
-    const asset = data as { id?: number; work_id: number | null; source_url: string; media_type: string };
-    const allowed = (asset.media_type === "sample_movie" || asset.media_type === "video") && asset.work_id === workId && (
-      isFanzaXGrowthTechnicalSampleMovie(data, asset.source_url).usable
-    );
-    if (!allowed) {
-      await auditXGrowth("media_download_blocked", { workId, mediaType, assetId, reasons: isFanzaXGrowthTechnicalSampleMovie(data, asset.source_url).reasons });
-      return { error: "このmp4はX投稿用に保存できません。", status: 403 as const };
-    }
-    return { url: asset.source_url, basename: `hakkutsu-${workId}-sample`, fallbackExt: "mp4", asset: data as Record<string, unknown> };
+async function respondWithRemoteMedia(input: {
+  resolved: UrlMediaResolution;
+  workId: number;
+  mediaType: string;
+  assetId: number | null;
+  preview: boolean;
+  range: string | null;
+}) {
+  const { resolved, workId, mediaType, assetId, preview, range } = input;
+  try {
+    const trimmedResponse = await respondWithTrimmedMovie({ resolved, workId, mediaType, assetId, preview });
+    if (trimmedResponse) return trimmedResponse;
+    return await respondWithUpstreamMedia({ resolved, workId, mediaType, assetId, preview, range });
+  } catch (error) {
+    await auditXGrowth("media_download_failed", { workId, mediaType, assetId, error: error instanceof Error ? error.message : String(error) });
+    return NextResponse.json({ error: "素材保存に失敗しました。" }, { status: 500 });
   }
-
-  if (mediaType === "data_card") {
-    const { data, error } = await supabaseAdmin
-      .from("works")
-      .select("id,title,actress,genre,ranking,discount_rate,review_average,review_count,sale_price,price,list_price,lowest_price,is_bottom_price,is_on_sale,sale_end_at")
-      .eq("id", workId)
-      .single();
-    const work = data as Parameters<typeof dataCardSvg>[0] | null;
-    if (error || !work) return { error: error?.message ?? "カード素材が見つかりません。", status: 404 as const };
-    return { body: dataCardSvg(work), contentType: "image/svg+xml; charset=utf-8", basename: `hakkutsu-${workId}-market-card`, fallbackExt: "svg" };
-  }
-
-  if (mediaType === "existing_link_image") {
-    const { data, error } = await supabaseAdmin
-      .from("works")
-      .select("id,image_url")
-      .eq("id", workId)
-      .single();
-    const work = data as { id: number; image_url: string | null } | null;
-    if (error || !work?.image_url) return { error: error?.message ?? "画像素材が見つかりません。", status: 404 as const };
-    return { url: work.image_url, basename: `hakkutsu-${workId}-image`, fallbackExt: "jpg" };
-  }
-
-  return { error: "保存できる素材タイプではありません。", status: 400 as const };
 }
 
 export async function GET(request: NextRequest) {
@@ -205,79 +258,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "workIdが不正です。" }, { status: 400 });
   }
 
-  const resolved = await resolveMedia(workId, mediaType, assetId && Number.isSafeInteger(assetId) ? assetId : null);
+  const validAssetId = assetId && Number.isSafeInteger(assetId) ? assetId : null;
+  const resolved = await resolveMedia(workId, mediaType, validAssetId);
   if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: resolved.status });
-  if ("body" in resolved) {
-    const contentType = resolved.contentType ?? "image/svg+xml; charset=utf-8";
-    await auditXGrowth("media_download_allowed", { workId, mediaType, assetId, contentType });
-    return new NextResponse(resolved.body, {
-      headers: {
-        "Content-Type": contentType,
-        "Content-Disposition": `${mediaType === "data_card" && preview ? "inline" : "attachment"}; filename="${safeFilename(resolved.basename)}.${resolved.fallbackExt}"`,
-        "Cache-Control": "private, no-store",
-      },
-    });
-  }
+  if ("body" in resolved) return respondWithInlineMedia(resolved, workId, mediaType, assetId, preview);
 
-  try {
-    const trimStartSeconds = "asset" in resolved ? Number((resolved.asset as { trim_start_seconds?: unknown }).trim_start_seconds ?? 0) : 0;
-    if (mediaType === "sample_movie" && trimStartSeconds > 0 && !preview) {
-      const trimVerdict = canTrimFanzaXGrowthSampleMovie(resolved.asset, resolved.url);
-      if (!trimVerdict.usable) {
-        await auditXGrowth("media_trim_download_blocked", { workId, mediaType, assetId, reasons: trimVerdict.reasons });
-        return NextResponse.json({ error: `トリムに失敗しました: ${trimVerdict.reasons.join(" / ")}` }, { status: 403 });
-      }
-      const trimmed = await trimVideoForX({ sourceUrl: resolved.url, trimStartSeconds });
-      const body = await readAndCleanupTrimmedVideo(trimmed);
-      await auditXGrowth("media_trim_download_allowed", {
-        workId,
-        mediaType,
-        assetId,
-        trimStartSeconds: trimmed.trimStartSeconds,
-        sourceDuration: trimmed.durationSeconds,
-        outputDuration: trimmed.outputDurationSeconds,
-        codec: trimmed.codec,
-        audioCodec: trimmed.audioCodec,
-      });
-      return new NextResponse(body, {
-        headers: {
-          "Content-Type": "video/mp4",
-          "Content-Disposition": `attachment; filename="${safeFilename(`${resolved.basename}-trim${trimmed.trimStartSeconds.toFixed(1)}`)}.mp4"`,
-          "Cache-Control": "private, no-store",
-          "X-Trim-Start-Seconds": trimmed.trimStartSeconds.toFixed(1),
-          "X-Video-Duration-Seconds": trimmed.outputDurationSeconds.toFixed(3),
-          "X-Video-Codec": trimmed.codec ?? "",
-          "X-Audio-Codec": trimmed.audioCodec ?? "",
-        },
-      });
-    }
-
-    const upstream = await fetchAllowedUpstream(resolved.url, mediaType, range);
-    if ((!upstream.ok && upstream.status !== 416) || (!upstream.body && upstream.status !== 416)) {
-      await auditXGrowth("media_download_failed", { workId, mediaType, assetId, status: upstream.status });
-      return NextResponse.json({ error: "素材を取得できませんでした。" }, { status: 502 });
-    }
-    const contentType = upstream.headers.get("content-type") ?? "application/octet-stream";
-    const ext = extFromContentType(contentType, resolved.fallbackExt);
-    const headers = xGrowthMediaResponseHeaders({
-      contentType,
-      contentLength: upstream.headers.get("content-length"),
-      contentRange: upstream.headers.get("content-range"),
-      acceptRanges: mediaType === "sample_movie" ? (upstream.headers.get("accept-ranges") ?? "bytes") : upstream.headers.get("accept-ranges"),
-      preview,
-      filename: `${safeFilename(resolved.basename)}.${ext}`,
-    });
-    if (upstream.status === 416) {
-      await auditXGrowth("media_download_failed", { workId, mediaType, assetId, status: upstream.status });
-      return new NextResponse(null, { status: 416, headers });
-    }
-    await auditXGrowth("media_download_allowed", { workId, mediaType, assetId, contentType });
-    return new NextResponse(upstream.body, {
-      status: upstream.status === 206 ? 206 : 200,
-      headers,
-    });
-  } catch (error) {
-    await auditXGrowth("media_download_failed", { workId, mediaType, assetId, error: error instanceof Error ? error.message : String(error) });
-    return NextResponse.json({ error: "素材保存に失敗しました。" }, { status: 500 });
-  }
+  return respondWithRemoteMedia({ resolved, workId, mediaType, assetId, preview, range });
 }

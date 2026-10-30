@@ -76,6 +76,11 @@ export async function readCachedBijyoVideo(workId: number, root = localCacheRoot
 
 function windowsKnownFolderDesktop() {
   if (process.platform !== "win32") throw new Error("デスクトップへの動画保存はWindows上のローカルアプリでのみ利用できます。");
+  const configuredDesktop = process.env.BIJYO_VIDEO_DESKTOP_DIR?.trim();
+  if (configuredDesktop) {
+    if (!isAbsolute(configuredDesktop)) throw new Error("動画保存先フォルダーが絶対パスではありません。");
+    return resolve(configuredDesktop);
+  }
   const desktop = execFileSync("powershell.exe", [
     "-NoProfile",
     "-NonInteractive",

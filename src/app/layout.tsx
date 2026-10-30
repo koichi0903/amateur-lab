@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import WebSiteStructuredData from "./components/WebSiteStructuredData";
 import OrganizationStructuredData from "./components/OrganizationStructuredData";
@@ -52,7 +53,7 @@ openGraph: {
     type: "website",
     images: [
     {
-      url: "/ogp.png",
+      url: "/ogp-20261028.png",
       width: 1200,
       height: 630,
       alt: "発掘LAB | FANZA作品の買い時・価格比較",
@@ -65,7 +66,7 @@ openGraph: {
   title: "発掘LAB | FANZA作品の買い時・価格比較",
   description:
     "FANZA作品の現在価格、過去最安値、レビュー、セール終了時期を比較して購入判断をサポートします。",
-  images: ["/ogp.png"],
+  images: ["/ogp-20261028.png"],
 },
   other: {
     rating: "adult",
@@ -87,7 +88,7 @@ export default function RootLayout({
 
   <WebSiteStructuredData />
 <OrganizationStructuredData />
-<Analytics />
+<Suspense fallback={null}><Analytics /></Suspense>
 <div className="flex-1">
   {children}
 </div>

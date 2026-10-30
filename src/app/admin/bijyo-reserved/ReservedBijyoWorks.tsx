@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
 import { BijyoReservedWorkCard } from "./BijyoReservedWorkCard";
-import { BIJYO_RESERVED_QUEUE_PAGE_SIZE } from "./ui";
+import { BIJYO_RESERVED_PAGE_SIZE as BIJYO_RESERVED_QUEUE_PAGE_SIZE } from "@/lib/bijyoPagination";
 
 export function ReservedBijyoWorks({ initialWorks, initialHasMore }: { initialWorks: RecentReleaseWork[]; initialHasMore: boolean }) {
   const [works, setWorks] = useState(initialWorks);

@@ -1,7 +1,9 @@
 "use client";
 
 import { Bell, ChevronDown } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useIPhoneInstallGuide } from "@/components/useIPhoneInstallGuide";
+import { splitEntityNames } from "@/lib/entityNames";
 
 type Props = {
   workId: number;
@@ -10,30 +12,20 @@ type Props = {
   maker: string | null;
 };
 
-function splitNames(value: string | null) {
-  return [...new Set((value ?? "").split(/\s*\/\s*|\s*／\s*|\s*,\s*|\s*、\s*/).map((name) => name.trim()).filter(Boolean))];
-}
-
 export default function PriceAlertButton({ workId, workTitle, actress, maker }: Props) {
   const [open, setOpen] = useState(false);
-  const [showIPhoneGuide, setShowIPhoneGuide] = useState(false);
+  const showIPhoneGuide = useIPhoneInstallGuide();
   const [priceAlert, setPriceAlert] = useState(false);
   const [selectedActresses, setSelectedActresses] = useState<string[]>([]);
   const [selectedMakers, setSelectedMakers] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const actresses = splitNames(actress);
-  const makers = splitNames(maker);
+  const actresses = splitEntityNames(actress);
+  const makers = splitEntityNames(maker);
 
   const toggleName = (names: string[], setNames: (value: string[]) => void, name: string) => {
     setNames(names.includes(name) ? names.filter((current) => current !== name) : [...names, name]);
   };
-
-  useEffect(() => {
-    const isIPhone = /iPhone/i.test(window.navigator.userAgent);
-    const isStandalone = (window.navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia("(display-mode: standalone)").matches;
-    setShowIPhoneGuide(isIPhone && !isStandalone);
-  }, []);
 
   const enableNotifications = async () => {
     setMessage(null);

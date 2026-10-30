@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { formatUnknownError } from "./errorMessage.ts";
+import { formatUnknownError, simpleErrorMessage } from "./errorMessage.ts";
+
+test("simpleErrorMessage preserves the narrow admin update error contract", () => {
+  assert.equal(simpleErrorMessage(new Error("failed")), "failed");
+  assert.equal(simpleErrorMessage({ message: "query failed", code: "PGRST001" }), "query failed");
+  assert.equal(simpleErrorMessage("plain failure"), "plain failure");
+  assert.equal(simpleErrorMessage(null), "null");
+});
 
 test("formats structured Supabase errors", () => {
   assert.equal(

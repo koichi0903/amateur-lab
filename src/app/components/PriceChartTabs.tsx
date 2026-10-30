@@ -3,37 +3,40 @@
 import { useState } from "react";
 import PriceChart from "./PriceChart";
 import type { PriceHistoryItem } from "@/types/price";
-import { createChartData, formatDisplayName, normalizeDisplayName } from "@/lib/createChartData";
+import {
+  createChartData,
+  formatDisplayName,
+  getDefaultPriceSeriesKey,
+  getPriceSeries,
+  priceSeriesKey,
+} from "@/lib/createChartData";
 
-type Props = { history: PriceHistoryItem[] };
-type PriceSeries = { displayName: string; period: string | null };
+type Props = {
+  history: PriceHistoryItem[];
+  selectedSeriesKey?: string;
+  onSelectedSeriesChange?: (key: string) => void;
+};
 
-const seriesKey = (series: PriceSeries) => `${series.displayName}\u0000${series.period ?? ""}`;
-
-export default function PriceChartTabs({ history }: Props) {
-  const priceTypes = Array.from(
-    new Map(
-      history.map((item) => {
-        const series = { displayName: normalizeDisplayName(item.display_name), period: item.period ?? null };
-        return [seriesKey(series), series] as const;
-      }),
-    ).values(),
-  ).sort((a, b) => a.displayName.localeCompare(b.displayName) || (a.period ?? "").localeCompare(b.period ?? ""));
-
-  const defaultType = [...history]
-    .filter((item) => item.sale_price != null && item.sale_price > 0)
-    .sort((a, b) => (a.sale_price ?? a.normal_price ?? 999999) - (b.sale_price ?? b.normal_price ?? 999999))[0];
-
-  const [selectedType, setSelectedType] = useState(
-    defaultType
-      ? seriesKey({ displayName: normalizeDisplayName(defaultType.display_name), period: defaultType.period ?? null })
-      : priceTypes[0]
-        ? seriesKey(priceTypes[0])
-        : "",
+export default function PriceChartTabs({
+  history,
+  selectedSeriesKey,
+  onSelectedSeriesChange,
+}: Props) {
+  const priceTypes = getPriceSeries(history);
+  const [internalSelectedType, setInternalSelectedType] = useState(() =>
+    getDefaultPriceSeriesKey(history),
   );
+  const selectedType = selectedSeriesKey ?? internalSelectedType;
 
-  const [selectedName, selectedPeriod = ""] = selectedType.split("\u0000");
-  const chartData = createChartData(history, selectedName, selectedPeriod || null);
+  const activeSeries = priceTypes.find((series) => priceSeriesKey(series) === selectedType);
+  const chartData = activeSeries
+    ? createChartData(history, activeSeries.displayName, activeSeries.period)
+    : [];
+
+  const selectSeries = (key: string) => {
+    if (selectedSeriesKey === undefined) setInternalSelectedType(key);
+    onSelectedSeriesChange?.(key);
+  };
 
   return (
     <>
@@ -41,11 +44,13 @@ export default function PriceChartTabs({ history }: Props) {
         <h3 className="mb-3 text-lg font-bold">価格推移</h3>
         <div className="flex flex-wrap gap-2">
           {priceTypes.map((type) => {
-            const key = seriesKey(type);
+            const key = priceSeriesKey(type);
             return (
               <button
                 key={key}
-                onClick={() => setSelectedType(key)}
+                type="button"
+                onClick={() => selectSeries(key)}
+                aria-pressed={selectedType === key}
                 className={`rounded-full border px-3 py-1 text-sm transition ${selectedType === key ? "bg-pink-500 text-white" : "bg-pink-50 hover:bg-pink-100"}`}
               >
                 {formatDisplayName(type.displayName)}

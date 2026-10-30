@@ -120,120 +120,170 @@ export function getBuyTimingFunnelStats(workId: number, days = 30) {
   return getCachedBuyTimingFunnelStats(workId, Math.max(1, days));
 }
 
-export function calculateBuyTimingScore({
-  work,
-  priceHistory,
-  funnel,
-}: {
-  work: BuyTimingWork;
-  priceHistory: BuyTimingPriceHistoryItem[];
-  funnel: BuyTimingFunnelStats;
-}): BuyTimingResult {
+type CurrentPriceState = {
+  currentPrice: number | null;
+  regularPrice: number | null;
+  discountRate: number;
+};
+
+function hasSaleEvidence(work: BuyTimingWork) {
   const saleActive = !work.sale_end_at || Date.parse(work.sale_end_at) > Date.now();
-  const hasSaleEvidence =
-    saleActive &&
-    (work.is_on_sale || validPrice(work.sale_price) !== null || validPrice(work.discount_rate) !== null);
-  const salePrice = hasSaleEvidence ? validPrice(work.sale_price) : null;
+  return saleActive && (
+    work.is_on_sale || validPrice(work.sale_price) !== null || validPrice(work.discount_rate) !== null
+  );
+}
+
+function resolveRegularPrice(hasSale: boolean, work: BuyTimingWork, salePrice: number | null, basePrice: number | null) {
+  if (!hasSale) return null;
+  const listPrice = validPrice(work.list_price);
+  if (listPrice !== null) return listPrice;
+  return salePrice && basePrice && basePrice > salePrice ? basePrice : null;
+}
+
+function calculateActiveDiscount(
+  hasSale: boolean,
+  currentPrice: number | null,
+  regularPrice: number | null,
+  salePrice: number | null,
+) {
+  if (!hasSale || !salePrice || !currentPrice || !regularPrice || regularPrice <= currentPrice) return 0;
+  return Math.round((1 - currentPrice / regularPrice) * 100);
+}
+
+function resolveCurrentPrice(work: BuyTimingWork): CurrentPriceState {
+  const hasSale = hasSaleEvidence(work);
+  const salePrice = hasSale ? validPrice(work.sale_price) : null;
   const basePrice = validPrice(work.price);
   const currentPrice = salePrice ?? basePrice;
-  const regularPrice = hasSaleEvidence
-    ? validPrice(work.list_price) ??
-      (salePrice && basePrice && basePrice > salePrice ? basePrice : null)
-    : null;
-  const calculatedDiscount =
-    hasSaleEvidence && salePrice && currentPrice && regularPrice && regularPrice > currentPrice
-      ? Math.round((1 - currentPrice / regularPrice) * 100)
-      : 0;
-  const discountRate = clamp(
-    hasSaleEvidence ? Math.max(work.discount_rate ?? 0, calculatedDiscount) : 0,
-    0,
-    95,
-  );
-  const historyPrices = priceHistory
-    .map(getEffectivePrice)
-    .filter((price): price is number => price !== null);
+  const regularPrice = resolveRegularPrice(hasSale, work, salePrice, basePrice);
+  const calculatedDiscount = calculateActiveDiscount(hasSale, currentPrice, regularPrice, salePrice);
+
+  return {
+    currentPrice,
+    regularPrice,
+    discountRate: clamp(hasSale ? Math.max(work.discount_rate ?? 0, calculatedDiscount) : 0, 0, 95),
+  };
+}
+
+function summarizePriceHistory(
+  work: BuyTimingWork,
+  priceHistory: BuyTimingPriceHistoryItem[],
+): { historyDays: number | null; lowestPrice: number | null } {
+  const historyPrices = priceHistory.map(getEffectivePrice).filter((price): price is number => price !== null);
   const historyTimes = priceHistory
     .map((item) => item.changed_at ? Date.parse(item.changed_at) : Number.NaN)
     .filter((time): time is number => Number.isFinite(time));
   const historyDays = historyTimes.length
     ? Math.max(0, Math.floor((Date.now() - Math.min(...historyTimes)) / DAY_MS))
     : null;
-  const lowestPrice =
-    validPrice(work.lowest_price) ??
-    (historyPrices.length ? Math.min(...historyPrices) : null);
-  const lowestGap =
-    currentPrice && lowestPrice ? (currentPrice - lowestPrice) / lowestPrice : null;
-  const lowestPriceComparison =
-    !currentPrice || !lowestPrice
-      ? "unknown"
-      : currentPrice <= lowestPrice
-        ? "lowest"
-        : lowestGap !== null && lowestGap <= 0.08
-          ? "near_lowest"
-          : "above_lowest";
 
-  const priceScore =
-    clamp(discountRate * 0.42, 0, 30) +
-    (lowestPriceComparison === "lowest"
-      ? 16
-      : lowestPriceComparison === "near_lowest"
-        ? 11
-        : lowestPriceComparison === "above_lowest" && lowestGap !== null
-          ? clamp(8 - lowestGap * 20, 0, 8)
-          : 4);
+  return {
+    historyDays,
+    lowestPrice: validPrice(work.lowest_price) ?? (historyPrices.length ? Math.min(...historyPrices) : null),
+  };
+}
+
+function compareLowestPrice(
+  currentPrice: number | null,
+  lowestPrice: number | null,
+): { comparison: BuyTimingResult["lowestPriceComparison"]; gap: number | null } {
+  const gap = currentPrice && lowestPrice ? (currentPrice - lowestPrice) / lowestPrice : null;
+  const comparison = !currentPrice || !lowestPrice
+    ? "unknown"
+    : currentPrice <= lowestPrice
+      ? "lowest"
+      : gap !== null && gap <= 0.08
+        ? "near_lowest"
+        : "above_lowest";
+
+  return { comparison, gap };
+}
+
+function calculatePriceScore(
+  discountRate: number,
+  comparison: BuyTimingResult["lowestPriceComparison"],
+  lowestGap: number | null,
+) {
+  const lowestPriceScore = comparison === "lowest"
+    ? 16
+    : comparison === "near_lowest"
+      ? 11
+      : comparison === "above_lowest" && lowestGap !== null
+        ? clamp(8 - lowestGap * 20, 0, 8)
+        : 4;
+  return clamp(discountRate * 0.42, 0, 30) + lowestPriceScore;
+}
+
+function calculateReviewScore(work: BuyTimingWork) {
   const reviewAverage = clamp(work.review_average ?? 0, 0, 5);
   const reviewCount = Math.max(0, work.review_count ?? 0);
   const reviewConfidence = clamp(Math.log10(reviewCount + 1) / 2.3, 0, 1);
-  const reviewScore = reviewAverage > 0
-    ? clamp(((reviewAverage - 3) / 2) * 12, 0, 12) * reviewConfidence +
-      clamp(reviewCount / 80, 0, 1) * 6
+  const score = reviewAverage > 0
+    ? clamp(((reviewAverage - 3) / 2) * 12, 0, 12) * reviewConfidence + clamp(reviewCount / 80, 0, 1) * 6
     : 2;
-  const ranking = work.ranking && work.ranking > 0 && work.ranking < 9999
-    ? work.ranking
-    : null;
-  const rankingScore = ranking ? clamp(12 - (ranking - 1) * 0.45, 0, 12) : 4;
-  const releaseAgeDays = work.release_date
-    ? (Date.now() - new Date(work.release_date).getTime()) / DAY_MS
-    : null;
-  const freshnessScore =
-    releaseAgeDays !== null && Number.isFinite(releaseAgeDays)
-      ? releaseAgeDays <= 30
-        ? 6
-        : releaseAgeDays <= 180
-          ? 4
-          : 2
-      : 2;
-  const discoveryScore = clamp((work.score ?? 0) / 100, 0, 1) * 12;
-  const ctrScore = clamp(funnel.adjustedCtr / CTR_CAP, 0, 1) * 14;
+  return { reviewAverage, reviewCount, score };
+}
 
-  const score = Math.round(
-    clamp(
-      priceScore + reviewScore + rankingScore + freshnessScore + discoveryScore + ctrScore,
-      0,
-      100,
-    ),
-  );
+function calculateRankingScore(work: BuyTimingWork) {
+  const ranking = work.ranking && work.ranking > 0 && work.ranking < 9999 ? work.ranking : null;
+  return { ranking, score: ranking ? clamp(12 - (ranking - 1) * 0.45, 0, 12) : 4 };
+}
 
-  const labelTone = score >= 82 ? "strong" : score >= 68 ? "good" : "watch";
-  const label =
-    labelTone === "strong"
-      ? "今買う価値が高い"
-      : labelTone === "good"
-        ? "条件が合えば買い"
-        : "もう少し比較したい";
-  const lowestPriceText =
-    lowestPriceComparison === "lowest"
-      ? "過去最安値と同額または更新"
-      : lowestPriceComparison === "near_lowest"
-        ? "過去最安値にかなり近い価格"
-        : lowestPriceComparison === "above_lowest" && lowestPrice
-          ? `過去最安値より¥${Math.max(0, (currentPrice ?? 0) - lowestPrice).toLocaleString("ja-JP")}高い`
-          : "過去最安値データを蓄積中";
+function calculateFreshnessScore(releaseDate?: string | null) {
+  const releaseAgeDays = releaseDate ? (Date.now() - new Date(releaseDate).getTime()) / DAY_MS : null;
+  const score = releaseAgeDays !== null && Number.isFinite(releaseAgeDays)
+    ? releaseAgeDays <= 30
+      ? 6
+      : releaseAgeDays <= 180
+        ? 4
+        : 2
+    : 2;
+  return { releaseAgeDays, score };
+}
 
-  const reasonCandidates = [
+function getLabelTone(score: number): BuyTimingResult["labelTone"] {
+  return score >= 82 ? "strong" : score >= 68 ? "good" : "watch";
+}
+
+function getLabel(labelTone: BuyTimingResult["labelTone"]) {
+  return labelTone === "strong"
+    ? "今買う価値が高い"
+    : labelTone === "good"
+      ? "条件が合えば買い"
+      : "もう少し比較したい";
+}
+
+function getLowestPriceText(
+  comparison: BuyTimingResult["lowestPriceComparison"],
+  currentPrice: number | null,
+  lowestPrice: number | null,
+) {
+  return comparison === "lowest"
+    ? "過去最安値と同額または更新"
+    : comparison === "near_lowest"
+      ? "過去最安値にかなり近い価格"
+      : comparison === "above_lowest" && lowestPrice
+        ? `過去最安値より¥${Math.max(0, (currentPrice ?? 0) - lowestPrice).toLocaleString("ja-JP")}高い`
+        : "過去最安値データを蓄積中";
+}
+
+function buildPriceReasons(discountRate: number, comparison: BuyTimingResult["lowestPriceComparison"]) {
+  return [
     discountRate >= 45 ? `${discountRate}%OFFで割引幅が大きい` : null,
-    lowestPriceComparison === "lowest" ? "過去最安値クラスの価格" : null,
-    lowestPriceComparison === "near_lowest" ? "過去最安値に近い水準" : null,
+    comparison === "lowest" ? "過去最安値クラスの価格" : null,
+    comparison === "near_lowest" ? "過去最安値に近い水準" : null,
+  ];
+}
+
+function buildEvidenceReasons(
+  work: BuyTimingWork,
+  reviewAverage: number,
+  reviewCount: number,
+  ranking: number | null,
+  funnel: BuyTimingFunnelStats,
+  releaseAgeDays: number | null,
+) {
+  return [
     reviewAverage >= 4.2 && reviewCount >= 20
       ? `レビュー${reviewAverage.toFixed(2)}・${reviewCount}件で評価が安定`
       : null,
@@ -243,25 +293,80 @@ export function calculateBuyTimingScore({
       ? `直近30日のFANZA CTRが${funnel.adjustedCtr}%`
       : null,
     releaseAgeDays !== null && releaseAgeDays <= 30 ? "発売から日が浅い新作" : null,
-  ].filter((reason): reason is string => Boolean(reason));
+  ];
+}
 
+function buildReasonCandidates(input: {
+  work: BuyTimingWork;
+  discountRate: number;
+  lowestPriceComparison: BuyTimingResult["lowestPriceComparison"];
+  reviewAverage: number;
+  reviewCount: number;
+  ranking: number | null;
+  funnel: BuyTimingFunnelStats;
+  releaseAgeDays: number | null;
+}) {
+  return [
+    ...buildPriceReasons(input.discountRate, input.lowestPriceComparison),
+    ...buildEvidenceReasons(input.work, input.reviewAverage, input.reviewCount, input.ranking, input.funnel, input.releaseAgeDays),
+  ].filter((reason): reason is string => Boolean(reason));
+}
+
+export function calculateBuyTimingScore({
+  work,
+  priceHistory,
+  funnel,
+}: {
+  work: BuyTimingWork;
+  priceHistory: BuyTimingPriceHistoryItem[];
+  funnel: BuyTimingFunnelStats;
+}): BuyTimingResult {
+  const price = resolveCurrentPrice(work);
+  const history = summarizePriceHistory(work, priceHistory);
+  const lowestPrice = compareLowestPrice(price.currentPrice, history.lowestPrice);
+  const review = calculateReviewScore(work);
+  const ranking = calculateRankingScore(work);
+  const freshness = calculateFreshnessScore(work.release_date);
+  const discoveryScore = clamp((work.score ?? 0) / 100, 0, 1) * 12;
+  const ctrScore = clamp(funnel.adjustedCtr / CTR_CAP, 0, 1) * 14;
+
+  const score = Math.round(
+    clamp(
+      calculatePriceScore(price.discountRate, lowestPrice.comparison, lowestPrice.gap)
+        + review.score + ranking.score + freshness.score + discoveryScore + ctrScore,
+      0,
+      100,
+    ),
+  );
+
+  const labelTone = getLabelTone(score);
+  const reasonCandidates = buildReasonCandidates({
+    work,
+    discountRate: price.discountRate,
+    lowestPriceComparison: lowestPrice.comparison,
+    reviewAverage: review.reviewAverage,
+    reviewCount: review.reviewCount,
+    ranking: ranking.ranking,
+    funnel,
+    releaseAgeDays: freshness.releaseAgeDays,
+  });
   const reasons = [...new Set(reasonCandidates)].slice(0, 4);
-  if (reasons.length < 2 && discountRate > 0) reasons.push(`${discountRate}%OFFで通常価格より安い`);
-  if (reasons.length < 2 && currentPrice) reasons.push("価格・レビューを確認して判断しやすい");
+  if (reasons.length < 2 && price.discountRate > 0) reasons.push(`${price.discountRate}%OFFで通常価格より安い`);
+  if (reasons.length < 2 && price.currentPrice) reasons.push("価格・レビューを確認して判断しやすい");
 
   return {
     score,
-    label,
+    label: getLabel(labelTone),
     labelTone,
-    currentPrice,
-    regularPrice,
-    discountRate,
+    currentPrice: price.currentPrice,
+    regularPrice: price.regularPrice,
+    discountRate: price.discountRate,
     reviewAverage: work.review_average ?? null,
-    reviewCount,
-    lowestPrice,
-    historyDays,
-    lowestPriceComparison,
-    lowestPriceText,
+    reviewCount: review.reviewCount,
+    lowestPrice: history.lowestPrice,
+    historyDays: history.historyDays,
+    lowestPriceComparison: lowestPrice.comparison,
+    lowestPriceText: getLowestPriceText(lowestPrice.comparison, price.currentPrice, history.lowestPrice),
     reasons: reasons.slice(0, 4),
     funnel,
   };

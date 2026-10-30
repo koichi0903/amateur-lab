@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildXCreativeVariants } from "./xCreativeEngine";
-import { candidateDedupeKey, candidateMediaDedupeKey, cheapCandidatePrefilter, decisionTypeForCandidate, decisionTypesForCandidate, expandCreativeSupply, isDecisionFactEligible, isDistinctCandidate, presentationDecisionFactsForSource, preserveDecisionLanesBeforeLimit } from "./xGrowthOS";
+import { candidateDedupeKey, candidateMediaDedupeKey, cheapCandidatePrefilter, decisionTypeForCandidate, decisionTypesForCandidate, expandCreativeSupply, isDecisionFactEligible, isDistinctCandidate, presentationDecisionFactsForSource, preserveDecisionLanesBeforeLimit, X_GROWTH_PINNED_EVALUATION_WORK_IDS } from "./xGrowthOS";
 import { buildDecisionFacts } from "./domain/decisionFacts";
 
 const candidate = (overrides: Record<string, unknown> = {}) => ({
@@ -10,6 +10,21 @@ const candidate = (overrides: Record<string, unknown> = {}) => ({
   sampleMovieUrl: null,
   mediaAsset: null,
   ...overrides,
+});
+
+type DecisionType = "RECORD_LOW" | "HIGH_DISCOUNT_NOT_LOW" | "HIDDEN_VALUE";
+
+const decisionFactsFor = (decisionType: DecisionType) => ({
+  ...buildDecisionFacts({
+    currentPrice: 500,
+    recordedLowestPrice: decisionType === "RECORD_LOW" ? 500 : 400,
+    discountRate: decisionType === "HIDDEN_VALUE" ? 20 : 50,
+    isOnSale: true,
+    ranking: decisionType === "HIDDEN_VALUE" ? null : 10,
+    reviewAverage: 4.5,
+    reviewCount: 10,
+  }),
+  decisionType,
 });
 
 test("candidate identity prioritizes media asset, sample URL, then work", () => {
@@ -33,22 +48,10 @@ test("different media can reuse a work only when caller explicitly allows cross-
 });
 
 test("Decision Facts eligibility excludes UNKNOWN and preserves all three lanes", () => {
-  const facts = (decisionType: "RECORD_LOW" | "HIGH_DISCOUNT_NOT_LOW" | "HIDDEN_VALUE") => ({
-    ...buildDecisionFacts({
-      currentPrice: 500,
-      recordedLowestPrice: decisionType === "RECORD_LOW" ? 500 : 400,
-      discountRate: decisionType === "HIDDEN_VALUE" ? 20 : 50,
-      isOnSale: true,
-      ranking: decisionType === "HIDDEN_VALUE" ? null : 10,
-      reviewAverage: 4.5,
-      reviewCount: 10,
-    }),
-    decisionType,
-  });
   assert.equal(isDecisionFactEligible({ decisionFacts: { decisionType: "UNKNOWN" } } as never), false);
-  assert.equal(isDecisionFactEligible({ decisionFacts: facts("RECORD_LOW") } as never), true);
-  assert.equal(isDecisionFactEligible({ decisionFacts: facts("HIGH_DISCOUNT_NOT_LOW") } as never), true);
-  assert.equal(isDecisionFactEligible({ decisionFacts: facts("HIDDEN_VALUE") } as never), true);
+  assert.equal(isDecisionFactEligible({ decisionFacts: decisionFactsFor("RECORD_LOW") } as never), true);
+  assert.equal(isDecisionFactEligible({ decisionFacts: decisionFactsFor("HIGH_DISCOUNT_NOT_LOW") } as never), true);
+  assert.equal(isDecisionFactEligible({ decisionFacts: decisionFactsFor("HIDDEN_VALUE") } as never), true);
 });
 
 test("multi-label Decision Facts preserve HIDDEN lane eligibility while primary stays presentation-specific", () => {
@@ -124,29 +127,21 @@ test("HIDDEN_GEM expansion propagates primary facts into HIDDEN copy and persist
     discoveryScore: 60,
     decisionFacts: facts,
   } as never]);
+  assert.deepEqual(expanded.map(({ key, sourceType, category }) => ({ key, sourceType, category })), [
+    { key: "hidden-expansion-base", sourceType: "WORK", category: "score" },
+    { key: "hidden-expansion-hidden-gem", sourceType: "HIDDEN_GEM", category: "discovery_gap" },
+  ]);
   const hidden = expanded.find((candidate) => candidate.sourceType === "HIDDEN_GEM");
   assert.equal(hidden?.decisionFacts?.decisionType, "HIDDEN_VALUE");
   assert.deepEqual(hidden?.decisionFacts?.eligibleDecisionTypes, ["RECORD_LOW", "HIDDEN_VALUE"]);
 });
 
 test("cheap prefilter follows score without forcing Decision Facts lanes", () => {
-  const facts = (decisionType: "RECORD_LOW" | "HIGH_DISCOUNT_NOT_LOW" | "HIDDEN_VALUE") => ({
-    ...buildDecisionFacts({
-      currentPrice: 500,
-      recordedLowestPrice: decisionType === "RECORD_LOW" ? 500 : 400,
-      discountRate: decisionType === "HIDDEN_VALUE" ? 20 : 50,
-      isOnSale: true,
-      ranking: decisionType === "HIDDEN_VALUE" ? null : 10,
-      reviewAverage: 4.5,
-      reviewCount: 10,
-    }),
-    decisionType,
-  });
   const visualScoring = { videoHookStrength: 0, visualSpecificity: 0 } as never;
   const recordLow = Array.from({ length: 120 }, (_, index) => ({
     key: `record-${index}`,
     sourceType: "COMPARISON",
-    decisionFacts: facts("RECORD_LOW"),
+    decisionFacts: decisionFactsFor("RECORD_LOW"),
     visualScoring,
     reachScore: 100,
     followScore: 100,
@@ -156,7 +151,7 @@ test("cheap prefilter follows score without forcing Decision Facts lanes", () =>
   const highDiscount = {
     key: "high-discount",
     sourceType: "PRICE_EVENT",
-    decisionFacts: facts("HIGH_DISCOUNT_NOT_LOW"),
+    decisionFacts: decisionFactsFor("HIGH_DISCOUNT_NOT_LOW"),
     visualScoring,
     reachScore: 1,
     followScore: 1,
@@ -166,7 +161,7 @@ test("cheap prefilter follows score without forcing Decision Facts lanes", () =>
   const hiddenValue = {
     key: "hidden-value",
     sourceType: "HIDDEN_GEM",
-    decisionFacts: facts("HIDDEN_VALUE"),
+    decisionFacts: decisionFactsFor("HIDDEN_VALUE"),
     visualScoring,
     reachScore: 1,
     followScore: 1,
@@ -180,30 +175,25 @@ test("cheap prefilter follows score without forcing Decision Facts lanes", () =>
 });
 
 test("score window follows rank without forcing Decision Facts lanes", () => {
-  const facts = (decisionType: "RECORD_LOW" | "HIGH_DISCOUNT_NOT_LOW" | "HIDDEN_VALUE") => ({
-    ...buildDecisionFacts({
-      currentPrice: 500,
-      recordedLowestPrice: decisionType === "RECORD_LOW" ? 500 : 400,
-      discountRate: decisionType === "HIDDEN_VALUE" ? 20 : 50,
-      isOnSale: true,
-      ranking: decisionType === "HIDDEN_VALUE" ? null : 10,
-      reviewAverage: 4.5,
-      reviewCount: 10,
-    }),
-    decisionType,
-  });
   const visualScoring = { videoHookStrength: 0, visualSpecificity: 0 } as never;
   const recordLow = Array.from({ length: 600 }, (_, index) => ({
     key: `record-window-${index}`,
     workId: index + 1,
     sourceType: "COMPARISON",
-    decisionFacts: facts("RECORD_LOW"),
+    decisionFacts: decisionFactsFor("RECORD_LOW"),
     visualScoring,
   }));
-  const highDiscount = { key: "high-window", workId: 10_001, sourceType: "PRICE_EVENT", decisionFacts: facts("HIGH_DISCOUNT_NOT_LOW"), visualScoring };
-  const hiddenValue = { key: "hidden-window", workId: 10_002, sourceType: "HIDDEN_GEM", decisionFacts: facts("HIDDEN_VALUE"), visualScoring };
+  const highDiscount = { key: "high-window", workId: 10_001, sourceType: "PRICE_EVENT", decisionFacts: decisionFactsFor("HIGH_DISCOUNT_NOT_LOW"), visualScoring };
+  const hiddenValue = { key: "hidden-window", workId: 10_002, sourceType: "HIDDEN_GEM", decisionFacts: decisionFactsFor("HIDDEN_VALUE"), visualScoring };
   const result = preserveDecisionLanesBeforeLimit([...recordLow, highDiscount, hiddenValue] as never, 100);
   assert.equal(result.some((item) => item.decisionFacts?.decisionType === "RECORD_LOW"), true);
   assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIGH_DISCOUNT_NOT_LOW"), false);
   assert.equal(result.some((item) => item.decisionFacts?.decisionType === "HIDDEN_VALUE"), false);
+});
+
+test("the explicitly pinned evaluation work stays inside the bounded score window", () => {
+  const rankedFirst = { key: "ranked-first", workId: 1, sourceType: "COMPARISON" };
+  const pinned = { key: "pinned", workId: 56714, sourceType: "COMPARISON" };
+  const result = preserveDecisionLanesBeforeLimit([rankedFirst, pinned] as never, 1, X_GROWTH_PINNED_EVALUATION_WORK_IDS);
+  assert.deepEqual(result.map((item) => item.workId), [56714]);
 });

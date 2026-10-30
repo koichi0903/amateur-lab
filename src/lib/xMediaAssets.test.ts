@@ -8,6 +8,9 @@ const base: Partial<XMediaAsset> = {
   quote_only: false,
   commercial_use_allowed: true,
   fetch_status: "ok",
+  fetch_status_code: 200,
+  mime_type: "video/mp4",
+  content_length: 4096,
   media_quality: "normal",
   manual_tags: [] as XMediaManualTag[],
 };
@@ -19,6 +22,25 @@ assert.equal(isUsableXMediaAsset({ ...base, quote_only: true }).usable, false);
 assert.equal(isUsableXMediaAsset({ ...base, fetch_status: "dead" }).usable, false);
 assert.equal(isUsableXMediaAsset({ ...base, fetch_status: "unknown" }).usable, false);
 assert.equal(isUsableXMediaAsset(base).usable, true);
+assert.deepEqual(
+  isUsableXMediaAsset({
+    ...base,
+    rights_status: "rejected",
+    x_usage_allowed: false,
+    can_reupload: false,
+    quote_only: true,
+    commercial_use_allowed: false,
+    fetch_status: "dead",
+    media_quality: "weak",
+    manual_tags: ["too_explicit_for_reach"],
+  }),
+  {
+    usable: false,
+    reasons: ["rights blocked", "X usage不可", "reupload不可", "quote only", "commercial use未確認", "URL dead", "reach不向き"],
+    reachSuitable: false,
+    quality: "weak",
+  },
+);
 
 const officialSample: Partial<XMediaAsset> = {
   ...base,
@@ -47,7 +69,8 @@ assert.equal(isOfficialFanzaDmmSampleUrl("http://cc3001.dmm.co.jp/example.mp4"),
 assert.equal(isOfficialFanzaDmmSampleUrl("https://dmm.co.jp.attacker.invalid/example.mp4"), false);
 assert.equal(isOfficialFanzaDmmSampleUrl("https://notdmm.co.jp/example.mp4"), false);
 assert.equal(isOfficialFanzaDmmSampleUrl("https://user@cc3001.dmm.co.jp/example.mp4"), false);
-assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "forbidden", fetch_status_code: 403, mime_type: "text/html", content_length: 0 }).usable, true);
+assert.equal(isFanzaXGrowthTechnicalSampleMovie(officialSample).usable, true);
+assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "forbidden", fetch_status_code: 403, mime_type: "text/html", content_length: 0 }).usable, false);
 assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, source_url: "https://example.invalid/sample.mp4" }).usable, false);
 assert.equal(isPostableOfficialSampleMovie({ ...officialSample, fetch_status: "forbidden" }).usable, false);
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import {
-  normalizeAffiliateSource,
+  resolveAffiliateSource,
   type AffiliateSource,
 } from "@/lib/affiliateTracking";
 import { readExternalAttribution, readXPostKey } from "./Analytics";
@@ -29,11 +29,10 @@ function shouldRecordPageView(key: string) {
 }
 
 function readUrlAttribution(fallbackSourcePage?: AffiliateSource) {
-  const params = new URLSearchParams(window.location.search);
   const xPostKey = readXPostKey();
 
   return {
-    sourcePage: normalizeAffiliateSource(params.get("from") ?? fallbackSourcePage),
+    sourcePage: resolveAffiliateSource(window.location.search, window.location.hash, fallbackSourcePage),
     xPostKey,
   };
 }

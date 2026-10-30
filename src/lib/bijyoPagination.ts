@@ -1,4 +1,5 @@
 export const BIJYO_MANUAL_PAGE_SIZE = 20;
+export const BIJYO_RESERVED_PAGE_SIZE = 24;
 
 export function offsetPageBounds(page: number, pageSize: number, maxPage = 100_000) {
   const safePage = Number.isSafeInteger(page) && page > 0 ? Math.min(page, maxPage) : 1;

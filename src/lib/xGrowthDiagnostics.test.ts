@@ -71,6 +71,7 @@ const before = JSON.stringify({ item, videoVariant, selectedPick });
 const diagnostic = buildXGrowthVariantDiagnostic(item, videoVariant, [selectedPick]);
 assert.equal(diagnostic.selected, true);
 assert.equal(diagnostic.slot, "slot_1");
+assert.equal(diagnostic.selectedReason, "selected");
 assert.equal(diagnostic.videoEligibility?.eligible, true);
 assert.equal(diagnostic.humanVoice.checks.readerAction, false);
 assert.equal(diagnostic.humanVoice.checks.concreteVisualFact, false);
@@ -82,5 +83,16 @@ assert.equal(summary.totalVariants, 1);
 assert.equal(summary.humanVoiceNgByCheck.readerAction, 1);
 assert.equal(summary.humanVoiceNgByCheck.concreteVisualFact, 1);
 assert.equal(summary.selectedByMediaType.sample_movie, 1);
+assert.deepEqual(summary, {
+  totalVariants: 1,
+  mediaTypeCounts: { sample_movie: 1 },
+  selectedByMediaType: { sample_movie: 1 },
+  humanVoiceNgByCheck: { readerAction: 1, concreteVisualFact: 1 },
+  nativeXVoiceNgByCheck: {},
+  lastMileNgReasons: { "読者の行動/感情に翻訳されていない": 1 },
+  qualityNgReasons: { specificity: 1, "読者の行動/感情に翻訳されていない": 1 },
+  factTypeCounts: { opening_change: 1 },
+  videoRejectionReasons: { "最終動画候補としてselected": 1 },
+});
 
 console.log("xGrowth diagnostics tests passed");

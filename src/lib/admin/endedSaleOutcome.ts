@@ -53,3 +53,10 @@ export function classifyEndedSaleRemaining(
 
   return { deferred, fatal };
 }
+
+export function selectEndedSaleFinalRetryTargets(
+  fatalTargets: EndedSaleRemainingTarget[],
+  processedProductIds: ReadonlySet<string>,
+): EndedSaleRemainingTarget[] {
+  return fatalTargets.filter((target) => processedProductIds.has(target.product_id));
+}

@@ -2,15 +2,18 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Search, Sparkles, UserRound } from "lucide-react";
 import Header from "@/components/layout/Header";
+import WorkCategorySwitch from "@/components/catalog/WorkCategorySwitch";
 import WorkImage from "@/components/home/WorkImage";
 import {
   getEntityIndexSummaries,
   isEntityIndexable,
+  type EntityIndexSummary,
 } from "@/lib/catalog/entityIndexSummaries";
 import { pageMetadata } from "@/lib/seo";
 import { getActressProfiles, type ActressProfile } from "@/lib/catalog/actressProfiles";
+import { sortActressSummaries } from "@/lib/catalog/actressListSorting";
 
-export const revalidate = 86400;
+export const revalidate = 43200;
 
 function normalizeActressSearchText(value: string | null | undefined) {
   return (value ?? "")
@@ -25,7 +28,7 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   const query = (params.q ?? "").trim();
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
   return pageMetadata({
-    title: `${query ? `「${query}」のFANZA女優検索結果` : "FANZA女優ランキング"}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
+    title: `${query ? `「${query}」のFANZA女優検索結果` : "FANZA女優一覧｜出演作品数・プロフィール"}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
     description: "FANZA作品の出演女優を、生年月日・身長・スリーサイズ・カップと出演作品数から探せます。",
     canonical: query ? "/actress" : `/actress${page > 1 ? `?page=${page}` : ""}`,
     robots: query ? { index: false, follow: true } : undefined,
@@ -52,34 +55,7 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
         || normalizeActressSearchText(profile?.ruby).includes(normalizedQuery);
     })
     : ranked;
-  const profileValue = (profile: ActressProfile | undefined, field: "height_cm" | "bust_cm" | "waist_cm" | "hip_cm") => profile?.[field] ?? null;
-  const cupValue = (profile: ActressProfile | undefined) => profile?.cup ? [...profile.cup.toUpperCase()].reduce((sum, letter) => sum * 27 + (letter.charCodeAt(0) - 64), 0) : null;
-  const sorted = [...filtered].sort((a, b) => {
-    if (sort === "count-desc" || sort === "count-asc") {
-      return sort === "count-desc" ? b.count - a.count : a.count - b.count;
-    }
-    if (sort === "birthday-asc" || sort === "birthday-desc") {
-      const aValue = profileByName.get(a.name)?.birthday ?? null;
-      const bValue = profileByName.get(b.name)?.birthday ?? null;
-      if (aValue == null && bValue == null) return 0;
-      if (aValue == null) return 1;
-      if (bValue == null) return -1;
-      return sort === "birthday-asc" ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
-    }
-    const descending = sort.endsWith("-desc");
-    const fieldKey = sort.replace(/-(?:asc|desc)$/, "");
-    const field = fieldKey === "height" ? "height_cm"
-      : fieldKey === "bust" ? "bust_cm"
-        : fieldKey === "waist" ? "waist_cm"
-          : fieldKey === "hip" ? "hip_cm"
-            : "cup";
-    const aValue = field === "cup" ? cupValue(profileByName.get(a.name)) : profileValue(profileByName.get(a.name), field);
-    const bValue = field === "cup" ? cupValue(profileByName.get(b.name)) : profileValue(profileByName.get(b.name), field);
-    if (aValue == null && bValue == null) return 0;
-    if (aValue == null) return 1;
-    if (bValue == null) return -1;
-    return descending ? bValue - aValue : aValue - bValue;
-  });
+  const sorted = sortActressSummaries(filtered, profileByName, sort);
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const visible = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -98,8 +74,9 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
         <section className="border-b border-slate-200 bg-white">
           <div className="mx-auto max-w-[1500px] px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+            <WorkCategorySwitch active="actress" />
             <div>
-              <div className="flex items-center gap-3"><UserRound size={24} /><h1 className="text-2xl font-black sm:text-3xl">AV女優検索</h1></div>
+              <div className="flex items-center gap-3"><UserRound size={24} /><h1 className="text-2xl font-black sm:text-3xl">FANZA女優検索・出演作品一覧</h1></div>
               <p className="mt-2 text-sm text-sky-300">出演作品数やプロフィールを見ながら女優を探せます。</p>
             </div>
             <div className="mt-5 flex w-full max-w-xl items-center gap-3">
@@ -135,39 +112,86 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
         <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           {visible.length ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-              {visible.map((item) => {
-                const profile = profileByName.get(item.name);
-                const profileImage = profile?.image_url_large || profile?.image_url_small || null;
-                return (
-                  <Link key={item.name} href={`/actress/${encodeURIComponent(item.name)}`} className="group flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg sm:p-3">
-                    <div className="relative flex items-center justify-center">
-                      <div className="relative h-28 w-28 overflow-hidden rounded-xl border-2 border-slate-300 bg-white shadow-sm">
-                        <WorkImage src={profileImage || item.imageUrl} fallbackSrc={profileImage ? item.imageUrl : null} alt={`${item.name}のプロフィール画像`} sizes="112px" unoptimized className="object-cover object-[50%_25%] transition duration-300 group-hover:scale-105" />
-                      </div>
-                    </div>
-                    <div className="flex flex-1 flex-col px-1 pb-1 pt-1.5">
-                      <h2 className="mt-0.5 truncate text-base font-black sm:text-lg">{item.name}</h2>
-                      <div className="mt-1 h-[4rem] space-y-0.5 overflow-hidden text-xs font-bold leading-4 text-slate-500">
-                        {profile?.birthday && <p>{profile.birthday}</p>}
-                        {profile?.height_cm && <p>身長: {profile.height_cm}cm</p>}
-                        {(profile?.bust_cm || profile?.waist_cm || profile?.hip_cm || profile?.cup) && <p>B{profile.bust_cm ?? "-"} W{profile.waist_cm ?? "-"} H{profile.hip_cm ?? "-"}{profile?.cup ? ` ${profile.cup}カップ` : ""}</p>}
-                      </div>
-                      <div className="mt-auto flex items-end justify-between gap-2 border-t border-slate-100 pt-2">
-                        <div><p className="text-[10px] font-bold text-slate-400">登録作品数</p><p className="text-xl font-black text-pink-600">{item.count}<span className="ml-0.5 text-xs">作品</span></p></div>
-                        <ArrowRight size={17} className="mb-1 text-pink-600" />
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
+              {visible.map((item) => <ActressIndexCard key={item.name} item={item} profile={profileByName.get(item.name)} />)}
             </div>
           ) : (
             <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Sparkles className="mx-auto text-slate-300" size={38} /><p className="mt-4 font-black">該当する女優が見つかりませんでした</p><Link href="/actress" className="mt-3 inline-block text-sm font-black text-pink-600">一覧に戻る</Link></div>
           )}
 
-          {totalPages > 1 && <nav aria-label="女優一覧のページ送り" className="mt-10 flex items-center justify-center gap-3">{currentPage > 1 && <Link href={pageHref(currentPage - 1)} className="rounded-full border border-slate-200 bg-white px-5 py-3 text-sm font-black">← 前へ</Link>}<span className="text-xs font-bold text-slate-400">{currentPage} / {totalPages}</span>{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white hover:bg-pink-600">次へ →</Link>}</nav>}
+          {totalPages > 1 && (
+            <nav
+              aria-label="女優一覧のページ送り"
+              className="mt-10 flex flex-wrap items-center justify-center gap-2"
+            >
+              {currentPage > 1 && (
+                <Link
+                  href={pageHref(currentPage - 1)}
+                  className="rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-black"
+                >
+                  ← 前へ
+                </Link>
+              )}
+              <span className="sr-only">{currentPage} / {totalPages}</span>
+              {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
+                pageNumber === currentPage ? (
+                  <span
+                    key={pageNumber}
+                    aria-current="page"
+                    aria-label={`${pageNumber}ページ目（現在のページ）`}
+                    className="flex h-10 min-w-[2.5rem] items-center justify-center rounded-full bg-pink-600 px-3 text-sm font-black text-white"
+                  >
+                    {pageNumber}
+                  </span>
+                ) : (
+                  <Link
+                    key={pageNumber}
+                    href={pageHref(pageNumber)}
+                    aria-label={`${pageNumber}ページ目へ`}
+                    className="flex h-10 min-w-[2.5rem] items-center justify-center rounded-full border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 hover:border-pink-300 hover:text-pink-600"
+                  >
+                    {pageNumber}
+                  </Link>
+                )
+              ))}
+              {currentPage < totalPages && (
+                <Link
+                  href={pageHref(currentPage + 1)}
+                  className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-pink-600"
+                >
+                  次へ →
+                </Link>
+              )}
+            </nav>
+          )}
         </div>
       </main>
     </>
   );
+}
+
+function ActressIndexCard({ item, profile }: { item: EntityIndexSummary; profile: ActressProfile | undefined }) {
+  const profileImage = profile?.image_url_large || profile?.image_url_small || null;
+  return <Link href={`/actress/${encodeURIComponent(item.name)}`} className="group flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg sm:p-3">
+    <div className="relative flex items-center justify-center">
+      <div className="relative h-28 w-28 overflow-hidden rounded-xl border-2 border-slate-300 bg-white shadow-sm">
+        <WorkImage src={profileImage || item.imageUrl} fallbackSrc={profileImage ? item.imageUrl : null} alt={`${item.name}のプロフィール画像`} sizes="112px" unoptimized className="object-cover object-[50%_25%] transition duration-300 group-hover:scale-105" />
+      </div>
+    </div>
+    <div className="flex flex-1 flex-col px-1 pb-1 pt-1.5">
+      <h2 className="mt-0.5 truncate text-base font-black sm:text-lg">{item.name}</h2>
+      <ActressIndexCardProfile profile={profile} />
+      <div className="mt-auto flex items-end justify-between gap-2 border-t border-slate-100 pt-2">
+        <div><p className="text-[10px] font-bold text-slate-400">登録作品数</p><p className="text-xl font-black text-pink-600">{item.count}<span className="ml-0.5 text-xs">作品</span></p></div>
+        <ArrowRight size={17} className="mb-1 text-pink-600" />
+      </div>
+    </div>
+  </Link>;
+}
+
+function ActressIndexCardProfile({ profile }: { profile: ActressProfile | undefined }) {
+  return <div className="mt-1 h-[4rem] space-y-0.5 overflow-hidden text-xs font-bold leading-4 text-slate-500">
+    {profile?.birthday && <p>{profile.birthday}</p>}
+    {profile?.height_cm && <p>身長: {profile.height_cm}cm</p>}
+    {(profile?.bust_cm || profile?.waist_cm || profile?.hip_cm || profile?.cup) && <p>B{profile.bust_cm ?? "-"} W{profile.waist_cm ?? "-"} H{profile.hip_cm ?? "-"}{profile?.cup ? ` ${profile.cup}カップ` : ""}</p>}
+  </div>;
 }

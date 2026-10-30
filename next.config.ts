@@ -38,8 +38,12 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      ...["/actress", "/actress/:name", "/actress/:name/page/:page"].map((source) => ({
+        source,
+        headers: [{ key: "Cache-Control", value: "public, s-maxage=43200, stale-while-revalidate=86400" }],
+      })),
       {
-        source: "/:section(actress|genre|maker)",
+        source: "/:section(genre|maker)",
         headers: [
           {
             key: "Cache-Control",
@@ -48,7 +52,7 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: "/:section(actress|genre|maker)/:name",
+        source: "/:section(genre|maker)/:name",
         headers: [
           {
             key: "Cache-Control",
@@ -57,7 +61,7 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: "/:section(actress|genre|maker)/:name/page/:page",
+        source: "/:section(genre|maker)/:name/page/:page",
         headers: [
           {
             key: "Cache-Control",
@@ -70,6 +74,8 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "@sparticuz/chromium",
     "playwright-core",
+    "@ffmpeg-installer/ffmpeg",
+    "@ffprobe-installer/ffprobe",
   ],
   ...(shouldBundleServerlessChromium
     ? {

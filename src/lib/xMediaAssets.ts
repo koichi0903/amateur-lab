@@ -112,19 +112,24 @@ export function isOfficialSampleMovieAsset(asset: Partial<XMediaAsset> | null | 
 }
 
 /**
- * FANZA X Growth's media gate is technical and source-based only.
- * Rights metadata is intentionally not consulted here; it remains available
- * for the separate review workflow and other consumers.
+ * FANZA X Growth's media gate validates the official source and its latest
+ * HTTP/MIME probe. Rights metadata remains separate for review and posting.
  */
 export function isFanzaXGrowthTechnicalSampleMovie(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null): XFanzaXGrowthTechnicalVerdict {
   const sourceUrl = sampleMovieUrl ?? asset?.source_url;
   const reasons: string[] = [];
   if (!sourceUrl) reasons.push("sample_movie_urlなし");
   else if (!isOfficialFanzaDmmSampleUrl(sourceUrl)) reasons.push("HTTPSの公式FANZA/DMM sample_movie_urlではない");
+  if (asset?.fetch_status !== "ok") reasons.push(asset?.fetch_status ? `HTTP取得状態=${asset.fetch_status}` : "technical probe未確認");
+  if (asset?.fetch_status_code == null) reasons.push("HTTP status未確認");
+  else if (asset.fetch_status_code < 200 || asset.fetch_status_code >= 300) reasons.push(`HTTP ${asset.fetch_status_code}`);
+  if (!asset?.mime_type) reasons.push("MIME未確認");
+  else if (!asset.mime_type.toLowerCase().split(";", 1)[0].trim().includes("video/mp4")) reasons.push(`MIME=${asset.mime_type}`);
+  if (asset?.content_length != null && asset.content_length <= 0) reasons.push("content-length不正");
   return { usable: reasons.length === 0, reasons: [...new Set(reasons)] };
 }
 
-export function isUsableXMediaAsset(asset: Partial<XMediaAsset> | null | undefined): XMediaUsability {
+function xMediaPermissionReasons(asset: Partial<XMediaAsset> | null | undefined) {
   const reasons: string[] = [];
   if (!asset) reasons.push("rights未確認");
   const status = normalizeRightsStatus(asset?.rights_status);
@@ -133,12 +138,36 @@ export function isUsableXMediaAsset(asset: Partial<XMediaAsset> | null | undefin
   if (asset?.can_reupload !== true) reasons.push("reupload不可");
   if (asset?.quote_only === true) reasons.push("quote only");
   if (asset?.commercial_use_allowed !== true) reasons.push("commercial use未確認");
-  if (asset?.fetch_status !== "ok") reasons.push(asset?.fetch_status ? `URL ${asset.fetch_status}` : "technical未確認");
+  return reasons;
+}
+
+function xMediaTechnicalReasons(asset: Partial<XMediaAsset> | null | undefined) {
+  if (asset?.fetch_status === "ok") return [];
+  return [asset?.fetch_status ? `URL ${asset.fetch_status}` : "technical未確認"];
+}
+
+function xMediaReachAssessment(asset: Partial<XMediaAsset> | null | undefined) {
   const quality = asset?.media_quality ?? "unreviewed";
   const tags = asset?.manual_tags ?? [];
-  const reachSuitable = !tags.includes("too_explicit_for_reach") && quality !== "weak";
-  if (!reachSuitable) reasons.push(tags.includes("too_explicit_for_reach") ? "reach不向き" : "weak video");
-  return { usable: reasons.length === 0, reasons: [...new Set(reasons)], reachSuitable, quality };
+  const explicitForReach = tags.includes("too_explicit_for_reach");
+  const reachSuitable = !explicitForReach && quality !== "weak";
+  const reasons = reachSuitable ? [] : [explicitForReach ? "reach不向き" : "weak video"];
+  return { quality, reachSuitable, reasons };
+}
+
+export function isUsableXMediaAsset(asset: Partial<XMediaAsset> | null | undefined): XMediaUsability {
+  const reach = xMediaReachAssessment(asset);
+  const reasons = [
+    ...xMediaPermissionReasons(asset),
+    ...xMediaTechnicalReasons(asset),
+    ...reach.reasons,
+  ];
+  return {
+    usable: reasons.length === 0,
+    reasons: [...new Set(reasons)],
+    reachSuitable: reach.reachSuitable,
+    quality: reach.quality,
+  };
 }
 
 export function isPostableOfficialSampleMovie(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null): XMediaUsability {

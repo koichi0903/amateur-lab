@@ -88,15 +88,8 @@ function classifyPerformance(row: {
   };
 }
 
-export async function getAffiliateSalesAnalytics() {
-  const now = new Date();
-  const currentMonth = monthKey(now);
-  const monthKeys = Array.from({ length: 12 }, (_, index) =>
-    monthKey(addMonths(now, index - 11)),
-  );
-  const cutoff = `${monthKeys[0]}-01`;
+async function fetchAffiliateSaleRows(cutoff: string) {
   const rows: AffiliateSaleRow[] = [];
-
   for (let from = 0; from < MAX_ROWS; from += PAGE_SIZE) {
     const { data, error } = await supabaseAdmin
       .from("affiliate_sales")
@@ -105,26 +98,44 @@ export async function getAffiliateSalesAnalytics() {
       .order("report_month", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
 
-    if (error) {
-      return {
-        error: error.message,
-        currentMonth,
-        currentMonthHasRows: false,
-        totals: { salesCount: 0, salesAmount: 0, commissionAmount: 0 },
-        non990Totals: { salesCount: 0, salesAmount: 0, commissionAmount: 0, rows: 0 },
-        monthly: monthKeys.map((key) => ({ key, salesCount: 0, salesAmount: 0, commissionAmount: 0 })),
-        topProducts: [] as Array<AffiliateSaleRow & { rank: number }>,
-        performance: [] as AffiliatePerformanceRow[],
-        salesEvaluation: buildXGrowthSalesEvaluation([], now).evaluation,
-        performanceClickError: null as string | null,
-        latestImport: null as null | { file: string; importedAt: string },
-      };
-    }
-
+    if (error) return { rows, error: error.message };
     const page = (data ?? []) as AffiliateSaleRow[];
     rows.push(...page);
     if (page.length < PAGE_SIZE) break;
   }
+  return { rows, error: null };
+}
+
+function emptyAffiliateSalesAnalytics(
+  error: string,
+  currentMonth: string,
+  monthKeys: string[],
+  now: Date,
+) {
+  return {
+    error,
+    currentMonth,
+    currentMonthHasRows: false,
+    totals: { salesCount: 0, salesAmount: 0, commissionAmount: 0 },
+    non990Totals: { salesCount: 0, salesAmount: 0, commissionAmount: 0, rows: 0 },
+    monthly: monthKeys.map((key) => ({ key, salesCount: 0, salesAmount: 0, commissionAmount: 0 })),
+    topProducts: [] as Array<AffiliateSaleRow & { rank: number }>,
+    performance: [] as AffiliatePerformanceRow[],
+    salesEvaluation: buildXGrowthSalesEvaluation([], now).evaluation,
+    performanceClickError: null as string | null,
+    latestImport: null as null | { file: string; importedAt: string },
+  };
+}
+
+export async function getAffiliateSalesAnalytics() {
+  const now = new Date();
+  const currentMonth = monthKey(now);
+  const monthKeys = Array.from({ length: 12 }, (_, index) =>
+    monthKey(addMonths(now, index - 11)),
+  );
+  const cutoff = `${monthKeys[0]}-01`;
+  const { rows, error } = await fetchAffiliateSaleRows(cutoff);
+  if (error) return emptyAffiliateSalesAnalytics(error, currentMonth, monthKeys, now);
 
   const currentMonthRows = rows.filter((row) => row.report_month.slice(0, 7) === currentMonth);
   const currentRows = currentMonthRows.filter((row) => rowScope(row) === "990");

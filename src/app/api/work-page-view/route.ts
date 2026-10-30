@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
-import { normalizeAffiliateSource } from "@/lib/affiliateTracking";
+import {
+  type AffiliateSource,
+  normalizeAffiliateSource,
+} from "@/lib/affiliateTracking";
 import {
   isOperatorLandingPath,
   normalizeExternalAttribution,
+  type ExternalAttribution,
 } from "@/lib/externalAttribution";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -11,6 +15,51 @@ function readNumber(payload: Record<string, unknown>, key: string) {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+type WorkPageViewInsert = {
+  work_id: number;
+  source_page: AffiliateSource;
+  price: number | null;
+  discount_rate: number | null;
+  discovery_score: number | null;
+  ranking: number | null;
+  x_post_key: string | null;
+  external_channel: ExternalAttribution["channel"] | undefined;
+  external_source: string | undefined;
+  landing_path: string | undefined;
+};
+
+async function insertWorkPageViewWithSchemaFallback(eventRow: WorkPageViewInsert) {
+  let { error } = await supabaseAdmin.from("work_page_views").insert(eventRow);
+
+  // Keep the same ordered fallbacks while older schema caches lack newer columns.
+  if (error?.code === "PGRST204") {
+    const fallback = await supabaseAdmin.from("work_page_views").insert({
+      work_id: eventRow.work_id,
+      source_page: eventRow.source_page,
+      price: eventRow.price,
+      discount_rate: eventRow.discount_rate,
+      discovery_score: eventRow.discovery_score,
+      ranking: eventRow.ranking,
+      x_post_key: eventRow.x_post_key,
+    });
+    error = fallback.error;
+  }
+
+  if (error?.code === "PGRST204") {
+    const fallback = await supabaseAdmin.from("work_page_views").insert({
+      work_id: eventRow.work_id,
+      source_page: eventRow.source_page,
+      price: eventRow.price,
+      discount_rate: eventRow.discount_rate,
+      discovery_score: eventRow.discovery_score,
+      ranking: eventRow.ranking,
+    });
+    error = fallback.error;
+  }
+
+  return error;
 }
 
 export async function POST(request: Request) {
@@ -66,34 +115,7 @@ export async function POST(request: Request) {
     landing_path: externalAttribution?.landingPath,
   };
 
-  let { error } = await supabaseAdmin.from("work_page_views").insert(eventRow);
-
-  // Keep analytics best-effort while migrations/schema cache propagate. The
-  // page view endpoint must never affect the customer-facing page.
-  if (error?.code === "PGRST204") {
-    const fallback = await supabaseAdmin.from("work_page_views").insert({
-      work_id: workId,
-      source_page: sourcePage,
-      price: eventRow.price,
-      discount_rate: eventRow.discount_rate,
-      discovery_score: eventRow.discovery_score,
-      ranking: eventRow.ranking,
-      x_post_key: eventRow.x_post_key,
-    });
-    error = fallback.error;
-  }
-
-  if (error?.code === "PGRST204") {
-    const fallback = await supabaseAdmin.from("work_page_views").insert({
-      work_id: workId,
-      source_page: sourcePage,
-      price: eventRow.price,
-      discount_rate: eventRow.discount_rate,
-      discovery_score: eventRow.discovery_score,
-      ranking: eventRow.ranking,
-    });
-    error = fallback.error;
-  }
+  const error = await insertWorkPageViewWithSchemaFallback(eventRow);
 
   if (error) {
     console.error("[work-page-view] failed to record page view", {

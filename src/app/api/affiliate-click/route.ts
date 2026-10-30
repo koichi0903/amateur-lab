@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { isAffiliatePlacement } from "@/lib/affiliatePlacements";
-import { normalizeAffiliateSource } from "@/lib/affiliateTracking";
-import { normalizeCtaVariant } from "@/lib/ctaExperiment";
-import {
-  isOperatorLandingPath,
-  normalizeExternalAttribution,
-} from "@/lib/externalAttribution";
+import { parseAffiliateClickPayload } from "@/lib/affiliateClickPayload";
+import { isOperatorLandingPath } from "@/lib/externalAttribution";
 
 function isMissingCtaVariant(error: { code?: string; message?: string }) {
   return error.code === "PGRST204" || error.message?.includes("cta_variant");
@@ -39,48 +34,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const workId =
-    typeof payload === "object" && payload !== null && "workId" in payload
-      ? Number(payload.workId)
-      : Number.NaN;
-  const placement =
-    typeof payload === "object" && payload !== null && "placement" in payload
-      ? payload.placement
-      : null;
-  const sourcePage = normalizeAffiliateSource(
-    typeof payload === "object" && payload !== null && "sourcePage" in payload
-      ? typeof payload.sourcePage === "string"
-        ? payload.sourcePage
-        : null
-      : null,
-  );
-  const ctaVariant = normalizeCtaVariant(
-    typeof payload === "object" && payload !== null && "ctaVariant" in payload
-      ? payload.ctaVariant
-      : null,
-  );
-  const externalAttribution = normalizeExternalAttribution(
-    typeof payload === "object" && payload !== null && "externalAttribution" in payload
-      ? payload.externalAttribution
-      : null,
-  );
-  const xPostKey =
-    typeof payload === "object" &&
-    payload !== null &&
-    "xPostKey" in payload &&
-    typeof payload.xPostKey === "string" &&
-    payload.xPostKey.trim()
-      ? payload.xPostKey.trim().slice(0, 120)
-      : null;
-
-  if (
-    !Number.isSafeInteger(workId) ||
-    workId <= 0 ||
-    !isAffiliatePlacement(placement)
-  ) {
+  const event = parseAffiliateClickPayload(payload);
+  if (!event) {
     return NextResponse.json({ error: "Invalid event" }, { status: 400 });
   }
 
+  const { workId, placement, sourcePage, ctaVariant, xPostKey, externalAttribution } = event;
   if (isOperatorLandingPath(externalAttribution?.landingPath)) {
     return new NextResponse(null, { status: 204 });
   }

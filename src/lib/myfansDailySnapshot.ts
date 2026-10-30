@@ -19,43 +19,97 @@ export type MyfansDailySnapshotResult = {
   errorCode?: string;
 };
 
-function snapshotEvidence(candidate: MyfansDailyCandidate | MyfansDailyCandidateOption, board: MyfansExecutionBoard) {
+function visualStatusEvidence(candidate: MyfansDailyCandidate | MyfansDailyCandidateOption) {
+  const visual = candidate.visualUnderstanding;
   return {
-    public_copy: {
-      body: candidate.body,
-      self_reply: candidate.selfReply,
-      generator_version: candidate.generatorVersion,
-      copy_input_hash: candidate.copyInputHash,
-      facts: candidate.publicCopyFacts,
-      visual_understanding: candidate.visualUnderstanding,
-      visual_analysis_status: candidate.visualUnderstanding?.visualAnalysisStatus ?? "unavailable",
-      analyzer_version: candidate.visualUnderstanding?.analyzerVersion ?? null,
-      visual_analysis_json: candidate.visualUnderstanding ?? null,
-      extracted_visual_cue: candidate.visualUnderstanding?.concreteVisualCue ?? "",
-      raw_visual_evidence: candidate.visualUnderstanding?.rawVisualEvidence ?? "",
-      human_observation: candidate.visualUnderstanding?.humanObservation ?? "",
-      confidence: candidate.visualUnderstanding?.cueConfidence ?? "low",
-      source_evidence: candidate.visualUnderstanding?.evidenceSource || candidate.visualUnderstanding?.sourceEvidence || "",
-      reaction_type: candidate.reactionType,
-      reaction_review: candidate.reactionReview,
-      natural_user_reaction: candidate.reactionReview?.naturalUserReaction ?? null,
-      analyst_commentary_risk: candidate.reactionReview?.analystCommentaryRisk ?? null,
-      source_specificity: candidate.reactionReview?.sourceSpecificity ?? candidate.sourceSpecificityScore,
-      why_this_angle: candidate.whyThisAngle,
-      topic_value: candidate.topicValue,
-      reason_to_care: candidate.topicValue?.reasonToCare ?? null,
-    },
-    internal_reasoning: {
-      why_selected: candidate.reason,
-      quality_reason: candidate.quality.reasons,
-      topic_value: candidate.topicValue,
-      evidence: candidate.hookEvidence,
-      validation_status: candidate.mediaPolicy,
-      estimated_reward_per_1000_impressions: candidate.opportunity?.expectedRewardPer1000Impressions ?? null,
-      revenue_score: candidate.opportunity?.revenueScore ?? null,
-      growth_score: candidate.opportunity?.growthScore ?? null,
-      creator_ltv_score: candidate.opportunity?.creatorLtvScore ?? null,
-    },
+    visual_understanding: visual,
+    visual_analysis_status: visual?.visualAnalysisStatus ?? "unavailable",
+    analyzer_version: visual?.analyzerVersion ?? null,
+    visual_analysis_json: visual ?? null,
+  };
+}
+
+function visualCueEvidence(candidate: MyfansDailyCandidate | MyfansDailyCandidateOption) {
+  const visual = candidate.visualUnderstanding;
+  return {
+    extracted_visual_cue: visual?.concreteVisualCue ?? "",
+    raw_visual_evidence: visual?.rawVisualEvidence ?? "",
+    human_observation: visual?.humanObservation ?? "",
+    confidence: visual?.cueConfidence ?? "low",
+  };
+}
+
+function visualSourceEvidence(candidate: MyfansDailyCandidate | MyfansDailyCandidateOption) {
+  const visual = candidate.visualUnderstanding;
+  return {
+    source_evidence: visual?.evidenceSource || visual?.sourceEvidence || "",
+  };
+}
+
+function reactionCopyEvidence(candidate: MyfansDailyCandidate | MyfansDailyCandidateOption) {
+  const review = candidate.reactionReview;
+  return {
+    reaction_type: candidate.reactionType,
+    reaction_review: review,
+    natural_user_reaction: review?.naturalUserReaction ?? null,
+    analyst_commentary_risk: review?.analystCommentaryRisk ?? null,
+    source_specificity: review?.sourceSpecificity ?? candidate.sourceSpecificityScore,
+  };
+}
+
+function topicCopyEvidence(candidate: MyfansDailyCandidate | MyfansDailyCandidateOption) {
+  const topicValue = candidate.topicValue;
+  return {
+    topic_value: topicValue,
+    reason_to_care: topicValue?.reasonToCare ?? null,
+  };
+}
+
+function publicCopyEvidence(candidate: MyfansDailyCandidate | MyfansDailyCandidateOption) {
+  return {
+    body: candidate.body,
+    self_reply: candidate.selfReply,
+    generator_version: candidate.generatorVersion,
+    copy_input_hash: candidate.copyInputHash,
+    facts: candidate.publicCopyFacts,
+    ...visualStatusEvidence(candidate),
+    ...visualCueEvidence(candidate),
+    ...visualSourceEvidence(candidate),
+    ...reactionCopyEvidence(candidate),
+    why_this_angle: candidate.whyThisAngle,
+    ...topicCopyEvidence(candidate),
+  };
+}
+
+function opportunityEvidence(candidate: MyfansDailyCandidate | MyfansDailyCandidateOption) {
+  const opportunity = candidate.opportunity;
+  return {
+    estimated_reward_per_1000_impressions: opportunity?.expectedRewardPer1000Impressions ?? null,
+    revenue_score: opportunity?.revenueScore ?? null,
+    growth_score: opportunity?.growthScore ?? null,
+    creator_ltv_score: opportunity?.creatorLtvScore ?? null,
+  };
+}
+
+function internalReasoningEvidence(candidate: MyfansDailyCandidate | MyfansDailyCandidateOption) {
+  return {
+    why_selected: candidate.reason,
+    quality_reason: candidate.quality.reasons,
+    topic_value: candidate.topicValue,
+    evidence: candidate.hookEvidence,
+    validation_status: candidate.mediaPolicy,
+    ...opportunityEvidence(candidate),
+  };
+}
+
+function recoveryHistoryFor(candidate: MyfansDailyCandidate | MyfansDailyCandidateOption, board: MyfansExecutionBoard) {
+  return board.recovery.history.filter((row) => row.slot === candidate.plannedSlot);
+}
+
+export function snapshotEvidence(candidate: MyfansDailyCandidate | MyfansDailyCandidateOption, board: MyfansExecutionBoard) {
+  return {
+    public_copy: publicCopyEvidence(candidate),
+    internal_reasoning: internalReasoningEvidence(candidate),
     product_id: candidate.product?.id ?? null,
     ranking_context_product_id: candidate.rankingContextProduct?.id ?? null,
     quote_x_url: candidate.quoteXUrl,
@@ -94,7 +148,7 @@ function snapshotEvidence(candidate: MyfansDailyCandidate | MyfansDailyCandidate
     attention: candidate.attention,
     quality: candidate.quality,
     topic_value: candidate.topicValue,
-    recovery_history: board.recovery.history.filter((row) => row.slot === candidate.plannedSlot),
+    recovery_history: recoveryHistoryFor(candidate, board),
     opportunity: candidate.opportunity,
     product_reason: candidate.productReason,
     reader_value: candidate.readerValue,
@@ -115,17 +169,40 @@ function visualRenderStatus(candidate: MyfansAttentionCandidate) {
   return "unknown";
 }
 
-function dailyPlanPostRecord(dailyPlanId: number, board: MyfansExecutionBoard, candidate: MyfansDailyCandidate | MyfansDailyCandidateOption, index: number, option?: MyfansDailyCandidateOption) {
-  const persistedProductId = candidate.monetizableStatus === "unlinked" || candidate.sourceProductMatch?.matched === false
-    ? null
-    : candidate.product?.id ?? null;
+function persistedProductIdFor(candidate: MyfansDailyCandidate | MyfansDailyCandidateOption) {
+  if (candidate.monetizableStatus === "unlinked" || candidate.sourceProductMatch?.matched === false) return null;
+  return candidate.product?.id ?? null;
+}
+
+function quoteCandidateIdFor(board: MyfansExecutionBoard, candidate: MyfansDailyCandidate | MyfansDailyCandidateOption) {
+  const sourceUrl = candidate.quoteXUrl || candidate.sourceXUrl;
+  return board.quotePool.global.find((row) =>
+    sourceUrl && (row.candidate.x_post_url === sourceUrl || row.candidate.media_permalink === sourceUrl),
+  )?.candidate.id ?? null;
+}
+
+function optionSelectionFields(board: MyfansExecutionBoard, index: number, option?: MyfansDailyCandidateOption) {
+  const selectedOption = board.selectedOptions?.[String(index + 1)];
+  const isSelected = option ? Boolean(selectedOption === option.optionLabel) : true;
+  return {
+    is_selected: isSelected,
+    selected_at: option && selectedOption === option.optionLabel ? new Date().toISOString() : null,
+  };
+}
+
+function optionIdentityFields(option?: MyfansDailyCandidateOption) {
+  return {
+    option_label: option?.optionLabel ?? "A",
+    option_name: option?.optionName ?? "おすすめ",
+    option_rank: option?.optionRank ?? 1,
+  };
+}
+
+export function dailyPlanPostRecord(dailyPlanId: number, board: MyfansExecutionBoard, candidate: MyfansDailyCandidate | MyfansDailyCandidateOption, index: number, option?: MyfansDailyCandidateOption) {
   return {
     daily_plan_id: dailyPlanId,
-    product_id: persistedProductId,
-    quote_candidate_id: board.quotePool.global.find((row) => {
-      const sourceUrl = candidate.quoteXUrl || candidate.sourceXUrl;
-      return sourceUrl && (row.candidate.x_post_url === sourceUrl || row.candidate.media_permalink === sourceUrl);
-    })?.candidate.id ?? null,
+    product_id: persistedProductIdFor(candidate),
+    quote_candidate_id: quoteCandidateIdFor(board, candidate),
     post_order: index + 1,
     post_role: candidate.role,
     audience_intent: candidate.audienceIntent,
@@ -138,11 +215,8 @@ function dailyPlanPostRecord(dailyPlanId: number, board: MyfansExecutionBoard, c
     copy_input_hash: candidate.copyInputHash,
     body: candidate.body,
     self_reply: candidate.selfReply,
-    option_label: option?.optionLabel ?? "A",
-    option_name: option?.optionName ?? "おすすめ",
-    option_rank: option?.optionRank ?? 1,
-    is_selected: option ? Boolean(board.selectedOptions?.[String(index + 1)] === option.optionLabel) : true,
-    selected_at: option && board.selectedOptions?.[String(index + 1)] === option.optionLabel ? new Date().toISOString() : null,
+    ...optionIdentityFields(option),
+    ...optionSelectionFields(board, index, option),
     novelty_json: option?.novelty ?? {},
   };
 }
@@ -156,12 +230,39 @@ function dailyPlanOptionRecords(dailyPlanId: number, board: MyfansExecutionBoard
   return board.candidates.map((candidate, index) => dailyPlanPostRecord(dailyPlanId, board, candidate, index));
 }
 
-function summarizeCandidateOptions(board: MyfansExecutionBoard) {
-  return (board.candidateOptions ?? []).map((slot) => ({
-    slot: slot.slot,
-    post_order: slot.postOrder,
-    recommended_option: slot.recommendedOption,
-    candidates: slot.candidates.map((candidate) => ({
+function candidateOptionProductSummary(candidate: MyfansDailyCandidateOption) {
+  return {
+    product_id: candidate.product?.id ?? null,
+    ranking_context_product_id: candidate.rankingContextProduct?.id ?? null,
+    product_title: candidate.product?.title ?? "",
+  };
+}
+
+function candidateOptionSourceSummary(candidate: MyfansDailyCandidateOption) {
+  const topicValue = candidate.topicValue;
+  const visual = candidate.visualUnderstanding;
+  return {
+    reason_to_care: topicValue?.reasonToCare ?? null,
+    visual_status: visual?.visualAnalysisStatus ?? "unavailable",
+    visual_evidence: visual?.humanObservation || visual?.rawVisualEvidence || "",
+  };
+}
+
+function candidateOptionValueSummary(candidate: MyfansDailyCandidateOption) {
+  const novelty = candidate.novelty;
+  return {
+    topic_value: candidate.topicValue?.score ?? null,
+    novelty,
+    novelty_label: novelty?.label ?? null,
+    same_source_status: novelty?.sameSourceLabel ?? null,
+    last_same_source_date: novelty?.lastSameSourceDate ?? null,
+    last_same_creator_date: novelty?.lastSameCreatorDate ?? null,
+    past_body_similarity_label: novelty?.pastBodySimilarityLabel ?? null,
+  };
+}
+
+function candidateOptionSummary(candidate: MyfansDailyCandidateOption) {
+  return {
       id: candidate.id,
       option_label: candidate.optionLabel,
       option_name: candidate.optionName,
@@ -182,9 +283,7 @@ function summarizeCandidateOptions(board: MyfansExecutionBoard) {
       source_specificity_score: candidate.sourceSpecificityScore,
       reaction_review: candidate.reactionReview,
       candidate_title: candidate.candidateTitle,
-      product_id: candidate.product?.id ?? null,
-      ranking_context_product_id: candidate.rankingContextProduct?.id ?? null,
-      product_title: candidate.product?.title ?? "",
+      ...candidateOptionProductSummary(candidate),
       role: candidate.dailyRole,
       post_type: candidate.postType,
       post_mode: candidate.postMode,
@@ -196,24 +295,24 @@ function summarizeCandidateOptions(board: MyfansExecutionBoard) {
       affiliate_url: candidate.affiliateUrl,
       creative_strategy: candidate.creativeStrategy,
       topic_identity: candidate.topicIdentity,
-      reason_to_care: candidate.topicValue?.reasonToCare ?? null,
-      visual_status: candidate.visualUnderstanding?.visualAnalysisStatus ?? "unavailable",
-      visual_evidence: candidate.visualUnderstanding?.humanObservation || candidate.visualUnderstanding?.rawVisualEvidence || "",
+      ...candidateOptionSourceSummary(candidate),
       quality: candidate.quality.total,
-      topic_value: candidate.topicValue?.score ?? null,
-      novelty: candidate.novelty,
-      novelty_label: candidate.novelty?.label ?? null,
-      same_source_status: candidate.novelty?.sameSourceLabel ?? null,
-      last_same_source_date: candidate.novelty?.lastSameSourceDate ?? null,
-      last_same_creator_date: candidate.novelty?.lastSameCreatorDate ?? null,
-      past_body_similarity_label: candidate.novelty?.pastBodySimilarityLabel ?? null,
+      ...candidateOptionValueSummary(candidate),
       why_selected: candidate.reason,
-    })),
+  };
+}
+
+export function summarizeCandidateOptions(board: MyfansExecutionBoard) {
+  return (board.candidateOptions ?? []).map((slot) => ({
+    slot: slot.slot,
+    post_order: slot.postOrder,
+    recommended_option: slot.recommendedOption,
+    candidates: slot.candidates.map(candidateOptionSummary),
   }));
 }
 
-export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard, approvedMediaId: number | null = board.candidates[0]?.approvedMediaId ?? null): Promise<MyfansDailySnapshotResult> {
-  const strategyJson = {
+function snapshotStrategyJson(board: MyfansExecutionBoard) {
+  return {
     plan_key: board.planKey,
     day: board.day,
     stage: board.stage,
@@ -233,15 +332,25 @@ export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard, app
     candidate_options: summarizeCandidateOptions(board),
     daily_option_selection: board.selectedOptions,
   };
-  const evaluatedAt = new Date().toISOString();
-  const posts = dailyPlanOptionRecords(0, board).map((record) => Object.fromEntries(Object.entries(record).filter(([key]) => key !== "daily_plan_id")));
-  const attention = board.quotePool.global.slice(0, 10).map((row, index) => ({
+}
+
+function snapshotPostRows(board: MyfansExecutionBoard) {
+  return dailyPlanOptionRecords(0, board).map((record) =>
+    Object.fromEntries(Object.entries(record).filter(([key]) => key !== "daily_plan_id")),
+  );
+}
+
+function snapshotAttentionRows(board: MyfansExecutionBoard) {
+  return board.quotePool.global.slice(0, 10).map((row, index) => ({
     quote_candidate_id: row.candidate.id,
     product_id: row.candidate.product_id,
     attention_score: row.globalScore,
     score_json: { global_score: row.globalScore, source_score: row.candidate.score, rank: index + 1 },
     evidence_json: { visual_verified: row.candidate.quote_visual_ready, visual_render_status: visualRenderStatus(row.candidate), media_type: row.candidate.media_type, media_permalink: row.candidate.media_permalink, views: row.candidate.views, likes: row.candidate.likes, reposts: row.candidate.reposts, replies: row.candidate.replies, creator_rank: row.candidate.creator_rank, reason: row.candidate.score_reason },
   }));
+}
+
+function snapshotLinkageRows(board: MyfansExecutionBoard) {
   const linkageRows = [...board.candidates, ...(board.candidateOptions ?? []).flatMap((slot) => slot.candidates)]
     .map((candidate) => candidate.resolverEvidence)
     .filter((row): row is NonNullable<typeof row> => Boolean(row?.source_status_url && row.discovered_myfans_url && row.diagnostic_mode !== true))
@@ -250,34 +359,52 @@ export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard, app
     `${row.source_status_url}\u0000${row.discovered_myfans_url}\u0000${row.evidence_source}`,
     row,
   ])).values()];
-  const outbound = board.outboundTasks.map((task) => ({ task_type: task.type, target_url: task.targetUrl, reason: task.reason, suggested_text: task.suggestedText }));
-  const plan = {
-    approved_media_id: approvedMediaId,
-    plan_date: board.planDate,
-    operation_day: board.day,
-    stage: board.stage,
-    plan_key: board.planKey,
-    evaluated_at: evaluatedAt,
-    strategy_json: { ...strategyJson, daily_option_selection: board.selectedOptions },
-    source_counts_json: board.quotePool.funnel,
-  };
-  const { data, error } = await supabaseAdmin.rpc("save_myfans_daily_snapshot", {
-    p_plan: plan,
-    p_posts: posts,
-    p_attention: attention,
-    p_linkage: linkage,
-    p_outbound: outbound,
+  return linkage;
+}
+
+function snapshotOutboundRows(board: MyfansExecutionBoard) {
+  return board.outboundTasks.map((task) => ({ task_type: task.type, target_url: task.targetUrl, reason: task.reason, suggested_text: task.suggestedText }));
+}
+
+export function dailySnapshotRpcArgs(board: MyfansExecutionBoard, approvedMediaId: number | null, evaluatedAt: string) {
+  return {
+    p_plan: {
+      approved_media_id: approvedMediaId,
+      plan_date: board.planDate,
+      operation_day: board.day,
+      stage: board.stage,
+      plan_key: board.planKey,
+      evaluated_at: evaluatedAt,
+      strategy_json: { ...snapshotStrategyJson(board), daily_option_selection: board.selectedOptions },
+      source_counts_json: board.quotePool.funnel,
+    },
+    p_posts: snapshotPostRows(board),
+    p_attention: snapshotAttentionRows(board),
+    p_linkage: snapshotLinkageRows(board),
+    p_outbound: snapshotOutboundRows(board),
     p_audit: board.supplyAudit,
+  };
+}
+
+function snapshotUnavailableResult(board: MyfansExecutionBoard, error: { code?: unknown; message?: unknown; details?: unknown; hint?: unknown } | null) {
+  const errorCode = typeof error?.code === "string" ? error.code : "RPC_EMPTY_RESULT";
+  console.error("myfans daily snapshot RPC failed", {
+    code: errorCode,
+    message: typeof error?.message === "string" ? error.message : "invalid response",
+    details: typeof error?.details === "string" ? error.details : undefined,
+    hint: typeof error?.hint === "string" ? error.hint : undefined,
   });
+  return { id: null, status: "unavailable", message: "Daily Planの保存に失敗しました。保存状態は変更されていません。時間をおいて再試行してください。", errorCode, postCount: 0, planDate: board.planDate, planKey: board.planKey, revision: null, evaluatedAt: null, selectedOptions: board.selectedOptions } as const;
+}
+
+export async function ensureMyfansDailySnapshot(board: MyfansExecutionBoard, approvedMediaId: number | null = board.candidates[0]?.approvedMediaId ?? null): Promise<MyfansDailySnapshotResult> {
+  const evaluatedAt = new Date().toISOString();
+  const { data, error } = await supabaseAdmin.rpc(
+    "save_myfans_daily_snapshot",
+    dailySnapshotRpcArgs(board, approvedMediaId, evaluatedAt),
+  );
   if (error || !data?.plan_id) {
-    const errorCode = typeof error?.code === "string" ? error.code : "RPC_EMPTY_RESULT";
-    console.error("myfans daily snapshot RPC failed", {
-      code: errorCode,
-      message: typeof error?.message === "string" ? error.message : "invalid response",
-      details: typeof error?.details === "string" ? error.details : undefined,
-      hint: typeof error?.hint === "string" ? error.hint : undefined,
-    });
-    return { id: null, status: "unavailable", message: "Daily Planの保存に失敗しました。保存状態は変更されていません。時間をおいて再試行してください。", errorCode, postCount: 0, planDate: board.planDate, planKey: board.planKey, revision: null, evaluatedAt: null, selectedOptions: board.selectedOptions };
+    return snapshotUnavailableResult(board, error);
   }
   const replaced = data.replaced === true;
   return { id: Number(data.plan_id), status: replaced ? "existing" : "saved", message: replaced ? "同日のDaily Planをatomicに再評価しました" : "今日のDaily Planを保存しました", postCount: board.candidates.length, planDate: board.planDate, planKey: board.planKey, revision: Number(data.revision), evaluatedAt, selectedOptions: board.selectedOptions };

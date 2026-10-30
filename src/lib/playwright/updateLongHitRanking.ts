@@ -3,6 +3,7 @@ dotenv.config({ path: ".env.local" });
 
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getLongHitRanking } from "./getLongHitRanking";
+import { changedLongHitRankingProductIds, shouldReportLongHitRankingProgress } from "./longHitRankingProjection";
 
 type LongHitRankingProgress = (
   processed: number,
@@ -55,14 +56,16 @@ for (let from = 0; ; from += 1000) {
     .not("long_hit_rank", "is", null)
     .range(from, from + 999);
   if (resetRowsError) throw resetRowsError;
-  for (const work of resetRows ?? []) {
-    const expectedRank = longHitMap.get(work.product_id) ?? null;
-    if (work.long_hit_rank !== expectedRank) {
-      changedProductIds.add(work.product_id);
-    }
-  }
+  for (const productId of changedLongHitRankingProductIds(
+    resetRows ?? [],
+    longHitMap,
+  )) changedProductIds.add(productId);
   if (!resetRows || resetRows.length < 1000) break;
 }
+  for (const productId of changedLongHitRankingProductIds(
+    allWorks,
+    longHitMap,
+  )) changedProductIds.add(productId);
 
 const { error: resetError } = await supabase
   .from("works")
@@ -77,7 +80,6 @@ for (let index = 0; index < allWorks.length; index += 1) {
   const work = allWorks[index];
 
   const nextRank = longHitMap.get(work.product_id) ?? null;
-  if (work.long_hit_rank !== nextRank) changedProductIds.add(work.product_id);
   const { error } = await supabase
   .from("works")
   .update({
@@ -90,7 +92,7 @@ if (error) {
 }
 
 const processed = index + 1;
-if (processed % 10 === 0 || processed === allWorks.length) {
+if (shouldReportLongHitRankingProgress(processed, allWorks.length)) {
   await onProgress?.(processed, allWorks.length, work.product_id);
 }
 }

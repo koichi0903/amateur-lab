@@ -1,17 +1,9 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { intValue, text } from "@/lib/formDataValues";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function text(formData: FormData, name: string) {
-  return String(formData.get(name) ?? "").normalize("NFKC").trim();
-}
-
-function intValue(formData: FormData, name: string) {
-  const value = Number(text(formData, name).replace(/[^\d.-]/g, ""));
-  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
-}
 
 export async function POST(request: Request) {
   try {

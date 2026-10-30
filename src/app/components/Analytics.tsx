@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   isOperatorLandingPath,
@@ -181,6 +181,8 @@ export function trackWorkSelection({
 
 export default function Analytics() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
   const [analyticsReady, setAnalyticsReady] = useState(false);
   const initializedPageRef = useRef(false);
 
@@ -226,7 +228,6 @@ export default function Analytics() {
   useEffect(() => {
     if (!GA_MEASUREMENT_ID || !window.gtag || !analyticsReady) return;
 
-    const search = window.location.search;
     const attribution = readExternalAttribution();
     window.gtag("event", "page_view", {
       page_path: `${pathname}${search}`,
@@ -237,7 +238,7 @@ export default function Analytics() {
       landing_path: attribution?.landingPath ?? "unknown",
       x_post_key: readXPostKey() ?? "unknown",
     });
-  }, [analyticsReady, pathname]);
+  }, [analyticsReady, pathname, search]);
 
   return null;
 }

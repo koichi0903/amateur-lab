@@ -10,14 +10,22 @@ import WorkPageViewTracker from "@/app/components/WorkPageViewTracker";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 import { isOfficialSampleMovieUrl } from "@/lib/officialSampleMovie";
 import {
+  getSeoPilotDefaultPriceSeries,
   isWorkIndexable,
   WORK_INDEX_MIN_PRICE,
 } from "@/lib/seoQuality";
+import { buildWorkMetaDescription } from "@/lib/workMetadata";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
 import Header from "@/components/layout/Header";
 import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
+import FanzaStyleWorkCard from "@/components/catalog/FanzaStyleWorkCard";
+import {
+  getCurrentWorkPriceOffers,
+  getWorkDetailPricePresentation,
+  selectPurchaseAlternatives,
+} from "@/lib/workDetailPricing";
 
 
 function currentTimeMs() {
@@ -96,7 +104,10 @@ const getWork = cache(
 );
 
 const getWorkDetailData = cache(
-  async (productId: string) =>
+  async (
+    productId: string,
+    defaultPriceSeries?: { displayName: string; period: string | null } | null,
+  ) =>
     unstable_cache(
       async () => {
     const [sampleImages, priceHistory, workPrices] = await Promise.all([
@@ -118,15 +129,55 @@ const getWorkDetailData = cache(
         .order("display_name"),
     ]);
 
+    let combinedPriceHistory = priceHistory.data ?? [];
+    if (
+      defaultPriceSeries &&
+      !combinedPriceHistory.some(
+        (item) =>
+          item.display_name.replace(/\s+/g, "").trim() === defaultPriceSeries.displayName &&
+          (item.period ?? null) === defaultPriceSeries.period,
+      )
+    ) {
+      let selectedSeriesQuery = supabase
+        .from("price_history")
+        .select("id,changed_at,display_name,type,period,price_kind,normal_price,sale_price")
+        .eq("product_id", productId)
+        .eq("display_name", defaultPriceSeries.displayName)
+        .order("changed_at", { ascending: false })
+        .limit(100);
+      selectedSeriesQuery = defaultPriceSeries.period == null
+        ? selectedSeriesQuery.is("period", null)
+        : selectedSeriesQuery.eq("period", defaultPriceSeries.period);
+      const selectedSeries = await selectedSeriesQuery;
+      if (selectedSeries.error) {
+        console.error("[work-detail] failed to load pinned price series", {
+          productId,
+          error: selectedSeries.error,
+        });
+      } else {
+        const rowsById = new Map(
+          [...combinedPriceHistory, ...(selectedSeries.data ?? [])].map((item) => [item.id, item]),
+        );
+        combinedPriceHistory = [...rowsById.values()].sort(
+          (a, b) => Date.parse(b.changed_at) - Date.parse(a.changed_at),
+        );
+      }
+    }
+
     return {
       sampleImages: sampleImages.data ?? [],
-      priceHistory: priceHistory.data ?? [],
+      priceHistory: combinedPriceHistory,
       workPrices: workPrices.data ?? [],
     };
       },
       // Versioned after adding period-aware price history. This prevents the old
       // period-less payload from hiding the 7-day and unlimited series.
-      ["work-detail-data-v4-period-keyed-current-offers", productId],
+      [
+        "work-detail-data-v5-seo-pilot-pinned-series",
+        productId,
+        defaultPriceSeries?.displayName ?? "",
+        defaultPriceSeries?.period ?? "__null",
+      ],
       { revalidate: WORK_DETAIL_REVALIDATE_SECONDS, tags: [workDetailProductCacheTag(productId)] },
     )(),
 );
@@ -212,16 +263,10 @@ export async function generateMetadata(
     });
   }
 
-  const actressText = work.actress ? `${work.actress}出演。` : "";
-  const currentPrice = work.sale_price > 0 ? work.sale_price : work.price;
-  const priceText = currentPrice > 0 ? `現在価格${currentPrice.toLocaleString("ja-JP")}円。` : "";
-  const reviewText = work.review_count > 0
-    ? `レビュー${work.review_average.toFixed(2)}（${work.review_count}件）。`
-    : "";
   const title = `${work.title}｜FANZA価格・過去最安値・買い時 | 発掘LAB`;
-  const description = `${work.title}のFANZA現在価格、価格推移、過去最安値、買い時を確認。${priceText}${reviewText}${actressText}同価格帯の作品とも比較できます。`;
+  const description = buildWorkMetaDescription(work);
   const encodedId = encodeURIComponent(id);
-  const socialImage = work.image_url || `${SITE_URL}/ogp.png`;
+  const socialImage = work.image_url || `${SITE_URL}/ogp-20261028.png`;
   const metadata = pageMetadata({
     title,
     description,
@@ -268,50 +313,18 @@ export default async function WorkDetailPage(
 
   if (!work) notFound();
 
+  const defaultPriceSeries = getSeoPilotDefaultPriceSeries(work.id);
   const { sampleImages, priceHistory, workPrices } =
-    await getWorkDetailData(work.product_id);
-  const latestOffers = new Map<string, (typeof priceHistory)[number]>();
-  for (const offer of priceHistory ?? []) {
-    const key = `${offer.display_name ?? offer.type ?? ""}\u0000${offer.period ?? ""}`;
-    if (!latestOffers.has(key)) latestOffers.set(key, offer);
-  }
-  // Current offers are authoritative. History can contain plans that ended,
-  // so deriving the purchase list from it can resurrect stale price options.
-  const currentOffers = workPrices?.length
-    ? workPrices
-    : [...latestOffers.values()];
+    await getWorkDetailData(work.product_id, defaultPriceSeries);
+  const currentOffers = getCurrentWorkPriceOffers(priceHistory ?? [], workPrices);
 
   const splitEntities = (value: string | null) => value?.split(/\s*\/\s*|\s*／\s*|\s*,\s*|\s*、\s*/).filter(Boolean) ?? [];
   const actresses = splitEntities(work.actress);
   const genres = splitEntities(work.genre);
   const makers = splitEntities(work.maker);
   const series = splitEntities(work.series);
-  const saleActive = !work.sale_end_at || Date.parse(work.sale_end_at) > currentTimeMs();
-  const hasSaleEvidence =
-    saleActive &&
-    (work.is_on_sale || (work.sale_price != null && work.sale_price > 0) || (work.discount_rate != null && work.discount_rate > 0));
-  const representativePrice = hasSaleEvidence && work.sale_price > 0 ? work.sale_price : work.price;
-  const currentPrice = currentOffers.find((offer) =>
-    (offer.sale_price ?? offer.normal_price ?? 0) === representativePrice
-  ) ?? {
-    display_name: "代表価格",
-    type: null,
-    period: null,
-    normal_price: work.price,
-    sale_price: hasSaleEvidence ? work.sale_price || null : null,
-  };
-  const mobileDisplayPrice =
-    hasSaleEvidence && currentPrice.sale_price && currentPrice.sale_price > 0
-      ? currentPrice.sale_price
-      : currentPrice.normal_price;
-  const mobileDisplayDiscountRate =
-    hasSaleEvidence &&
-    currentPrice.sale_price &&
-    currentPrice.normal_price &&
-    mobileDisplayPrice &&
-    currentPrice.normal_price > mobileDisplayPrice
-      ? Math.round((1 - mobileDisplayPrice / currentPrice.normal_price) * 100)
-      : hasSaleEvidence ? work.discount_rate : 0;
+  const { currentPrice, mobileDisplayPrice, mobileDisplayDiscountRate } =
+    getWorkDetailPricePresentation(work, currentOffers, currentTimeMs());
   const mainActress = actresses[0] ?? "";
   const mainGenre = genres[0] ?? "";
   const mainMaker = makers[0] ?? "";
@@ -323,6 +336,8 @@ export default async function WorkDetailPage(
     mainGenre,
     mainMaker,
   );
+  const purchaseAlternatives = selectPurchaseAlternatives(relatedWorks, mobileDisplayPrice, currentTimeMs);
+  const purchaseAlternativeIds = new Set(purchaseAlternatives.map((candidate) => candidate.id));
 
   return (
   <>
@@ -358,18 +373,39 @@ export default async function WorkDetailPage(
       {/* Hero */}
       <section className="mt-0 p-0 sm:p-8">
 <WorkDetailHero
+  key={work.id}
   work={work}
   sampleImages={sampleImages ?? []}
   sampleMovieUrl={work.sample_movie_url}
   officialSampleEmbedUrl={getOfficialSampleEmbedUrl(work)}
   priceHistory={priceHistory ?? []}
+  defaultPriceSeries={defaultPriceSeries}
   displayPrice={mobileDisplayPrice ?? null}
   regularPrice={currentPrice.normal_price ?? work.price ?? null}
   discountRate={mobileDisplayDiscountRate}
 />
       </section>
 
-      <RelatedWorks works={relatedWorks ?? []} />
+      {purchaseAlternatives.length > 0 && (
+        <section className="mt-8" aria-labelledby="purchase-alternatives-title">
+          <div className="mb-4">
+            <h2 id="purchase-alternatives-title" className="text-xl font-black text-zinc-900">価格を抑えて選びたい方へ</h2>
+            <p className="mt-1 text-sm text-slate-600">表示中の作品より価格が低く、レビューが10件以上ある関連作品です。</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-3">
+            {purchaseAlternatives.map((candidate) => (
+              <FanzaStyleWorkCard
+                key={`purchase-alternative-${candidate.id}`}
+                work={candidate}
+                sourcePage="direct"
+                showChart={false}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      <RelatedWorks works={relatedWorks.filter((candidate) => !purchaseAlternativeIds.has(candidate.id))} />
 
     </div>
   </main>

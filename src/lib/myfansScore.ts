@@ -55,7 +55,31 @@ export type MyfansOpportunityScores = {
   reason: string;
 };
 
-export function calculateMyfansOpportunityScores(input: MyfansScoreInput): MyfansOpportunityScores {
+type MyfansOpportunityContext = {
+  estimatedReward: number;
+  reaction: number;
+  popularity: number;
+  freshness: number;
+  materialSafety: number;
+  hookEase: number;
+  readiness: number;
+  productReward: number;
+  planReward: number;
+  recurring: number;
+  creatorDepth: number;
+  updateFrequency: number | null;
+  planSignupEvidence: number | null;
+};
+
+type MyfansPerformanceSignals = {
+  pastReward: number;
+  confidence: number;
+  expectedRewardPer1000Impressions: number;
+};
+
+type MyfansScoreDimensions = Pick<MyfansOpportunityScores, "growthScore" | "revenueScore" | "creatorLtvScore" | "labels">;
+
+function opportunityContextFor(input: MyfansScoreInput): MyfansOpportunityContext {
   const estimatedReward = Math.max(0, Math.round(input.price * (input.rewardRate / 100)));
   const reaction = clamp01(input.likesCount / 300 + input.savesCount / 120);
   const popularity = input.popularityRank ? clamp01(1 - (input.popularityRank - 1) / 80) : 0.35;
@@ -70,6 +94,24 @@ export function calculateMyfansOpportunityScores(input: MyfansScoreInput): Myfan
   const updateFrequency = input.observedUpdateCount30d === undefined ? null : clamp01(input.observedUpdateCount30d / 12);
   const planSignupEvidence = input.planSignupEvidenceCount === undefined ? null : clamp01(input.planSignupEvidenceCount / 5);
 
+  return {
+    estimatedReward,
+    reaction,
+    popularity,
+    freshness,
+    materialSafety,
+    hookEase,
+    readiness,
+    productReward,
+    planReward,
+    recurring,
+    creatorDepth,
+    updateFrequency,
+    planSignupEvidence,
+  };
+}
+
+function performanceSignalsFor(input: MyfansScoreInput, context: MyfansOpportunityContext): MyfansPerformanceSignals {
   const impressions = Math.max(0, input.pastImpressions ?? 0);
   const clicks = Math.max(0, input.pastClicks ?? 0);
   const conversions = Math.max(0, input.pastConversions ?? 0);
@@ -83,9 +125,18 @@ export function calculateMyfansOpportunityScores(input: MyfansScoreInput): Myfan
   );
   const adjustedCtr = MYFANS_OPPORTUNITY_CONSTANTS.baseCtr * (1 - confidence) + actualCtr * confidence;
   const adjustedCvr = MYFANS_OPPORTUNITY_CONSTANTS.baseCvr24h * (1 - confidence) + actualCvr * confidence;
-  const modeledRewardPerMille = 1000 * adjustedCtr * adjustedCvr * Math.max(estimatedReward, input.planSignupReward * 0.7, 300);
+  const modeledRewardPerMille = 1000 * adjustedCtr * adjustedCvr * Math.max(context.estimatedReward, input.planSignupReward * 0.7, 300);
   const expectedRewardPer1000Impressions = Math.round(modeledRewardPerMille * (1 - confidence) + actualRewardPerMille * confidence);
 
+  return { pastReward, confidence, expectedRewardPer1000Impressions };
+}
+
+function opportunityDimensionsFor(
+  context: MyfansOpportunityContext,
+  performance: MyfansPerformanceSignals,
+): MyfansScoreDimensions {
+  const { reaction, freshness, popularity, materialSafety, hookEase, readiness, productReward, planReward, recurring, creatorDepth, updateFrequency, planSignupEvidence } = context;
+  const { expectedRewardPer1000Impressions } = performance;
   const growthScore = clampScore(100 * (hookEase * 0.42 + freshness * 0.22 + popularity * 0.18 + materialSafety * 0.12 + readiness * 0.06));
   const revenueScore = clampScore(
     100 *
@@ -109,14 +160,25 @@ export function calculateMyfansOpportunityScores(input: MyfansScoreInput): Myfan
     creatorLtvScore >= Math.max(growthScore, revenueScore) ? "長期向き" : "",
   ].filter(Boolean);
 
+  return { growthScore, revenueScore, creatorLtvScore, labels: labels.length ? labels : ["検証候補"] };
+}
+
+function opportunityReasonFor(input: MyfansScoreInput, context: MyfansOpportunityContext, performance: MyfansPerformanceSignals) {
+  const { reaction, freshness, planSignupEvidence } = context;
+  const { pastReward, confidence } = performance;
+  return `反応${Math.round(reaction * 100)} / 新しさ${Math.round(freshness * 100)} / pastReward ¥${pastReward.toLocaleString("ja-JP")} / 24時間CV推定を信頼度${Math.round(confidence * 100)}%で補正。プラン加入可能性${planSignupEvidence === null ? "は客観データなしで未評価" : "は実績で評価"}、競合露出${input.competitorExposureScore === undefined || input.competitorExposureScore === null ? "は客観データなしで除外" : "は実績で評価"}。`;
+}
+
+export function calculateMyfansOpportunityScores(input: MyfansScoreInput): MyfansOpportunityScores {
+  const context = opportunityContextFor(input);
+  const performance = performanceSignalsFor(input, context);
+  const dimensions = opportunityDimensionsFor(context, performance);
+
   return {
-    growthScore,
-    revenueScore,
-    creatorLtvScore,
-    expectedRewardPer1000Impressions,
-    confidence: Number(confidence.toFixed(2)),
-    labels: labels.length ? labels : ["検証候補"],
-    reason: `反応${Math.round(reaction * 100)} / 新しさ${Math.round(freshness * 100)} / pastReward ¥${pastReward.toLocaleString("ja-JP")} / 24時間CV推定を信頼度${Math.round(confidence * 100)}%で補正。プラン加入可能性${planSignupEvidence === null ? "は客観データなしで未評価" : "は実績で評価"}、競合露出${input.competitorExposureScore === undefined || input.competitorExposureScore === null ? "は客観データなしで除外" : "は実績で評価"}。`,
+    ...dimensions,
+    expectedRewardPer1000Impressions: performance.expectedRewardPer1000Impressions,
+    confidence: Number(performance.confidence.toFixed(2)),
+    reason: opportunityReasonFor(input, context, performance),
   };
 }
 

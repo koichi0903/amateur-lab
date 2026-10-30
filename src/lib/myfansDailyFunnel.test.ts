@@ -50,7 +50,12 @@ function quote(id: number, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function analytics(quotes: Array<Record<string, unknown>>, products: Array<Record<string, unknown>> = []) {
+function analytics(
+  quotes: Array<Record<string, unknown>>,
+  products: Array<Record<string, unknown>> = [],
+  creators: Array<Record<string, unknown>> = [],
+  dailyFunnelInputs?: { creators: Array<Record<string, unknown>>; products: Array<Record<string, unknown>> },
+) {
   return {
     selectedMediaId: 1,
     selectedMedia: { id: 1, media_name: "@lumi_reviw", media_url: "", affiliate_media_id: "", status: "active", notes: "", created_at: "" },
@@ -59,13 +64,28 @@ function analytics(quotes: Array<Record<string, unknown>>, products: Array<Recor
     quoteCandidateSource: { dbCount: quotes.length, loadedCount: quotes.length, pageSize: 1000, loadedAll: true, latestCollectedAt: quotes[0]?.collected_at ?? null },
     posts: [],
     dailyPlans: [],
-    creators: [],
+    creators,
+    dailyFunnelInputs,
     conversions: [],
     productLinkageEvidence: [],
     permanentExclusions: [],
     xAccountGrowth: {},
     auditLogs: [],
   } as never;
+}
+
+function creator(id: number) {
+  return {
+    id,
+    display_name: `creator-${id}`,
+    genre: "素人",
+    myfans_url: `https://myfans.jp/creator/${id}`,
+    x_url: `https://x.com/creator${id}`,
+    creator_x_url: `https://x.com/creator-${id}`,
+    source_x_handle: `creator-${id}`,
+    is_active: true,
+    created_at: new Date().toISOString(),
+  };
 }
 
 function product(id: number, creatorId: number) {
@@ -109,6 +129,10 @@ test("eligible unlinked quote sources fill slot options without creating a monet
 
 test("execution diagnostics are read-only and identify qualified quote ids without source text", () => {
   const board = buildMyfansExecutionBoard(analytics([quote(588), quote(600)]), { planDate: "2026-09-24", operationDay: 1 });
+  assert.deepEqual(board.quotePool.global.map((row) => [row.candidate.id, row.globalScore]), [[588, 120], [600, 120]]);
+  assert.deepEqual(board.quotePool.selected.map((row) => row.candidate.id), [588, 600]);
+  assert.deepEqual(board.quotePool.funnel.rejectionReasons, [{ reason: "商品/creator未紐付け", count: 2 }]);
+  assert.equal(board.quotePool.funnel.freshnessCooldownCount, 2);
   assert.deepEqual(board.diagnostics.qualifiedDiscoveryIds, [588, 600]);
   assert.equal(board.diagnostics.rawQuoteCount, 2);
   assert.equal(board.diagnostics.productLinkedCount, 0);
@@ -155,6 +179,82 @@ test("NO_CANDIDATES is not converted into a Daily option", () => {
   const board = buildMyfansExecutionBoard(analytics([]), { planDate: "2026-09-24", operationDay: 1 });
   assert.equal(board.recovery.candidateOptions, 0);
   assert.equal(board.candidateOptions.flatMap((slot) => slot.candidates).length, 0);
+});
+
+test("creator candidatePool tracks generation attempts separately from final Daily options", () => {
+  const creatorId = 101;
+  const board = buildMyfansExecutionBoard(
+    analytics(
+      [quote(1, { creator_id: creatorId, creator_x_url: "", source_x_handle: "", x_post_url: "", media_permalink: `https://x.com/creator-${creatorId}/status/1/photo/1` })],
+      [{ ...product(17, creatorId), source_x_url: "", creator_x_url: "" }],
+      [{ ...creator(creatorId), x_url: `https://x.com/creator${creatorId}`, creator_x_url: "", source_x_handle: "" }],
+    ),
+    { planDate: "2026-09-24", operationDay: 1 },
+  );
+  assert.equal(board.linkedCandidateFunnel.candidatePool, 1);
+  assert.equal(board.linkedCandidateFunnel.daily12, 0);
+  assert.deepEqual(board.linkedCandidateFunnel.primaryDropReasons, [{ reason: "Daily 12未採用", count: 1 }]);
+});
+
+test("linked product and eligible product condition counts use distinct predicates", () => {
+  const board = buildMyfansExecutionBoard(
+    analytics(
+      [],
+      [product(17, 101), { ...product(18, 102), status: "paused" }],
+      [creator(101), creator(102)],
+    ),
+    { planDate: "2026-09-24", operationDay: 1 },
+  );
+  assert.equal(board.linkedCandidateFunnel.conditionCounts.products, 2);
+  assert.equal(board.linkedCandidateFunnel.conditionCounts.eligibleProducts, 1);
+});
+
+test("complete funnel inputs count linked creators beyond the operational product sample", () => {
+  const relatedCreators = Array.from({ length: 101 }, (_, index) => creator(101 + index));
+  const relatedProducts = relatedCreators.map((row, index) => product(17 + index, row.id));
+  const board = buildMyfansExecutionBoard(
+    analytics(
+      [],
+      [product(17, 101)],
+      [creator(101)],
+      {
+        creators: relatedCreators,
+        products: relatedProducts,
+      },
+    ),
+    { planDate: "2026-09-24", operationDay: 1 },
+  );
+  assert.equal(board.linkedCandidateFunnel.inputCoverage, "complete");
+  assert.equal(board.linkedCandidateFunnel.myfansCreatorsTotal, 101);
+  assert.equal(board.linkedCandidateFunnel.conditionCounts.products, 101);
+  assert.equal(board.linkedCandidateFunnel.conditionCounts.eligibleProducts, 101);
+});
+
+test("exact X profile stage accepts either valid profile URL field and rejects post URLs", () => {
+  const board = buildMyfansExecutionBoard(
+    analytics(
+      [],
+      [],
+      [
+        { ...creator(101), x_url: "https://x.com/creator101", creator_x_url: "" },
+        { ...creator(102), x_url: "", creator_x_url: "https://x.com/creator_102" },
+        { ...creator(103), x_url: "https://x.com/sample/status/1", creator_x_url: "" },
+        { ...creator(104), x_url: "", creator_x_url: "" },
+      ],
+      {
+        creators: [
+          { ...creator(101), x_url: "https://x.com/creator101", creator_x_url: "" },
+          { ...creator(102), x_url: "", creator_x_url: "https://x.com/creator_102" },
+          { ...creator(103), x_url: "https://x.com/sample/status/1", creator_x_url: "" },
+          { ...creator(104), x_url: "", creator_x_url: "" },
+        ],
+        products: [],
+      },
+    ),
+    { planDate: "2026-09-24", operationDay: 1 },
+  );
+  assert.equal(board.linkedCandidateFunnel.myfansCreatorsTotal, 4);
+  assert.equal(board.linkedCandidateFunnel.officialExactXHandleAvailable, 2);
 });
 
 test("stale or ineligible quote sources remain excluded", () => {
