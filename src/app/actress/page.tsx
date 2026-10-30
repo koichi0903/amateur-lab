@@ -1,32 +1,19 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, Search, Sparkles, UserRound } from "lucide-react";
+import { Search, Sparkles, UserRound } from "lucide-react";
 import Header from "@/components/layout/Header";
-import WorkImage from "@/components/home/WorkImage";
+import ActressDirectoryCard from "@/components/catalog/ActressDirectoryCard";
 import {
   getEntityIndexSummaries,
   isEntityIndexable,
 } from "@/lib/catalog/entityIndexSummaries";
 import { pageMetadata } from "@/lib/seo";
-import { getActressProfiles, type ActressProfile } from "@/lib/catalog/actressProfiles";
+import { getActressProfiles } from "@/lib/catalog/actressProfiles";
 import WorkCategorySwitch from "@/components/catalog/WorkCategorySwitch";
+import { prepareActressDirectory, resolveActressSort } from "@/lib/catalog/actressDirectory";
 
 export const revalidate = 43200;
-
-const ACTRESS_SORTS = [
-  "count-desc", "count-asc", "birthday-desc", "birthday-asc",
-  "cup-desc", "cup-asc", "height-desc", "height-asc",
-  "bust-desc", "bust-asc", "waist-desc", "waist-asc", "hip-desc", "hip-asc",
-] as const;
-
-function normalizeActressSearchText(value: string | null | undefined) {
-  return (value ?? "")
-    .normalize("NFKC")
-    .toLocaleLowerCase("ja")
-    .replace(/[\u30a1-\u30f6]/g, (character) => String.fromCharCode(character.charCodeAt(0) - 0x60))
-    .replace(/\s+/g, "");
-}
 
 export async function generateMetadata({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; sort?: string }> }): Promise<Metadata> {
   const params = await searchParams;
@@ -47,51 +34,13 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
   const query = (params.q ?? "").trim();
   const requestedPage = Number.parseInt(params.page ?? "1", 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  const sort = ACTRESS_SORTS.includes(params.sort as (typeof ACTRESS_SORTS)[number])
-    ? params.sort as (typeof ACTRESS_SORTS)[number]
-    : "count-desc";
+  const sort = resolveActressSort(params.sort);
   const pageSize = 24;
   const ranked = (await getEntityIndexSummaries("actress")).filter((summary) =>
     isEntityIndexable("actress", summary),
   );
   const profiles = await getActressProfiles(ranked.map((item) => item.name));
-  const profileByName = new Map(profiles.map((profile) => [profile.name, profile]));
-  const normalizedQuery = normalizeActressSearchText(query);
-  const filtered = normalizedQuery
-    ? ranked.filter((item) => {
-      const profile = profileByName.get(item.name);
-      return normalizeActressSearchText(item.name).includes(normalizedQuery)
-        || normalizeActressSearchText(profile?.ruby).includes(normalizedQuery);
-    })
-    : ranked;
-  const profileValue = (profile: ActressProfile | undefined, field: "height_cm" | "bust_cm" | "waist_cm" | "hip_cm") => profile?.[field] ?? null;
-  const cupValue = (profile: ActressProfile | undefined) => profile?.cup ? [...profile.cup.toUpperCase()].reduce((sum, letter) => sum * 27 + (letter.charCodeAt(0) - 64), 0) : null;
-  const sorted = [...filtered].sort((a, b) => {
-    if (sort === "count-desc" || sort === "count-asc") {
-      return sort === "count-desc" ? b.count - a.count : a.count - b.count;
-    }
-    if (sort === "birthday-asc" || sort === "birthday-desc") {
-      const aValue = profileByName.get(a.name)?.birthday ?? null;
-      const bValue = profileByName.get(b.name)?.birthday ?? null;
-      if (aValue == null && bValue == null) return 0;
-      if (aValue == null) return 1;
-      if (bValue == null) return -1;
-      return sort === "birthday-asc" ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
-    }
-    const descending = sort.endsWith("-desc");
-    const fieldKey = sort.replace(/-(?:asc|desc)$/, "");
-    const field = fieldKey === "height" ? "height_cm"
-      : fieldKey === "bust" ? "bust_cm"
-        : fieldKey === "waist" ? "waist_cm"
-          : fieldKey === "hip" ? "hip_cm"
-            : "cup";
-    const aValue = field === "cup" ? cupValue(profileByName.get(a.name)) : profileValue(profileByName.get(a.name), field);
-    const bValue = field === "cup" ? cupValue(profileByName.get(b.name)) : profileValue(profileByName.get(b.name), field);
-    if (aValue == null && bValue == null) return 0;
-    if (aValue == null) return 1;
-    if (bValue == null) return -1;
-    return descending ? bValue - aValue : aValue - bValue;
-  });
+  const { sorted, profileByName } = prepareActressDirectory(ranked, profiles, query, sort);
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   if (page > totalPages) notFound();
   const currentPage = page;
@@ -149,31 +98,9 @@ export default async function ActressPage({ searchParams }: { searchParams: Prom
         <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           {visible.length ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-              {visible.map((item) => {
-                const profile = profileByName.get(item.name);
-                const profileImage = profile?.image_url_large || profile?.image_url_small || null;
-                return (
-                  <Link key={item.name} href={`/actress/${encodeURIComponent(item.name)}`} className="group flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg sm:p-3">
-                    <div className="relative flex items-center justify-center">
-                      <div className="relative h-28 w-28 overflow-hidden rounded-xl border-2 border-slate-300 bg-white shadow-sm">
-                        <WorkImage src={profileImage || item.imageUrl} fallbackSrc={profileImage ? item.imageUrl : null} alt={`${item.name}のプロフィール画像`} sizes="112px" unoptimized className="object-cover object-[50%_25%] transition duration-300 group-hover:scale-105" />
-                      </div>
-                    </div>
-                    <div className="flex flex-1 flex-col px-1 pb-1 pt-1.5">
-                      <h2 className="mt-0.5 truncate text-base font-black sm:text-lg">{item.name}</h2>
-                      <div className="mt-1 h-[4rem] space-y-0.5 overflow-hidden text-xs font-bold leading-4 text-slate-500">
-                        {profile?.birthday && <p>{profile.birthday}</p>}
-                        {profile?.height_cm && <p>身長: {profile.height_cm}cm</p>}
-                        {(profile?.bust_cm || profile?.waist_cm || profile?.hip_cm || profile?.cup) && <p>B{profile.bust_cm ?? "-"} W{profile.waist_cm ?? "-"} H{profile.hip_cm ?? "-"}{profile?.cup ? ` ${profile.cup}カップ` : ""}</p>}
-                      </div>
-                      <div className="mt-auto flex items-end justify-between gap-2 border-t border-slate-100 pt-2">
-                        <div><p className="text-[10px] font-bold text-slate-400">登録作品数</p><p className="text-xl font-black text-pink-600">{item.count}<span className="ml-0.5 text-xs">作品</span></p></div>
-                        <ArrowRight size={17} className="mb-1 text-pink-600" />
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
+              {visible.map((item) => (
+                <ActressDirectoryCard key={item.name} item={item} profile={profileByName.get(item.name)} />
+              ))}
             </div>
           ) : (
             <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Sparkles className="mx-auto text-slate-300" size={38} /><p className="mt-4 font-black">該当する女優が見つかりませんでした</p><Link href="/actress" className="mt-3 inline-block text-sm font-black text-pink-600">一覧に戻る</Link></div>
