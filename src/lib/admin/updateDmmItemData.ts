@@ -58,10 +58,28 @@ function createDmmPriceFacts(item: DmmItem) {
 
 function createDmmCatalogFacts(item: DmmItem) {
   return {
+    ...createDmmCatalogEntityFacts(item),
+    ...createDmmCatalogLinkFacts(item),
+    ...createDmmCatalogMediaFacts(item),
+  };
+}
+
+function createDmmCatalogEntityFacts(item: DmmItem) {
+  return {
     nextMaker: item.iteminfo?.maker?.[0]?.name || "",
     nextSeries: item.iteminfo?.series?.[0]?.name || "",
+  };
+}
+
+function createDmmCatalogLinkFacts(item: DmmItem) {
+  return {
     nextUrl: item.URL || item.affiliateURL || "",
     nextReleaseDate: item.date || null,
+  };
+}
+
+function createDmmCatalogMediaFacts(item: DmmItem) {
+  return {
     nextActress: formatDmmActresses(item),
     sampleImages: item.sampleImageURL?.sample_l?.image ?? [],
   };
@@ -85,9 +103,16 @@ export function areDmmSampleImagesDifferent(
 }
 
 export function hasDmmWorkMetadataChanges(currentWork: CurrentDmmWork | undefined, facts: DmmItemUpdateFacts) {
+  return hasDmmReviewMetadataChanges(currentWork, facts) || hasDmmCatalogMetadataChanges(currentWork, facts);
+}
+
+function hasDmmReviewMetadataChanges(currentWork: CurrentDmmWork | undefined, facts: DmmItemUpdateFacts) {
   return (currentWork?.review_count ?? 0) !== facts.currentReviewCount ||
-    (currentWork?.review_average ?? 0) !== facts.nextReviewAverage ||
-    (currentWork?.maker ?? "") !== facts.nextMaker ||
+    (currentWork?.review_average ?? 0) !== facts.nextReviewAverage;
+}
+
+function hasDmmCatalogMetadataChanges(currentWork: CurrentDmmWork | undefined, facts: DmmItemUpdateFacts) {
+  return (currentWork?.maker ?? "") !== facts.nextMaker ||
     (currentWork?.series ?? "") !== facts.nextSeries ||
     (currentWork?.url ?? "") !== facts.nextUrl ||
     currentWork?.release_date !== facts.nextReleaseDate;

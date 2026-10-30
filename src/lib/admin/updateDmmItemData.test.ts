@@ -43,12 +43,35 @@ test("update facts keep release metadata, review growth, affiliate URL fallback,
   assert.equal(facts.previousReviewCount, 10);
   assert.equal(facts.currentReviewCount, 12);
   assert.equal(facts.isReviewGrowth, true);
+  assert.equal(facts.nextMaker, "Studio");
+  assert.equal(facts.nextSeries, "Series");
   assert.equal(facts.nextUrl, item.URL);
   assert.equal(facts.nextReleaseDate, "2026-10-20");
+  assert.equal(facts.nextActress, "Alice");
   assert.equal(facts.apiListPrice, 800);
   assert.equal(facts.apiSalePrice, 500);
   assert.equal(facts.apiDiscountRate, 38);
   assert.deepEqual(facts.sampleImages, ["image-1", "image-2"]);
+});
+
+test("catalog update facts preserve sparse metadata fallbacks", () => {
+  const sparseItem: DmmItem = {
+    ...item,
+    date: "",
+    URL: "",
+    affiliateURL: "",
+    sampleImageURL: undefined,
+    iteminfo: { actress: [], maker: [], series: [] },
+  };
+
+  const facts = createDmmItemUpdateFacts(sparseItem);
+
+  assert.equal(facts.nextMaker, "");
+  assert.equal(facts.nextSeries, "");
+  assert.equal(facts.nextUrl, "");
+  assert.equal(facts.nextReleaseDate, null);
+  assert.equal(facts.nextActress, null);
+  assert.deepEqual(facts.sampleImages, []);
 });
 
 test("sample image comparison ignores empty incoming data and detects length or URL changes", () => {
@@ -61,7 +84,18 @@ test("sample image comparison ignores empty incoming data and detects length or 
 test("metadata gates and update-price option preserve update behavior", () => {
   const facts = createDmmItemUpdateFacts(item, currentWork);
   assert.equal(hasDmmWorkMetadataChanges(currentWork, facts), false);
-  assert.equal(hasDmmWorkMetadataChanges({ ...currentWork, maker: "Old studio" }, facts), true);
+  const changedMetadata: CurrentDmmWork[] = [
+    { ...currentWork, review_count: 11 },
+    { ...currentWork, review_average: 4.4 },
+    { ...currentWork, maker: "Old studio" },
+    { ...currentWork, series: "Old series" },
+    { ...currentWork, url: "https://example.test/old" },
+    { ...currentWork, release_date: "2026-10-19" },
+  ];
+  for (const changedWork of changedMetadata) {
+    assert.equal(hasDmmWorkMetadataChanges(changedWork, facts), true);
+  }
+  assert.equal(hasDmmWorkMetadataChanges(undefined, facts), true);
   assert.equal(hasDmmActressChange(currentWork, facts.nextActress), false);
   assert.equal(hasDmmActressChange({ ...currentWork, actress: "Old actress" }, facts.nextActress), true);
 
