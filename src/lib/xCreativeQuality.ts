@@ -188,6 +188,18 @@ function buildNativeVoiceChecks(variant: NativeVoiceVariant, facts: ReturnType<t
   };
 }
 
+function templateReuseDetail(facts: ReturnType<typeof collectNativeVoiceFacts>) {
+  if (facts.forbiddenHits.length) return `: ${facts.forbiddenHits.join(", ")}`;
+  if (facts.frequentPhraseHits.length) return `: ${facts.frequentPhraseHits.join(", ")}`;
+  if (facts.sameFingerprintCount >= 2) return `: 同型fingerprint ${facts.sameFingerprintCount}回`;
+  if (facts.recentSimilarity >= 0.58) return `: 類似度${Math.round(facts.recentSimilarity * 100)}%`;
+  return "";
+}
+
+function templateReuseReason(facts: ReturnType<typeof collectNativeVoiceFacts>, checks: ReturnType<typeof buildNativeVoiceChecks>) {
+  return checks.noTemplateReuse ? "" : `直近/禁止テンプレ重複${templateReuseDetail(facts)}`;
+}
+
 function buildNativeVoiceReasons(facts: ReturnType<typeof collectNativeVoiceFacts>, checks: ReturnType<typeof buildNativeVoiceChecks>) {
   return [
     !checks.timelineNative ? "Xの流れより説明文に寄っている" : "",
@@ -196,7 +208,7 @@ function buildNativeVoiceReasons(facts: ReturnType<typeof collectNativeVoiceFact
     !checks.emotionalFirstLine ? "1行目に感情・違和感・発見が薄い" : "",
     !checks.notTooPolished ? "整いすぎてAIテンプレに見える" : "",
     facts.brokenText ? "禁止語除去後の文が不自然" : "",
-    !checks.noTemplateReuse ? `直近/禁止テンプレ重複${facts.forbiddenHits.length ? `: ${facts.forbiddenHits.join(", ")}` : facts.frequentPhraseHits.length ? `: ${facts.frequentPhraseHits.join(", ")}` : facts.sameFingerprintCount >= 2 ? `: 同型fingerprint ${facts.sameFingerprintCount}回` : facts.recentSimilarity >= 0.58 ? `: 類似度${Math.round(facts.recentSimilarity * 100)}%` : ""}` : "",
+    templateReuseReason(facts, checks),
     !checks.subjectVariety ? "女優名冒頭の型に寄りすぎ" : "",
   ].filter(Boolean);
 }
