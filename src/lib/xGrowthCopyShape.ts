@@ -5,6 +5,13 @@ type SubjectStructureSource = {
   genre?: string | null;
 };
 
+const SUBJECT_STRUCTURE_KEYWORD_RULES = [
+  { terms: ["今日", "一覧", "セール欄"], category: "market_first" },
+  { terms: ["似た", "同じ"], category: "comparison_first" },
+  { terms: ["見送"], category: "judgment_first" },
+  { terms: ["価格", "安い", "OFF"], category: "price_first" },
+] as const;
+
 export function firstLine(text: string) {
   return text.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
 }
@@ -53,13 +60,14 @@ export function subjectStructure(item: SubjectStructureSource, text: string) {
   const opening = firstLine(text);
   const actress = item.actress?.split(/[,、/]/)[0]?.trim();
   const genre = item.genre?.split(/[,、/]/)[0]?.trim();
-  if (actress && opening.includes(actress)) return "actress_first";
-  if (genre && opening.includes(genre)) return "genre_first";
-  if (opening.includes("今日") || opening.includes("一覧") || opening.includes("セール欄")) return "market_first";
-  if (opening.includes("似た") || opening.includes("同じ")) return "comparison_first";
-  if (opening.includes("見送")) return "judgment_first";
-  if (opening.includes("価格") || opening.includes("安い") || opening.includes("OFF")) return "price_first";
-  return "work_first";
+  const entityCategory = [
+    { subject: actress, category: "actress_first" },
+    { subject: genre, category: "genre_first" },
+  ].find(({ subject }) => Boolean(subject && opening.includes(subject)))?.category;
+  const keywordCategory = SUBJECT_STRUCTURE_KEYWORD_RULES.find(({ terms }) =>
+    terms.some((term) => opening.includes(term)),
+  )?.category;
+  return entityCategory ?? keywordCategory ?? "work_first";
 }
 
 export function reactionType(variant: Pick<XCreativeVariant, "hookDirection">) {
