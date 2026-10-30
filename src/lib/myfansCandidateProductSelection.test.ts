@@ -47,6 +47,18 @@ test("ranking notes fall back to the first topic-ready available product", () =>
   }), fallback);
 });
 
+test("ranking notes skip excluded topic-pass products", () => {
+  const excluded = row(1);
+  const available = row(2);
+  assert.equal(pick({
+    pool: [excluded, available],
+    postType: "ranking_note",
+    exclude: [1],
+    topicPassProductIds: [1],
+    topicReadyIds: [1, 2],
+  }), available);
+});
+
 test("authority post types prefer topic-ready products before ordinary quote fallbacks", () => {
   const quoted = row(1, "https://x.com/example/status/1");
   const topicReady = row(2);
