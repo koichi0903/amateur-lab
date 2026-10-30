@@ -125,6 +125,21 @@ test("candidate POST manual replacement and reset pass the intended state to the
   }), dependencies);
   assert.equal(resetResponse.status, 200);
   assert.deepEqual(saveCalls[1].slice(0, 4), [3, [1, 2, 3, 4, 5], [], []]);
+
+  const invalidOverrideResponse = await handleCandidatePost(new NextRequest("http://example.test/api/admin/x-growth/video-candidates", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "override", expectedRevision: 4, selectedWorkIds: ["6"] }),
+  }), dependencies);
+  assert.equal(invalidOverrideResponse.status, 400);
+
+  const ineligibleOverrideResponse = await handleCandidatePost(new NextRequest("http://example.test/api/admin/x-growth/video-candidates", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "override", expectedRevision: 4, selectedWorkIds: [99] }),
+  }), dependencies);
+  assert.equal(ineligibleOverrideResponse.status, 409);
+  assert.equal(saveCalls.length, 2);
 });
 
 test("candidate migration restricts table and RPC access to service_role", () => {
