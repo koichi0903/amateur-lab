@@ -16,15 +16,15 @@ import {
 } from "@/lib/dmm/fanzaAmateurCatalogBrowseRules";
 import { requiresFullFanzaAmateurBrowseScan, sortStandardFanzaAmateurBrowseItems } from "@/lib/dmm/fanzaAmateurBrowseProjection";
 import { mergeCatalogDetailPriceHistory, mergeStoredCatalogMedia } from "@/lib/dmm/fanzaAmateurCatalogDetailProjection";
+import { indexFanzaAmateurPriceHistory, projectFanzaAmateurPriceChart } from "@/lib/dmm/fanzaAmateurPriceChartProjection";
+import { buildFanzaAmateurSamplePlayerUrl } from "@/lib/dmm/fanzaAmateurSamplePlayer";
 import {
   asText,
   isRecord,
   normalizeFanzaAmateurCatalogItem as normalizeCatalogItem,
-  priceNumber,
   type FanzaAmateurCatalogItem,
 } from "@/lib/dmm/fanzaAmateurCatalogNormalize";
 import { buildFanzaAmateurRelatedWorkFilters, rankFanzaAmateurRelatedWorks } from "@/lib/dmm/fanzaAmateurRelatedWorks";
-import { HAKKUTSU_SITE_DMM_AFFILIATE_ID } from "@/lib/dmm/siteAffiliateUrl";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { expandFanzaAmateurPriceSnapshotRows, type FanzaAmateurPriceHistoryRow, type FanzaAmateurPriceSnapshotRow } from "@/lib/dmm/fanzaAmateurPriceHistory";
 
@@ -155,22 +155,7 @@ export function normalizeFanzaAmateurCatalogItem(value: unknown): FanzaAmateurCa
 }
 
 export function getFanzaAmateurSamplePlayerUrl(item: FanzaAmateurCatalogItem) {
-  const sampleUrl = item.sampleMovieURL?.size_476_306
-    || item.sampleMovieURL?.size_560_360
-    || item.sampleMovieURL?.size_644_414
-    || item.sampleMovieURL?.size_720_480;
-  if (!sampleUrl) return null;
-
-  try {
-    const url = new URL(sampleUrl);
-    if (url.protocol !== "https:" || url.hostname !== "www.dmm.co.jp" || !url.pathname.startsWith("/litevideo/")) return null;
-    const cid = url.pathname.match(/(?:^|\/)cid=([^/]+)/)?.[1] ?? item.content_id;
-    const player = new URL(`https://www.dmm.co.jp/service/digitalapi/-/html5_player/=/cid=${encodeURIComponent(cid)}/mtype=AhRVShI_/service=litevideo/mode=part/width=260/height=167/`);
-    player.pathname += `affi_id=${encodeURIComponent(HAKKUTSU_SITE_DMM_AFFILIATE_ID)}/`;
-    return player.href;
-  } catch {
-    return null;
-  }
+  return buildFanzaAmateurSamplePlayerUrl(item.sampleMovieURL, item.content_id);
 }
 
 export type FanzaAmateurPriceHistoryEntry = {
@@ -352,28 +337,9 @@ export async function getFanzaAmateurActressWorks({ name, page = 1, pageSize = 6
     : { data: [], error: null };
   if (historyResult.error) throw new Error(`素人出演作品の価格履歴を読み込めませんでした: ${historyResult.error.message}`);
 
-  const historyByContentId = new Map<string, Array<{ price: number; changedAt: string; priceKind: "regular" | "sale" | null }>>();
-  for (const row of historyResult.data ?? []) {
-    const price = priceNumber(row.price);
-    if (price == null) continue;
-    const history = historyByContentId.get(row.content_id) ?? [];
-    history.push({ price, changedAt: row.observed_at, priceKind: null });
-    historyByContentId.set(row.content_id, history);
-  }
-  const cards: FanzaAmateurHomeCard[] = items.map(({ item }) => {
-    const history = [...(historyByContentId.get(item.content_id) ?? [])].sort((a, b) => a.changedAt.localeCompare(b.changedAt));
-    const priceHistory = item.currentPrice == null ? history : [
-      ...history,
-      { price: item.currentPrice, changedAt: priceWindowEndAt, priceKind: null, isCurrent: true },
-    ];
-    return {
-      item,
-      priceHistory,
-      priceWindowStartAt,
-      priceWindowEndAt,
-      lowestObservedPrice: priceHistory.length ? Math.min(...priceHistory.map((point) => point.price)) : null,
-    };
-  });
+  const historyByContentId = indexFanzaAmateurPriceHistory(historyResult.data ?? []);
+  const cards: FanzaAmateurHomeCard[] = items.map(({ item }) =>
+    projectFanzaAmateurPriceChart(item, historyByContentId, priceWindowStartAt, priceWindowEndAt));
   return { cards, totalCount, totalPages: Math.ceil(totalCount / safePageSize), page: safePage };
 }
 
@@ -512,36 +478,12 @@ async function loadFanzaAmateurHomeSections() {
 
   const histories = await loadAmateurSummaryPriceHistory(contentIds, windowStartAt);
 
-  const historyByContentId = new Map<string, Array<{ price: number; changedAt: string; priceKind: "regular" | "sale" | null }>>();
-  for (const row of histories) {
-    const price = priceNumber(row.price);
-    if (price == null) continue;
-    const history = historyByContentId.get(row.content_id) ?? [];
-    history.push({ price, changedAt: row.observed_at, priceKind: null });
-    historyByContentId.set(row.content_id, history);
-  }
-
-  const addChart = ({ item, rank }: { item: FanzaAmateurCatalogItem; rank?: number }): FanzaAmateurHomeCard => {
-    const history = [...(historyByContentId.get(item.content_id) ?? [])].sort((a, b) => a.changedAt.localeCompare(b.changedAt));
-    const currentPrice = item.currentPrice;
-    const priceHistory = currentPrice == null ? history : [
-      ...history,
-      { price: currentPrice, changedAt: windowEndAt, priceKind: null, isCurrent: true },
-    ];
-    return {
-      item,
-      rank,
-      priceHistory,
-      priceWindowStartAt: windowStartAt,
-      priceWindowEndAt: windowEndAt,
-      lowestObservedPrice: priceHistory.length ? Math.min(...priceHistory.map((point) => point.price)) : null,
-    };
-  };
+  const historyByContentId = indexFanzaAmateurPriceHistory(histories);
 
   return {
-    popular: popular.map(addChart),
-    campaign: campaign.map(addChart),
-    latest: latestCards.map(addChart),
+    popular: popular.map(({ item, rank }) => projectFanzaAmateurPriceChart(item, historyByContentId, windowStartAt, windowEndAt, rank)),
+    campaign: campaign.map(({ item }) => projectFanzaAmateurPriceChart(item, historyByContentId, windowStartAt, windowEndAt)),
+    latest: latestCards.map(({ item }) => projectFanzaAmateurPriceChart(item, historyByContentId, windowStartAt, windowEndAt)),
     totalCount: catalogCount.count ?? 0,
   };
 }
@@ -809,32 +751,11 @@ async function loadFanzaAmateurBrowsePage(filters: FanzaAmateurBrowseFilter) {
   const priceWindowStartAt = new Date(now - 90 * 24 * 60 * 60 * 1000).toISOString();
   const contentIds = selection.items.map((item) => item.content_id);
   const historyResult = await loadAmateurSummaryPriceHistory(contentIds, priceWindowStartAt);
-  const historyByContentId = new Map<string, Array<{ price: number; changedAt: string; priceKind: "regular" | "sale" | null }>>();
-
-  for (const row of historyResult) {
-    const price = priceNumber(row.price);
-    if (price == null) continue;
-    const history = historyByContentId.get(row.content_id) ?? [];
-    history.push({ price, changedAt: row.observed_at, priceKind: null });
-    historyByContentId.set(row.content_id, history);
-  }
+  const historyByContentId = indexFanzaAmateurPriceHistory(historyResult);
 
   const enrichedItems = await addConfirmedPerformersToAmateurItems(selection.items);
-  const cards: FanzaAmateurHomeCard[] = enrichedItems.map((item) => {
-    const history = [...(historyByContentId.get(item.content_id) ?? [])].sort((a, b) => a.changedAt.localeCompare(b.changedAt));
-    const priceHistory = item.currentPrice == null ? history : [
-      ...history,
-      { price: item.currentPrice, changedAt: priceWindowEndAt, priceKind: null, isCurrent: true },
-    ];
-    return {
-      item,
-      rank: selection.rankByContentId.get(item.content_id),
-      priceHistory,
-      priceWindowStartAt,
-      priceWindowEndAt,
-      lowestObservedPrice: priceHistory.length ? Math.min(...priceHistory.map((point) => point.price)) : null,
-    };
-  });
+  const cards: FanzaAmateurHomeCard[] = enrichedItems.map((item) =>
+    projectFanzaAmateurPriceChart(item, historyByContentId, priceWindowStartAt, priceWindowEndAt, selection.rankByContentId.get(item.content_id)));
   return {
     items: selection.items,
     cards,
