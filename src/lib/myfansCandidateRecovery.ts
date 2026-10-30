@@ -34,17 +34,47 @@ type MyfansRecoveryHistoryEntry = {
 };
 
 export function classifyMyfansHoldReason(quality: ReturnType<typeof qualityScoreFor>) {
-  if (quality.reasons.some((reason) => /LOW_TOPIC_VALUE/.test(reason))) return "LOW_TOPIC_VALUE";
-  if (quality.reasons.some((reason) => /concrete visual|具体visual|抽象リアクション/.test(reason))) return "visual cue不足";
-  if (quality.reasons.some((reason) => /First-line|curiosity|85未満/.test(reason)) && quality.breakdown.firstLineStop < 25) return "hook弱い";
-  if (!quality.reasons.some((reason) => /DISCOVERY|AUTHORITY|REVENUE/.test(reason)) && quality.breakdown.specificity < 20) return "specificity弱い";
+  return topicOrVisualHoldReason(quality)
+    ?? hookOrSpecificityHoldReason(quality)
+    ?? scoreHoldReason(quality)
+    ?? patternHoldReason(quality)
+    ?? discoveryHoldReason(quality)
+    ?? quality.reasons[0]
+    ?? "Quality Gate未達";
+}
+
+function hasHoldReason(quality: ReturnType<typeof qualityScoreFor>, pattern: RegExp) {
+  return quality.reasons.some((reason) => pattern.test(reason));
+}
+
+function topicOrVisualHoldReason(quality: ReturnType<typeof qualityScoreFor>) {
+  if (hasHoldReason(quality, /LOW_TOPIC_VALUE/)) return "LOW_TOPIC_VALUE";
+  if (hasHoldReason(quality, /concrete visual|具体visual|抽象リアクション/)) return "visual cue不足";
+  return null;
+}
+
+function hookOrSpecificityHoldReason(quality: ReturnType<typeof qualityScoreFor>) {
+  if (hasHoldReason(quality, /First-line|curiosity|85未満/) && quality.breakdown.firstLineStop < 25) return "hook弱い";
+  if (!hasHoldReason(quality, /DISCOVERY|AUTHORITY|REVENUE/) && quality.breakdown.specificity < 20) return "specificity弱い";
+  return null;
+}
+
+function scoreHoldReason(quality: ReturnType<typeof qualityScoreFor>) {
   if (quality.breakdown.visual < 12) return "visual弱い";
   if (quality.breakdown.audience < 15) return "audience不明";
-  if (quality.reasons.some((reason) => /同じ|テンプレ|語尾|構文/.test(reason))) return "sameness高い";
-  if (quality.verdict === "HOLD" && quality.reasons.some((reason) => /公開可能/.test(reason))) return "sameness高い";
-  if (quality.reasons.some((reason) => /discovery差なし/.test(reason))) return "discovery差なし";
-  if (quality.reasons.some((reason) => /Revenue|mfco/.test(reason))) return "profile CTA弱い";
-  return quality.reasons[0] ?? "Quality Gate未達";
+  return null;
+}
+
+function patternHoldReason(quality: ReturnType<typeof qualityScoreFor>) {
+  if (hasHoldReason(quality, /同じ|テンプレ|語尾|構文/)) return "sameness高い";
+  if (quality.verdict === "HOLD" && hasHoldReason(quality, /公開可能/)) return "sameness高い";
+  return null;
+}
+
+function discoveryHoldReason(quality: ReturnType<typeof qualityScoreFor>) {
+  if (hasHoldReason(quality, /discovery差なし/)) return "discovery差なし";
+  if (hasHoldReason(quality, /Revenue|mfco/)) return "profile CTA弱い";
+  return null;
 }
 
 function describeMyfansRecoveryAction(reason: string, postType: string, nextPostType: string, nextAttempt: number) {
