@@ -401,12 +401,10 @@ type QualityCopyScoreContext = {
 };
 
 function qualityReactionScoresFor(input: MyfansPublicCopyQualityInput, context: QualityCopyScoreContext) {
-  const { isQuote, firstLine, understanding, reactionWords } = context;
-  const observationFirstLine = isQuote && understanding.humanObservation && firstLine.includes(understanding.humanObservation);
-  const readerCuriosity = firstLine.length >= 10 && firstLine.length <= 46 && /[。？?]$/.test(firstLine) && !/です。$|ます。$/.test(firstLine) && (reactionWords.test(firstLine) || observationFirstLine) ? 30 : firstLine.length >= 10 ? 18 : 8;
-  const naturalness = machineLikeCopyIssue(input.body) ? 4 : reactionWords.test(input.body) ? 20 : 10;
-  const curiosity = /気になる|見たくなる|開いて|戻りたく|先を|続き/.test(input.body) ? 15 : reactionWords.test(input.body) ? 11 : 5;
-  const originality = /(そりゃ|ずるい|普通に|一回|残る|持っていかれる|盛らなくても|知らなくても)/.test(input.body) ? 10 : 6;
+  const readerCuriosity = readerCuriosityScoreFor(context);
+  const naturalness = naturalnessScoreFor(input.body, context.reactionWords);
+  const curiosity = curiosityScoreFor(input.body, context.reactionWords);
+  const originality = originalityScoreFor(input.body);
   return {
     readerCuriosity,
     naturalness,
@@ -417,6 +415,29 @@ function qualityReactionScoresFor(input: MyfansPublicCopyQualityInput, context: 
     curiosityV8: Math.min(10, Math.round(curiosity * 0.67)),
     originalityV8: Math.min(5, Math.round(originality * 0.5)),
   };
+}
+
+function readerCuriosityScoreFor(context: QualityCopyScoreContext) {
+  const { isQuote, firstLine, understanding, reactionWords } = context;
+  const observationFirstLine = isQuote && understanding.humanObservation && firstLine.includes(understanding.humanObservation);
+  const hasCuriosityEnding = /[。？?]$/.test(firstLine) && !/です。$|ます。$/.test(firstLine);
+  const hasCuriosityCue = reactionWords.test(firstLine) || observationFirstLine;
+  if (firstLine.length >= 10 && firstLine.length <= 46 && hasCuriosityEnding && hasCuriosityCue) return 30;
+  return firstLine.length >= 10 ? 18 : 8;
+}
+
+function naturalnessScoreFor(body: string, reactionWords: RegExp) {
+  if (machineLikeCopyIssue(body)) return 4;
+  return reactionWords.test(body) ? 20 : 10;
+}
+
+function curiosityScoreFor(body: string, reactionWords: RegExp) {
+  if (/気になる|見たくなる|開いて|戻りたく|先を|続き/.test(body)) return 15;
+  return reactionWords.test(body) ? 11 : 5;
+}
+
+function originalityScoreFor(body: string) {
+  return /(そりゃ|ずるい|普通に|一回|残る|持っていかれる|盛らなくても|知らなくても)/.test(body) ? 10 : 6;
 }
 
 function qualityVisualScoresFor(input: MyfansPublicCopyQualityInput, context: QualityCopyScoreContext) {
