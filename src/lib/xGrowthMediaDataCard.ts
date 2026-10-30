@@ -57,14 +57,38 @@ function formatSaleEnd(saleEndAt: number | null, now: number) {
     : null;
 }
 
+function isCurrentSale(work: XGrowthMediaDataCardWork, saleEndAt: number | null, now: number) {
+  return Boolean(work.is_on_sale && work.sale_price && work.sale_price > 0 && (!work.sale_end_at || (saleEndAt != null && saleEndAt > now)));
+}
+
+function currentDataCardPrice(work: XGrowthMediaDataCardWork, saleIsCurrent: boolean) {
+  return saleIsCurrent ? work.sale_price : work.price;
+}
+
+function regularDataCardPrice(work: XGrowthMediaDataCardWork, currentPrice: number | null) {
+  return work.list_price && currentPrice && work.list_price > currentPrice ? work.list_price : null;
+}
+
+function dataCardDiscountRate(regularPrice: number | null, currentPrice: number | null) {
+  return regularPrice && currentPrice ? Math.round((1 - currentPrice / regularPrice) * 100) : null;
+}
+
+function recordedDataCardLow(work: XGrowthMediaDataCardWork) {
+  return work.lowest_price && work.lowest_price > 0 ? work.lowest_price : null;
+}
+
+function isDataCardAtRecordedLow(work: XGrowthMediaDataCardWork, recordedLow: number | null, currentPrice: number | null) {
+  return Boolean(work.is_bottom_price && recordedLow && currentPrice === recordedLow);
+}
+
 function getDataCardPriceState(work: XGrowthMediaDataCardWork, now: number): DataCardPriceState {
   const saleEndAt = parseDatabaseDate(work.sale_end_at)?.getTime() ?? null;
-  const saleIsCurrent = Boolean(work.is_on_sale && work.sale_price && work.sale_price > 0 && (!work.sale_end_at || (saleEndAt != null && saleEndAt > now)));
-  const currentPrice = saleIsCurrent ? work.sale_price : work.price;
-  const regularPrice = work.list_price && currentPrice && work.list_price > currentPrice ? work.list_price : null;
-  const discountRate = regularPrice && currentPrice ? Math.round((1 - currentPrice / regularPrice) * 100) : null;
-  const recordedLow = work.lowest_price && work.lowest_price > 0 ? work.lowest_price : null;
-  const isRecordedLow = Boolean(work.is_bottom_price && recordedLow && currentPrice === recordedLow);
+  const saleIsCurrent = isCurrentSale(work, saleEndAt, now);
+  const currentPrice = currentDataCardPrice(work, saleIsCurrent);
+  const regularPrice = regularDataCardPrice(work, currentPrice);
+  const discountRate = dataCardDiscountRate(regularPrice, currentPrice);
+  const recordedLow = recordedDataCardLow(work);
+  const isRecordedLow = isDataCardAtRecordedLow(work, recordedLow, currentPrice);
   const saleEnd = work.sale_end_at ? formatSaleEnd(saleEndAt, now) : null;
   return { saleIsCurrent, currentPrice, regularPrice, discountRate, recordedLow, isRecordedLow, saleEnd };
 }
