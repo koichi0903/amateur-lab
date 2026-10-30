@@ -49,3 +49,24 @@ test("does not show expired sale timing and falls back to the first two availabl
   assert.equal(view.saleEnd, null);
   assert.deepEqual(view.purchaseReasons, ["レビュー根拠あり", "購入前にサンプル可"]);
 });
+
+test("derives a discount from the regular price when the API discount rate is absent", () => {
+  const view = buildDealWorkCardPresentation({
+    ...baseWork,
+    is_on_sale: false,
+    sale_price: 600,
+    list_price: 1000,
+    discount_rate: 0,
+    sale_end_at: null,
+    is_lowest_price: false,
+    review_average: 0,
+    review_count: 0,
+    sample_movie_url: null,
+  });
+
+  assert.equal(view.isSale, true);
+  assert.equal(view.currentPrice, 600);
+  assert.equal(view.regularPrice, 1000);
+  assert.equal(view.discountRate, 40);
+  assert.deepEqual(view.purchaseReasons, []);
+});
