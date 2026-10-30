@@ -1,5 +1,5 @@
 import { isMyfansDailyOptionDiverseEnough } from "./myfansCandidateDiversity";
-import { fallbackMyfansPostTypes } from "./myfansCandidateBuilder";
+import { fallbackMyfansPostTypes } from "./myfansAttemptRequest";
 import { roleFor } from "@/lib/myfansCopyHelpers";
 import { myfansOptionMetadata } from "@/lib/myfansOptionMetadata";
 import type { MyfansReasonToCare } from "@/lib/myfansQuotePool";

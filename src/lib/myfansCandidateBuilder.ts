@@ -4,16 +4,19 @@ import type { MyfansAnalytics, MyfansProduct, MyfansQuoteCandidate } from "@/lib
 import { isUsableQuoteMedia, normalizeSourceUrl, quoteOpportunityBody, topicIdentityFor, topicSemanticKeyFor } from "@/lib/myfansQuotePool";
 import type { buildMyfansQuotePool } from "@/lib/myfansQuotePool";
 import type { buildMyfansCandidatePoolContext } from "@/lib/myfansCandidatePool";
-import { isRevenueTargetProduct, resolveMyfansCandidateProduct } from "./myfansCandidateResolution";
+import { resolveMyfansCandidateProduct } from "./myfansCandidateResolution";
 import { attentionScoreFor, bodyFor, hookIntelligence, sourceSpecificityScore } from "@/lib/myfansCandidateCopy";
 import { topicThresholdFor } from "@/lib/myfansTopicValue";
-import type { DailyRole, buildTopicBaselines } from "@/lib/myfansTopicValue";
+import type { buildTopicBaselines } from "@/lib/myfansTopicValue";
 import { publicCopyFactsFor, publicCopyInputHash } from "@/lib/myfansPublicCopyFacts";
 import { roleFor } from "@/lib/myfansCopyHelpers";
 import { copySearchAngleFor, reactionTypeFor, roleFitsReasonToCare, visualUnderstandingFor } from "@/lib/myfansCreativeEvidence";
 import type { MyfansCreativeStrategy, MyfansGrowthStage, MyfansLinkStrategy, RotationItem } from "./myfansGrowthStrategy";
 import { evaluateMyfansCandidateTopicValue, qualityForMyfansCandidate } from "./myfansCandidateEvaluation";
 import { buildMyfansCandidateRecord } from "./myfansCandidateRecord";
+import { resolveMyfansAttemptRequest, resolveMyfansPostingRoute } from "./myfansAttemptRequest";
+
+export { fallbackMyfansPostTypes } from "./myfansAttemptRequest";
 
 
 
@@ -42,41 +45,6 @@ export type MyfansCandidateBuildContext = {
   stage: MyfansGrowthStage;
   topicBaselines: ReturnType<typeof buildTopicBaselines>;
 };
-
-export function fallbackMyfansPostTypes(postType: string) {
-  if (postType === "profile_cta") return ["profile_cta", "ranking_note", "comparison_review", "discovery_interest"];
-  if (postType === "ranking_note") return ["ranking_note", "profile_cta", "comparison_review", "discovery_interest"];
-  if (postType === "discovery_interest") return ["discovery_interest", "ranking_note", "profile_cta", "comparison_review"];
-  if (postType === "reply_link_sales" || postType === "body_link_sales") return [postType, "profile_cta", "ranking_note", "comparison_review", "discovery_interest"];
-  return [postType, "ranking_note", "profile_cta", "comparison_review", "discovery_interest"];
-}
-
-function resolveMyfansAttemptRequest(
-  context: MyfansCandidateBuildContext,
-  item: RotationItem,
-  index: number,
-  attempt: number,
-  forcedQuote: MyfansQuoteCandidate | null,
-) {
-  const fallbackPostTypes = fallbackMyfansPostTypes(item.postType);
-  const requestedPostType = fallbackPostTypes[attempt % fallbackPostTypes.length];
-  const requestedRole: DailyRole = requestedPostType === "reply_link_sales" || requestedPostType === "body_link_sales"
-    ? "REVENUE"
-    : roleFor(requestedPostType, "no_link", "text_only");
-  const requestedLinkStrategy: MyfansLinkStrategy = requestedRole === "REVENUE"
-    ? item.linkStrategy
-    : requestedRole === "AUTHORITY"
-      ? "profile_cta"
-      : "no_link";
-  const needsAffiliateUrl = requestedLinkStrategy === "body_link" || requestedLinkStrategy === "reply_link";
-  const directGrowthQuote = !needsAffiliateUrl && requestedPostType === "discovery_interest"
-    ? forcedQuote ??
-      (attempt === 0 ? context.resolverExactQuotes[index % Math.max(1, context.resolverExactQuotes.length)] : null) ??
-      (attempt === 0 ? context.quoteBySlot.get(`${requestedPostType}:${index}`) : null) ??
-      context.growthQuotePool[(index + attempt) % Math.max(1, context.growthQuotePool.length)]?.candidate ?? null
-    : null;
-  return { requestedPostType, requestedLinkStrategy, needsAffiliateUrl, directGrowthQuote };
-}
 
 function selectMyfansAttemptProduct(
   context: MyfansCandidateBuildContext,
@@ -113,33 +81,6 @@ function selectMyfansAttemptProduct(
     product: scored?.product ?? null,
     quoteProductMatched: Boolean(directGrowthQuote && linkedQuoteProduct),
   };
-}
-
-function resolveMyfansPostingRoute(input: {
-  item: RotationItem;
-  product: MyfansProduct | null;
-  needsAffiliateUrl: boolean;
-  requestedPostType: string;
-  requestedLinkStrategy: MyfansLinkStrategy;
-}) {
-  const { item, product, needsAffiliateUrl, requestedPostType, requestedLinkStrategy } = input;
-  const hasRevenueTarget = Boolean(product && isRevenueTargetProduct(product));
-  const linkStrategy = needsAffiliateUrl && !hasRevenueTarget
-    ? "no_link"
-    : requestedLinkStrategy;
-  const objective = needsAffiliateUrl && !hasRevenueTarget
-    ? "impression"
-    : item.objective;
-  const postType = needsAffiliateUrl && !hasRevenueTarget
-    ? "discovery_interest"
-    : requestedPostType;
-  const cta = needsAffiliateUrl && !hasRevenueTarget
-    ? "保存用の発見メモ"
-    : item.cta;
-  const role = needsAffiliateUrl && !hasRevenueTarget
-    ? `${item.role} / myfans送客先不足のためリンクなし運用`
-    : requestedPostType !== item.postType ? `${item.role} / ${item.postType}から${requestedPostType}へRecovery` : item.role;
-  return { hasRevenueTarget, linkStrategy, objective, postType, cta, role };
 }
 
 type MyfansCandidateCopyInput = {
