@@ -34,6 +34,42 @@ export type MyfansCreatorSavePlan =
       activityNote: string;
     };
 
+type CreatorSavePlanInput = {
+  record: MyfansCreatorSaveRecord;
+  existing: ExistingMyfansCreatorIdentity;
+  existingXUrl: string;
+  creatorXUrl: string;
+  sourceXHandle: string;
+};
+
+function hasConflictingXUrl(existingXUrl: string, creatorXUrl: string) {
+  return Boolean(creatorXUrl && existingXUrl && creatorXUrl.toLowerCase() !== existingXUrl.toLowerCase());
+}
+
+function creatorXUrlConflictPlan(input: CreatorSavePlanInput): Extract<MyfansCreatorSavePlan, { kind: "x_url_conflict" }> {
+  const { record, existing, existingXUrl, creatorXUrl } = input;
+  return {
+    kind: "x_url_conflict",
+    creatorId: existing.id,
+    source: record.x_url_source || "chrome_companion",
+    existingXUrl,
+    incomingXUrl: creatorXUrl,
+    displayName: record.display_name,
+    genre: record.genre ?? "",
+    activityNote: `${record.activity_note ?? ""} X URL不一致のため既存URLを維持。`,
+  };
+}
+
+function creatorUpdateRecord(input: CreatorSavePlanInput, normalized: Record<string, unknown>) {
+  const { existing, existingXUrl, creatorXUrl, sourceXHandle } = input;
+  return Object.fromEntries(Object.entries({
+    ...normalized,
+    creator_x_url: existingXUrl || creatorXUrl || undefined,
+    source_x_handle: existing.source_x_handle || sourceXHandle || undefined,
+    x_url_source: existingXUrl ? undefined : normalized.x_url_source,
+  }).filter(([, value]) => value !== undefined));
+}
+
 export function buildMyfansCreatorSavePlan(input: {
   record: MyfansCreatorSaveRecord;
   existing: ExistingMyfansCreatorIdentity | null;
@@ -47,29 +83,13 @@ export function buildMyfansCreatorSavePlan(input: {
   if (!existing?.id) {
     return { kind: "insert", record: normalized };
   }
-  if (creatorXUrl && existingXUrl && creatorXUrl.toLowerCase() !== existingXUrl.toLowerCase()) {
-    return {
-      kind: "x_url_conflict",
-      creatorId: existing.id,
-      source: record.x_url_source || "chrome_companion",
-      existingXUrl,
-      incomingXUrl: creatorXUrl,
-      displayName: record.display_name,
-      genre: record.genre ?? "",
-      activityNote: `${record.activity_note ?? ""} X URL不一致のため既存URLを維持。`,
-    };
-  }
+  const existingPlanInput = { record, existing, existingXUrl, creatorXUrl, sourceXHandle };
+  if (hasConflictingXUrl(existingXUrl, creatorXUrl)) return creatorXUrlConflictPlan(existingPlanInput);
 
-  const updateRecord = Object.fromEntries(Object.entries({
-    ...normalized,
-    creator_x_url: existingXUrl || creatorXUrl || undefined,
-    source_x_handle: existing.source_x_handle || sourceXHandle || undefined,
-    x_url_source: existingXUrl ? undefined : normalized.x_url_source,
-  }).filter(([, value]) => value !== undefined));
   return {
     kind: "update",
     creatorId: existing.id,
-    record: updateRecord,
+    record: creatorUpdateRecord(existingPlanInput, normalized),
     syncProductsCreatorXUrl: !existingXUrl && creatorXUrl ? creatorXUrl : null,
   };
 }

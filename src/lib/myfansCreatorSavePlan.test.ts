@@ -73,3 +73,20 @@ test("existing identity is preserved, while a newly added X profile is propagate
     assert.equal(addNew.syncProductsCreatorXUrl, "https://x.com/incoming");
   }
 });
+
+test("X profile comparison remains case-insensitive and preserves the stored value", () => {
+  const plan = buildMyfansCreatorSavePlan({
+    record,
+    existing: { id: 11, creator_x_url: "https://x.com/Stored", source_x_handle: "@stored" },
+    existingXUrl: "https://x.com/Stored",
+    creatorXUrl: "https://x.com/stored",
+    sourceXHandle: "@incoming",
+  });
+
+  assert.equal(plan.kind, "update");
+  if (plan.kind === "update") {
+    assert.equal(plan.record.creator_x_url, "https://x.com/Stored");
+    assert.equal(plan.record.source_x_handle, "@stored");
+    assert.equal(plan.syncProductsCreatorXUrl, null);
+  }
+});
