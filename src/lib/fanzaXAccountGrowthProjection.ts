@@ -55,6 +55,55 @@ export function diagnoseFanzaXGrowth(impressions: number, clicks: number, sales:
   return "露出不足";
 }
 
+function projectFollowerMetrics(metrics: FanzaXAccountMetric[]) {
+  const firstMetric = metrics[0] ?? null;
+  const latestMetric = metrics[metrics.length - 1] ?? null;
+  const followersDelta30d = latestMetric && firstMetric
+    ? latestMetric.followers_count - firstMetric.followers_count
+    : 0;
+
+  return {
+    currentFollowers: latestMetric?.followers_count ?? 0,
+    followersDelta30d,
+    newFollows30d: latestMetric && firstMetric ? Math.max(0, followersDelta30d) : 0,
+  };
+}
+
+function projectGrowthRates({
+  impressions30d,
+  posts30d,
+  fanzaClicks30d,
+  salesCount30d,
+  commission30d,
+}: {
+  impressions30d: number;
+  posts30d: number;
+  fanzaClicks30d: number;
+  salesCount30d: number;
+  commission30d: number;
+}) {
+  return {
+    avgImpressionsPerPost: posts30d > 0 ? Math.round(impressions30d / posts30d) : null,
+    ctr30d: impressions30d > 0 ? fanzaClicks30d / impressions30d : null,
+    cvr30d: fanzaClicks30d > 0 ? salesCount30d / fanzaClicks30d : null,
+    epc30d: fanzaClicks30d > 0 ? Math.round(commission30d / fanzaClicks30d) : null,
+  };
+}
+
+function projectWeeklyMetrics(metrics: FanzaXAccountMetric[]) {
+  return metrics.map((row) => ({
+    metric_date: row.metric_date,
+    followers_count: row.followers_count,
+    posts_count: row.posts_count,
+    impressions: row.total_impressions,
+    profile_visits: row.profile_visits,
+    fanza_clicks: row.fanza_clicks,
+    sales_count: row.sales_count,
+    commission_amount: row.commission_amount,
+    epc: row.fanza_clicks > 0 ? Math.round(row.commission_amount / row.fanza_clicks) : null,
+  }));
+}
+
 export function projectFanzaXGrowth(input: {
   metrics: FanzaXAccountMetric[];
   xPostsCount: number;
@@ -63,8 +112,6 @@ export function projectFanzaXGrowth(input: {
   salesRows: FanzaXGrowthSalesRow[];
 }): FanzaXGrowth {
   const { metrics, xPostsCount, xPageViewsCount, xClicksCount, salesRows } = input;
-  const firstMetric = metrics[0] ?? null;
-  const latestMetric = metrics[metrics.length - 1] ?? null;
   const impressions30d = metrics.reduce((sum, row) => sum + row.total_impressions, 0);
   const metricPosts = metrics.reduce((sum, row) => sum + row.posts_count, 0);
   const metricClicks = metrics.reduce((sum, row) => sum + row.fanza_clicks, 0);
@@ -76,34 +123,27 @@ export function projectFanzaXGrowth(input: {
   const fanzaClicks30d = Math.max(xClicksCount, metricClicks);
   const salesCount30d = Math.max(importedSales, metricSales);
   const commission30d = Math.max(importedCommission, metricCommission);
+  const followerMetrics = projectFollowerMetrics(metrics);
+  const growthRates = projectGrowthRates({
+    impressions30d,
+    posts30d,
+    fanzaClicks30d,
+    salesCount30d,
+    commission30d,
+  });
 
   return {
     error: null,
     diagnosis: diagnoseFanzaXGrowth(impressions30d, fanzaClicks30d, salesCount30d),
-    currentFollowers: latestMetric?.followers_count ?? 0,
-    followersDelta30d: latestMetric && firstMetric ? latestMetric.followers_count - firstMetric.followers_count : 0,
-    newFollows30d: latestMetric && firstMetric ? Math.max(0, latestMetric.followers_count - firstMetric.followers_count) : 0,
+    ...followerMetrics,
     profileVisits30d: metrics.reduce((sum, row) => sum + row.profile_visits, 0),
     impressions30d,
     posts30d,
-    avgImpressionsPerPost: posts30d > 0 ? Math.round(impressions30d / posts30d) : null,
+    ...growthRates,
     xPageViews30d: xPageViewsCount,
     fanzaClicks30d,
     salesCount30d,
     commission30d,
-    ctr30d: impressions30d > 0 ? fanzaClicks30d / impressions30d : null,
-    cvr30d: fanzaClicks30d > 0 ? salesCount30d / fanzaClicks30d : null,
-    epc30d: fanzaClicks30d > 0 ? Math.round(commission30d / fanzaClicks30d) : null,
-    weeklyRows: metrics.map((row) => ({
-      metric_date: row.metric_date,
-      followers_count: row.followers_count,
-      posts_count: row.posts_count,
-      impressions: row.total_impressions,
-      profile_visits: row.profile_visits,
-      fanza_clicks: row.fanza_clicks,
-      sales_count: row.sales_count,
-      commission_amount: row.commission_amount,
-      epc: row.fanza_clicks > 0 ? Math.round(row.commission_amount / row.fanza_clicks) : null,
-    })),
+    weeklyRows: projectWeeklyMetrics(metrics),
   };
 }
