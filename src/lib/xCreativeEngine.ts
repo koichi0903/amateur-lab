@@ -4,6 +4,7 @@ import { decisionFactProofLine } from "@/lib/domain/decisionFacts";
 import { stableChoiceIndex } from "./xCreativeDeterminism";
 import { humanProofLine } from "./xCreativeProof";
 import { concreteVisualPhrase, videoSpecificLines } from "./xCreativeVideoCopy";
+import { judgmentSourceLine } from "./xCreativeJudgment";
 import type {
   XCreativeInput,
   XCreativeMedia,
@@ -194,25 +195,6 @@ function decisionJudgmentLine(input: XCreativeInput) {
     case "HIGH_DISCOUNT_NOT_LOW": return "割引率だけで急がず、記録最安との差を見て決めたいです。";
     case "HIDDEN_VALUE": return "ランキングだけで決めず、評価と価格を見てから判断したいです。";
     case "RECORD_LOW": return "最安値の記録は確認できますが、合うかはサンプルまで見て決めたいです。";
-    default: return null;
-  }
-}
-
-function judgmentSourceLine(input: XCreativeInput) {
-  switch (input.sourceType) {
-    case "JUDGMENT":
-      if (input.reviewAverage && input.reviewAverage < 4.2) return "値引きより、評価の低さが先に引っかかります。";
-      if (!input.isNinetyDayLow && input.discountRate >= 30) return "値引きはありますが、価格優位だけで押すには少し弱いです。";
-      if ((input.xPageViews ?? 0) >= 5 && (input.xFanzaClicks ?? 0) === 0) return "反応はあってもクリックに進んでいないので、今日は売り込まない判断でいいです。";
-      return "買う理由より、見送る理由を先に置いた方が信頼を残せます。";
-    case "MARKET": return "一覧を流す前に、一回止まる理由だけ残せば十分です。";
-    case "COMPARISON": return "安さで並べても、最後は見たい空気がある方に寄ります。";
-    case "HIDDEN_GEM":
-      if (input.discountRate >= 30) return "セール目的じゃなくても、一度サンプルまで見てほしい。";
-      if (input.reviewAverage && input.reviewAverage >= 4.6) return "ランキングだけなら見落とすけど、評価まで見ると少し残ります。";
-      return "表紙より中身を先に見たい。";
-    case "ACTRESS_TREND": return primaryActress(input) ? "女優目当てなら、タイトルより中身を先に見たい。" : "タイトルより中身を先に見たい。";
-    case "PRICE_EVENT": return "半額だけでなく評価も高いので、気になっていたなら今日は見ていいと思います。";
     default: return null;
   }
 }
