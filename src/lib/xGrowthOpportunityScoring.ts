@@ -108,14 +108,30 @@ function buildFreshness(item: XPostCandidate, eventType: XOpportunityEvent) {
   };
 }
 
-function inferEvent(candidate: XPostCandidate): XOpportunityEvent {
-  if (candidate.decisionFacts?.decisionType === "RECORD_LOW" || candidate.decisionFacts?.decisionType === "HIGH_DISCOUNT_NOT_LOW") return "price_anomaly";
-  if (candidate.decisionFacts?.decisionType === "HIDDEN_VALUE") return "hidden_gem";
-  if (candidate.category === "today_buy" || candidate.category === "deal") return "price_anomaly";
-  if (candidate.category === "today_discovery" || candidate.category === "hidden_gem") return "hidden_gem";
-  if (candidate.category === "actress_best" || candidate.category === "maker_best") return "creator_trend";
-  if (candidate.category === "series_best") return "series_trend";
-  if (candidate.category === "genre_best") return "genre_trend";
+const DECISION_EVENT_BY_TYPE: Partial<Record<DecisionFacts["decisionType"], XOpportunityEvent>> = {
+  RECORD_LOW: "price_anomaly",
+  HIGH_DISCOUNT_NOT_LOW: "price_anomaly",
+  HIDDEN_VALUE: "hidden_gem",
+};
+const CATEGORY_EVENT_BY_CATEGORY: Partial<Record<XPostCandidate["category"], XOpportunityEvent>> = {
+  today_buy: "price_anomaly",
+  deal: "price_anomaly",
+  today_discovery: "hidden_gem",
+  hidden_gem: "hidden_gem",
+  actress_best: "creator_trend",
+  maker_best: "creator_trend",
+  series_best: "series_trend",
+  genre_best: "genre_trend",
+};
+
+type EventCandidate = Pick<XPostCandidate, "category" | "ranking" | "reviewAverage" | "reviewCount">
+  & { decisionFacts?: Pick<DecisionFacts, "decisionType"> | null };
+
+export function inferXGrowthEvent(candidate: EventCandidate): XOpportunityEvent {
+  const decisionEvent = candidate.decisionFacts ? DECISION_EVENT_BY_TYPE[candidate.decisionFacts.decisionType] : null;
+  if (decisionEvent) return decisionEvent;
+  const categoryEvent = CATEGORY_EVENT_BY_CATEGORY[candidate.category];
+  if (categoryEvent) return categoryEvent;
   if ((candidate.ranking ?? 999) <= 30) return "ranking_velocity";
   if ((candidate.reviewAverage ?? 0) >= 4.5 && candidate.reviewCount >= 10) return "review_anomaly";
   return "traffic_velocity";
@@ -177,12 +193,32 @@ function addVisualSupplyAngles(candidate: XPostCandidate, add: AddCreativeSupply
   if (candidate.sampleMovieUrl && candidate.imageUrl) add(candidate, "WORK", "visual-mismatch", "today_discovery");
 }
 
+function hasPriceEventEvidence(candidate: XPostCandidate) {
+  return candidate.discountRate >= 20 || candidate.isNinetyDayLow || Boolean(candidate.saleEndAt);
+}
+
+function hasReviewSignal(candidate: XPostCandidate) {
+  return (candidate.reviewAverage ?? 0) >= 4.4 || candidate.reviewCount >= 20;
+}
+
+function hasDiscoverySignal(candidate: XPostCandidate) {
+  return (candidate.discoveryScore ?? candidate.score) >= 60 || (candidate.reviewAverage ?? 0) >= 4.5;
+}
+
+function hasComparisonEvidence(candidate: XPostCandidate) {
+  return Boolean(candidate.genre) || candidate.discountRate >= 20;
+}
+
+function hasJudgmentEvidence(candidate: XPostCandidate) {
+  return candidate.discountRate >= 30 || Boolean(candidate.reviewAverage && candidate.reviewAverage < 4.3);
+}
+
 function addEvidenceSupplyAngles(candidate: XPostCandidate, add: AddCreativeSupplyAngle) {
-  if (candidate.discountRate >= 20 || candidate.isNinetyDayLow || candidate.saleEndAt) add(candidate, "PRICE_EVENT", "price-event", "today_buy");
-  if ((candidate.reviewAverage ?? 0) >= 4.4 || candidate.reviewCount >= 20) add(candidate, "JUDGMENT", "review-signal", "review_gap");
-  if ((candidate.discoveryScore ?? candidate.score) >= 60 || (candidate.reviewAverage ?? 0) >= 4.5) add(candidate, "HIDDEN_GEM", "hidden-gem", "discovery_gap");
-  if (candidate.genre || candidate.discountRate >= 20) add(candidate, "COMPARISON", "comparison", "comparison_pick");
-  if (candidate.discountRate >= 30 || (candidate.reviewAverage && candidate.reviewAverage < 4.3)) add(candidate, "JUDGMENT", "judgment", "judgment_pick");
+  if (hasPriceEventEvidence(candidate)) add(candidate, "PRICE_EVENT", "price-event", "today_buy");
+  if (hasReviewSignal(candidate)) add(candidate, "JUDGMENT", "review-signal", "review_gap");
+  if (hasDiscoverySignal(candidate)) add(candidate, "HIDDEN_GEM", "hidden-gem", "discovery_gap");
+  if (hasComparisonEvidence(candidate)) add(candidate, "COMPARISON", "comparison", "comparison_pick");
+  if (hasJudgmentEvidence(candidate)) add(candidate, "JUDGMENT", "judgment", "judgment_pick");
 }
 
 function addContextSupplyAngles(candidate: XPostCandidate, add: AddCreativeSupplyAngle) {
@@ -215,10 +251,23 @@ export function expandCreativeSupply(candidates: XPostCandidate[]): XPostCandida
   return [...expanded.values()];
 }
 
+function priceOpportunitySignal(candidate: XPostCandidate) {
+  if (candidate.decisionFacts?.decisionType === "RECORD_LOW" || candidate.isNinetyDayLow) return 24;
+  if (candidate.previousPrice) return 16;
+  if (candidate.discountRate >= 30) return 10;
+  return 0;
+}
+
+function reviewOpportunitySignal(candidate: XPostCandidate) {
+  if ((candidate.reviewAverage ?? 0) >= 4.5) return 16;
+  if ((candidate.reviewAverage ?? 0) >= 4) return 9;
+  return 0;
+}
+
 function baseOpportunityScoreSignals(candidate: XPostCandidate) {
   return {
-    priceSignal: candidate.decisionFacts?.decisionType === "RECORD_LOW" ? 24 : candidate.isNinetyDayLow ? 24 : candidate.previousPrice ? 16 : candidate.discountRate >= 30 ? 10 : 0,
-    reviewSignal: (candidate.reviewAverage ?? 0) >= 4.5 ? 16 : (candidate.reviewAverage ?? 0) >= 4 ? 9 : 0,
+    priceSignal: priceOpportunitySignal(candidate),
+    reviewSignal: reviewOpportunitySignal(candidate),
     rankSignal: candidate.ranking ? Math.max(0, 26 - Math.min(candidate.ranking, 100) / 4) : 4,
     trafficSignal: Math.min(candidate.xPageViews * 2 + candidate.xFanzaClicks * 10, 28),
     discoverySignal: Math.max(candidate.discoveryScore ?? 0, candidate.buyTimingScore ?? 0, candidate.score) / 4,
@@ -281,7 +330,7 @@ function creativeGenomeFor(candidate: XPostCandidate, eventType: XOpportunityEve
 }
 
 export function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity {
-  const eventType = inferEvent(candidate);
+  const eventType = inferXGrowthEvent(candidate);
   const hasVideo = candidate.creativeKind !== "comparison";
   const scores = opportunityScores(candidate, eventType, baseOpportunityScoreSignals(candidate));
   const intent = intentFor(eventType, scores.revenueScore, scores.reachScore);
