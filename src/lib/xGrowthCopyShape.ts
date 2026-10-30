@@ -12,6 +12,27 @@ const SUBJECT_STRUCTURE_KEYWORD_RULES = [
   { terms: ["価格", "安い", "OFF"], category: "price_first" },
 ] as const;
 
+const JUDGMENT_DIRECTION_SHAPES: Partial<Record<XCreativeVariant["hookDirection"], string>> = {
+  follow_up: "conversation_open",
+  question: "conversation_open",
+  comparison: "compare_then_choose",
+  contrast: "compare_then_choose",
+  hot_take: "reject_obvious",
+  anti_obvious: "reject_obvious",
+  missed: "reconsider",
+  confession: "reconsider",
+  social_proof: "trust_signal",
+  surprise: "notice_change",
+  pattern_break: "notice_change",
+};
+
+const JUDGMENT_TEXT_RULES = [
+  { pattern: /見送|急がなくて|即決/, shape: "defer" },
+  { pattern: /見ておきたい|見たい|戻りそう/, shape: "watch_next" },
+  { pattern: /止める|残る|気になる/, shape: "stop_on_reaction" },
+  { pattern: /決め|選び|比べ/, shape: "choose" },
+] as const;
+
 export function firstLine(text: string) {
   return text.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
 }
@@ -81,17 +102,9 @@ export function reactionType(variant: Pick<XCreativeVariant, "hookDirection">) {
 }
 
 export function judgmentShape(text: string, direction?: XCreativeVariant["hookDirection"]) {
-  if (direction === "follow_up" || direction === "question") return "conversation_open";
-  if (direction === "comparison" || direction === "contrast") return "compare_then_choose";
-  if (direction === "hot_take" || direction === "anti_obvious") return "reject_obvious";
-  if (direction === "missed" || direction === "confession") return "reconsider";
-  if (direction === "social_proof") return "trust_signal";
-  if (direction === "surprise" || direction === "pattern_break") return "notice_change";
-  if (/見送|急がなくて|即決/.test(text)) return "defer";
-  if (/見ておきたい|見たい|戻りそう/.test(text)) return "watch_next";
-  if (/止める|残る|気になる/.test(text)) return "stop_on_reaction";
-  if (/決め|選び|比べ/.test(text)) return "choose";
-  return "open_observation";
+  const directionShape = direction ? JUDGMENT_DIRECTION_SHAPES[direction] : undefined;
+  const textShape = JUDGMENT_TEXT_RULES.find(({ pattern }) => pattern.test(text))?.shape;
+  return directionShape ?? textShape ?? "open_observation";
 }
 
 export function textSimilarity(a: string, b: string) {
