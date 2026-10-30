@@ -493,20 +493,31 @@ function freshnessCooldownCount(candidates: MyfansQuoteCandidate[], planDate: st
   }).length;
 }
 
+type AddQuoteRejection = (reason: string) => void;
+
+function addQuoteFreshnessAndAvailabilityRejections(candidate: MyfansQuoteCandidate, planDate: string, now: string, addRejection: AddQuoteRejection) {
+  const age = quoteAgeAtPlanDate(candidate, planDate);
+  if (age !== null && age > MYFANS_DAILY_FRESH_DAYS) addRejection("期限切れ(14日超)");
+  if (!isValidSourceStatusUrl(candidate.x_post_url)) addRejection("source URL不正/欠落");
+  if (!isUsableQuoteMedia(candidate)) addRejection("利用可能mediaなし");
+  if (candidate.is_repost) addRejection("repost");
+  if (candidate.last_used_at || (candidate.cooldown_until && candidate.cooldown_until > now)) addRejection("再利用cooldown");
+}
+
+function addQuoteValueAndLinkageRejections(candidate: MyfansQuoteCandidate, products: MyfansProduct[], addRejection: AddQuoteRejection) {
+  if (sourceValueForQuote(candidate).verdict !== "PASS") addRejection("LOW_SOURCE_VALUE（ランキング減点のみ）");
+  if (candidate.score < QUOTE_MIN_SCORE) addRejection("score不足(<55)");
+  if (!candidate.product_id && !products.some((product) => creatorKeyFromProduct(product) === creatorKeyFromQuote(candidate))) {
+    addRejection("商品/creator未紐付け");
+  }
+}
+
 function rejectionCountsForQuotes(candidates: MyfansQuoteCandidate[], products: MyfansProduct[], planDate: string, now: string) {
   const rejectionCounts = new Map<string, number>();
-  const addRejection = (reason: string) => rejectionCounts.set(reason, (rejectionCounts.get(reason) ?? 0) + 1);
+  const addRejection: AddQuoteRejection = (reason) => rejectionCounts.set(reason, (rejectionCounts.get(reason) ?? 0) + 1);
   for (const candidate of candidates) {
-    const age = quoteAgeAtPlanDate(candidate, planDate);
-    const sourceValue = sourceValueForQuote(candidate);
-    if (age !== null && age > MYFANS_DAILY_FRESH_DAYS) addRejection("期限切れ(14日超)");
-    if (!isValidSourceStatusUrl(candidate.x_post_url)) addRejection("source URL不正/欠落");
-    if (!isUsableQuoteMedia(candidate)) addRejection("利用可能mediaなし");
-    if (candidate.is_repost) addRejection("repost");
-    if (candidate.last_used_at || (candidate.cooldown_until && candidate.cooldown_until > now)) addRejection("再利用cooldown");
-    if (sourceValue.verdict !== "PASS") addRejection("LOW_SOURCE_VALUE（ランキング減点のみ）");
-    if (candidate.score < QUOTE_MIN_SCORE) addRejection("score不足(<55)");
-    if (!candidate.product_id && !products.some((product) => creatorKeyFromProduct(product) === creatorKeyFromQuote(candidate))) addRejection("商品/creator未紐付け");
+    addQuoteFreshnessAndAvailabilityRejections(candidate, planDate, now, addRejection);
+    addQuoteValueAndLinkageRejections(candidate, products, addRejection);
   }
   return rejectionCounts;
 }
