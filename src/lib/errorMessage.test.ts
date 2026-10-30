@@ -30,3 +30,9 @@ test("reads nested network error causes", () => {
 test("does not render object errors as object Object", () => {
   assert.equal(formatUnknownError({ message: "" }), "詳細のない通信エラー");
 });
+
+test("uses the stable fallback for circular object errors", () => {
+  const error: Record<string, unknown> = {};
+  error.self = error;
+  assert.equal(formatUnknownError(error), "詳細のない通信エラー");
+});
