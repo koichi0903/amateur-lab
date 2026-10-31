@@ -12,7 +12,7 @@ import { cachePreparedBijyoVideo, canUseLocalBijyoVideoStore, readCachedBijyoVid
 import { getBijyoHistoryPage, getBijyoReservedQueueWorks, HISTORY_PAGE_SIZE } from "@/lib/bijyoReadPages";
 import { BIJYO_ACCOUNT } from "@/lib/bijyoConfig";
 import { resolveBijyoTrimPlan } from "@/lib/bijyoVideoPreparation";
-import { collectBijyoActiveWorkIds, hydrateBijyoActiveJobs } from "@/lib/bijyoActiveJobProjection";
+import { collectBijyoActiveWorkIds, hydrateBijyoActiveJobs, isPositiveSafeWorkId } from "@/lib/bijyoActiveJobProjection";
 
 export { buildBijyoMainText, buildBijyoReplyText, tokyoDate } from "@/lib/bijyoReservedWorkflow";
 export { BIJYO_ACCOUNT };
@@ -130,13 +130,13 @@ class BijyoTrimValidationError extends Error {
 async function loadJob(jobId: number, workId?: number) {
   let jobResult = await supabaseAdmin.from("bijyo_reserved_post_jobs").select(JOB_SELECT).eq("account_handle", BIJYO_ACCOUNT).eq("id", jobId).maybeSingle();
   if (jobResult.error) return { job: null, error: jobResult.error.message };
-  if (!jobResult.data && Number.isSafeInteger(workId) && (workId ?? 0) > 0) {
+  if (!jobResult.data && isPositiveSafeWorkId(workId)) {
     jobResult = await supabaseAdmin.from("bijyo_reserved_post_jobs").select(JOB_SELECT).eq("account_handle", BIJYO_ACCOUNT).eq("work_id", workId).maybeSingle();
     if (jobResult.error) return { job: null, error: jobResult.error.message };
   }
   if (!jobResult.data) return { job: null, error: null };
   const job = jobResult.data as unknown as BijyoJob;
-  if (Number.isSafeInteger(workId) && (workId ?? 0) > 0 && job.work_id !== workId) return { job: null, error: "jobIdとworkIdの組み合わせが不正です。" };
+  if (isPositiveSafeWorkId(workId) && job.work_id !== workId) return { job: null, error: "jobIdとworkIdの組み合わせが不正です。" };
   const workResult = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("id", job.work_id).maybeSingle();
   if (workResult.error) return { job: null, error: workResult.error.message };
   return { job: { ...job, reply_text: buildBijyoReplyText(job.work_id), work: (workResult.data as Work | null) ?? null }, error: null };
@@ -234,7 +234,7 @@ type PrepareBijyoVideoOptions = { mode?: "auto" | "manual"; trimStartSeconds?: u
 
 async function loadBijyoPreparationJob(jobId: number, workId?: number) {
   let loaded = await loadJob(jobId, workId);
-  const resolvedWorkId = Number.isSafeInteger(workId) && (workId ?? 0) > 0 ? workId : undefined;
+  const resolvedWorkId = isPositiveSafeWorkId(workId) ? workId : undefined;
   if (!loaded.job && !loaded.error && resolvedWorkId !== undefined) {
     const ensured = await createBijyoManualJob(resolvedWorkId);
     if (!ensured.ok || !ensured.jobId) throw new BijyoVideoNotFoundError(ensured.error ?? "投稿候補が見つかりません。");

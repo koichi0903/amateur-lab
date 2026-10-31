@@ -1,10 +1,14 @@
 type ActiveJobRow = { work_id: unknown };
 type WorkRow = { id: number };
 
+export function isPositiveSafeWorkId(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
 export function collectBijyoActiveWorkIds(rows: readonly ActiveJobRow[]): number[] {
   return [...new Set(rows
     .map((row) => Number(row.work_id))
-    .filter((id) => Number.isSafeInteger(id) && id > 0))];
+    .filter(isPositiveSafeWorkId))];
 }
 
 export function hydrateBijyoActiveJobs<

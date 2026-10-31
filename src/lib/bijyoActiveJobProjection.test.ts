@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { collectBijyoActiveWorkIds, hydrateBijyoActiveJobs } from "./bijyoActiveJobProjection.ts";
+import { collectBijyoActiveWorkIds, hydrateBijyoActiveJobs, isPositiveSafeWorkId } from "./bijyoActiveJobProjection.ts";
 
 test("collects unique positive safe work ids in first-seen order", () => {
   const rows = [
@@ -14,6 +14,9 @@ test("collects unique positive safe work ids in first-seen order", () => {
   ];
 
   assert.deepEqual(collectBijyoActiveWorkIds(rows), [12, 4]);
+  assert.equal(isPositiveSafeWorkId(12), true);
+  assert.equal(isPositiveSafeWorkId(0), false);
+  assert.equal(isPositiveSafeWorkId("12"), false);
 });
 
 test("hydrates jobs with their work, refreshes reply text, and leaves missing work null", () => {
