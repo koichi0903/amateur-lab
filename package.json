@@ -61,6 +61,7 @@
     "test:ranking-update-projection": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/playwright/rankingUpdateProjection.test.ts",
     "test:x-creative-learning-aggregation": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/x-growth/xCreativeLearningAggregation.test.ts",
     "test:actress-profile-api": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/admin/actressProfileApi.test.ts",
+    "test:favorite-work-ids": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/favoriteWorkIds.test.ts",
     "test:myfans-market-winner": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfansMarketWinner.test.ts && node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfans/myfansMarketWinnerCandidates.test.ts"
   },
   "dependencies": {
