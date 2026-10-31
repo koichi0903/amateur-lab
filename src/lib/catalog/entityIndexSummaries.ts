@@ -22,14 +22,29 @@ export type EntityIndexSummary = {
 };
 
 async function loadEntityIndexSummaries(kind: EntityIndexKind): Promise<EntityIndexSummary[]> {
-  const { data, error } = await supabase.rpc("get_entity_index_summaries");
+  let { data, error } = await supabase.rpc(
+    "get_entity_index_summaries_by_kind",
+    { p_kind: kind },
+  );
+
+  // Preview deployments can share the Production Supabase project, where the
+  // new migration is intentionally not applied. Keep those deployments
+  // functional until the RPC is available in their database.
+  if (error?.code === "PGRST202") {
+    const legacyResult = await supabase.rpc("get_entity_index_summaries");
+    data = legacyResult.data;
+    error = legacyResult.error;
+  }
+
   if (error) {
     throw error;
   }
 
-  const grouped = (data ?? {}) as Partial<Record<EntityIndexKind, EntitySummaryRow[]>>;
+  const rows = Array.isArray(data)
+    ? (data as EntitySummaryRow[])
+    : (((data ?? {}) as Partial<Record<EntityIndexKind, EntitySummaryRow[]>>)[kind] ?? []);
 
-  return (grouped[kind] ?? []).map((row) => ({
+  return rows.map((row) => ({
     name: row.name,
     count: Number(row.work_count),
     maxScore: Number(row.max_score),
