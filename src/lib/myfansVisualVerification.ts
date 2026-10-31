@@ -103,27 +103,46 @@ function hasPersonCenteredObservation(observation: string) {
 }
 
 function analysisForQuote(candidate: MyfansQuoteCandidate, assessment: VisualQuoteAssessment): MyfansVisualAnalysisJson {
+  const personCentered = hasPersonCenteredObservation(assessment.observation);
+  return {
+    ...visualObservationFields(candidate, assessment, personCentered),
+    ...visualSummaryFields(assessment, personCentered),
+    ...visualMotionFields(candidate, assessment),
+  };
+}
+
+function visualObservationFields(candidate: MyfansQuoteCandidate, assessment: VisualQuoteAssessment, personCentered: boolean) {
   const { canVerify, partial, mediaLabel, observation, contrast, composition } = assessment;
-  const personCentered = hasPersonCenteredObservation(observation);
-  const analysis: MyfansVisualAnalysisJson = {
+  return {
     concrete_scene: observation,
     subject_action: personCentered ? "人物中心の場面" : `${mediaLabel}内の見せ場`,
     standout_moment: contrast || observation,
     contrast_change: contrast,
     color_composition: composition,
     human_curiosity_cue: canVerify ? observation : "",
-    confidence: canVerify ? "medium" : partial ? "low" : "low",
+    confidence: canVerify ? "medium" as const : partial ? "low" as const : "low" as const,
     evidence_source: canVerify || partial ? "browser_visible_media_and_source_text" : "unavailable_or_blocked_media",
     frame_or_image_count: Math.max(1, candidate.media_count ?? 1),
+  };
+}
+
+function visualSummaryFields(assessment: VisualQuoteAssessment, personCentered: boolean) {
+  const { observation, composition, contrast } = assessment;
+  return {
     scene_summary: observation,
     subject_summary: personCentered ? "人物中心" : "",
     composition,
     visible_change_or_contrast: contrast,
-    motion_cue: candidate.media_type === "video" ? (contrast || observation) : "",
-    beginning_vs_later_change: /冒頭|最初|切り替わ|変わ/.test(observation) ? observation : "",
     concrete_observation: observation,
   };
-  return analysis;
+}
+
+function visualMotionFields(candidate: MyfansQuoteCandidate, assessment: VisualQuoteAssessment) {
+  const { observation, contrast } = assessment;
+  return {
+    motion_cue: candidate.media_type === "video" ? (contrast || observation) : "",
+    beginning_vs_later_change: /冒頭|最初|切り替わ|変わ/.test(observation) ? observation : "",
+  };
 }
 
 function statusForAssessment(assessment: VisualQuoteAssessment): MyfansVisualVerificationResult["status"] {

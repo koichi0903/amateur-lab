@@ -53,6 +53,10 @@ test("visible video with a concrete source cue produces verified visual evidence
   assert.equal(result.analysis.confidence, "medium");
   assert.equal(result.analysis.evidence_source, "browser_visible_media_and_source_text");
   assert.equal(result.analysis.frame_or_image_count, 3);
+  assert.equal(result.analysis.subject_action, "人物中心の場面");
+  assert.equal(result.analysis.standout_moment, "冒頭の引きから途中で表情の近い場面に切り替わ");
+  assert.equal(result.analysis.motion_cue, "冒頭の引きから途中で表情の近い場面に切り替わ");
+  assert.equal(result.analysis.beginning_vs_later_change, "冒頭の引きから途中で表情の近い場面に切り替わ");
   assert.ok(result.analysis.human_curiosity_cue);
   assert.equal(result.reason, "browser_visible mediaと具体的source textからvisual cueを確認");
 });
@@ -73,6 +77,8 @@ test("visible image without a concrete cue stays partial with the existing fallb
   assert.equal(result.analysis.frame_or_image_count, 1);
   assert.equal(result.analysis.confidence, "low");
   assert.equal(result.analysis.evidence_source, "browser_visible_media_and_source_text");
+  assert.equal(result.analysis.subject_action, "画像内の見せ場");
+  assert.equal(result.analysis.motion_cue, "");
   assert.equal(result.reason, "mediaは見えるがAttention cueが弱い/抽象");
 });
 
