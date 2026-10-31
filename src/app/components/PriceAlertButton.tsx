@@ -4,6 +4,11 @@ import { Bell, ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { useIPhoneInstallGuide } from "@/components/useIPhoneInstallGuide";
 import { splitEntityNames } from "@/lib/entityNames";
+import {
+  createBrowserPushSubscription,
+  getPushSubscriptionErrorMessage,
+  saveBrowserPushSubscription,
+} from "@/lib/pushSubscriptionClient";
 
 type Props = {
   workId: number;
@@ -31,53 +36,16 @@ export default function PriceAlertButton({ workId, workTitle, actress, maker }: 
     setMessage(null);
     setSaving(true);
     try {
-      if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
-        throw new Error("このブラウザはプッシュ通知に対応していません。");
-      }
-      if (!window.isSecureContext) {
-        throw new Error("通知にはHTTPS、またはlocalhostでのアクセスが必要です。");
-      }
-
-      const configResponse = await fetch("/api/push/subscribe");
-      const config = (await configResponse.json()) as { publicKey?: string; error?: string };
-      if (!configResponse.ok || !config.publicKey) throw new Error(config.error ?? "通知設定がまだ準備されていません。");
-
-      const permission = Notification.permission === "default"
-        ? await Notification.requestPermission()
-        : Notification.permission;
-      if (permission !== "granted") throw new Error("ブラウザの通知許可が必要です。");
-
-      const registration = await navigator.serviceWorker.register("/push-sw.js");
-      const existing = await registration.pushManager.getSubscription();
-      const subscription = existing ?? await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: Uint8Array.from(atob(config.publicKey.replace(/-/g, "+").replace(/_/g, "/")), (character) => character.charCodeAt(0)),
+      const subscription = await createBrowserPushSubscription();
+      await saveBrowserPushSubscription(subscription, {
+        workId,
+        priceAlert,
+        actressAlerts: selectedActresses,
+        makerAlerts: selectedMakers,
       });
-
-      const saveController = new AbortController();
-      const saveTimeout = window.setTimeout(() => saveController.abort(), 15_000);
-      let saveResponse: Response;
-      try {
-        saveResponse = await fetch("/api/push/subscribe", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            subscription: subscription.toJSON(),
-            workId,
-          priceAlert,
-          actressAlerts: selectedActresses,
-          makerAlerts: selectedMakers,
-          }),
-          signal: saveController.signal,
-        });
-      } finally {
-        window.clearTimeout(saveTimeout);
-      }
-      const result = (await saveResponse.json()) as { error?: string };
-      if (!saveResponse.ok) throw new Error(result.error ?? "通知設定を保存できませんでした。");
       setMessage("通知を有効にしました。");
     } catch (error) {
-      setMessage(error instanceof DOMException && error.name === "AbortError" ? "通知設定の保存がタイムアウトしました。時間をおいて再度お試しください。" : error instanceof Error ? error.message : "通知設定に失敗しました。");
+      setMessage(getPushSubscriptionErrorMessage(error));
     } finally {
       setSaving(false);
     }
