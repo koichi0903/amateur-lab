@@ -75,23 +75,29 @@ test("sales projection keeps 990 totals separate from other scopes and joins cur
     { key: "2026-09", salesCount: 4, salesAmount: 1000, commissionAmount: 250 },
     { key: "2026-10", salesCount: 3, salesAmount: 700, commissionAmount: 180 },
   ]);
-  assert.equal(projection.topProducts[0]?.work_id, 1);
-  assert.equal(projection.topProducts[0]?.rank, 1);
+  const topProduct = projection.topProducts[0];
+  assert.ok(topProduct);
+  assert.equal(topProduct.work_id, 1);
+  assert.equal(topProduct.rank, 1);
 
   const clickedSale = projection.performance.find((row) => row.workId === 1);
-  assert.equal(clickedSale?.title, "クリック作品1");
-  assert.equal(clickedSale?.salesCount, 2);
-  assert.equal(clickedSale?.clicks, 2);
-  assert.equal(clickedSale?.conversionRate, 100);
-  assert.equal(clickedSale?.earningsPerClick, 50);
+  assert.ok(clickedSale);
+  assert.equal(clickedSale.title, "クリック作品1");
+  assert.equal(clickedSale.salesCount, 2);
+  assert.equal(clickedSale.clicks, 2);
+  assert.equal(clickedSale.conversionRate, 100);
+  assert.equal(clickedSale.earningsPerClick, 50);
 
   const non990Sale = projection.performance.find((row) => row.workId === 2);
-  assert.equal(non990Sale?.salesCount, 0, "026 sales are not blended into 990 per-work performance");
-  assert.equal(non990Sale?.action, "observe");
+  assert.ok(non990Sale);
+  assert.equal(non990Sale.salesCount, 0, "026 sales are not blended into 990 per-work performance");
+  assert.equal(non990Sale.action, "observe");
 
   const priorOnlyGrowthWork = projection.performance.find((row) => row.workId === 6);
-  assert.equal(priorOnlyGrowthWork?.title, "作品6");
-  assert.equal(priorOnlyGrowthWork?.salesCount, 0);
-  assert.equal(priorOnlyGrowthWork?.salesAmount, 0);
-  assert.equal(projection.latestImport?.file, "scope:990|report-2.csv");
+  assert.ok(priorOnlyGrowthWork);
+  assert.equal(priorOnlyGrowthWork.title, "作品6");
+  assert.equal(priorOnlyGrowthWork.salesCount, 0);
+  assert.equal(priorOnlyGrowthWork.salesAmount, 0);
+  assert.ok(projection.latestImport);
+  assert.equal(projection.latestImport.file, "scope:990|report-2.csv");
 });
