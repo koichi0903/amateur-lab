@@ -39,6 +39,18 @@ export function diagnosticStatus(stage: SearchStageDiagnostic) {
   return "正常";
 }
 
+type DmmSearchResponse = {
+  success?: unknown;
+  items?: unknown;
+  diagnostics?: SearchDiagnostics | null;
+  meta?: { searchMode?: "keyword" | "cid" | "actress" | "" };
+  error?: { message?: string };
+};
+
+function isValidDmmSearchResponse(responseOk: boolean, data: DmmSearchResponse): data is DmmSearchResponse & { success: true; items: DmmItem[] } {
+  return responseOk && data.success === true && Array.isArray(data.items);
+}
+
 export function useAdminSearchController() {
   const [keyword, setKeyword] =
     useState("");
@@ -98,7 +110,7 @@ export function useAdminSearchController() {
       const data = await res.json();
       setSearchDiagnostics(data.diagnostics ?? null);
 
-      if (!res.ok || data.success !== true || !Array.isArray(data.items)) {
+      if (!isValidDmmSearchResponse(res.ok, data)) {
         setSearchResults([]);
         setRegisteredIds(new Set());
         setSearchMode("");
