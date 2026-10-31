@@ -1,3 +1,5 @@
+import { calculateNewReleasePoint } from "@/lib/scoreReleasePoint";
+
 // 発掘スコア Ver.3
 // 「人気作品」ではなく「評価の信頼できる、まだ見つかりきっていない良作」を上げる。
 
@@ -78,30 +80,6 @@ function getLowestPricePoint(currentPrice: number | null, lowestPrice: number | 
   if (currentPrice <= lowestPrice) return 8;
   if (gap <= 0.1) return 8 - (gap / 0.1) * 3;
   if (gap <= 0.3) return 5 - ((gap - 0.1) / 0.2) * 4;
-
-  return 0;
-}
-
-function getNewReleasePoint(releaseDate: string | null) {
-  if (!releaseDate) return 0;
-
-  const release = new Date(releaseDate);
-  const today = new Date();
-  const daysFromRelease = Math.floor(
-    (today.getTime() - release.getTime()) / (1000 * 60 * 60 * 24),
-  );
-
-  if (daysFromRelease < 0) return 0;
-  if (daysFromRelease <= 15) return 10;
-  if (daysFromRelease <= 30) return 9;
-  if (daysFromRelease <= 45) return 8;
-  if (daysFromRelease <= 60) return 7;
-  if (daysFromRelease <= 75) return 6;
-  if (daysFromRelease <= 90) return 5;
-  if (daysFromRelease <= 105) return 4;
-  if (daysFromRelease <= 120) return 3;
-  if (daysFromRelease <= 135) return 2;
-  if (daysFromRelease <= 150) return 1;
 
   return 0;
 }
@@ -221,7 +199,7 @@ export function calculateScore({
     popularityPoint,
     makerPoint,
     seriesPoint,
-    newReleaseBonus: getNewReleasePoint(releaseDate),
+    newReleaseBonus: calculateNewReleasePoint(releaseDate),
     longHitPoint: getLongHitPoint(longHitRank),
     decisionSupportPoint,
   };
