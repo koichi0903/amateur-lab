@@ -46,6 +46,7 @@
     "repair:invalid-prices": "tsx scripts/repair-invalid-price-data.ts",
     "test:bijyo-video-preparation": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/bijyoVideoPreparation.test.ts",
     "test:fanza-daily-post-funnel": "tsx --test src/lib/fanzaDailyPostFunnelPagination.test.ts",
+    "test:work-page-view-event": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/workPageViewEvent.test.ts",
     "test:affiliate-analytics-categories": "tsx --test src/lib/affiliateAnalyticsPostCategories.test.ts",
     "test:affiliate-analytics-funnels": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/affiliateAnalyticsFunnels.test.ts",
     "test:fanza-amateur-browse-projection": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/dmm/fanzaAmateurBrowseProjection.test.ts",

@@ -1,34 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  type AffiliateSource,
-  normalizeAffiliateSource,
-} from "@/lib/affiliateTracking";
-import {
-  isOperatorLandingPath,
-  normalizeExternalAttribution,
-  type ExternalAttribution,
-} from "@/lib/externalAttribution";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-
-function readNumber(payload: Record<string, unknown>, key: string) {
-  const value = payload[key];
-  if (value === null || value === undefined || value === "") return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
-type WorkPageViewInsert = {
-  work_id: number;
-  source_page: AffiliateSource;
-  price: number | null;
-  discount_rate: number | null;
-  discovery_score: number | null;
-  ranking: number | null;
-  x_post_key: string | null;
-  external_channel: ExternalAttribution["channel"] | undefined;
-  external_source: string | undefined;
-  landing_path: string | undefined;
-};
+import { parseWorkPageViewEvent, type WorkPageViewInsert } from "@/lib/workPageViewEvent";
 
 async function insertWorkPageViewWithSchemaFallback(eventRow: WorkPageViewInsert) {
   let { error } = await supabaseAdmin.from("work_page_views").insert(eventRow);
@@ -76,51 +48,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  if (typeof payload !== "object" || payload === null) {
+  const parsedEvent = parseWorkPageViewEvent(payload);
+  if (parsedEvent.kind === "invalid") {
     return NextResponse.json({ error: "Invalid event" }, { status: 400 });
   }
-
-  const event = payload as Record<string, unknown>;
-  const workId = Number(event.workId);
-  const sourcePage = normalizeAffiliateSource(
-    typeof event.sourcePage === "string" ? event.sourcePage : null,
-  );
-  const externalAttribution = normalizeExternalAttribution(
-    "externalAttribution" in event ? event.externalAttribution : null,
-  );
-
-  if (!Number.isSafeInteger(workId) || workId <= 0) {
-    return NextResponse.json({ error: "Invalid event" }, { status: 400 });
-  }
-
-  if (isOperatorLandingPath(externalAttribution?.landingPath)) {
+  if (parsedEvent.kind === "ignored") {
     return new NextResponse(null, { status: 204 });
   }
-
-  const xPostKey =
-    typeof event.xPostKey === "string" && event.xPostKey.trim()
-      ? event.xPostKey.trim().slice(0, 120)
-      : null;
-
-  const eventRow = {
-    work_id: workId,
-    source_page: sourcePage,
-    price: readNumber(event, "price"),
-    discount_rate: readNumber(event, "discountRate"),
-    discovery_score: readNumber(event, "discoveryScore"),
-    ranking: readNumber(event, "ranking"),
-    x_post_key: xPostKey,
-    external_channel: externalAttribution?.channel,
-    external_source: externalAttribution?.source,
-    landing_path: externalAttribution?.landingPath,
-  };
-
-  const error = await insertWorkPageViewWithSchemaFallback(eventRow);
+  const error = await insertWorkPageViewWithSchemaFallback(parsedEvent.eventRow);
 
   if (error) {
     console.error("[work-page-view] failed to record page view", {
-      workId,
-      sourcePage,
+      workId: parsedEvent.eventRow.work_id,
+      sourcePage: parsedEvent.eventRow.source_page,
       code: error.code,
     });
   }
