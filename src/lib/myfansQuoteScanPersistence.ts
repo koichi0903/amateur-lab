@@ -1,17 +1,11 @@
-import { cleanMyfansUrl, cleanText } from "@/lib/myfansCompanionInput";
+import { cleanMyfansUrl } from "@/lib/myfansCompanionInput";
 import type { MyfansProduct } from "@/lib/myfansAnalytics";
-import { normalizeMyfansPostUrl, resolveTextEvidence, type MyfansEvidenceSource, type MyfansPostProductLinkageEvidence, type MyfansResolutionMethod } from "@/lib/myfansProductResolver";
+import { normalizeMyfansPostUrl, type MyfansPostProductLinkageEvidence } from "@/lib/myfansProductResolver";
 import type { MyfansQuoteScanCandidate, MyfansQuoteScore } from "@/lib/myfansQuoteScoring";
 import type { QuoteScanProduct } from "@/lib/myfansQuoteScanTypes";
 import { buildQuoteScanCandidateRecord } from "@/lib/myfansQuoteScanRecord";
+import { buildQuoteCandidateLinkageEvidence, type ExactProductResolution } from "@/lib/myfansQuoteScanLinkageEvidence";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-
-type ExactProductResolution = {
-  product: Record<string, unknown> | null;
-  status: "exact" | "not_registered" | "ambiguous" | "blocked";
-  method: string;
-  missing: string[];
-};
 
 type RankedQuoteCandidate = {
   candidate: MyfansQuoteScanCandidate;
@@ -78,71 +72,6 @@ export function firstFinalMyfansUrl(candidate: MyfansQuoteScanCandidate) {
   return (Array.isArray(candidate.myfansUrls) ? candidate.myfansUrls : [])
     .map((url) => normalizeMyfansPostUrl(cleanMyfansUrl(url)))
     .find(Boolean) || "";
-}
-
-type QuoteCandidateLinkageEvidenceInput = {
-  approvedMediaId: number | null;
-  approvedProduct: QuoteScanProduct | null;
-  candidate: MyfansQuoteScanCandidate;
-  creatorId: number;
-  finalMyfansUrl: string;
-  itemProduct: Record<string, unknown> | null;
-  itemProductId: number | null;
-  itemProductResolution: ExactProductResolution;
-  resolverEvidence: unknown[];
-  resolverProducts: MyfansProduct[];
-  savedCandidateId: number | null;
-  sourceXHandle: string;
-};
-
-function buildQuoteCandidateLinkageEvidence(input: QuoteCandidateLinkageEvidenceInput): MyfansPostProductLinkageEvidence | null {
-  const { approvedMediaId, approvedProduct, candidate, creatorId, finalMyfansUrl, itemProduct, itemProductId, itemProductResolution, resolverEvidence, resolverProducts, savedCandidateId, sourceXHandle } = input;
-  const evidenceText = [candidate.text, ...(candidate.myfansUrls ?? [])].filter(Boolean).join(" ");
-  const resolver = resolverEvidence.find((entry) => entry && typeof entry === "object" && normalizeMyfansPostUrl(cleanMyfansUrl((entry as Record<string, unknown>).finalMyfansUrl)) === finalMyfansUrl) || {};
-  const rawDiscoveredUrl = cleanText((resolver as Record<string, unknown>).observedMfcoUrl || (resolver as Record<string, unknown>).sourceUrl || finalMyfansUrl).replace(/[?#].*$/, "");
-  const discoveredUrl = /^(?:https:\/\/(?:www\.)?(?:mfco\.link|t\.co|myfans\.jp)\/)/i.test(rawDiscoveredUrl) ? rawDiscoveredUrl : finalMyfansUrl;
-
-  if (finalMyfansUrl && itemProductResolution.status === "exact") {
-    return exactProductLinkageEvidence({ approvedMediaId, candidate, creatorId, discoveredUrl, finalMyfansUrl, itemProduct, itemProductId, itemProductResolution, resolverEvidence, savedCandidateId, sourceXHandle });
-  }
-  if (finalMyfansUrl) return null;
-  return resolveTextEvidence({
-    sourceStatusUrl: candidate.ownReplyStatusUrl || candidate.xPostUrl,
-    sourceAuthorHandle: sourceXHandle,
-    text: evidenceText,
-    products: resolverProducts,
-    evidenceSource: candidate.myfansLinkSource === "own_reply" ? "author_reply" : "author_post",
-    approvedMediaId: approvedMediaId ?? (approvedProduct?.approved_media_id as number | null | undefined) ?? null,
-  });
-}
-
-function exactProductLinkageEvidence(input: Omit<QuoteCandidateLinkageEvidenceInput, "approvedProduct" | "finalMyfansUrl" | "resolverProducts"> & { discoveredUrl: string; finalMyfansUrl: string }): MyfansPostProductLinkageEvidence {
-  const { approvedMediaId, candidate, creatorId, discoveredUrl, finalMyfansUrl, itemProduct, itemProductId, itemProductResolution, resolverEvidence, savedCandidateId, sourceXHandle } = input;
-  const sourceStatusUrl = candidate.ownReplyStatusUrl || candidate.xPostUrl;
-  const linkSource: MyfansEvidenceSource = candidate.myfansLinkSource === "own_reply" ? "author_reply" : "author_post";
-  const resolutionMethod: MyfansResolutionMethod = itemProductResolution.method === "existing_canonical_url" ? "exact_product_url" : "safe_redirect_product_url";
-  return {
-    approved_media_id: approvedMediaId ?? (itemProduct?.approved_media_id as number | null | undefined) ?? null,
-    quote_candidate_id: savedCandidateId,
-    source_status_url: sourceStatusUrl,
-    source_author_handle: sourceXHandle,
-    discovered_myfans_url: discoveredUrl,
-    final_myfans_url: finalMyfansUrl,
-    product_id: itemProductId,
-    resolution_method: resolutionMethod,
-    confidence: "exact",
-    evidence_source: linkSource,
-    verified_at: new Date().toISOString(),
-    metadata: {
-      link_source: linkSource === "author_reply" ? "author_reply" : "parent",
-      myfans_post_uuid: finalMyfansUrl.match(/\/posts\/([^/?#]+)/i)?.[1] || null,
-      matched_creator_id: creatorId,
-      matched_product_id: itemProductId,
-      product_resolution: itemProductResolution.status,
-      product_resolution_method: itemProductResolution.method,
-      resolver_evidence: resolverEvidence,
-    },
-  };
 }
 
 async function persistQuoteCandidateLinkageEvidence(evidence: MyfansPostProductLinkageEvidence, savedCandidateId: number | null) {
