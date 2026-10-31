@@ -18,6 +18,8 @@ import {
 } from "./rankingPlaywrightTargets";
 import { updateTopRankingWorks } from "./updateTopRankingWorks";
 import { RANKING_UPDATE_CONFIG } from "@/config/update";
+import { simpleErrorMessage } from "@/lib/errorMessage";
+import { collectUniqueRankingTargets } from "./rankingPageCollection";
 
 const RANKING_LIMIT = RANKING_UPDATE_CONFIG.popularRankingTargetCount;
 const API_PAGE_SIZE = RANKING_UPDATE_CONFIG.apiPageSize;
@@ -29,19 +31,6 @@ const FANZA_PAGE_COUNT = Math.ceil(
 const DB_BATCH_SIZE = 500;
 const SAVE_BATCH_SIZE = 10;
 const JOB_TOTAL = 100;
-
-function errorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-  ) {
-    return error.message;
-  }
-  return String(error);
-}
 
 type RankingPhase =
   | "ranking_api"
@@ -219,6 +208,40 @@ async function loadRankingWorkSnapshots(
   return snapshots;
 }
 
+async function registerMissingRankingItems(rankingTargets: RankedDmmItem[]) {
+  const productIds = rankingTargets.map((item) => item.content_id);
+  const existingProductIds = new Set<string>();
+  for (let index = 0; index < productIds.length; index += DB_BATCH_SIZE) {
+    const { data, error } = await supabase
+      .from("works")
+      .select("product_id")
+      .in("product_id", productIds.slice(index, index + DB_BATCH_SIZE));
+    if (error) throw error;
+    for (const work of data ?? []) existingProductIds.add(work.product_id);
+  }
+
+  const missingItems = rankingTargets.filter(
+    (item) => !existingProductIds.has(item.content_id),
+  );
+  await reportProgress(10, "ranking_register", 0, missingItems.length);
+  for (let index = 0; index < missingItems.length; index += SAVE_BATCH_SIZE) {
+    const batch = missingItems.slice(index, index + SAVE_BATCH_SIZE);
+    await Promise.all(batch.map(saveMissingItem));
+    const saved = index + batch.length;
+    await reportProgress(
+      10 + Math.round((saved / Math.max(missingItems.length, 1)) * 10),
+      "ranking_register",
+      saved,
+      missingItems.length,
+      batch.at(-1)?.content_id,
+    );
+  }
+  if (missingItems.length === 0) {
+    await reportProgress(20, "ranking_register", 0, 0);
+  }
+  return missingItems;
+}
+
 export async function updateRanking() {
   await beginJob(JOBS.RANKING, JOB_TOTAL);
 
@@ -230,74 +253,26 @@ export async function updateRanking() {
     }
 
     await reportProgress(0, "ranking_api", 0, RANKING_LIMIT);
-    const uniqueItemsById = new Map<string, DmmItem>();
-    let page = 0;
-    for (
-      let offset = 1;
-      page < API_MAX_PAGE_COUNT && uniqueItemsById.size < RANKING_LIMIT;
-      offset += API_PAGE_SIZE
-    ) {
-      const items = await fetchRankingPage(apiId, affiliateId, offset);
-      if (items.length === 0) break;
-
-      for (const item of items) {
-        if (item.content_id && !uniqueItemsById.has(item.content_id)) {
-          uniqueItemsById.set(item.content_id, item);
-        }
-      }
-
-      page += 1;
-      await reportProgress(
-        Math.min(10, Math.round((uniqueItemsById.size / RANKING_LIMIT) * 10)),
+    const { targets: rankingTargets, pages: page } = await collectUniqueRankingTargets({
+      limit: RANKING_LIMIT,
+      pageSize: API_PAGE_SIZE,
+      maxPageCount: API_MAX_PAGE_COUNT,
+      fetchPage: (offset) => fetchRankingPage(apiId, affiliateId, offset),
+      onProgress: (processedCount, current, total) => reportProgress(
+        processedCount,
         "ranking_api",
-        Math.min(uniqueItemsById.size, RANKING_LIMIT),
-        RANKING_LIMIT,
-      );
-
-      if (items.length < API_PAGE_SIZE) break;
-    }
-
-    const uniqueItems = Array.from(uniqueItemsById.values()).slice(0, RANKING_LIMIT);
-    if (uniqueItems.length < RANKING_LIMIT) {
+        current,
+        total,
+      ),
+    });
+    if (rankingTargets.length < RANKING_LIMIT) {
       throw new Error(
-        `DMMランキング上位${RANKING_LIMIT}件を一意に取得できませんでした: ${uniqueItems.length}件（${page}ページ取得）`,
+        `DMMランキング上位${RANKING_LIMIT}件を一意に取得できませんでした: ${rankingTargets.length}件（${page}ページ取得）`,
       );
     }
 
-    const rankingTargets: RankedDmmItem[] = uniqueItems.map((item, index) => ({
-      ...item,
-      rank: index + 1,
-    }));
     const productIds = rankingTargets.map((item) => item.content_id);
-    const existingProductIds = new Set<string>();
-    for (let index = 0; index < productIds.length; index += DB_BATCH_SIZE) {
-      const { data, error } = await supabase
-        .from("works")
-        .select("product_id")
-        .in("product_id", productIds.slice(index, index + DB_BATCH_SIZE));
-      if (error) throw error;
-      for (const work of data ?? []) existingProductIds.add(work.product_id);
-    }
-
-    const missingItems = rankingTargets.filter(
-      (item) => !existingProductIds.has(item.content_id),
-    );
-    await reportProgress(10, "ranking_register", 0, missingItems.length);
-    for (let index = 0; index < missingItems.length; index += SAVE_BATCH_SIZE) {
-      const batch = missingItems.slice(index, index + SAVE_BATCH_SIZE);
-      await Promise.all(batch.map(saveMissingItem));
-      const saved = index + batch.length;
-      await reportProgress(
-        10 + Math.round((saved / Math.max(missingItems.length, 1)) * 10),
-        "ranking_register",
-        saved,
-        missingItems.length,
-        batch.at(-1)?.content_id,
-      );
-    }
-    if (missingItems.length === 0) {
-      await reportProgress(20, "ranking_register", 0, 0);
-    }
+    const missingItems = await registerMissingRankingItems(rankingTargets);
 
     await reportProgress(20, "ranking_save", 0, RANKING_LIMIT);
     const changedRankingIds = await updateRankingValues(rankingTargets);
@@ -408,7 +383,7 @@ export async function updateRanking() {
       entityCounts,
     };
   } catch (error) {
-    await failJob(JOBS.RANKING, errorMessage(error));
+    await failJob(JOBS.RANKING, simpleErrorMessage(error));
     throw error;
   }
 }

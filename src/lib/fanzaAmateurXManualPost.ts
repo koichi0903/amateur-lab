@@ -1,8 +1,10 @@
 import "server-only";
 
 import { getDmmFanzaAmateurPopularWorks, getFanzaAmateurAffiliateId, normalizeFanzaAmateurCatalogItem } from "@/lib/dmm/fanzaAmateurCatalog";
+import { AMATEUR_X_POSTED_COOLDOWN_DAYS, AMATEUR_X_SHARED_QUEUE_ACCOUNT, amateurXPostJobTextColumns, buildAmateurXReplyText, getLegacyAmateurXReplyTrackingKey, getRecentlyPostedContentIds, mergeAmateurXCandidateJobs, projectAmateurXJobStatusUpdate, withoutSkippedAmateurXCandidates, type AmateurXCandidateJobState } from "@/lib/fanzaAmateurXPostHelpers";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { trimVideoForX } from "@/lib/xVideoTrim";
+import { priceNumber } from "@/lib/dmm/fanzaAmateurCatalogNormalize";
 
 export const AMATEUR_X_PAGE_SIZE = 30;
 const JOB_FIELDS = "id,account_handle,content_id,source_lane,status,main_text,reply_text,x_post_url,posted_at,created_at";
@@ -20,6 +22,7 @@ type AmateurWork = {
   mp4_status: string | null;
   is_listed: boolean;
   image_url: unknown;
+  prices: { price?: string; list_price?: string } | null;
   raw_item?: unknown;
 };
 
@@ -35,11 +38,6 @@ type Job = {
   posted_at: string | null;
   created_at: string;
 };
-
-export function normalizeXHandle(value: unknown) {
-  const handle = String(value ?? "").trim().replace(/^@/, "");
-  return /^[A-Za-z0-9_]{1,15}$/.test(handle) ? handle : null;
-}
 
 function tokyoDateOffset(days: number) {
   const now = new Date(Date.now() + 9 * 60 * 60 * 1000);
@@ -58,13 +56,13 @@ function imageUrl(value: unknown) {
 
 function affiliateUrlForWork(work: AmateurWork) {
   const item = normalizeFanzaAmateurCatalogItem(work.raw_item);
-  if (!item) return null;
+  if (!item || typeof item.URL !== "string" || !item.URL) return null;
   try {
-    const affiliate = new URL(item.affiliateURL);
-    const target = new URL(affiliate.searchParams.get("lurl") ?? "");
-    if (affiliate.protocol !== "https:" || affiliate.hostname !== "al.fanza.co.jp") return null;
-    if (target.protocol !== "https:" || target.hostname !== "video.dmm.co.jp" || !target.pathname.startsWith("/amateur/content/")) return null;
-    if (affiliate.searchParams.get("af_id") !== getFanzaAmateurAffiliateId()) return null;
+    const target = new URL(item.URL);
+    if (target.protocol !== "https:" || target.hostname !== "video.dmm.co.jp" || target.username || target.password || !target.pathname.startsWith("/amateur/content/")) return null;
+    const affiliate = new URL("https://al.fanza.co.jp/");
+    affiliate.searchParams.set("lurl", target.href);
+    affiliate.searchParams.set("af_id", getFanzaAmateurAffiliateId());
     return affiliate.href;
   } catch {
     return null;
@@ -75,42 +73,60 @@ function postCopy(work: AmateurWork) {
   const release = work.api_date?.slice(0, 10) ?? "";
   const dateLabel = /^\d{4}-(\d{2})-(\d{2})$/.exec(release);
   const releaseLabel = dateLabel ? `${Number(dateLabel[1])}月${Number(dateLabel[2])}日発売` : "FANZA素人作品";
+  const currentPrice = priceNumber(work.prices?.price) ?? priceNumber(work.prices?.list_price);
   const affiliateUrl = affiliateUrlForWork(work);
   if (!affiliateUrl) throw new Error("FANZAの公式アフィリエイトリンクを確認できませんでした。");
   return {
     mainText: `【${releaseLabel}】\n${work.title ?? work.content_id}`,
-    replyText: `👇FANZAで作品をチェック（PR）\n${affiliateUrl}`,
+    replyText: buildAmateurXReplyText(work.title ?? work.content_id, currentPrice, affiliateUrl),
   };
 }
 
 async function getWorksByIds(ids: string[]) {
   if (!ids.length) return new Map<string, AmateurWork>();
   const result = await supabaseAdmin.from("fanza_amateur_works")
-    .select("content_id,title,api_date,mp4_url,mp4_status,is_listed,image_url")
+    .select("content_id,title,api_date,mp4_url,mp4_status,is_listed,image_url,prices,raw_item")
     .in("content_id", ids);
   if (result.error) throw new Error(`素人作品データを取得できませんでした: ${result.error.message}`);
   return new Map((result.data ?? []).map((row) => [row.content_id, row as AmateurWork]));
 }
 
-async function getAffiliateUrlsByIds(contentIds: string[]) {
-  if (!contentIds.length) return new Map<string, string>();
-  const result = await supabaseAdmin.from("fanza_amateur_works").select("content_id,raw_item").in("content_id", contentIds);
-  if (result.error) throw new Error(`FANZAアフィリエイトリンクを取得できませんでした: ${result.error.message}`);
-  return new Map((result.data ?? []).flatMap((row) => {
-    const url = affiliateUrlForWork({ content_id: row.content_id, title: null, api_date: null, mp4_url: null, mp4_status: null, is_listed: true, image_url: null, raw_item: row.raw_item });
-    return url ? [[row.content_id, url] as const] : [];
-  }));
+async function getSelectedJobs(contentIds: string[], lane: "new_release" | "popular") {
+  if (!contentIds.length) return new Map<string, AmateurXCandidateJobState>();
+  const [pendingResult, sharedHistoryResult] = await Promise.all([
+    supabaseAdmin.from("fanza_amateur_x_post_jobs").select("id,content_id,status")
+      .eq("status", "pending").in("content_id", contentIds),
+    supabaseAdmin.from("fanza_amateur_x_post_jobs").select("id,content_id,status,posted_at,created_at")
+      .eq("account_handle", AMATEUR_X_SHARED_QUEUE_ACCOUNT).eq("source_lane", lane).in("content_id", contentIds),
+  ]);
+  if (pendingResult.error) throw jobTableError("選択状況を取得できませんでした", pendingResult.error);
+  if (sharedHistoryResult.error) throw jobTableError("選択状況を取得できませんでした", sharedHistoryResult.error);
+  const sharedHistory = (sharedHistoryResult.data ?? []) as AmateurXCandidateJobState[];
+  return mergeAmateurXCandidateJobs(
+    (pendingResult.data ?? []) as AmateurXCandidateJobState[],
+    lane === "popular" ? sharedHistory.filter((job) => job.status !== "posted") : sharedHistory,
+  );
 }
 
-async function getSelectedJobs(handle: string, contentIds: string[]) {
-  if (!contentIds.length) return new Map<string, Job>();
-  const result = await supabaseAdmin.from("fanza_amateur_x_post_jobs")
-    .select(JOB_FIELDS).eq("account_handle", handle).in("content_id", contentIds);
-  if (result.error) throw jobTableError("選択状況を取得できませんでした", result.error);
-  return new Map((result.data ?? []).map((row) => [row.content_id, row as Job]));
+async function getSkippedCandidateIds(contentIds: string[], lane: "new_release" | "popular") {
+  const skippedIds = new Set<string>();
+  for (let offset = 0; offset < contentIds.length; offset += 500) {
+    const batchIds = contentIds.slice(offset, offset + 500);
+    for (let from = 0; ; from += 1000) {
+      const result = await supabaseAdmin.from("fanza_amateur_x_post_jobs").select("id,content_id")
+        .eq("source_lane", lane).eq("status", "skipped").in("content_id", batchIds)
+        .order("id", { ascending: true })
+        .range(from, from + 999);
+      if (result.error) throw jobTableError("スキップ済み候補を取得できませんでした", result.error);
+      const rows = result.data ?? [];
+      for (const row of rows) skippedIds.add(row.content_id);
+      if (rows.length < 1000) break;
+    }
+  }
+  return skippedIds;
 }
 
-async function getTerminalContentIds(contentIds: string[]) {
+async function getTerminalCandidateIds(contentIds: string[]) {
   const terminalIds = new Set<string>();
   for (let offset = 0; offset < contentIds.length; offset += 500) {
     const batchIds = contentIds.slice(offset, offset + 500);
@@ -127,15 +143,38 @@ async function getTerminalContentIds(contentIds: string[]) {
   }
   return terminalIds;
 }
+async function getRecentlyPostedPopularIds(contentIds: string[]) {
+  if (!contentIds.length) return new Set<string>();
+  const cutoff = new Date(Date.now() - AMATEUR_X_POSTED_COOLDOWN_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const postedJobs: Array<{ content_id: string; posted_at: string | null; created_at: string | null }> = [];
+  for (let from = 0; ; from += 1000) {
+    const result = await supabaseAdmin.from("fanza_amateur_x_post_jobs")
+      .select("content_id,posted_at,created_at")
+      .eq("status", "posted")
+      .in("content_id", contentIds)
+      .or(`posted_at.gte.${cutoff},and(posted_at.is.null,created_at.gte.${cutoff})`)
+      .range(from, from + 999);
+    if (result.error) throw jobTableError("直近の投稿履歴を取得できませんでした", result.error);
+    const batch = result.data ?? [];
+    postedJobs.push(...batch);
+    if (batch.length < 1000) break;
+  }
+  return getRecentlyPostedContentIds(postedJobs);
+}
 
-export async function getAmateurXCandidates(handle: string, lane: "new_release" | "popular", page = 1) {
+export async function getAmateurXCandidates(lane: "new_release" | "popular", page = 1) {
   const safePage = Math.max(1, Math.trunc(page));
   let orderedIds: string[];
   let total: number;
   let ranked = [] as Awaited<ReturnType<typeof getDmmFanzaAmateurPopularWorks>>;
   if (lane === "popular") {
     ranked = await getDmmFanzaAmateurPopularWorks(500);
-    orderedIds = ranked.map((item) => item.content_id);
+    const rankedIds = ranked.map((item) => item.content_id);
+    const [recentlyPostedIds, skippedIds] = await Promise.all([
+      getRecentlyPostedPopularIds(rankedIds),
+      getSkippedCandidateIds(rankedIds, lane),
+    ]);
+    orderedIds = rankedIds.filter((id) => !recentlyPostedIds.has(id) && !skippedIds.has(id));
     const works = await getWorksByIds(orderedIds);
     const idsWithMedia = orderedIds.filter((id) => {
       const work = works.get(id);
@@ -147,24 +186,24 @@ export async function getAmateurXCandidates(handle: string, lane: "new_release" 
     const startInclusive = tokyoDateOffset(-6);
     const endExclusive = tokyoDateOffset(1);
     const allWorks: AmateurWork[] = [];
-    for (let from = 0; ; from += 500) {
+    for (let from = 0; ; from += 1000) {
       const rows = await supabaseAdmin.from("fanza_amateur_works")
-        .select("content_id,title,api_date,mp4_url,mp4_status,is_listed,image_url")
+        .select("content_id,title,api_date,mp4_url,mp4_status,is_listed,image_url,prices")
         .eq("is_listed", true).eq("mp4_status", "found").not("mp4_url", "is", null)
         .gte("api_date", startInclusive).lt("api_date", endExclusive)
         .order("api_date", { ascending: true }).order("content_id", { ascending: true })
-        .range(from, from + 499);
-      if (rows.error) throw new Error(`直近7日分の新作候補を取得できませんでした: ${rows.error.message}`);
+        .range(from, from + 999);
+      if (rows.error) throw new Error(`新作候補を取得できませんでした: ${rows.error.message}`);
       const batch = (rows.data ?? []) as AmateurWork[];
       allWorks.push(...batch);
-      if (batch.length < 500) break;
+      if (batch.length < 1000) break;
     }
-    const terminalIds = await getTerminalContentIds(allWorks.map((work) => work.content_id));
-    const visibleWorks = allWorks.filter((work) => !terminalIds.has(work.content_id));
-    total = visibleWorks.length;
+    const terminalIds = await getTerminalCandidateIds(allWorks.map((work) => work.content_id));
+    const visibleWorks = withoutSkippedAmateurXCandidates(allWorks, terminalIds);
     const from = (safePage - 1) * AMATEUR_X_PAGE_SIZE;
     const works = visibleWorks.slice(from, from + AMATEUR_X_PAGE_SIZE);
-    const selected = await getSelectedJobs(handle, works.map((work) => work.content_id));
+    total = visibleWorks.length;
+    const selected = await getSelectedJobs(works.map((work) => work.content_id), lane);
     return {
       candidates: works.map((work) => ({ ...work, image: imageUrl(work.image_url), job: selected.get(work.content_id) ?? null })),
       total,
@@ -175,7 +214,7 @@ export async function getAmateurXCandidates(handle: string, lane: "new_release" 
 
   const works = await getWorksByIds(orderedIds);
   const rankById = new Map(ranked.map((item, index) => [item.content_id, index + 1]));
-  const selected = await getSelectedJobs(handle, orderedIds);
+  const selected = await getSelectedJobs(orderedIds, "popular");
   const candidates = orderedIds.flatMap((id) => {
     const work = works.get(id);
     if (!work) return [];
@@ -186,7 +225,7 @@ export async function getAmateurXCandidates(handle: string, lane: "new_release" 
 
 async function loadEligibleWork(contentId: string) {
   const result = await supabaseAdmin.from("fanza_amateur_works")
-    .select("content_id,title,api_date,mp4_url,mp4_status,is_listed,image_url,raw_item")
+    .select("content_id,title,api_date,mp4_url,mp4_status,is_listed,image_url,prices,raw_item")
     .eq("content_id", contentId).maybeSingle();
   if (result.error) throw new Error(`作品を取得できませんでした: ${result.error.message}`);
   const work = result.data as AmateurWork | null;
@@ -194,89 +233,118 @@ async function loadEligibleWork(contentId: string) {
   return work;
 }
 
-export async function getAmateurXDashboard(handle: string, lane: "new_release" | "popular", page = 1) {
-  const [candidatePage, jobsResult] = await Promise.all([
-    getAmateurXCandidates(handle, lane, page),
-    supabaseAdmin.from("fanza_amateur_x_post_jobs").select(JOB_FIELDS).eq("account_handle", handle)
-      .order("created_at", { ascending: false }).limit(100),
-  ]);
-  if (jobsResult.error) throw jobTableError("投稿履歴を取得できませんでした", jobsResult.error);
-  const jobs = (jobsResult.data ?? []) as unknown as Job[];
-  const works = await getWorksByIds([...new Set(jobs.map((job) => job.content_id))]);
-  const pendingIds = [...new Set(jobs.filter((job) => job.status === "pending").map((job) => job.content_id))];
-  const affiliateUrls = await getAffiliateUrlsByIds(pendingIds);
-  return {
-    ...candidatePage,
-    jobs: jobs.map((job) => {
-      const work = works.get(job.content_id) ?? null;
-      const oldUrl = job.reply_text.match(/https:\/\/hakkutsu-lab\.com\/amateur\/[^\s]+/)?.[0];
-      const expectedPath = `/amateur/${encodeURIComponent(job.content_id)}?`;
-      const isLegacyLink = oldUrl?.includes(expectedPath) ?? false;
-      const affiliateUrl = job.status === "pending" && isLegacyLink ? affiliateUrls.get(job.content_id) : null;
-      const reply_text = affiliateUrl
-        ? job.reply_text.replace("👇作品詳細・価格推移はこちら", "👇FANZAで作品をチェック（PR）").replace(oldUrl!, affiliateUrl)
-        : job.reply_text;
-      return { ...job, reply_text, work, image: imageUrl(work?.image_url) };
-    }),
-  };
-}
-
-export async function createAmateurXJob(handle: string, contentId: string, lane: "new_release" | "popular") {
+async function loadEligibleCandidateWork(contentId: string, lane: "new_release" | "popular") {
   const work = await loadEligibleWork(contentId);
   if (lane === "new_release") {
     const date = work.api_date?.slice(0, 10) ?? "";
     if (date < tokyoDateOffset(-6) || date >= tokyoDateOffset(1)) throw new Error("直近7日間の新作候補ではありません。");
-    if ((await getTerminalContentIds([contentId])).has(contentId)) throw new Error("この作品はすでに投稿済みまたはスキップ済みです。");
+    if ((await getTerminalCandidateIds([contentId])).has(contentId)) throw new Error("この作品はすでに投稿済みまたはスキップ済みです。");
   } else {
     const top500 = await getDmmFanzaAmateurPopularWorks(500);
     if (!top500.some((item) => item.content_id === contentId)) throw new Error("人気動画TOP500の候補ではありません。");
+    const recentlyPostedIds = await getRecentlyPostedPopularIds([contentId]);
+    if (recentlyPostedIds.has(contentId)) throw new Error("投稿から30日以内の作品は人気動画候補に追加できません。");
   }
+  return work;
+}
+
+export async function getAmateurXDashboard(lane: "new_release" | "popular", page = 1) {
+  const [candidatePage, jobsResult, historyResult] = await Promise.all([
+    getAmateurXCandidates(lane, page),
+    supabaseAdmin.from("fanza_amateur_x_post_jobs").select(JOB_FIELDS).eq("status", "pending")
+      .order("created_at", { ascending: false }).limit(100),
+    supabaseAdmin.from("fanza_amateur_x_post_jobs").select(JOB_FIELDS).in("status", ["posted", "skipped"])
+      .order("created_at", { ascending: false }).limit(100),
+  ]);
+  if (jobsResult.error) throw jobTableError("投稿履歴を取得できませんでした", jobsResult.error);
+  if (historyResult.error) throw jobTableError("投稿履歴を取得できませんでした", historyResult.error);
+  const jobs = (jobsResult.data ?? []) as unknown as Job[];
+  const history = (historyResult.data ?? []) as unknown as Job[];
+  const works = await getWorksByIds([...new Set([...jobs, ...history].map((job) => job.content_id))]);
+  const decorateJob = (job: Job) => {
+    const work = works.get(job.content_id) ?? null;
+    const legacyTrackingKey = job.status === "pending" && work
+      ? getLegacyAmateurXReplyTrackingKey(job.reply_text, job.content_id)
+      : null;
+    return {
+      ...job,
+      ...(legacyTrackingKey && work ? { reply_text: postCopy(work).replyText } : {}),
+      work,
+      image: imageUrl(work?.image_url),
+    };
+  };
+  return {
+    ...candidatePage,
+    jobs: jobs.map(decorateJob),
+    history: history.map(decorateJob),
+  };
+}
+
+export async function createAmateurXJob(contentId: string, lane: "new_release" | "popular") {
+  const work = await loadEligibleCandidateWork(contentId, lane);
+  const existingPending = await supabaseAdmin.from("fanza_amateur_x_post_jobs").select("id")
+    .eq("content_id", contentId).eq("status", "pending").limit(1).maybeSingle();
+  if (existingPending.error) throw jobTableError("共有投稿リストの重複を確認できませんでした", existingPending.error);
+  if (existingPending.data) return { ok: false, error: "この作品はすでに投稿リストにあります。" };
   const texts = postCopy(work);
   const inserted = await supabaseAdmin.from("fanza_amateur_x_post_jobs")
-    .insert({ account_handle: handle, content_id: contentId, source_lane: lane, status: "pending", ...texts })
+    .insert({ account_handle: AMATEUR_X_SHARED_QUEUE_ACCOUNT, content_id: contentId, source_lane: lane, status: "pending", ...amateurXPostJobTextColumns(texts) })
     .select(JOB_FIELDS).single();
-  if (inserted.error?.code === "23505") return { ok: false, error: "このアカウントにはすでに追加されています。" };
+  if (inserted.error?.code === "23505") return { ok: false, error: "共有投稿リストにはすでに追加されています。" };
   if (inserted.error) throw jobTableError("投稿準備を保存できませんでした", inserted.error);
   return { ok: true, job: inserted.data as unknown as Job };
 }
 
-export async function updateAmateurXJobText(handle: string, jobId: number, mainText: string, replyText: string) {
+export async function skipAmateurXCandidate(contentId: string, lane: "new_release" | "popular") {
+  const work = await loadEligibleCandidateWork(contentId, lane);
+  const existingPending = await supabaseAdmin.from("fanza_amateur_x_post_jobs").select("id")
+    .eq("content_id", contentId).eq("status", "pending").limit(1).maybeSingle();
+  if (existingPending.error) throw jobTableError("共有投稿リストの状態を確認できませんでした", existingPending.error);
+  if (existingPending.data) return { ok: false, error: "この作品は投稿リストにあります。投稿するリストからスキップしてください。" };
+  const texts = postCopy(work);
+  const inserted = await supabaseAdmin.from("fanza_amateur_x_post_jobs")
+    .insert({ account_handle: AMATEUR_X_SHARED_QUEUE_ACCOUNT, content_id: contentId, source_lane: lane, status: "skipped", ...amateurXPostJobTextColumns(texts) })
+    .select(JOB_FIELDS).single();
+  if (inserted.error?.code === "23505") return { ok: false, error: "この作品はすでに投稿済みまたはスキップ済みです。リストを更新してください。" };
+  if (inserted.error) throw jobTableError("スキップを保存できませんでした", inserted.error);
+  return { ok: true, job: inserted.data as unknown as Job };
+}
+
+export async function updateAmateurXJobText(jobId: number, mainText: string, replyText: string) {
   if (!mainText.trim() || mainText.length > 280 || !replyText.trim() || replyText.length > 280) throw new Error("本文と自己リプは1〜280文字で入力してください。");
   const result = await supabaseAdmin.from("fanza_amateur_x_post_jobs").update({ main_text: mainText, reply_text: replyText })
-    .eq("account_handle", handle).eq("id", jobId).eq("status", "pending").select("id").maybeSingle();
+    .eq("id", jobId).eq("status", "pending").select("id").maybeSingle();
   if (result.error) throw jobTableError("投稿文を保存できませんでした", result.error);
   if (!result.data) throw new Error("更新対象の投稿候補がありません。");
   return { ok: true };
 }
 
-export async function updateAmateurXJobStatus(handle: string, jobId: number, status: "posted" | "skipped", xPostUrl?: string, mainText?: string, replyText?: string) {
+export async function updateAmateurXJobStatus(jobId: number, status: "posted" | "skipped", xPostUrl?: string, mainText?: string, replyText?: string) {
   const loaded = await supabaseAdmin.from("fanza_amateur_x_post_jobs").select("id,status")
-    .eq("account_handle", handle).eq("id", jobId).maybeSingle();
+    .eq("id", jobId).maybeSingle();
   if (loaded.error) throw jobTableError("投稿候補を確認できませんでした", loaded.error);
   if (!loaded.data || loaded.data.status !== "pending") throw new Error("投稿候補はすでに処理済みです。");
-  if (status === "posted" && (!mainText?.trim() || mainText.length > 280 || !replyText?.trim() || replyText.length > 280)) throw new Error("本文と自己リプを確認してから投稿済みにしてください。");
-  const postUrl = xPostUrl?.trim() ?? "";
-  if (postUrl && (!/^https:\/\/(?:x\.com|twitter\.com)\/[A-Za-z0-9_]+\/status\/\d+\/?$/.test(postUrl))) throw new Error("X投稿URLの形式が正しくありません。");
+  const projection = projectAmateurXJobStatusUpdate({ status, xPostUrl, postedAt: new Date().toISOString(), mainText, replyText });
+  if (projection.kind === "invalid") throw new Error(projection.message);
   const update = supabaseAdmin.from("fanza_amateur_x_post_jobs")
-    .update({ status, x_post_url: postUrl || null, posted_at: status === "posted" ? new Date().toISOString() : null,
-      ...(status === "posted" ? { main_text: mainText, reply_text: replyText } : {}) })
-    .eq("account_handle", handle).eq("id", jobId).eq("status", "pending");
+    .update(projection.update)
+    .eq("id", jobId).eq("status", "pending");
   const result = await update.select("id").maybeSingle();
   if (result.error) throw jobTableError("投稿状態を保存できませんでした", result.error);
   if (!result.data) throw new Error("投稿候補の状態が変わっています。画面を更新してください。");
   return { ok: true };
 }
 
-export async function getAmateurXJobVideo(handle: string, jobId: number, trimStartSeconds: number) {
+export async function getAmateurXJobVideo(jobId: number, trimStartSeconds: number, trimEndSeconds: number | null = null) {
   const result = await supabaseAdmin.from("fanza_amateur_x_post_jobs").select("content_id,status")
-    .eq("account_handle", handle).eq("id", jobId).maybeSingle();
+    .eq("id", jobId).maybeSingle();
   if (result.error) throw jobTableError("動画対象を確認できませんでした", result.error);
   if (!result.data || result.data.status !== "pending") throw new Error("動画を準備できる投稿候補がありません。");
   const work = await loadEligibleWork(result.data.content_id);
   const source = new URL(work.mp4_url!);
   const allowedDomains = ["dmm.co.jp", "dmm.com", "fanza.co.jp"];
   if (source.protocol !== "https:" || !allowedDomains.some((domain) => source.hostname === domain || source.hostname.endsWith(`.${domain}`))) throw new Error("公式DMM/FANZA動画URLではありません。");
-  const trimmed = await trimVideoForX({ sourceUrl: source.toString(), trimStartSeconds });
+  const trimmed = await trimVideoForX({ sourceUrl: source.toString(), trimStartSeconds, trimEndSeconds });
   const filenameId = result.data.content_id.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 100);
   return { file: trimmed.file, dir: trimmed.dir, filename: `amateur-${filenameId}.mp4` };
 }

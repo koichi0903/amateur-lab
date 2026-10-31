@@ -43,4 +43,3 @@ test("セール価格をその系列の最安値として通常価格と区別�
 test("存在しない選択系列の価格要約は返さない", () => {
   assert.equal(getPriceSeriesSummary(history, "unknown\u0000series"), null);
 });
-

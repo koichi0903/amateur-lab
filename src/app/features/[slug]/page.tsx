@@ -90,9 +90,7 @@ export default async function FeaturePage({ params, searchParams }: {
             <div><p className="text-xs font-black tracking-widest text-pink-600">RECOMMENDED</p><h2 className="mt-1 text-2xl font-black">おすすめ作品</h2></div>
             <span className="text-xs font-bold text-slate-500">全{result.count.toLocaleString("ja-JP")}作品</span>
           </div>
-          {result.error ? (
-            <div className="rounded-3xl border border-rose-200 bg-white p-10 text-center font-black">作品を読み込めませんでした</div>
-          ) : result.works.length ? (
+          {result.works.length ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               {result.works.map((work) => <DealWorkCard key={work.id} work={work} source="features" />)}
             </div>

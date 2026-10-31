@@ -2,7 +2,6 @@ import Link from "next/link";
 import {
   ArrowLeft,
   BarChart3,
-  CircleDollarSign,
   Download,
   ExternalLink,
   MousePointerClick,
@@ -16,231 +15,18 @@ import {
 import { getAffiliateSalesAnalytics } from "@/lib/affiliateSalesAnalytics";
 import { AFFILIATE_SOURCE_LABELS } from "@/lib/affiliateTracking";
 import { getGoogleAcquisitionAnalytics } from "@/lib/googleAcquisitionAnalytics";
-import RevenueImportForm from "./RevenueImportForm";
 import RevenuePerformanceTable from "./RevenuePerformanceTable";
 import TrafficImprovementPanel from "./TrafficImprovementPanel";
 import FanzaDailyPostFunnel from "./FanzaDailyPostFunnel";
-import FanzaId990DailyOfficialInput from "./FanzaId990DailyOfficialInput";
 import { getFanzaId990DailyOfficialMetrics } from "@/lib/fanzaId990DailyOfficialMetrics";
+import RevenueAcquisitionSection from "./RevenueAcquisitionSection";
+import RevenueAnalyticsWarnings from "./RevenueAnalyticsWarnings";
+import RevenueOfficialSection from "./RevenueOfficialSection";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("ja-JP", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Tokyo",
-  }).format(new Date(value));
-}
-
-function MetricCard({
-  label,
-  value,
-  note,
-}: {
-  label: string;
-  value: string;
-  note: string;
-}) {
-  return (
-    <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
-      <p className="text-xs font-bold text-zinc-400">{label}</p>
-      <p className="mt-2 text-3xl font-black text-white">{value}</p>
-      <p className="mt-2 text-xs text-zinc-500">{note}</p>
-    </section>
-  );
-}
-
-function FunnelStage({
-  number,
-  title,
-  value,
-  period,
-  definition,
-  status,
-}: {
-  number: number;
-  title: string;
-  value: string;
-  period: string;
-  definition: string;
-  status: "measured" | "google-measured" | "unavailable" | "account-total";
-}) {
-  const statusLabel = status === "measured"
-    ? "サイト内実測"
-    : status === "google-measured"
-      ? "Google公式計測"
-    : status === "account-total"
-      ? "公式・月次合計"
-      : "未接続／未計測";
-  const statusStyle = status === "measured"
-    ? "text-emerald-300"
-    : status === "google-measured"
-      ? "text-cyan-300"
-    : status === "account-total"
-      ? "text-sky-300"
-      : "text-amber-300";
-
-  return (
-    <div className="min-w-0 rounded-xl border border-zinc-800 bg-zinc-950 p-4">
-      <p className="text-xs font-black text-zinc-500">{number}. {title}</p>
-      <p className="mt-3 text-2xl font-black text-white">{value}</p>
-      <p className={`mt-1 text-[11px] font-black ${statusStyle}`}>{statusLabel} · {period}</p>
-      <p className="mt-2 text-xs leading-5 text-zinc-500">{definition}</p>
-    </div>
-  );
-}
-
-type XTraffic = Awaited<ReturnType<typeof getAffiliateAnalytics>>["xTraffic"];
-type XPostCategoryRevenue = Awaited<ReturnType<typeof getAffiliateAnalytics>>["xPostCategoryRevenue"];
-
-function XTrafficPanel({ xTraffic }: { xTraffic: XTraffic }) {
-  return (
-    <section className="mt-6 rounded-2xl border border-sky-800/80 bg-sky-950/20 p-5 sm:p-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="text-xs font-black tracking-[0.18em] text-sky-300">
-            X TRAFFIC
-          </p>
-          <h2 className="mt-2 text-xl font-black">X送客管理</h2>
-          <p className="mt-2 text-sm leading-6 text-zinc-400">
-            X投稿リンクから発掘LABの作品ページへ来た後、FANZA公式CTAが押された回数です。人数や購入数ではなく、同じ人の複数回操作も含むイベント数です。
-          </p>
-        </div>
-        <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[30rem]">
-          <MetricCard label="今日" value={`${xTraffic.today.toLocaleString("ja-JP")}回`} note="日本時間0:00から" />
-          <MetricCard label="直近7日" value={`${xTraffic.sevenDays.toLocaleString("ja-JP")}回`} note="X投稿からの送客" />
-          <MetricCard label="直近30日" value={`${xTraffic.thirtyDays.toLocaleString("ja-JP")}回`} note="X投稿からの送客" />
-          <MetricCard label="全体比率" value={`${xTraffic.share}%`} note="直近30日の送客内訳" />
-        </div>
-      </div>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <div>
-          <h3 className="text-sm font-black text-zinc-300">X経由のクリック上位作品</h3>
-          <div className="mt-3 divide-y divide-zinc-800 rounded-xl bg-zinc-950 px-4">
-            {xTraffic.topWorks.length ? xTraffic.topWorks.map((work, index) => (
-              <Link
-                key={work.workId}
-                href={`/works/${work.workId}`}
-                className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-3 py-3 transition hover:text-sky-300"
-              >
-                <span className="text-center text-xs font-black text-zinc-600">{index + 1}</span>
-                <span className="truncate text-sm font-bold text-zinc-200">{work.title}</span>
-                <span className="whitespace-nowrap text-sm font-black text-sky-300">{work.clicks.toLocaleString("ja-JP")}回</span>
-              </Link>
-            )) : <p className="py-5 text-sm text-zinc-500">X経由のクリックはまだありません。</p>}
-          </div>
-        </div>
-
-        <div>
-          <h3 className="text-sm font-black text-zinc-300">直近のX経由クリック</h3>
-          <div className="mt-3 divide-y divide-zinc-800 rounded-xl bg-zinc-950 px-4">
-            {xTraffic.recent.length ? xTraffic.recent.map((click) => (
-              <Link
-                key={click.id}
-                href={`/works/${click.work_id}`}
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 transition hover:text-sky-300"
-              >
-                <span className="truncate text-sm font-bold text-zinc-200">{click.title}</span>
-                <span className="whitespace-nowrap text-xs font-bold text-zinc-500">{formatDateTime(click.clicked_at)}</span>
-              </Link>
-            )) : <p className="py-5 text-sm text-zinc-500">X経由のクリックはまだありません。</p>}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function XPostCategoryRevenuePanel({
-  days,
-  rows,
-}: {
-  days: number;
-  rows: XPostCategoryRevenue;
-}) {
-  return (
-    <section className="mt-6 rounded-2xl border border-fuchsia-800/80 bg-fuchsia-950/20 p-5 sm:p-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-xs font-black tracking-[0.18em] text-fuchsia-300">
-            X CATEGORY FUNNEL
-          </p>
-          <h2 className="mt-2 text-xl font-black">X投稿カテゴリ別サイト内イベント</h2>
-          <p className="mt-2 text-sm leading-6 text-zinc-400">
-            X投稿ログとURLの <code className="rounded bg-black/30 px-1.5 py-0.5">x_post</code> キーで投稿別に照合します。PV・CTAは重複を含むイベント数です。キーのない過去クリックは、同じ作品の24時間以内のPVから投稿を推定するため、投稿別の数字は参考値です。販売・報酬は含みません。
-          </p>
-        </div>
-        <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-950 p-1 text-sm font-black">
-          {[7, 30].map((value) => (
-            <Link
-              key={value}
-              href={`/admin/revenue?x_days=${value}`}
-              className={`rounded-lg px-4 py-2 transition ${days === value ? "bg-fuchsia-600 text-white" : "text-zinc-400 hover:text-white"}`}
-            >
-              {value}日
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-5 overflow-x-auto">
-        <table className="w-full min-w-[980px] text-left text-sm">
-          <thead className="text-xs text-zinc-500">
-            <tr className="border-b border-zinc-800">
-              <th className="pb-3 pr-4">カテゴリ</th>
-              <th className="pb-3 pr-4 text-right">投稿数</th>
-              <th className="pb-3 pr-4 text-right">作品ページPV</th>
-              <th className="pb-3 pr-4 text-right">FANZA CTA回数</th>
-              <th className="pb-3 pr-4 text-right">PV比</th>
-              <th className="pb-3 pr-4 text-right">PV/投稿</th>
-              <th className="pb-3 pr-4 text-right">クリック/投稿</th>
-              <th className="pb-3">上位作品</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-800/80">
-            {rows.map((row) => (
-              <tr key={row.category}>
-                <td className="whitespace-nowrap py-4 pr-4 font-black text-zinc-100">{row.label}</td>
-                <td className="py-4 pr-4 text-right font-bold text-zinc-300">{row.posts.toLocaleString("ja-JP")}</td>
-                <td className="py-4 pr-4 text-right font-black text-fuchsia-200">{row.xPageViews.toLocaleString("ja-JP")}</td>
-                <td className="py-4 pr-4 text-right font-black text-emerald-300">{row.xFanzaClicks.toLocaleString("ja-JP")}</td>
-                <td className="py-4 pr-4 text-right font-black text-emerald-300">{row.xCtr}%</td>
-                <td className="py-4 pr-4 text-right text-zinc-300">{row.pvPerPost.toLocaleString("ja-JP")}</td>
-                <td className="py-4 pr-4 text-right text-zinc-300">{row.clicksPerPost.toLocaleString("ja-JP")}</td>
-                <td className="min-w-[20rem] py-4">
-                  {row.topWorks.length ? (
-                    <div className="space-y-2">
-                      {row.topWorks.slice(0, 3).map((work) => (
-                        <Link
-                          key={work.workId}
-                          href={`/works/${work.workId}`}
-                          className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg bg-zinc-950 px-3 py-2 transition hover:text-fuchsia-200"
-                        >
-                          <span className="truncate font-bold text-zinc-200">{work.title}</span>
-                          <span className="whitespace-nowrap text-xs font-black text-zinc-400">
-                            {work.xPageViews}PV / {work.xFanzaClicks}送客 / {work.xCtr}%
-                          </span>
-                        </Link>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-zinc-500">まだ対象作品はありません</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!rows.length && <p className="py-5 text-sm text-zinc-500">投稿カテゴリ別の計測データはまだありません。</p>}
-      </div>
-    </section>
-  );
-}
+import { formatDateTime, MetricCard, XPostCategoryRevenuePanel, XTrafficPanel } from "./RevenueXPanels";
 
 export default async function RevenueDashboardPage({
   searchParams,
@@ -257,8 +43,11 @@ export default async function RevenueDashboardPage({
     getFanzaId990DailyOfficialMetrics(30),
   ]);
   const id990ConfirmedDaily = id990Daily.rows.filter((row) => row.report_status === "confirmed");
-  const id990ConfirmedClicks = id990ConfirmedDaily.reduce((sum, row) => sum + row.click_count, 0);
-  const id990ConfirmedReward = id990ConfirmedDaily.reduce((sum, row) => sum + row.direct_reward_yen + row.category_reward_yen + row.service_reward_yen, 0);
+  const id990Confirmed = {
+    dayCount: id990ConfirmedDaily.length,
+    clickCount: id990ConfirmedDaily.reduce((sum, row) => sum + row.click_count, 0),
+    rewardYen: id990ConfirmedDaily.reduce((sum, row) => sum + row.direct_reward_yen + row.category_reward_yen + row.service_reward_yen, 0),
+  };
   const maxDaily = Math.max(...analytics.daily.map((item) => item.count), 1);
   const thirtyDayTotal = analytics.totals.thirtyDays;
   const mobileClicks = analytics.placements.find(
@@ -270,7 +59,6 @@ export default async function RevenueDashboardPage({
   const growthNote = analytics.totals.growthRate === null
     ? "比較データがまだありません"
     : `前の7日間比 ${analytics.totals.growthRate >= 0 ? "+" : ""}${analytics.totals.growthRate}%`;
-
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -300,30 +88,7 @@ export default async function RevenueDashboardPage({
           </a>
         </div>
 
-        {analytics.error && (
-          <section className="mt-8 rounded-2xl border border-red-900 bg-red-950/40 p-5">
-            <h2 className="font-black text-red-300">クリックデータを読み込めませんでした</h2>
-            <p className="mt-2 break-all text-sm text-red-200/70">{analytics.error}</p>
-          </section>
-        )}
-
-        {!analytics.sourceAttributionEnabled && !analytics.error && (
-          <section className="mt-8 rounded-2xl border border-amber-800 bg-amber-950/30 p-5 text-sm leading-6 text-amber-200">
-            流入元追加SQLが未適用のため、既存クリックは「直接・不明」で表示しています。新しいマイグレーションをSupabaseで実行すると流入元別の計測が始まります。
-          </section>
-        )}
-
-        {!analytics.externalAttributionEnabled && !analytics.error && (
-          <section className="mt-8 rounded-2xl border border-amber-800 bg-amber-950/30 p-5 text-sm leading-6 text-amber-200">
-            外部流入計測用SQLが未適用です。<code className="mx-1 rounded bg-black/30 px-1.5 py-0.5">20260820_add_external_attribution_to_affiliate_clicks.sql</code>をSupabaseで実行すると、自然検索からFANZAクリックまでの集計が始まります。
-          </section>
-        )}
-
-        {!analytics.pageViewTrackingEnabled && !analytics.error && (
-          <section className="mt-8 rounded-2xl border border-amber-800 bg-amber-950/30 p-5 text-sm leading-6 text-amber-200">
-            作品詳細ページビュー計測SQLが未適用です。<code className="mx-1 rounded bg-black/30 px-1.5 py-0.5">20260829_add_work_page_view_funnel.sql</code>をSupabaseで実行すると、作品別CTRの集計が始まります。
-          </section>
-        )}
+        <RevenueAnalyticsWarnings analytics={analytics} />
 
         <nav aria-label="分析セクション" className="mt-6 flex flex-wrap gap-2">
           <a href="#official-results" className="rounded-full border border-emerald-900 bg-emerald-950/40 px-4 py-2 text-xs font-black text-emerald-200">① FANZA公式成果</a>
@@ -331,254 +96,15 @@ export default async function RevenueDashboardPage({
           <a href="#reference-analysis" className="rounded-full border border-violet-900 bg-violet-950/40 px-4 py-2 text-xs font-black text-violet-200">③ 参考分析・推定</a>
         </nav>
 
-        <section id="official-results" className="mt-8 rounded-2xl border border-emerald-900/80 bg-emerald-950/20 p-5 sm:p-6">
-          <div className="flex items-start gap-3">
-            <CircleDollarSign className="mt-0.5 shrink-0 text-emerald-400" size={23} />
-            <div>
-              <p className="text-xs font-black tracking-[0.16em] text-emerald-300">① FANZA公式の成果</p>
-              <h2 className="mt-1 text-xl font-black">販売・報酬（公式CSV）</h2>
-              <p className="mt-1 text-sm leading-6 text-zinc-400">
-              FANZA公式の商品別CSVをアフィリエイトID別に記録します。ここでは発掘LAB用の990だけを表示し、全体CSVや026は混ぜません。作品・投稿への購入帰属はできません。
-              </p>
-            </div>
-          </div>
+        <RevenueOfficialSection salesAnalytics={salesAnalytics} id990Daily={id990Daily} id990Confirmed={id990Confirmed} />
 
-          {salesAnalytics.error && (
-            <div className="mt-5 rounded-xl border border-amber-800 bg-amber-950/30 p-4 text-sm leading-6 text-amber-200">
-              売上テーブルを読み込めません。Supabaseで
-              <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5">20260817_add_affiliate_sales.sql</code>
-              を実行してからCSVを取り込んでください。
-            </div>
-          )}
-
-          <RevenueImportForm />
-
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <MetricCard
-              label={`ID990 ${salesAnalytics.currentMonth.replace("-", "年")}月 販売件数`}
-              value={`${salesAnalytics.totals.salesCount.toLocaleString("ja-JP")}件`}
-              note="990を選択して取り込んだ公式CSVのみ"
-            />
-            <MetricCard
-              label="販売金額"
-              value={`¥${salesAnalytics.totals.salesAmount.toLocaleString("ja-JP")}`}
-              note="ID990・対象月の取込済み合計"
-            />
-            <MetricCard
-              label="発生報酬"
-              value={salesAnalytics.currentMonthHasRows ? `¥${salesAnalytics.totals.commissionAmount.toLocaleString("ja-JP")}` : "未取得"}
-              note="確定報酬とは差が出る場合があります"
-            />
-          </div>
-
-          {salesAnalytics.latestImport && (
-            <p className="mt-4 text-xs text-zinc-500">
-              最終取込: {formatDateTime(salesAnalytics.latestImport.importedAt)} / {salesAnalytics.latestImport.file}
-            </p>
-          )}
-
-          <div className="mt-7 border-t border-emerald-900/70 pt-6">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <p className="text-xs font-black tracking-[0.16em] text-emerald-300">DMM OFFICIAL DAILY · ID 990</p>
-                <h3 className="mt-1 text-lg font-black">公式日別クリック・報酬</h3>
-                <p className="mt-1 text-xs leading-5 text-zinc-400">対象 {id990Daily.fromDate}〜{id990Daily.untilDate}。DMM公式画面からの手入力です。サイト内イベント・ID026・全体CSVとは別集計です。</p>
-              </div>
-              {!id990Daily.error && <p className="text-xs text-zinc-500">確定値のみ集計 / 記録 {id990ConfirmedDaily.length}日</p>}
-            </div>
-
-            {id990Daily.error ? (
-              <p className="mt-4 rounded-lg border border-amber-800 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">日別公式テーブルを読み込めません。DB設定反映後に利用できます。エラー: {id990Daily.error}</p>
-            ) : (
-              <>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  <MetricCard label="ID990 確定クリック（30日）" value={id990ConfirmedDaily.length ? `${id990ConfirmedClicks.toLocaleString("ja-JP")}回` : "未記録"} note={`DMM公式の日別確定値。${id990ConfirmedDaily.length}日分のみ。未記録日は含みません。`} />
-                  <MetricCard label="ID990 確定報酬（30日）" value={id990ConfirmedDaily.length ? `¥${id990ConfirmedReward.toLocaleString("ja-JP")}` : "未記録"} note="ダイレクト・カテゴリ・サービス新規の合計" />
-                  <MetricCard label="速報・未確定日" value={`${id990Daily.rows.filter((row) => row.report_status === "provisional").length}日`} note="確定値の合計からは除外" />
-                </div>
-                <FanzaId990DailyOfficialInput />
-                <div className="mt-4 overflow-x-auto rounded-xl border border-zinc-800">
-                  <table className="w-full min-w-[760px] text-left text-xs">
-                    <thead className="bg-zinc-900 text-zinc-400"><tr><th className="px-3 py-3">対象日</th><th className="px-3 py-3 text-right">公式クリック</th><th className="px-3 py-3 text-right">成果件数</th><th className="px-3 py-3 text-right">報酬額</th><th className="px-3 py-3">状態</th><th className="px-3 py-3">確認日時</th></tr></thead>
-                    <tbody className="divide-y divide-zinc-800">
-                      {id990Daily.rows.slice(0, 10).map((row) => {
-                        const count = row.direct_reward_count + row.category_reward_count + row.service_reward_count;
-                        const reward = row.direct_reward_yen + row.category_reward_yen + row.service_reward_yen;
-                        return <tr key={row.report_date}>
-                          <td className="px-3 py-3 font-bold text-zinc-200">{row.report_date}</td>
-                          <td className="px-3 py-3 text-right font-black text-cyan-200">{row.click_count.toLocaleString("ja-JP")}</td>
-                          <td className="px-3 py-3 text-right text-zinc-300">{count.toLocaleString("ja-JP")}</td>
-                          <td className="px-3 py-3 text-right font-black text-emerald-300">¥{reward.toLocaleString("ja-JP")}</td>
-                          <td className="px-3 py-3">{row.report_status === "confirmed" ? <span className="text-emerald-300">確定</span> : <span className="text-amber-300">速報</span>}</td>
-                          <td className="px-3 py-3 text-zinc-500">{formatDateTime(row.observed_at)}</td>
-                        </tr>;
-                      })}
-                      {!id990Daily.rows.length && <tr><td colSpan={6} className="px-3 py-5 text-center text-zinc-500">日別レポートは未記録です。未記録は0件として集計していません。</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </div>
-
-          {!salesAnalytics.currentMonthHasRows && !salesAnalytics.error && (
-            <p className="mt-4 text-xs leading-5 text-amber-300">対象月のID990成果行は未取得です。CSV未取込と販売0件を区別できないため、0件とは判定しません。DMM公式のID990レポートも確認してください。</p>
-          )}
-          {salesAnalytics.non990Totals.rows > 0 && (
-            <p className="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-xs leading-5 text-amber-200">ID990以外またはID範囲が不明な明細が {salesAnalytics.non990Totals.rows.toLocaleString("ja-JP")} 行あります。これらは発掘LABの990成果・クリック分析に含めていません。</p>
-          )}
-
-          <div className="mt-7 border-t border-emerald-900/70 pt-6">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <p className="text-xs font-black tracking-[0.16em] text-emerald-300">DMM OFFICIAL DAILY · ID 990</p>
-                <h3 className="mt-1 text-lg font-black">公式日別クリック・報酬</h3>
-                <p className="mt-1 text-xs leading-5 text-zinc-400">対象 {id990Daily.fromDate}〜{id990Daily.untilDate}。DMM公式画面から記録します。商品別CSV・サイト内クリック・ID026とは別集計です。</p>
-              </div>
-              {!id990Daily.error && <p className="text-xs text-zinc-500">確定値のみ集計 / 記録 {id990ConfirmedDaily.length}日</p>}
-            </div>
-            {id990Daily.error ? (
-              <p className="mt-4 rounded-lg border border-amber-800 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">日別公式テーブルを読み込めません。DB設定を確認してください。</p>
-            ) : (
-              <>
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  <MetricCard label="ID990 確定クリック（30日）" value={id990ConfirmedDaily.length ? `${id990ConfirmedClicks.toLocaleString("ja-JP")}回` : "未記録"} note={`${id990ConfirmedDaily.length}日分。未記録日は合計に含めません。`} />
-                  <MetricCard label="ID990 確定報酬（30日）" value={id990ConfirmedDaily.length ? `¥${id990ConfirmedReward.toLocaleString("ja-JP")}` : "未記録"} note="ダイレクト・カテゴリ・サービス新規の合計" />
-                  <MetricCard label="速報・未確定日" value={`${id990Daily.rows.filter((row) => row.report_status === "provisional").length}日`} note="確定値の合計から除外" />
-                </div>
-                <FanzaId990DailyOfficialInput />
-                <div className="mt-4 overflow-x-auto rounded-xl border border-zinc-800">
-                  <table className="w-full min-w-[760px] text-left text-xs">
-                    <thead className="bg-zinc-900 text-zinc-400"><tr><th className="px-3 py-3">対象日</th><th className="px-3 py-3 text-right">公式クリック</th><th className="px-3 py-3 text-right">成果件数</th><th className="px-3 py-3 text-right">報酬額</th><th className="px-3 py-3">状態</th><th className="px-3 py-3">確認日時</th></tr></thead>
-                    <tbody className="divide-y divide-zinc-800">
-                      {id990Daily.rows.slice(0, 10).map((row) => {
-                        const count = row.direct_reward_count + row.category_reward_count + row.service_reward_count;
-                        const reward = row.direct_reward_yen + row.category_reward_yen + row.service_reward_yen;
-                        return <tr key={row.report_date}><td className="px-3 py-3 font-bold text-zinc-200">{row.report_date}</td><td className="px-3 py-3 text-right font-black text-cyan-200">{row.click_count.toLocaleString("ja-JP")}</td><td className="px-3 py-3 text-right text-zinc-300">{count.toLocaleString("ja-JP")}</td><td className="px-3 py-3 text-right font-black text-emerald-300">¥{reward.toLocaleString("ja-JP")}</td><td className="px-3 py-3">{row.report_status === "confirmed" ? <span className="text-emerald-300">確定</span> : <span className="text-amber-300">速報</span>}</td><td className="px-3 py-3 text-zinc-500">{formatDateTime(row.observed_at)}</td></tr>;
-                      })}
-                      {!id990Daily.rows.length && <tr><td colSpan={6} className="px-3 py-5 text-center text-zinc-500">まだ未記録です。未記録は0件として集計していません。</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-            <div>
-              <h3 className="text-sm font-black text-zinc-300">月別報酬推移</h3>
-              <div className="mt-3 space-y-2">
-                {[...salesAnalytics.monthly].reverse().slice(0, 6).map((month) => (
-                  <div key={month.key} className="flex items-center justify-between rounded-xl bg-zinc-950 px-4 py-3 text-sm">
-                    <span className="font-bold text-zinc-400">{month.key.replace("-", "年")}月</span>
-                    <span className="font-black text-emerald-300">¥{month.commissionAmount.toLocaleString("ja-JP")}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <h3 className="text-sm font-black text-zinc-300">今月の報酬上位商品</h3>
-              <div className="mt-3 divide-y divide-zinc-800 rounded-xl bg-zinc-950 px-4">
-                {salesAnalytics.topProducts.length ? salesAnalytics.topProducts.map((product) => {
-                  const content = (
-                    <>
-                      <span className="text-center text-xs font-black text-zinc-600">{product.rank}</span>
-                      <span className="truncate text-sm font-bold text-zinc-200">{product.title}</span>
-                      <span className="whitespace-nowrap text-sm font-black text-emerald-300">¥{product.commission_amount.toLocaleString("ja-JP")}</span>
-                    </>
-                  );
-                  return product.work_id ? (
-                    <Link
-                      key={product.id}
-                      href={`/works/${product.work_id}`}
-                      className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-3 py-3 transition hover:text-pink-300"
-                    >
-                      {content}
-                    </Link>
-                  ) : (
-                    <div key={product.id} className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-3 py-3">
-                      {content}
-                    </div>
-                  );
-                }) : <p className="py-5 text-sm text-zinc-500">今月の売上データはまだありません。</p>}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="measured-events" className="mt-10">
-          <div className="mb-4">
-            <p className="text-xs font-black tracking-[0.16em] text-cyan-300">② 発掘LAB内で実測したPV・クリック</p>
-            <h2 className="mt-1 text-2xl font-black">集客ファネルの現在地</h2>
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-zinc-400">
-              Search ConsoleとGA4の公式計測を、サイト内イベントと区別して表示します。検索クリックとサイト訪問は計測定義が異なり、同一訪問者で結び付けた転換率ではありません。
-            </p>
-          </div>
-          <section className="mb-4 rounded-2xl border border-cyan-900/70 bg-cyan-950/15 p-5 sm:p-6">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-xs font-black tracking-[0.16em] text-cyan-300">GOOGLE ACQUISITION</p>
-                <h3 className="mt-1 text-lg font-black">検索表示とサイト訪問</h3>
-              </div>
-              <p className="text-xs text-zinc-500">
-                Search Console: {googleAnalytics.period.startDate}〜{googleAnalytics.period.endDate}（3日前まで） · GA4: {googleAnalytics.analyticsPeriod.startDate}〜{googleAnalytics.analyticsPeriod.endDate}（前日まで・速報値は後日変わる場合があります）
-              </p>
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
-                <p className="text-xs font-black text-zinc-400">Search Console · Google検索</p>
-                {googleAnalytics.searchConsole.available ? (
-                  <>
-                    <div className="mt-3 grid grid-cols-2 gap-3">
-                      <MetricCard label="表示回数" value={`${googleAnalytics.searchConsole.impressions?.toLocaleString("ja-JP")}回`} note="検索結果に表示された回数" />
-                      <MetricCard label="クリック" value={`${googleAnalytics.searchConsole.clicks?.toLocaleString("ja-JP")}回`} note="Google検索からのクリック" />
-                      <MetricCard label="CTR" value={`${((googleAnalytics.searchConsole.ctr ?? 0) * 100).toFixed(1)}%`} note="クリック ÷ 表示回数" />
-                      <MetricCard label="平均掲載順位" value={(googleAnalytics.searchConsole.averagePosition ?? 0).toFixed(1)} note="表示された検索結果での平均" />
-                    </div>
-                    <p className="mt-3 text-[11px] text-zinc-500">Search Consoleのクリック数は、サイト内セッション数やユニーク訪問者数ではありません。</p>
-                  </>
-                ) : (
-                  <div className="mt-3 rounded-xl border border-amber-900/70 bg-amber-950/20 p-4">
-                    <p className="font-black text-amber-200">連携設定待ち</p>
-                    <p className="mt-1 text-xs leading-5 text-zinc-400">
-                      {googleAnalytics.searchConsole.error ?? "Search Consoleの読み取り権限を確認してください。"}
-                    </p>
-                  </div>
-                )}
-              </div>
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
-                <p className="text-xs font-black text-zinc-400">Google Analytics 4 · サイト行動</p>
-                {googleAnalytics.analytics.available ? (
-                  <>
-                    <div className="mt-3 grid grid-cols-3 gap-3">
-                      <MetricCard label="訪問ユーザー" value={`${googleAnalytics.analytics.activeUsers?.toLocaleString("ja-JP")}人`} note={`GA4のアクティブユーザー · ${googleAnalytics.analyticsPeriod.startDate}〜${googleAnalytics.analyticsPeriod.endDate}`} />
-                      <MetricCard label="セッション" value={`${googleAnalytics.analytics.sessions?.toLocaleString("ja-JP")}回`} note={`訪問セッション数 · ${googleAnalytics.analyticsPeriod.startDate}〜${googleAnalytics.analyticsPeriod.endDate}`} />
-                      <MetricCard label="全ページ表示" value={`${googleAnalytics.analytics.pageViews?.toLocaleString("ja-JP")}回`} note={`作品以外も含むPV · ${googleAnalytics.analyticsPeriod.startDate}〜${googleAnalytics.analyticsPeriod.endDate}`} />
-                    </div>
-                    <p className="mt-3 text-[11px] text-zinc-500">訪問ユーザーはGA4の集計値です。Cookie拒否等により実人数と一致しない場合があります。</p>
-                  </>
-                ) : (
-                  <div className="mt-3 rounded-xl border border-amber-900/70 bg-amber-950/20 p-4">
-                    <p className="font-black text-amber-200">連携設定待ち</p>
-                    <p className="mt-1 text-xs leading-5 text-zinc-400">
-                      {googleAnalytics.analytics.error ?? "GA4の読み取り権限とデータ収集状態を確認してください。"}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <FunnelStage number={1} title="Google検索表示" value={googleAnalytics.searchConsole.available ? `${googleAnalytics.searchConsole.impressions?.toLocaleString("ja-JP")}回` : "未接続"} period={`${googleAnalytics.period.startDate}〜${googleAnalytics.period.endDate}`} definition="Search Consoleの表示回数。検索結果に表示された回数で、サイト訪問ではありません。" status={googleAnalytics.searchConsole.available ? "google-measured" : "unavailable"} />
-            <FunnelStage number={2} title="サイト訪問ユーザー" value={googleAnalytics.analytics.available ? `${googleAnalytics.analytics.activeUsers?.toLocaleString("ja-JP")}人` : "未接続"} period={`${googleAnalytics.analyticsPeriod.startDate}〜${googleAnalytics.analyticsPeriod.endDate}`} definition="GA4のアクティブユーザー数。検索経由に限らない全流入のユーザーです。前日までの速報値で、後日変わる場合があります。" status={googleAnalytics.analytics.available ? "google-measured" : "unavailable"} />
-            <FunnelStage number={3} title="作品ページPV" value={analytics.pageViewTrackingEnabled ? `${analytics.totals.workPageViewsThirtyDays.toLocaleString("ja-JP")}回` : "未計測"} period="直近30日" definition={analytics.pageViewTrackingEnabled ? "記録された作品詳細ページ表示イベント。ユニーク訪問者数ではありません。" : "ページ表示計測が有効ではないため、この期間の数字を出せません。"} status={analytics.pageViewTrackingEnabled ? "measured" : "unavailable"} />
-            <FunnelStage number={4} title="FANZA CTA" value={`${thirtyDayTotal.toLocaleString("ja-JP")}回`} period="直近30日" definition="サイト内で記録したFANZAリンク操作。購入・購入者数ではありません。" status="measured" />
-            <FunnelStage number={5} title="公式報酬（ID990）" value={id990Daily.error ? "未取得" : id990ConfirmedDaily.length ? `${id990ConfirmedClicks.toLocaleString("ja-JP")}クリック / ¥${id990ConfirmedReward.toLocaleString("ja-JP")}` : "未記録"} period={id990Daily.error ? "日別テーブル未接続" : `${id990Daily.fromDate}〜${id990Daily.untilDate}`} definition="DMM公式日別レポートの確定値。未記録日・速報値は除き、商品別月次CSVとは別集計です。" status={!id990Daily.error && id990ConfirmedDaily.length > 0 ? "account-total" : "unavailable"} />
-          </div>
-          <p className="mt-3 rounded-xl border border-amber-900/70 bg-amber-950/20 px-4 py-3 text-xs leading-5 text-amber-200">
-            期間と帰属範囲が異なる段階を並べた全体像です。現在は厳密な一続きのCVファネルや各段階の転換率として比較できません。
-          </p>
-        </section>
+        <RevenueAcquisitionSection
+          affiliateAnalytics={analytics}
+          googleAnalytics={googleAnalytics}
+          id990Daily={id990Daily}
+          id990Confirmed={id990Confirmed}
+          thirtyDayTotal={thirtyDayTotal}
+        />
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard label="FANZA CTAイベント・今日" value={`${analytics.totals.today.toLocaleString("ja-JP")}回`} note="日本時間0:00から。購入者数ではありません" />

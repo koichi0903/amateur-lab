@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  existingManualSnapshotConflict,
+  validateManualImpressionPayload,
+  validateManualPostAge,
+} from "@/lib/x-growth/xGrowthManualImpressions";
 
-const ACCOUNTS = new Set(["hakkutsu_lab", "bijyo1010"]);
-const HOUR_MS = 60 * 60 * 1000;
 type ManualSnapshotInsert = {
   account_handle: string;
   x_post_log_id: number;
@@ -20,16 +23,10 @@ type ManualSnapshotInsert = {
 export async function POST(request: NextRequest) {
   if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
 
-  const payload = await request.json().catch(() => null) as Record<string, unknown> | null;
-  const postKey = typeof payload?.postKey === "string" ? payload.postKey.trim() : "";
-  const account = typeof payload?.account === "string" ? payload.account : "";
-  const impressions = payload?.impressions;
-  if (!postKey || postKey.length > 180 || !ACCOUNTS.has(account)) {
-    return NextResponse.json({ error: "投稿情報が正しくありません。画面を再読み込みしてください。" }, { status: 400 });
-  }
-  if (typeof impressions !== "number" || !Number.isSafeInteger(impressions) || impressions < 0 || impressions > 1_000_000_000) {
-    return NextResponse.json({ error: "Xに表示された閲覧数を0以上の整数で入力してください。" }, { status: 400 });
-  }
+  const payload = await request.json().catch(() => null) as unknown;
+  const payloadValidation = validateManualImpressionPayload(payload);
+  if ("error" in payloadValidation) return NextResponse.json({ error: payloadValidation.error }, { status: 400 });
+  const { postKey, account, impressions } = payloadValidation;
 
   const postResult = await supabaseAdmin
     .from("x_post_logs")
@@ -45,13 +42,9 @@ export async function POST(request: NextRequest) {
   if (!post) return NextResponse.json({ error: "X投稿IDが登録されていません。投稿URLを保存した投稿だけ記録できます。" }, { status: 404 });
 
   const capturedAt = new Date();
-  const ageHours = (capturedAt.getTime() - Date.parse(post.posted_at)) / HOUR_MS;
-  if (ageHours < 24) {
-    return NextResponse.json({ error: `投稿からまだ${ageHours.toFixed(1)}時間です。24時間後に記録してください。` }, { status: 400 });
-  }
-  if (ageHours >= 30 * 24) {
-    return NextResponse.json({ error: `投稿から${ageHours.toFixed(1)}時間経過しています。手入力は投稿後30日以内に行ってください。` }, { status: 400 });
-  }
+  const ageValidation = validateManualPostAge(post.posted_at, capturedAt);
+  if ("error" in ageValidation) return NextResponse.json({ error: ageValidation.error }, { status: 400 });
+  const { ageHours } = ageValidation;
 
   const existing = await supabaseAdmin
     .from("x_metric_snapshots")
@@ -60,12 +53,8 @@ export async function POST(request: NextRequest) {
     .eq("snapshot_age", "24h")
     .maybeSingle();
   if (existing.error) return NextResponse.json({ error: "既存の記録を確認できませんでした。" }, { status: 500 });
-  if (existing.data && existing.data.account_handle !== account) {
-    return NextResponse.json({ error: "この投稿キーは別のアカウントの表示数に使われています。" }, { status: 409 });
-  }
-  if (existing.data && existing.data.source !== "manual") {
-    return NextResponse.json({ error: "すでに別の方法で記録されています。上書きしませんでした。" }, { status: 409 });
-  }
+  const snapshotConflict = existingManualSnapshotConflict(existing.data, account);
+  if (snapshotConflict) return NextResponse.json({ error: snapshotConflict }, { status: 409 });
 
   const postedAt = new Date(post.posted_at);
   const windowEnd = capturedAt.toISOString();

@@ -10,12 +10,41 @@ export type PersistedQuoteMediaEvidence = {
   has_video?: boolean | null;
 };
 
+function isVideoEvidence(evidence: PersistedQuoteMediaEvidence) {
+  return evidence.media_type === "video";
+}
+
+function isImageEvidence(evidence: PersistedQuoteMediaEvidence) {
+  return evidence.media_type === "image";
+}
+
+function hasVerifiedVideoPermalink(evidence: PersistedQuoteMediaEvidence) {
+  return isVideoEvidence(evidence)
+    && evidence.media_permalink_validation_status === "verified_video_permalink"
+    && Boolean(evidence.media_permalink);
+}
+
+function hasReadyImagePermalink(evidence: PersistedQuoteMediaEvidence) {
+  return isImageEvidence(evidence)
+    && Boolean(evidence.media_permalink)
+    && Boolean(evidence.quote_visual_ready);
+}
+
+function hasSavedMediaForType(evidence: PersistedQuoteMediaEvidence) {
+  if (isVideoEvidence(evidence)) return Boolean(evidence.has_video);
+  if (isImageEvidence(evidence)) return Boolean(evidence.has_image);
+  return false;
+}
+
+function hasSupportedMediaType(evidence: PersistedQuoteMediaEvidence) {
+  return isVideoEvidence(evidence) || isImageEvidence(evidence);
+}
+
 function verifiedMediaStrength(evidence: PersistedQuoteMediaEvidence) {
-  if (evidence.media_type === "video" && evidence.media_permalink_validation_status === "verified_video_permalink" && evidence.media_permalink) return 3;
-  if (evidence.media_type === "image" && evidence.media_permalink && evidence.quote_visual_ready) return 3;
-  if ((evidence.media_type === "video" && evidence.has_video) || (evidence.media_type === "image" && evidence.has_image)) return 2;
-  if (evidence.media_type === "video" || evidence.media_type === "image") return 1;
-  return 0;
+  if (hasVerifiedVideoPermalink(evidence)) return 3;
+  if (hasReadyImagePermalink(evidence)) return 3;
+  if (hasSavedMediaForType(evidence)) return 2;
+  return hasSupportedMediaType(evidence) ? 1 : 0;
 }
 
 export function mergePersistedQuoteMediaEvidence<T extends PersistedQuoteMediaEvidence>(

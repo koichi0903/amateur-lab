@@ -1,19 +1,7 @@
 import { updateScore } from "@/lib/admin/updateScore";
 import { blockVercelAdminUpdate } from "@/lib/admin/updateGuard";
 import { revalidatePublicCacheForTasks } from "@/lib/admin/revalidatePublicCache";
-
-function errorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-  ) {
-    return error.message;
-  }
-  return String(error);
-}
+import { simpleErrorMessage } from "@/lib/errorMessage";
 
 export async function POST() {
   const blocked = blockVercelAdminUpdate();
@@ -37,7 +25,7 @@ export async function POST() {
     return Response.json(
       {
         success: false,
-        message: `スコア更新に失敗しました: ${errorMessage(error)}`,
+        message: `スコア更新に失敗しました: ${simpleErrorMessage(error)}`,
       },
       {
         status: 500,

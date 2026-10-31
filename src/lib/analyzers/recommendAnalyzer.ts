@@ -1,3 +1,5 @@
+import { parseRuntimeMinutes } from "@/lib/runtimeMinutes";
+
 export type RecommendationCategory = "price" | "review" | "popularity" | "discovery";
 
 export type RecommendReason = {
@@ -49,23 +51,35 @@ const effectivePrice = (price: PriceRecord): number | null => {
 
 const formatPrice = (price: number) => `¥${price.toLocaleString("ja-JP")}`;
 
-const parseRuntimeMinutes = (duration: number | string | null): number | null => {
-  if (typeof duration === "number") return Number.isFinite(duration) ? duration : null;
-  if (!duration) return null;
-  const hours = duration.match(/(\d+)\s*時間/);
-  const minutes = duration.match(/(\d+)\s*分/);
-  if (hours || minutes) return Number(hours?.[1] ?? 0) * 60 + Number(minutes?.[1] ?? 0);
-  const numeric = Number(duration.match(/\d+/)?.[0]);
-  return Number.isFinite(numeric) ? numeric : null;
-};
-
 function priceReason(input: RecommendationInput): RecommendReason | null {
   const current = input.currentPrice;
   if (!current) return null;
   const currentPrice = effectivePrice(current);
   if (currentPrice === null) return null;
 
-  const matchingHistory = (input.priceHistory ?? [])
+  const priorHistory = getPriorPriceHistory(
+    current,
+    currentPrice,
+    input.priceHistory ?? [],
+  );
+  const historicalLow = historicalLowReason(current, currentPrice, priorHistory);
+  if (historicalLow) return historicalLow;
+
+  const discount = discountReason(current, currentPrice);
+  if (discount) return discount;
+
+  const recentDrop = recentPriceDropReason(currentPrice, priorHistory);
+  if (recentDrop) return recentDrop;
+
+  return currentSaleReason(current, currentPrice);
+}
+
+function getPriorPriceHistory(
+  current: PriceRecord,
+  currentPrice: number,
+  priceHistory: PriceRecord[],
+) {
+  const matchingHistory = priceHistory
     .filter(
       (item) =>
         item.display_name === current.display_name &&
@@ -76,9 +90,16 @@ function priceReason(input: RecommendationInput): RecommendReason | null {
     .sort((a, b) => Date.parse(b.changed_at ?? "") - Date.parse(a.changed_at ?? ""));
 
   // price_history の最新行は現在値の保存時点であるため、現在値と同じなら比較対象から外す。
-  const priorHistory = matchingHistory.length > 0 && effectivePrice(matchingHistory[0]) === currentPrice
+  return matchingHistory.length > 0 && effectivePrice(matchingHistory[0]) === currentPrice
     ? matchingHistory.slice(1)
     : matchingHistory;
+}
+
+function historicalLowReason(
+  current: PriceRecord,
+  currentPrice: number,
+  priorHistory: PriceRecord[],
+): RecommendReason | null {
   const historicalPrices = priorHistory.map(effectivePrice).filter((price): price is number => price !== null);
   const historicalMin = historicalPrices.length ? Math.min(...historicalPrices) : null;
   if (historicalMin !== null && currentPrice <= historicalMin) {
@@ -89,7 +110,10 @@ function priceReason(input: RecommendationInput): RecommendReason | null {
       color: "green",
     };
   }
+  return null;
+}
 
+function discountReason(current: PriceRecord, currentPrice: number): RecommendReason | null {
   const regularPrice = current.normal_price;
   const discountRate = regularPrice && regularPrice > currentPrice
     ? ((regularPrice - currentPrice) / regularPrice) * 100
@@ -102,7 +126,10 @@ function priceReason(input: RecommendationInput): RecommendReason | null {
       color: "green",
     };
   }
+  return null;
+}
 
+function recentPriceDropReason(currentPrice: number, priorHistory: PriceRecord[]): RecommendReason | null {
   const previousPrice = priorHistory[0] ? effectivePrice(priorHistory[0]) : null;
   if (previousPrice && previousPrice > currentPrice) {
     const dropRate = ((previousPrice - currentPrice) / previousPrice) * 100;
@@ -115,7 +142,11 @@ function priceReason(input: RecommendationInput): RecommendReason | null {
       };
     }
   }
+  return null;
+}
 
+function currentSaleReason(current: PriceRecord, currentPrice: number): RecommendReason | null {
+  const regularPrice = current.normal_price;
   if (regularPrice && currentPrice < regularPrice) {
     return {
       category: "price",
@@ -139,20 +170,33 @@ function reviewReason(work: Work): RecommendReason | null {
   return null;
 }
 
-function popularityReason(work: Work, ranks: EntityRanks): RecommendReason | null {
-  const currentRank = work.realtime_rank ?? work.ranking;
-  const previousRank = work.previous_realtime_rank;
+function risingPopularityReason(currentRank: number | null, previousRank?: number | null): RecommendReason | null {
   if (currentRank && previousRank && previousRank - currentRank >= 20) {
     return { category: "popularity", title: "ランキング急上昇", description: `${previousRank}位から${currentRank}位へ${previousRank - currentRank}位上昇しました。`, color: "pink" };
   }
+  return null;
+}
+
+function topPopularityReason(currentRank: number | null): RecommendReason | null {
   if (currentRank && currentRank <= 100) {
     return { category: "popularity", title: "ランキング上位", description: `現在のランキングは${currentRank}位です。`, color: "pink" };
   }
+  return null;
+}
+
+function entityPopularityReason(ranks: EntityRanks): RecommendReason | null {
   if (ranks.actress && ranks.actress <= 50) return { category: "popularity", title: "人気女優出演", description: `出演女優が女優ランキング${ranks.actress}位です。`, color: "pink" };
   if (ranks.genre && ranks.genre <= 30) return { category: "popularity", title: "人気ジャンル", description: `ジャンルランキング${ranks.genre}位の作品です。`, color: "pink" };
   if (ranks.maker && ranks.maker <= 30) return { category: "popularity", title: "人気メーカー", description: `メーカーランキング${ranks.maker}位の作品です。`, color: "pink" };
   if (ranks.series && ranks.series <= 50) return { category: "popularity", title: "人気シリーズ", description: `シリーズランキング${ranks.series}位の作品です。`, color: "pink" };
   return null;
+}
+
+function popularityReason(work: Work, ranks: EntityRanks): RecommendReason | null {
+  const currentRank = work.realtime_rank ?? work.ranking;
+  const rising = risingPopularityReason(currentRank, work.previous_realtime_rank);
+  if (rising) return rising;
+  return topPopularityReason(currentRank) ?? entityPopularityReason(ranks);
 }
 
 function discoveryReason(work: Work): RecommendReason | null {

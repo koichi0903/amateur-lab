@@ -1,27 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-
-type XMetricPost = {
-  id: string;
-  public_metrics?: {
-    retweet_count?: number;
-    reply_count?: number;
-    like_count?: number;
-    impression_count?: number;
-  };
-  non_public_metrics?: {
-    impression_count?: number;
-    user_profile_clicks?: number;
-    url_link_clicks?: number;
-  };
-  organic_metrics?: {
-    impression_count?: number;
-    like_count?: number;
-    reply_count?: number;
-    retweet_count?: number;
-    user_profile_clicks?: number;
-    url_link_clicks?: number;
-  };
-};
+import {
+  projectMyfansXPostMetrics,
+  type XMetricPost,
+} from "./myfans/myfansXMetricsSyncProjection";
 
 type XMetricsResponse = {
   data?: XMetricPost[];
@@ -44,10 +25,6 @@ export function extractXPostId(value: string) {
 
 function bearerToken() {
   return process.env.X_BEARER_TOKEN || process.env.TWITTER_BEARER_TOKEN || "";
-}
-
-function metricNumber(...values: Array<number | undefined>) {
-  return values.find((value) => typeof value === "number" && Number.isFinite(value)) ?? 0;
 }
 
 async function fetchXMetrics(ids: string[]) {
@@ -115,22 +92,13 @@ export async function syncMyfansXPostMetrics() {
       continue;
     }
 
-    const impressions = metricNumber(
-      metric.organic_metrics?.impression_count,
-      metric.non_public_metrics?.impression_count,
-      metric.public_metrics?.impression_count,
-    );
-    const clicks = metricNumber(metric.organic_metrics?.url_link_clicks, metric.non_public_metrics?.url_link_clicks);
+    const metricValues = projectMyfansXPostMetrics(metric);
 
     const { error: updateError } = await supabaseAdmin
       .from("myfans_x_posts")
       .update({
         x_post_id: post.resolvedXPostId,
-        impressions,
-        likes_count: metricNumber(metric.organic_metrics?.like_count, metric.public_metrics?.like_count),
-        reposts_count: metricNumber(metric.organic_metrics?.retweet_count, metric.public_metrics?.retweet_count),
-        replies_count: metricNumber(metric.organic_metrics?.reply_count, metric.public_metrics?.reply_count),
-        clicks,
+        ...metricValues,
         metrics_sync_error: "",
         external_metrics_checked_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

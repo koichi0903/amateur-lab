@@ -114,8 +114,8 @@ export function filterBijyoReservedQueueWorks(works: RecentReleaseWork[], jobs: 
     .sort((a, b) => b.release_date.slice(0, 10).localeCompare(a.release_date.slice(0, 10)) || b.created_at.localeCompare(a.created_at) || a.id - b.id);
 }
 
-export function pageBijyoReservedQueueWorks(works: RecentReleaseWork[], jobs: RecentReleaseJob[], todayDate: string, page: number, pageSize: number) {
-  const eligible = filterBijyoReservedQueueWorks(works, jobs, todayDate);
+export function pageBijyoReservedQueueWorks(works: RecentReleaseWork[], jobs: RecentReleaseJob[], todayDate: string, page: number, pageSize: number, now = new Date()) {
+  const eligible = filterBijyoReservedQueueWorks(works, jobs, todayDate, now);
   const offset = Math.max(0, page - 1) * pageSize;
   const pageWorks = eligible.slice(offset, offset + pageSize);
   return { works: pageWorks, hasMore: offset + pageSize < eligible.length, total: eligible.length };

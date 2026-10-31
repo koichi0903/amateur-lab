@@ -107,38 +107,100 @@ export function isOfficialFanzaDmmSampleUrl(url: string | null | undefined) {
 
 export function isOfficialSampleMovieAsset(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null) {
   const url = asset?.source_url ?? sampleMovieUrl;
-  return isOfficialFanzaDmmSampleUrl(url);
+  if (!isOfficialFanzaDmmSampleUrl(url)) return false;
+  return asset?.source_kind === "official_sample" || sourceKindFor(url as string) === "official_sample";
 }
 
 /**
- * Candidate eligibility uses only stored URL and source facts. Availability
- * probes are not reliable for these URLs and historical HTTP results must not
- * remove otherwise valid official sample candidates. Rights metadata remains
- * separate for review and posting authorization.
+ * FANZA X Growth's media gate validates the official source and its latest
+ * HTTP/MIME probe. Rights metadata remains separate for review and posting.
  */
+function officialSampleMovieUrlReasons(sourceUrl: string | null | undefined) {
+  if (!sourceUrl) return ["sample_movie_urlなし"];
+  return isOfficialFanzaDmmSampleUrl(sourceUrl) ? [] : ["HTTPSの公式FANZA/DMM sample_movie_urlではない"];
+}
+
+function fetchStatusReasons(asset: Partial<XMediaAsset> | null | undefined) {
+  if (asset?.fetch_status === "ok") return [];
+  return [asset?.fetch_status ? `HTTP取得状態=${asset.fetch_status}` : "technical probe未確認"];
+}
+
+function fetchStatusCodeReasons(asset: Partial<XMediaAsset> | null | undefined) {
+  if (asset?.fetch_status_code == null) return ["HTTP status未確認"];
+  if (asset.fetch_status_code < 200 || asset.fetch_status_code >= 300) return [`HTTP ${asset.fetch_status_code}`];
+  return [];
+}
+
+function mimeTypeReasons(mimeType: string | null | undefined) {
+  if (!mimeType) return ["MIME未確認"];
+  const normalizedMimeType = mimeType.toLowerCase().split(";", 1)[0].trim();
+  return normalizedMimeType.includes("video/mp4") ? [] : [`MIME=${mimeType}`];
+}
+
+function contentLengthReasons(contentLength: number | null | undefined) {
+  return contentLength != null && contentLength <= 0 ? ["content-length不正"] : [];
+}
+
 export function isFanzaXGrowthTechnicalSampleMovie(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null): XFanzaXGrowthTechnicalVerdict {
   const sourceUrl = sampleMovieUrl ?? asset?.source_url;
-  const reasons: string[] = [];
-  if (!sourceUrl) reasons.push("sample_movie_urlなし");
-  else if (!isOfficialFanzaDmmSampleUrl(sourceUrl)) reasons.push("HTTPSの公式FANZA/DMM sample_movie_urlではない");
+  const reasons = [
+    ...officialSampleMovieUrlReasons(sourceUrl),
+    ...fetchStatusReasons(asset),
+    ...fetchStatusCodeReasons(asset),
+    ...mimeTypeReasons(asset?.mime_type),
+    ...contentLengthReasons(asset?.content_length),
+  ];
   return { usable: reasons.length === 0, reasons: [...new Set(reasons)] };
 }
 
-export function isUsableXMediaAsset(asset: Partial<XMediaAsset> | null | undefined): XMediaUsability {
-  const reasons: string[] = [];
-  if (!asset) reasons.push("rights未確認");
+function xMediaPermissionReasons(asset: Partial<XMediaAsset> | null | undefined) {
   const status = normalizeRightsStatus(asset?.rights_status);
-  if (status !== "allowed") reasons.push(status === "blocked" ? "rights blocked" : "rights未確認");
-  if (asset?.x_usage_allowed !== true) reasons.push("X usage不可");
-  if (asset?.can_reupload !== true) reasons.push("reupload不可");
-  if (asset?.quote_only === true) reasons.push("quote only");
-  if (asset?.commercial_use_allowed !== true) reasons.push("commercial use未確認");
-  if (asset?.fetch_status !== "ok") reasons.push(asset?.fetch_status ? `URL ${asset.fetch_status}` : "technical未確認");
+  return [
+    !asset ? "rights未確認" : null,
+    rightsStatusReason(status),
+    permissionReason(asset?.x_usage_allowed === true, "X usage不可"),
+    permissionReason(asset?.can_reupload === true, "reupload不可"),
+    permissionReason(asset?.quote_only !== true, "quote only"),
+    permissionReason(asset?.commercial_use_allowed === true, "commercial use未確認"),
+  ].filter((reason): reason is string => reason !== null);
+}
+
+function rightsStatusReason(status: XMediaRightsStatus) {
+  if (status === "allowed") return null;
+  return status === "blocked" ? "rights blocked" : "rights未確認";
+}
+
+function permissionReason(isAllowed: boolean, reason: string) {
+  return isAllowed ? null : reason;
+}
+
+function xMediaTechnicalReasons(asset: Partial<XMediaAsset> | null | undefined) {
+  if (asset?.fetch_status === "ok") return [];
+  return [asset?.fetch_status ? `URL ${asset.fetch_status}` : "technical未確認"];
+}
+
+function xMediaReachAssessment(asset: Partial<XMediaAsset> | null | undefined) {
   const quality = asset?.media_quality ?? "unreviewed";
   const tags = asset?.manual_tags ?? [];
-  const reachSuitable = !tags.includes("too_explicit_for_reach") && quality !== "weak";
-  if (!reachSuitable) reasons.push(tags.includes("too_explicit_for_reach") ? "reach不向き" : "weak video");
-  return { usable: reasons.length === 0, reasons: [...new Set(reasons)], reachSuitable, quality };
+  const explicitForReach = tags.includes("too_explicit_for_reach");
+  const reachSuitable = !explicitForReach && quality !== "weak";
+  const reasons = reachSuitable ? [] : [explicitForReach ? "reach不向き" : "weak video"];
+  return { quality, reachSuitable, reasons };
+}
+
+export function isUsableXMediaAsset(asset: Partial<XMediaAsset> | null | undefined): XMediaUsability {
+  const reach = xMediaReachAssessment(asset);
+  const reasons = [
+    ...xMediaPermissionReasons(asset),
+    ...xMediaTechnicalReasons(asset),
+    ...reach.reasons,
+  ];
+  return {
+    usable: reasons.length === 0,
+    reasons: [...new Set(reasons)],
+    reachSuitable: reach.reachSuitable,
+    quality: reach.quality,
+  };
 }
 
 export function isPostableOfficialSampleMovie(asset: Partial<XMediaAsset> | null | undefined, sampleMovieUrl?: string | null): XMediaUsability {
@@ -183,7 +245,7 @@ export async function getXMediaSupplyStatus() {
     synced,
     unknown,
     review,
-    officialUrls,
+    allowed,
     blocked,
     dead,
     waiting,
@@ -192,21 +254,21 @@ export async function getXMediaSupplyStatus() {
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "unknown"),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "review"),
-    supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("source_kind", "official_sample"),
+    supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("fetch_status", "ok").ilike("mime_type", "video/mp4%"),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "blocked"),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).in("fetch_status", ["dead", "forbidden"]),
     supabaseAdmin.from("x_growth_opportunities").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).eq("media_type", "sample_movie").is("recommended_media_asset_id", null),
   ]);
-  const error = [works.error, synced.error, unknown.error, review.error, officialUrls.error, blocked.error, dead.error, waiting.error].find(Boolean);
+  const error = [works.error, synced.error, unknown.error, review.error, allowed.error, blocked.error, dead.error, waiting.error].find(Boolean);
   return {
     error: error?.message ?? null,
     mp4Candidates: works.count ?? 0,
     synced: synced.count ?? 0,
     unknown: unknown.count ?? 0,
     review: review.count ?? 0,
-    officialUrlCandidates: officialUrls.count ?? 0,
+    allowed: allowed.count ?? 0,
     blocked: blocked.count ?? 0,
-    historicalHttpFailures: dead.count ?? 0,
+    dead: dead.count ?? 0,
     topPickRightsWaiting: waiting.count ?? 0,
   };
 }
@@ -218,6 +280,7 @@ export async function getRightsReviewQueue(limit = 12) {
     .eq("account_handle", X_GROWTH_ACCOUNT)
     .in("media_type", ["video", "sample_movie"])
     .in("rights_status", ["unknown", "review", "allowed", "unchecked"])
+    .not("fetch_status", "in", "(dead,forbidden)")
     .order("updated_at", { ascending: false })
     .limit(limit);
   return { rows: (data ?? []) as Array<XMediaAsset & { works?: Record<string, unknown> | null }>, error: error?.message ?? null };

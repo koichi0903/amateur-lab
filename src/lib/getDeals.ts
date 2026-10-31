@@ -10,39 +10,39 @@ export const DEAL_COLUMNS = [
   "sale_end_at", "lowest_price", "is_lowest_price", "is_on_sale", "sample_movie_url",
 ].join(",");
 
-async function fetchDeals(category: DealCategory, from: number, to: number) {
-  if (category === "under-1000") {
-    const upper = to + 1;
-    const baseQuery = () => supabase
-      .from("works")
-      .select(DEAL_COLUMNS, { count: "exact" })
-      .or(NON_VR_GENRE_OR_FILTER)
-      .not("title", "ilike", "%VR%");
-    const [sale, regular] = await Promise.all([
-      baseQuery().gt("sale_price", 0).lte("sale_price", 1000).gt("price", 0).order("sale_price", { ascending: true }).limit(upper),
-      baseQuery().or("sale_price.is.null,sale_price.eq.0").gt("price", 0).lte("price", 1000).order("price", { ascending: true }).limit(upper),
-    ]);
-    if (sale.error || regular.error) {
-      throw new Error("Failed to load deal works.");
-    }
-    const works = [
-      ...((sale.data ?? []) as unknown as DealWork[]),
-      ...((regular.data ?? []) as unknown as DealWork[]),
-    ]
-      .filter(isNonVrWork)
-      .sort((a, b) => {
-        const aPrice = a.sale_price > 0 ? a.sale_price : a.price;
-        const bPrice = b.sale_price > 0 ? b.sale_price : b.price;
-        return aPrice - bPrice || String(a.id).localeCompare(String(b.id));
-      })
-      .slice(from, to + 1);
-    return {
-      works,
-      count: (sale.count ?? 0) + (regular.count ?? 0),
-      error: sale.error ?? regular.error,
-    };
+async function fetchUnder1000Deals(from: number, to: number) {
+  const upper = to + 1;
+  const baseQuery = () => supabase
+    .from("works")
+    .select(DEAL_COLUMNS, { count: "exact" })
+    .or(NON_VR_GENRE_OR_FILTER)
+    .not("title", "ilike", "%VR%");
+  const [sale, regular] = await Promise.all([
+    baseQuery().gt("sale_price", 0).lte("sale_price", 1000).gt("price", 0).order("sale_price", { ascending: true }).limit(upper),
+    baseQuery().or("sale_price.is.null,sale_price.eq.0").gt("price", 0).lte("price", 1000).order("price", { ascending: true }).limit(upper),
+  ]);
+  if (sale.error || regular.error) {
+    throw new Error("Failed to load deal works.");
   }
+  const works = [
+    ...((sale.data ?? []) as unknown as DealWork[]),
+    ...((regular.data ?? []) as unknown as DealWork[]),
+  ]
+    .filter(isNonVrWork)
+    .sort((a, b) => {
+      const aPrice = a.sale_price > 0 ? a.sale_price : a.price;
+      const bPrice = b.sale_price > 0 ? b.sale_price : b.price;
+      return aPrice - bPrice || String(a.id).localeCompare(String(b.id));
+    })
+    .slice(from, to + 1);
+  return {
+    works,
+    count: (sale.count ?? 0) + (regular.count ?? 0),
+    error: sale.error ?? regular.error,
+  };
+}
 
+function createDealCategoryQuery(category: Exclude<DealCategory, "under-1000">) {
   let query = supabase
     .from("works")
     .select(DEAL_COLUMNS, { count: "exact" })
@@ -87,7 +87,13 @@ async function fetchDeals(category: DealCategory, from: number, to: number) {
       break;
   }
 
-  const response = await query.range(from, to);
+  return query;
+}
+
+async function fetchDeals(category: DealCategory, from: number, to: number) {
+  if (category === "under-1000") return fetchUnder1000Deals(from, to);
+
+  const response = await createDealCategoryQuery(category).range(from, to);
   if (response.error) {
     throw new Error("Failed to load deal works.");
   }

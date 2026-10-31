@@ -3,6 +3,11 @@ dotenv.config({ path: ".env.local" });
 
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getLongHitRanking } from "./getLongHitRanking";
+import {
+  changedLongHitRankingProductIds,
+  shouldReportLongHitRankingProgress,
+  type LongHitRankingValueRow,
+} from "./longHitRankingProjection";
 
 type LongHitRankingProgress = (
   processed: number,
@@ -10,93 +15,119 @@ type LongHitRankingProgress = (
   productId: string,
 ) => Promise<void>;
 
-export async function updateLongHitRanking(onProgress?: LongHitRankingProgress) {
+type LongHitWorkRow = {
+  id: number;
+  product_id: string;
+  long_hit_rank: number | null;
+};
+
+const QUERY_BATCH_SIZE = 1000;
+
+async function fetchWorksByProductIds(productIds: string[]) {
+  const works: LongHitWorkRow[] = [];
+
+  for (let offset = 0; offset < productIds.length; offset += QUERY_BATCH_SIZE) {
+    const productIdBatch = productIds.slice(offset, offset + QUERY_BATCH_SIZE);
+    const { data, error } = await supabase
+      .from("works")
+      .select("id, product_id, long_hit_rank")
+      .in("product_id", productIdBatch);
+
+    if (error) throw error;
+    if (data) works.push(...data);
+  }
+
+  return works;
+}
+
+async function fetchChangedRankProductIds(
+  expectedRankByProduct: ReadonlyMap<string, number>,
+) {
   const changedProductIds = new Set<string>();
-  const longHit = await getLongHitRanking();
 
-if (longHit.length === 0) {
-  throw new Error("ロングヒットランキングの取得結果が0件です");
-}
+  for (let offset = 0; ; offset += QUERY_BATCH_SIZE) {
+    const { data, error } = await supabase
+      .from("works")
+      .select("product_id,long_hit_rank")
+      .not("long_hit_rank", "is", null)
+      .range(offset, offset + QUERY_BATCH_SIZE - 1);
 
-console.log(
-  `LongHit取得件数: ${longHit.length}件`
-);
-const longHitMap = new Map(
-  longHit.map((item: { productId: string; ranking: number }) => [
-    item.productId,
-    item.ranking,
-  ])
-);
-const targetProductIds = [...longHitMap.keys()];
+    if (error) throw error;
 
-const allWorks: { id: number; product_id: string; long_hit_rank: number | null }[] = [];
+    for (const productId of changedLongHitRankingProductIds(
+      (data ?? []) as LongHitRankingValueRow[],
+      expectedRankByProduct,
+    )) {
+      changedProductIds.add(productId);
+    }
 
-for (let i = 0; i < targetProductIds.length; i += 1000) {
-  const chunk = targetProductIds.slice(i, i + 1000);
-
-  const { data, error } = await supabase
-    .from("works")
-    .select("id, product_id, long_hit_rank")
-    .in("product_id", chunk);
-
-  if (error) {
-    throw error;
+    if (!data || data.length < QUERY_BATCH_SIZE) break;
   }
 
-  if (data) {
-    allWorks.push(...data);
-  }
+  return changedProductIds;
 }
 
-for (let from = 0; ; from += 1000) {
-  const { data: resetRows, error: resetRowsError } = await supabase
+async function resetLongHitRanks() {
+  const { error } = await supabase
     .from("works")
-    .select("product_id,long_hit_rank")
-    .not("long_hit_rank", "is", null)
-    .range(from, from + 999);
-  if (resetRowsError) throw resetRowsError;
-  for (const work of resetRows ?? []) {
-    const expectedRank = longHitMap.get(work.product_id) ?? null;
-    if (work.long_hit_rank !== expectedRank) {
-      changedProductIds.add(work.product_id);
+    .update({ long_hit_rank: null })
+    .not("long_hit_rank", "is", null);
+
+  if (error) throw error;
+}
+
+async function updateLongHitRanks(
+  works: LongHitWorkRow[],
+  expectedRankByProduct: ReadonlyMap<string, number>,
+  onProgress?: LongHitRankingProgress,
+) {
+  for (let index = 0; index < works.length; index += 1) {
+    const work = works[index];
+    const nextRank = expectedRankByProduct.get(work.product_id) ?? null;
+    const { error } = await supabase
+      .from("works")
+      .update({ long_hit_rank: nextRank })
+      .eq("id", work.id);
+
+    if (error) throw error;
+
+    const processed = index + 1;
+    if (shouldReportLongHitRankingProgress(processed, works.length)) {
+      await onProgress?.(processed, works.length, work.product_id);
     }
   }
-  if (!resetRows || resetRows.length < 1000) break;
 }
 
-const { error: resetError } = await supabase
-  .from("works")
-  .update({ long_hit_rank: null })
-  .not("long_hit_rank", "is", null);
+export async function updateLongHitRanking(onProgress?: LongHitRankingProgress) {
+  const longHit = await getLongHitRanking();
+  if (longHit.length === 0) {
+    throw new Error("ロングヒットランキングの取得結果が0件です");
+  }
 
-if (resetError) {
-  throw resetError;
-}
+  console.log(`LongHit取得件数: ${longHit.length}件`);
 
-for (let index = 0; index < allWorks.length; index += 1) {
-  const work = allWorks[index];
+  const expectedRankByProduct = new Map(
+    longHit.map((item: { productId: string; ranking: number }) => [
+      item.productId,
+      item.ranking,
+    ]),
+  );
+  const works = await fetchWorksByProductIds([...expectedRankByProduct.keys()]);
 
-  const nextRank = longHitMap.get(work.product_id) ?? null;
-  if (work.long_hit_rank !== nextRank) changedProductIds.add(work.product_id);
-  const { error } = await supabase
-  .from("works")
-  .update({
-    long_hit_rank: nextRank,
-  })
-  .eq("id", work.id);
+  const changedProductIds = await fetchChangedRankProductIds(
+    expectedRankByProduct,
+  );
+  for (const productId of changedLongHitRankingProductIds(
+    works,
+    expectedRankByProduct,
+  )) {
+    changedProductIds.add(productId);
+  }
 
-if (error) {
-  throw error;
-}
+  await resetLongHitRanks();
+  await updateLongHitRanks(works, expectedRankByProduct, onProgress);
 
-const processed = index + 1;
-if (processed % 10 === 0 || processed === allWorks.length) {
-  await onProgress?.(processed, allWorks.length, work.product_id);
-}
-}
-
-console.log("LongHit ranking update completed.");
-
-console.log(`DB登録済み作品: ${allWorks.length}件`);
-return [...changedProductIds];
+  console.log("LongHit ranking update completed.");
+  console.log(`DB登録済み作品: ${works.length}件`);
+  return [...changedProductIds];
 }

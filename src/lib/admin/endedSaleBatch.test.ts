@@ -8,6 +8,7 @@ import {
 import {
   classifyEndedSaleRemaining,
   isDeferredUnavailableStatus,
+  selectEndedSaleFinalRetryTargets,
   summarizeEndedSaleOutcomes,
 } from "./endedSaleOutcome.ts";
 import { advanceUnavailableStatus } from "../playwright/unavailableStatus.ts";
@@ -114,6 +115,18 @@ test("classifies only processed UNAVAILABLE_1/2 rows as non-fatal deferred work"
 
   assert.deepEqual(result.deferred.map((target) => target.product_id), ["deferred-1", "deferred-2"]);
   assert.deepEqual(result.fatal.map((target) => target.product_id), ["unprocessed", "failed"]);
+});
+
+test("retries only fatal leftovers that were already processed in this run", () => {
+  const result = selectEndedSaleFinalRetryTargets(
+    [
+      { product_id: "already-processed", playwright_status: "NORMAL" },
+      { product_id: "new-target", playwright_status: "NORMAL" },
+    ],
+    new Set(["already-processed"]),
+  );
+
+  assert.deepEqual(result.map((target) => target.product_id), ["already-processed"]);
 });
 
 test("keeps deferred classification safe for a paged backlog larger than 1,000", () => {

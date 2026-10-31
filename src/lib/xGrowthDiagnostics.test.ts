@@ -27,7 +27,7 @@ const item = {
   visualFacts: { facts: [{ kind: "opening_change" }], usableFacts: [] },
 } as never;
 
-const videoVariant = {
+const videoVariantData = {
   id: "video-reach",
   intent: "REACH",
   mediaType: "sample_movie",
@@ -64,23 +64,70 @@ const videoVariant = {
       },
     },
   },
-} as never;
+};
+const videoVariant = videoVariantData as never;
 
-const selectedPick = { workId: 123, creativeVariantId: "video-reach", slotId: "slot_1", whyBuzz: "selected" } as never;
+const selectedPickData = { workId: 123, creativeVariantId: "video-reach", slotId: "slot_1", whyBuzz: "selected" };
+const selectedPick = selectedPickData as never;
 const before = JSON.stringify({ item, videoVariant, selectedPick });
 const diagnostic = buildXGrowthVariantDiagnostic(item, videoVariant, [selectedPick]);
 assert.equal(diagnostic.selected, true);
 assert.equal(diagnostic.slot, "slot_1");
+assert.equal(diagnostic.selectedReason, "selected");
 assert.equal(diagnostic.videoEligibility?.eligible, true);
 assert.equal(diagnostic.humanVoice.checks.readerAction, false);
 assert.equal(diagnostic.humanVoice.checks.concreteVisualFact, false);
 assert.equal(diagnostic.factTypes[0], "opening_change");
 assert.equal(JSON.stringify({ item, videoVariant, selectedPick }), before);
 
+const alternativeReasonDiagnostic = buildXGrowthVariantDiagnostic(item, videoVariant, [
+  { ...selectedPickData, alternativeReason: "alternative reason" } as never,
+]);
+assert.equal(alternativeReasonDiagnostic.selectedReason, "alternative reason");
+
+const sameWorkDiagnostic = buildXGrowthVariantDiagnostic(item, {
+  ...videoVariantData,
+  id: "other-variant",
+} as never, [selectedPick]);
+assert.equal(sameWorkDiagnostic.selectedReason, "同一workの別variant/roleを選定");
+
+const qualityRejectionDiagnostic = buildXGrowthVariantDiagnostic(item, videoVariant);
+assert.equal(qualityRejectionDiagnostic.selectedReason, "quality gate NG: specificity");
+
+const softVideoVariant = {
+  ...videoVariantData,
+  quality: {
+    ...videoVariantData.quality,
+    passed: true,
+    dimensions: { adSmell: 50 },
+  },
+} as never;
+const videoRejectionDiagnostic = buildXGrowthVariantDiagnostic(item, softVideoVariant);
+assert.equal(videoRejectionDiagnostic.selectedReason, "動画供給候補外: human voice gate NG");
+
+const imageVariant = {
+  ...videoVariantData,
+  mediaType: "existing_link_image",
+  quality: { ...videoVariantData.quality, passed: true },
+} as never;
+const finalSelectionDiagnostic = buildXGrowthVariantDiagnostic(item, imageVariant);
+assert.equal(finalSelectionDiagnostic.selectedReason, "枠・多様性・重複・スコアによる最終選定で非選択（個別reject codeなし）");
+
 const summary = summarizeXGrowthVariantDiagnostics([diagnostic]);
 assert.equal(summary.totalVariants, 1);
 assert.equal(summary.humanVoiceNgByCheck.readerAction, 1);
 assert.equal(summary.humanVoiceNgByCheck.concreteVisualFact, 1);
 assert.equal(summary.selectedByMediaType.sample_movie, 1);
+assert.deepEqual(summary, {
+  totalVariants: 1,
+  mediaTypeCounts: { sample_movie: 1 },
+  selectedByMediaType: { sample_movie: 1 },
+  humanVoiceNgByCheck: { readerAction: 1, concreteVisualFact: 1 },
+  nativeXVoiceNgByCheck: {},
+  lastMileNgReasons: { "読者の行動/感情に翻訳されていない": 1 },
+  qualityNgReasons: { specificity: 1, "読者の行動/感情に翻訳されていない": 1 },
+  factTypeCounts: { opening_change: 1 },
+  videoRejectionReasons: { "最終動画候補としてselected": 1 },
+});
 
 console.log("xGrowth diagnostics tests passed");

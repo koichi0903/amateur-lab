@@ -10,9 +10,9 @@ const officialSampleWithRightsMetadataDisabled = {
   mediaAsset: {
     source_url: "https://cc3001.dmm.co.jp/litevideo/freepv/regression/regression_dmb_w.mp4",
     source_kind: "official_sample",
-    fetch_status: "forbidden" as const,
-    fetch_status_code: 403,
-    mime_type: "text/html",
+    fetch_status: "ok" as const,
+    fetch_status_code: 200,
+    mime_type: "video/mp4",
     content_length: 919,
     rights_status: "unknown" as const,
     x_usage_allowed: false,
@@ -26,7 +26,7 @@ assert.equal(
   true,
 );
 assert.equal(isOfficialEligibleVideoCandidate(officialSampleWithRightsMetadataDisabled), true);
-assert.equal(isFanzaXGrowthTechnicalSampleMovie({ source_url: officialSampleWithRightsMetadataDisabled.sampleMovieUrl, source_kind: "official_sample", fetch_status: null }, officialSampleWithRightsMetadataDisabled.sampleMovieUrl).usable, true);
+assert.equal(isFanzaXGrowthTechnicalSampleMovie({ source_url: officialSampleWithRightsMetadataDisabled.sampleMovieUrl, source_kind: "official_sample", fetch_status: null }, officialSampleWithRightsMetadataDisabled.sampleMovieUrl).usable, false);
 
 assert.equal(isOfficialEligibleVideoCandidate({
   ...officialSampleWithRightsMetadataDisabled,
@@ -36,7 +36,12 @@ assert.equal(isOfficialEligibleVideoCandidate({
 assert.equal(isOfficialEligibleVideoCandidate({
   ...officialSampleWithRightsMetadataDisabled,
   mediaAsset: { ...officialSampleWithRightsMetadataDisabled.mediaAsset, fetch_status: "dead" },
-}), true);
+}), false);
+
+assert.equal(isOfficialEligibleVideoCandidate({
+  ...officialSampleWithRightsMetadataDisabled,
+  mediaAsset: { ...officialSampleWithRightsMetadataDisabled.mediaAsset, fetch_status: "forbidden", fetch_status_code: 403, mime_type: "text/html" },
+}), false);
 
 assert.equal(isFanzaXGrowthTechnicalSampleMovie(null, null).usable, false);
 assert.equal(isFanzaXGrowthTechnicalSampleMovie(null, "not a URL").usable, false);
@@ -51,4 +56,4 @@ assert.equal(isOfficialEligibleVideoCandidate({
   mediaAsset: { ...officialSampleWithRightsMetadataDisabled.mediaAsset, source_url: "https://example.com/not-official.mp4", source_kind: "unknown_external" },
 }), false);
 
-console.log("rights metadata must not gate FANZA X Growth official sample movie: regression tests passed");
+console.log("HTTP/MIME availability gates FANZA X Growth samples; rights metadata remains a separate gate: regression tests passed");

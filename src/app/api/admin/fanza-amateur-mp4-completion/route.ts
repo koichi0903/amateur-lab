@@ -6,7 +6,6 @@ import {
   getActiveFanzaAmateurMp4Run,
   getLatestFanzaAmateurMp4Run,
   startFanzaAmateurMp4Run,
-  type FanzaAmateurMp4RunType,
 } from "@/lib/dmm/fanzaAmateurMp4Completion";
 
 export const runtime = "nodejs";
@@ -40,8 +39,11 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => ({})) as { action?: unknown; runType?: unknown; runId?: unknown };
   try {
-    if (body.action === "start" && (body.runType === "daily_incremental" || body.runType === "weekly_full")) {
-      const run = await startFanzaAmateurMp4Run(body.runType as FanzaAmateurMp4RunType);
+    if (body.action === "start") {
+      if (body.runType !== "weekly_full") {
+        return NextResponse.json({ error: "新規MP4補完はweekly_full（全対象再照合）のみ実行できます。" }, { status: 400, headers: { "Cache-Control": "no-store" } });
+      }
+      const run = await startFanzaAmateurMp4Run("weekly_full");
       return NextResponse.json({ run }, { headers: { "Cache-Control": "no-store" } });
     }
     if (body.action === "continue" && typeof body.runId === "string") {

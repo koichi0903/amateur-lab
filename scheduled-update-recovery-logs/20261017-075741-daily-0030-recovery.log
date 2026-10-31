@@ -1,0 +1,2 @@
+[2026-10-17T07:57:41.3010562+09:00] Resuming only the previously failed amateur-api-catalog stage; seven earlier stages succeeded in the original daily-0030 run.
+[schedule-monitor] failed to save status: TypeError: fetch failed

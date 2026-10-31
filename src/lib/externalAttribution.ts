@@ -15,6 +15,18 @@ export type ExternalAttribution = {
   landingPath: string;
 };
 
+export function inferBlueskyShareAttribution(
+  attribution: Pick<ExternalAttribution, "channel" | "source">,
+  search: string,
+): Pick<ExternalAttribution, "channel" | "source"> {
+  const shareSource = new URLSearchParams(search).get("share")?.trim().toLowerCase();
+  if (attribution.channel !== "direct" || !shareSource?.startsWith("bluesky")) {
+    return attribution;
+  }
+
+  return { channel: "social", source: "bluesky" };
+}
+
 const channelSet = new Set<string>(EXTERNAL_ATTRIBUTION_CHANNELS);
 
 export function isOperatorLandingPath(value: string | null | undefined) {

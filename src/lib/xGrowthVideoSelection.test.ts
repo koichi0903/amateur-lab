@@ -39,6 +39,19 @@ test("fresh sale urgency improves rank while recent posting history reduces it",
   assert.ok(ranked[2].rankReasons.some((reason) => reason.includes("直近投稿")));
 });
 
+test("posting-history penalties keep their existing 3-, 7-, and 30-day boundaries", () => {
+  const now = new Date("2026-10-10T00:00:00Z");
+  const postedAt = (daysAgo: number) => new Date(now.getTime() - daysAgo * 86_400_000).toISOString();
+  const ranked = rankXGrowthVideoCandidates(
+    [candidate(1), candidate(2), candidate(3), candidate(4)],
+    new Map([[1, postedAt(2)], [2, postedAt(5)], [3, postedAt(14)], [4, postedAt(31)]]),
+    now,
+  );
+  const scoreByWorkId = new Map(ranked.map((item) => [item.workId, item.rankScore]));
+
+  assert.deepEqual([1, 2, 3, 4].map((workId) => scoreByWorkId.get(workId)), [0, 13, 31, 43]);
+});
+
 test("manual picks keep priority and excluded auto picks are replaced from the ranked pool", () => {
   const ranked = rankXGrowthVideoCandidates(Array.from({ length: 8 }, (_, index) => candidate(index + 1)), new Map(), new Date("2026-10-10T00:00:00Z"));
   assert.deepEqual(chooseXGrowthVideoCandidates(ranked, [8], [1]).map((item) => item.workId), [8, 2, 3, 4, 5]);

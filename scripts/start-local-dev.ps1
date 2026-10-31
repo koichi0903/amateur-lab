@@ -31,16 +31,16 @@ function Get-OwnerClassification {
 }
 
 if ($TestCase) {
-    $fakeRoot = "C:\canonical\amateur-lab"
+    $fakeRoot = "F:\canonical\amateur-lab"
     $fakeProcess = if ($TestCase -eq "known-different") {
-        [pscustomobject]@{ CommandLine = "node C:\old\amateur-lab\node_modules\next\dist\bin\next dev --webpack -p 3000" }
+        [pscustomobject]@{ CommandLine = "node F:\old\amateur-lab\node_modules\next\dist\bin\next dev --webpack -p 3000" }
     }
     else {
         [pscustomobject]@{ CommandLine = "next dev --webpack -p 3000" }
     }
     $fakeMarker = switch ($TestCase) {
         "same-repo" { [pscustomobject]@{ pid = 1234; repoRoot = $fakeRoot } }
-        "known-different" { [pscustomobject]@{ pid = 1234; repoRoot = "C:\old\amateur-lab" } }
+        "known-different" { [pscustomobject]@{ pid = 1234; repoRoot = "F:\old\amateur-lab" } }
         "unknown" { $null }
         "no-owner" { $null }
     }

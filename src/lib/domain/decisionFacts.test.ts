@@ -111,6 +111,28 @@ test("HIGH_DISCOUNT_NOT_LOW requires the recorded-low comparison but not a chart
   }, "HIGH_DISCOUNT_NOT_LOW"), "missing_recorded_low");
 });
 
+test("eligibility reasons preserve decision-specific priority", () => {
+  const check = (
+    input: Parameters<typeof decisionFactEligibilityReason>[0],
+    decisionType: "RECORD_LOW" | "HIGH_DISCOUNT_NOT_LOW" | "HIDDEN_VALUE",
+    expected: ReturnType<typeof decisionFactEligibilityReason>,
+  ) => assert.equal(decisionFactEligibilityReason(input, decisionType), expected);
+
+  check({ ...base, currentPrice: null, recordedLowestPrice: null, isOnSale: false }, "RECORD_LOW", "missing_current_price");
+  check({ ...base, recordedLowestPrice: null }, "RECORD_LOW", "missing_recorded_low");
+  check({ ...base, currentPrice: 600 }, "RECORD_LOW", "current_is_record_low");
+  check({ ...base, isOnSale: false }, "RECORD_LOW", null);
+  check({ ...base, isOnSale: false, discountRate: 0 }, "HIGH_DISCOUNT_NOT_LOW", "not_on_sale");
+  check({ ...base, discountRate: 29, recordedLowestPrice: null }, "HIGH_DISCOUNT_NOT_LOW", "discount_below_threshold");
+  check({ ...base }, "HIGH_DISCOUNT_NOT_LOW", "current_is_record_low");
+  check({ ...base, isOnSale: false, discountRate: 0 }, "HIDDEN_VALUE", "not_on_sale");
+  check({ ...base, discountRate: 19 }, "HIDDEN_VALUE", "discount_below_threshold");
+  check({ ...base, ranking: 1 }, "HIDDEN_VALUE", "ranking_not_outside");
+  check({ ...base, reviewAverage: 3.9 }, "HIDDEN_VALUE", "review_average_below_threshold");
+  check({ ...base, reviewCount: 4 }, "HIDDEN_VALUE", "review_count_below_threshold");
+  check({ ...base }, "HIDDEN_VALUE", null);
+});
+
 test("does not fabricate a numeric claim when a source value is missing", () => {
   const facts = buildDecisionFacts({ ...base, currentPrice: null, recordedLowestPrice: null, reviewAverage: null, reviewCount: null });
   assert.equal(facts.decisionType, "UNKNOWN");

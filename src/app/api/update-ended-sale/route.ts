@@ -18,7 +18,7 @@ return Response.json({
   deferredCount: result?.deferredCount ?? 0,
   deferredProductIds: result?.deferredProductIds ?? [],
   message: result?.deferredCount
-    ? `終了セール更新が完了しました。価格を取得できなかった${result.deferredCount}件は別日に自動再確認します。`
+    ? `終了セール更新は完了しました。価格を確認できなかった${result.deferredCount}件は別日で自動再確認します。`
     : "終了セール更新が完了しました。",
 });
   } catch (error) {

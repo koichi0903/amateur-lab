@@ -44,6 +44,12 @@ test("現在250円・過去500円は真の過去最安値にする", () => {
   assert.equal(result[0], "過去最安値");
 });
 
+test("10%以上の直近下落をセール表示より優先し、未満なら通常セールへ戻す", () => {
+  const history = [price(900, "2026-08-12"), price(700, "2026-08-01")];
+  assert.equal(titles({ work: baseWork, currentPrice: price(800), priceHistory: history })[0], "直近価格下落");
+  assert.equal(titles({ work: baseWork, currentPrice: price(820), priceHistory: history })[0], "現在セール中");
+});
+
 test("同一価格種別・同一表示条件の履歴だけを比較する", () => {
   const otherCondition = { ...price(100), display_name: "4K版", changed_at: "2026-08-01" };
   assert.equal(titles({ work: baseWork, currentPrice: price(500), priceHistory: [otherCondition, price(800, "2026-07-01")] })[0], "過去最安値");

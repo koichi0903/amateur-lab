@@ -7,7 +7,6 @@ import {
   getActiveFanzaAmateurApiCatalogRun,
   getLatestFanzaAmateurApiCatalogRun,
   startFanzaAmateurApiCatalogRun,
-  type FanzaAmateurRunType,
 } from "@/lib/dmm/fanzaAmateurApiCatalogScan";
 
 export const dynamic = "force-dynamic";
@@ -74,10 +73,13 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({})) as { action?: unknown; runId?: unknown; runType?: unknown };
   try {
     if (body.action === "start") {
-      if (body.runType !== "daily_incremental" && body.runType !== "weekly_full") {
-        return NextResponse.json({ error: "runTypeはdaily_incrementalまたはweekly_fullを指定してください。" }, { status: 400 });
+      if (body.runType !== "weekly_full") {
+        return NextResponse.json({ error: "新規取得はweekly_full（全作品再照合）のみ実行できます。" }, {
+          status: 400,
+          headers: { "Cache-Control": "no-store" },
+        });
       }
-      const run = await startFanzaAmateurApiCatalogRun(body.runType as FanzaAmateurRunType);
+      const run = await startFanzaAmateurApiCatalogRun("weekly_full");
       return NextResponse.json(withProgress(run), { headers: { "Cache-Control": "no-store" } });
     }
 

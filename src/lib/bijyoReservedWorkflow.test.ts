@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import { BIJYO_RESERVED_REGISTRATION_WINDOW_MS, bijyoManualIdempotencyKey, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterBijyoReservedQueueWorks, filterRecentReleaseWorks, isBijyoFutureOperationEligible, isBijyoManualCandidate, isBijyoReservedQueueEligible, isBijyoReservedRegistrationRecent, pageBijyoReservedQueueWorks, recentReleaseDateRange } from "./bijyoReservedWorkflow.ts";
+import { BIJYO_RESERVED_PAGE_SIZE } from "./bijyoPagination.ts";
 import { BIJYO_RESERVED_QUEUE_PAGE_SIZE, BIJYO_SECTION_ORDER, HISTORY_PAGE_SIZE, UPCOMING_RELEASE_INITIAL_LIMIT, UPCOMING_RELEASE_PAGE_SIZE, historyBlockStart, visibleUpcomingReleaseCount } from "../app/admin/bijyo-reserved/ui.ts";
 
 test("手動追加のidempotency keyは同じworkで安定する", () => {
@@ -106,6 +107,7 @@ test("管理画面のセクション順とfuture初期表示件数を固定す�
   assert.equal(UPCOMING_RELEASE_INITIAL_LIMIT, 24);
   assert.equal(UPCOMING_RELEASE_PAGE_SIZE, 24);
   assert.equal(BIJYO_RESERVED_QUEUE_PAGE_SIZE, 24);
+  assert.equal(BIJYO_RESERVED_PAGE_SIZE, BIJYO_RESERVED_QUEUE_PAGE_SIZE);
   assert.equal(visibleUpcomingReleaseCount(222, 24), 24);
   assert.equal(visibleUpcomingReleaseCount(222, 48), 48);
   assert.equal(visibleUpcomingReleaseCount(10, 24), 10);
@@ -134,8 +136,8 @@ test("予約作品一覧は全体を発売日降順・同日登録日時降順�
   assert.equal(isBijyoReservedQueueEligible("RESERVED", null, "2026-10-09"), false);
   assert.equal(isBijyoReservedQueueEligible("NEW", "2026-10-10", "2026-10-09"), false);
   assert.deepEqual(filterBijyoReservedQueueWorks(mockReservedWorks, mockBijyoJobs, "2026-10-09", now).map((item) => item.id), [7, 8, 1, 2]);
-  assert.deepEqual(pageBijyoReservedQueueWorks(mockReservedWorks, mockBijyoJobs, "2026-10-09", 1, 2).works.map((item) => item.id), [7, 8]);
-  assert.deepEqual(pageBijyoReservedQueueWorks(mockReservedWorks, mockBijyoJobs, "2026-10-09", 2, 2).works.map((item) => item.id), [1, 2]);
+  assert.deepEqual(pageBijyoReservedQueueWorks(mockReservedWorks, mockBijyoJobs, "2026-10-09", 1, 2, now).works.map((item) => item.id), [7, 8]);
+  assert.deepEqual(pageBijyoReservedQueueWorks(mockReservedWorks, mockBijyoJobs, "2026-10-09", 2, 2, now).works.map((item) => item.id), [1, 2]);
 });
 
 test("予約作品一覧は登録から168時間以内をUTC instantで判定し、発売前RESERVED・公式サンプル・未登録ジョブを保つ", () => {
@@ -198,37 +200,39 @@ test("NEWの発売日範囲制限は発売予定一覧だけに適用し、手�
 });
 
 test("公式動画・投稿/追加/スキップ/除外・重複状態を候補/APIで共通判定する", () => {
-  const server = fs.readFileSync("src/lib/bijyoReservedAutoPost.ts", "utf8");
-  const readPages = fs.readFileSync("src/lib/bijyoReadPages.ts", "utf8");
+  const server = fs.readFileSync("src/lib/bijyoReadPages.ts", "utf8");
   const actions = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedActions.tsx", "utf8");
   const upcoming = fs.readFileSync("src/app/admin/bijyo-reserved/UpcomingBijyoReleases.tsx", "utf8");
   const queue = fs.readFileSync("src/app/admin/bijyo-reserved/ReservedBijyoWorks.tsx", "utf8");
-  const workCard = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedWorkCard.tsx", "utf8");
+  const card = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedWorkCard.tsx", "utf8");
+  const route = fs.readFileSync("src/app/api/admin/bijyo-reserved/route.ts", "utf8");
   const candidate = { stage: "RESERVED", release_date: "2026-10-10" };
   assert.equal(isBijyoManualCandidate(candidate, { officialSample: true, hasExistingJob: false }), true);
-  assert.match(server, /!isBijyoManualCandidate\(work,/);
   for (const status of ["pending", "posted", "manual_posted", "skipped", "excluded", "trim_failed"]) {
     assert.equal(isBijyoManualCandidate(candidate, { officialSample: true, hasExistingJob: true }), false, `${status} は候補に出さない`);
   }
+  assert.match(server, /\.eq\("stage", "RESERVED"\)/);
+  assert.match(server, /\.gt\("release_date", today\)/);
+  assert.match(server, /\.gte\("created_at", cutoff\)/);
+  assert.match(server, /\.lte\("created_at", nowIso\)/);
+  assert.match(server, /\.order\("release_date", \{ ascending: false \}\)\s*\.order\("created_at", \{ ascending: false \}\)\s*\.order\("id", \{ ascending: true \}\)/);
+  assert.match(server, /sourceKindFor\(work\.sample_movie_url\) === "official_sample"/);
+  assert.match(server, /isBijyoReservedRegistrationRecent\(work\.created_at, now\)/);
   assert.match(server, /manualEligible: isBijyoManualCandidate\(work,/);
-  assert.match(readPages, /\.eq\("stage", "RESERVED"\)/);
-  assert.match(readPages, /\.gt\("release_date", today\)/);
-  assert.match(readPages, /\.gte\("created_at", cutoff\)/);
-  assert.match(readPages, /\.lte\("created_at", nowIso\)/);
-  assert.match(readPages, /filter\(\(work\) =>/);
-  assert.match(server, /!isBijyoManualCandidate\(work,/);
-  assert.match(workCard, /allowWorkManualAdd=\{work\.manualEligible === true\}/);
+  assert.match(card, /allowWorkManualAdd=\{work\.manualEligible === true\}/);
   assert.match(actions, /workId && allowWorkManualAdd && <button[^\n]*run\("manual"\)/);
   assert.match(upcoming, /<BijyoReservedWorkCard key=\{work\.id\} work=\{work\} \/>/);
   assert.match(queue, /<BijyoReservedWorkCard key=\{work\.id\} work=\{work\} \/>/);
   assert.match(queue, /reservedPage=\$\{page \+ 1\}/);
+  assert.match(route, /historyHasMore: result\.hasMore/);
 });
 
 test("手動追加カードは内部条件の長文を表示せず、サーバー側のeligible再検証を維持する", () => {
   const actions = fs.readFileSync("src/app/admin/bijyo-reserved/BijyoReservedActions.tsx", "utf8");
   const server = fs.readFileSync("src/lib/bijyoReservedAutoPost.ts", "utf8");
+  const readPages = fs.readFileSync("src/lib/bijyoReadPages.ts", "utf8");
   assert.doesNotMatch(actions, /手動投稿には過去7日以内に登録されたRESERVED作品とFANZA\/DMM公式サンプル動画が必要です/);
   assert.match(server, /!isBijyoManualCandidate\(work,/);
   assert.match(server, /code: "candidate_unavailable"/);
-  assert.match(server, /new Set\(jobs\.jobs\.map\(\(job\) => job\.work_id\)\)/);
+  assert.match(readPages, /new Set\(refs\.workIds\)/);
 });

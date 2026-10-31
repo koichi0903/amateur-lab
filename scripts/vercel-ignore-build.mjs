@@ -59,4 +59,3 @@ if (hasRelevantChange) {
 
 console.log("Only non-runtime files changed; skipping build.");
 process.exit(0);
-

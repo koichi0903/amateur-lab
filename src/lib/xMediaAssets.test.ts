@@ -8,6 +8,9 @@ const base: Partial<XMediaAsset> = {
   quote_only: false,
   commercial_use_allowed: true,
   fetch_status: "ok",
+  fetch_status_code: 200,
+  mime_type: "video/mp4",
+  content_length: 4096,
   media_quality: "normal",
   manual_tags: [] as XMediaManualTag[],
 };
@@ -19,6 +22,26 @@ assert.equal(isUsableXMediaAsset({ ...base, quote_only: true }).usable, false);
 assert.equal(isUsableXMediaAsset({ ...base, fetch_status: "dead" }).usable, false);
 assert.equal(isUsableXMediaAsset({ ...base, fetch_status: "unknown" }).usable, false);
 assert.equal(isUsableXMediaAsset(base).usable, true);
+assert.deepEqual(isUsableXMediaAsset(null).reasons, ["rights未確認", "X usage不可", "reupload不可", "commercial use未確認", "technical未確認"]);
+assert.deepEqual(
+  isUsableXMediaAsset({
+    ...base,
+    rights_status: "rejected",
+    x_usage_allowed: false,
+    can_reupload: false,
+    quote_only: true,
+    commercial_use_allowed: false,
+    fetch_status: "dead",
+    media_quality: "weak",
+    manual_tags: ["too_explicit_for_reach"],
+  }),
+  {
+    usable: false,
+    reasons: ["rights blocked", "X usage不可", "reupload不可", "quote only", "commercial use未確認", "URL dead", "reach不向き"],
+    reachSuitable: false,
+    quality: "weak",
+  },
+);
 
 const officialSample: Partial<XMediaAsset> = {
   ...base,
@@ -41,16 +64,31 @@ assert.equal(isPostableOfficialSampleMovie({ ...officialSample, media_quality: "
 assert.equal(canTrimOfficialSampleMovie(officialSample).usable, false);
 assert.equal(canTrimOfficialSampleMovie({ ...officialSample, rights_status: "allowed", x_usage_allowed: true, can_reupload: true, quote_only: false, commercial_use_allowed: true }).usable, true);
 assert.equal(canTrimOfficialSampleMovie({ ...officialSample, fetch_status: "forbidden" }).usable, false);
-assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "forbidden", fetch_status_code: 403, mime_type: "text/html", content_length: 919 }).usable, true);
-assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "dead", fetch_status_code: 404 }).usable, true);
+// An official URL does not override a failed availability or MIME probe.
+assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "forbidden", fetch_status_code: 403, mime_type: "text/html", content_length: 919 }).usable, false);
+assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "dead", fetch_status_code: 404 }).usable, false);
 
 assert.equal(isOfficialFanzaDmmSampleUrl("https://cc3001.dmm.co.jp/litevideo/freepv/example.mp4"), true);
 assert.equal(isOfficialFanzaDmmSampleUrl("http://cc3001.dmm.co.jp/example.mp4"), false);
 assert.equal(isOfficialFanzaDmmSampleUrl("https://dmm.co.jp.attacker.invalid/example.mp4"), false);
 assert.equal(isOfficialFanzaDmmSampleUrl("https://notdmm.co.jp/example.mp4"), false);
 assert.equal(isOfficialFanzaDmmSampleUrl("https://user@cc3001.dmm.co.jp/example.mp4"), false);
-assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "forbidden", fetch_status_code: 403, mime_type: "text/html", content_length: 0 }).usable, true);
+assert.equal(isFanzaXGrowthTechnicalSampleMovie(officialSample).usable, true);
+assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "forbidden", fetch_status_code: 403, mime_type: "text/html", content_length: 0 }).usable, false);
 assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, source_url: "https://example.invalid/sample.mp4" }).usable, false);
+assert.deepEqual(isFanzaXGrowthTechnicalSampleMovie(null, null).reasons, [
+  "sample_movie_urlなし",
+  "technical probe未確認",
+  "HTTP status未確認",
+  "MIME未確認",
+]);
+assert.deepEqual(isFanzaXGrowthTechnicalSampleMovie({
+  source_url: "https://cc3001.dmm.co.jp/sample.mp4",
+  fetch_status: "ok",
+  fetch_status_code: 200,
+  mime_type: "text/html",
+  content_length: 0,
+}).reasons, ["MIME=text/html", "content-length不正"]);
 assert.equal(isPostableOfficialSampleMovie({ ...officialSample, fetch_status: "forbidden" }).usable, false);
 
 assert.deepEqual(validateTrimStartSeconds(0, 12), { ok: true, value: 0 });

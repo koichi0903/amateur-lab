@@ -33,7 +33,6 @@ type SitemapWork = {
 };
 
 const PAGE_SIZE = 1000;
-const AMATEUR_ACTRESS_PAGE_SIZE = 1000;
 const WORK_QUERY_BATCH_SIZE = 200;
 const CACHE_CONTROL = "public, s-maxage=3600, stale-while-revalidate=86400";
 const staticEntries: SitemapEntry[] = [
@@ -263,4 +262,3 @@ function xmlResponse(xml: string): Response {
     },
   });
 }
-

@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({})) as { approvedMediaId?: number; planDate?: string };
     const approvedMediaId = Number.isFinite(body.approvedMediaId) ? Number(body.approvedMediaId) : 1;
-    const analytics = await getMyfansAnalytics({ approvedMediaId });
+    const analytics = await getMyfansAnalytics({ approvedMediaId, includeCompleteDailyFunnelInputs: true });
     if (analytics.error) return NextResponse.json({ error: "候補データを読み込めません。接続状態を確認して再試行してください。" }, { status: 503 });
     const board = buildMyfansExecutionBoard(analytics, body.planDate ? { planDate: body.planDate } : {});
     const snapshot = await ensureMyfansDailySnapshot(board, approvedMediaId);

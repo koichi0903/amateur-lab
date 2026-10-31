@@ -15,6 +15,7 @@ import {
   JOBS,
   updateJobProgress,
 } from "@/lib/jobs";
+import { simpleErrorMessage } from "@/lib/errorMessage";
 
 type ScoreUpdateWork = {
   id: number;
@@ -88,19 +89,6 @@ const UPDATE_BATCH_DELAY_MS = Number.parseInt(
   process.env.SCORE_UPDATE_BATCH_DELAY_MS ?? "500",
   10,
 );
-
-function errorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-  ) {
-    return error.message;
-  }
-  return String(error);
-}
 
 function splitNames(value: string | null): string[] {
   return value
@@ -325,7 +313,7 @@ export async function updateScore(productIds?: string[]) {
       workIds: [...changedProductIds],
     };
   } catch (error) {
-    await failJob(JOBS.SCORE, errorMessage(error));
+    await failJob(JOBS.SCORE, simpleErrorMessage(error));
     throw error;
   }
 }

@@ -3,6 +3,11 @@ import dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 
 import { createClient } from "@supabase/supabase-js";
+import {
+  buildSnapshotPriceIndex,
+  groupCurrentPricePlans,
+  resolvePriceHistoryPeriod,
+} from "./repair-price-period-resolver";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -101,8 +106,6 @@ async function resetHistory(productId: string) {
   if (insertError) throw insertError;
 }
 
-const normalizeName = (value: string) => value.normalize("NFKC").replace(/\s+/g, "");
-
 async function repairHistoryPeriods(productId: string) {
   const [{ data: current, error: currentError }, { data: history, error: historyError }] =
     await Promise.all([
@@ -119,49 +122,14 @@ async function repairHistoryPeriods(productId: string) {
   if (currentError) throw currentError;
   if (historyError) throw historyError;
 
-  const currentByName = new Map<string, NonNullable<typeof current>>();
-  for (const row of current ?? []) {
-    const key = normalizeName(row.display_name);
-    const rows = currentByName.get(key) ?? [];
-    rows.push(row);
-    currentByName.set(key, rows);
-  }
-
-  const snapshotPrices = new Map<string, number[]>();
-  for (const row of history ?? []) {
-    if (row.normal_price == null) continue;
-    const key = `${normalizeName(row.display_name)}\u0000${row.changed_at.slice(0, 16)}`;
-    const prices = snapshotPrices.get(key) ?? [];
-    if (!prices.includes(row.normal_price)) prices.push(row.normal_price);
-    snapshotPrices.set(key, prices.sort((a, b) => a - b));
-  }
+  const currentByName = groupCurrentPricePlans(current ?? []);
+  const snapshotPrices = buildSnapshotPriceIndex(history ?? []);
 
   let repaired = 0;
   let removed = 0;
   for (const row of history ?? []) {
     if (row.period != null) continue;
-    const name = normalizeName(row.display_name);
-    const candidates = (currentByName.get(name) ?? []).filter((item) => item.period != null);
-    let period: string | null = null;
-
-    if (candidates.length === 1) {
-      period = candidates[0].period;
-    } else if (candidates.length > 1 && row.normal_price != null) {
-      const exact = candidates.filter((item) => item.normal_price === row.normal_price);
-      if (exact.length === 1) {
-        period = exact[0].period;
-      } else {
-        const snapshotKey = `${name}\u0000${row.changed_at.slice(0, 16)}`;
-        const prices = snapshotPrices.get(snapshotKey) ?? [];
-        const sortedCandidates = [...candidates].sort(
-          (a, b) => (a.normal_price ?? Number.MAX_SAFE_INTEGER) - (b.normal_price ?? Number.MAX_SAFE_INTEGER),
-        );
-        const index = prices.indexOf(row.normal_price);
-        if (prices.length === sortedCandidates.length && index >= 0) {
-          period = sortedCandidates[index].period;
-        }
-      }
-    }
+    const period = resolvePriceHistoryPeriod(row, currentByName, snapshotPrices);
 
     if (period) {
       const { error } = await supabase.from("price_history").update({ period }).eq("id", row.id);

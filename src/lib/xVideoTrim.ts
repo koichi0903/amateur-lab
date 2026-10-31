@@ -21,7 +21,37 @@ export type TrimVideoForXResult = {
   codec: string | null;
   audioCodec: string | null;
   trimStartSeconds: number;
+  trimEndSeconds: number | null;
 };
+
+type VideoProbeData = {
+  format?: { duration?: string };
+  streams?: Array<{ codec_type?: string; codec_name?: string; duration?: string }>;
+};
+
+function firstProbeDuration(data: VideoProbeData) {
+  const formatDuration = data.format?.duration;
+  if (formatDuration) return formatDuration;
+  return data.streams?.find((stream) => stream.duration)?.duration;
+}
+
+function codecForStream(data: VideoProbeData, codecType: "video" | "audio") {
+  return data.streams?.find((stream) => stream.codec_type === codecType)?.codec_name ?? null;
+}
+
+function parseVideoProbeOutput(stdout: string) {
+  const data = JSON.parse(stdout) as VideoProbeData;
+  const durationSeconds = Number(firstProbeDuration(data));
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    throw new Error("動画の長さを取得できませんでした。");
+  }
+
+  return {
+    durationSeconds,
+    codec: codecForStream(data, "video"),
+    audioCodec: codecForStream(data, "audio"),
+  };
+}
 
 function runBinary(command: string, args: string[]) {
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
@@ -56,22 +86,10 @@ export async function probeVideoFile(file: string) {
     "-show_streams",
     file,
   ]);
-  const data = JSON.parse(stdout) as {
-    format?: { duration?: string };
-    streams?: Array<{ codec_type?: string; codec_name?: string; duration?: string }>;
-  };
-  const durationSeconds = Number(data.format?.duration ?? data.streams?.find((stream) => stream.duration)?.duration);
-  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error("動画の長さを取得できませんでした。");
-  const video = data.streams?.find((stream) => stream.codec_type === "video");
-  const audio = data.streams?.find((stream) => stream.codec_type === "audio");
-  return {
-    durationSeconds,
-    codec: video?.codec_name ?? null,
-    audioCodec: audio?.codec_name ?? null,
-  };
+  return parseVideoProbeOutput(stdout);
 }
 
-export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds: number }) {
+export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds: number; trimEndSeconds?: number | null }) {
   const dir = await mkdtemp(join(tmpdir(), "x-growth-trim-"));
   const sourceFile = join(dir, "source.mp4");
   const outputFile = join(dir, "x-post-trimmed.mp4");
@@ -80,10 +98,19 @@ export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds
     const sourceProbe = await probeVideoFile(sourceFile);
     const validation = validateTrimStartSeconds(input.trimStartSeconds, sourceProbe.durationSeconds);
     if (!validation.ok) throw new Error(validation.error);
-    await runBinary(bundledBinary("ffmpeg"), [
+    const rawEnd = input.trimEndSeconds;
+    let endSeconds: number | null = null;
+    if (rawEnd != null) {
+      if (!Number.isFinite(rawEnd)) throw new Error("終了秒が不正です。");
+      endSeconds = Math.round(rawEnd * 10) / 10;
+      if (endSeconds <= validation.value) throw new Error("終了位置は開始位置より後にしてください。");
+      if (endSeconds > sourceProbe.durationSeconds) throw new Error("終了秒が動画の長さを超えています。");
+    }
+    const args = [
       "-y",
       "-ss", validation.value.toFixed(1),
       "-i", sourceFile,
+      ...(endSeconds == null ? [] : ["-t", (endSeconds - validation.value).toFixed(1)]),
       "-map", "0:v:0",
       "-map", "0:a?",
       "-c:v", "libx264",
@@ -95,7 +122,8 @@ export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds
       "-movflags", "+faststart",
       "-avoid_negative_ts", "make_zero",
       outputFile,
-    ]);
+    ];
+    await runBinary(bundledBinary("ffmpeg"), args);
     const outputProbe = await probeVideoFile(outputFile);
     const outputStat = await stat(outputFile);
     if (outputStat.size <= 0) throw new Error("トリム後動画が空です。");
@@ -109,6 +137,7 @@ export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds
       codec: outputProbe.codec,
       audioCodec: outputProbe.audioCodec,
       trimStartSeconds: validation.value,
+      trimEndSeconds: endSeconds,
     } satisfies TrimVideoForXResult;
   } catch (error) {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
