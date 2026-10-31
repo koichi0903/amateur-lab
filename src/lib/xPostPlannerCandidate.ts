@@ -524,6 +524,43 @@ function candidateChartFieldsFor(chart: XPostPriceChart | null): Pick<
   };
 }
 
+function candidateCreativeIdentityFieldsFor(plan: ReturnType<typeof candidateCreativePlanFor>): Pick<
+  XPostCandidate,
+  "hookType" | "creativeVariantId" | "creativeVariants"
+> {
+  const { category, hookScore, creativeVariants, primaryVariant } = plan;
+  return {
+    hookType: primaryVariant?.hookType ?? hookScore.bestHook.type,
+    creativeVariantId: primaryVariant?.id ?? category + "-" + plan.workId + "-legacy",
+    creativeVariants,
+  };
+}
+
+function candidateCreativeLinkFieldsFor(plan: ReturnType<typeof candidateCreativePlanFor>): Pick<
+  XPostCandidate,
+  "imageStrategy" | "linkStrategy" | "ctaStrategy" | "replyText" | "postIntent" | "growthGoal"
+> {
+  const { primaryVariant } = plan;
+  return {
+    imageStrategy: primaryVariant?.imageStrategy ?? "original_work_image",
+    linkStrategy: primaryVariant?.linkStrategy ?? "body_link",
+    ctaStrategy: primaryVariant?.ctaStrategy ?? "reason_cta",
+    replyText: primaryVariant?.replyText ?? null,
+    postIntent: "work_link",
+    growthGoal: primaryVariant?.linkStrategy === "reply_link" ? "profile_visit" : "fanza_click",
+  };
+}
+
+function candidateCreativeTimingFieldsFor(plan: ReturnType<typeof candidateCreativePlanFor>): Pick<
+  XPostCandidate,
+  "recommendedSlot" | "plannedAt"
+> {
+  return {
+    recommendedSlot: plan.timing.recommendedSlot,
+    plannedAt: plan.timing.plannedAt,
+  };
+}
+
 function candidateCreativeFieldsFor(plan: ReturnType<typeof candidateCreativePlanFor>): Pick<
   XPostCandidate,
   | "hookType"
@@ -538,19 +575,10 @@ function candidateCreativeFieldsFor(plan: ReturnType<typeof candidateCreativePla
   | "plannedAt"
   | "growthGoal"
 > {
-  const { category, hookScore, timing, creativeVariants, primaryVariant } = plan;
   return {
-    hookType: primaryVariant?.hookType ?? hookScore.bestHook.type,
-    creativeVariantId: primaryVariant?.id ?? category + "-" + plan.workId + "-legacy",
-    creativeVariants,
-    imageStrategy: primaryVariant?.imageStrategy ?? "original_work_image",
-    linkStrategy: primaryVariant?.linkStrategy ?? "body_link",
-    ctaStrategy: primaryVariant?.ctaStrategy ?? "reason_cta",
-    replyText: primaryVariant?.replyText ?? null,
-    postIntent: "work_link",
-    recommendedSlot: timing.recommendedSlot,
-    plannedAt: timing.plannedAt,
-    growthGoal: primaryVariant?.linkStrategy === "reply_link" ? "profile_visit" : "fanza_click",
+    ...candidateCreativeIdentityFieldsFor(plan),
+    ...candidateCreativeLinkFieldsFor(plan),
+    ...candidateCreativeTimingFieldsFor(plan),
   };
 }
 
