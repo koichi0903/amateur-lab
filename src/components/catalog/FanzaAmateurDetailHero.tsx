@@ -8,19 +8,11 @@ import FanzaAmateurAffiliateLink from "@/components/catalog/FanzaAmateurAffiliat
 import AmateurFavoriteButton from "@/components/favorites/AmateurFavoriteButton";
 import FanzaAmateurPriceAlertButton from "@/components/catalog/FanzaAmateurPriceAlertButton";
 import type { FanzaAmateurCatalogItem, FanzaAmateurPriceHistoryEntry } from "@/lib/dmm/fanzaAmateurCatalog";
-
-const priceTypeOrder = ["stream", "download", "hd", "iosdl", "androiddl"];
-
-function formatPriceType(type: string) {
-  const labels: Record<string, string> = {
-    stream: "ストリーミング",
-    download: "ダウンロード",
-    hd: "HD",
-    iosdl: "iOS",
-    androiddl: "Android",
-  };
-  return labels[type] ?? type;
-}
+import {
+  buildFanzaAmateurDetailEntityProjection,
+  buildFanzaAmateurDetailPriceProjection,
+  formatFanzaAmateurPriceType,
+} from "@/lib/dmm/fanzaAmateurCatalogDetailProjection";
 type Props = {
   item: FanzaAmateurCatalogItem;
   fetchedAt: string;
@@ -42,10 +34,6 @@ function isOfficialMp4(value: string | null) {
     return false;
   }
 }
-function parsePrice(value: string | null | undefined) {
-  const digits = value?.match(/[0-9]+/)?.[0];
-  return digits ? Number(digits) : null;
-}
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "未取得";
@@ -55,7 +43,7 @@ function formatDate(value: string | null | undefined) {
 
 export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, officialSampleEmbedUrl, sampleMovieMp4Url, sampleImages, priceHistory }: Props) {
   const [selected, setSelected] = useState<number | null>(null);
-  const coverUrl = item.imageURL?.large || item.imageURL?.small || item.imageURL?.list || item.imageUrl;
+  const { coverUrl, performers, makers, seriesList, genres } = buildFanzaAmateurDetailEntityProjection(item);
   const playableMovieUrl = isOfficialMp4(sampleMovieMp4Url) ? sampleMovieMp4Url : null;
   const [preferNativeSamplePlayer, setPreferNativeSamplePlayer] = useState(false);
   useEffect(() => {
@@ -82,54 +70,20 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
     observer.observe(player);
     return () => observer.disconnect();
   }, [officialSampleEmbedUrl]);
-  const priceTypes = useMemo(() => [...new Set(priceHistory.map((entry) => entry.price_type).filter((type) => type !== "summary"))].sort((a, b) => {
-    const aIndex = priceTypeOrder.indexOf(a);
-    const bIndex = priceTypeOrder.indexOf(b);
-    if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
-    if (aIndex === -1) return 1;
-    if (bIndex === -1) return -1;
-    return aIndex - bIndex;
-  }), [priceHistory]);
   const [selectedPriceType, setSelectedPriceType] = useState("");
   const currentPrice = item.currentPrice;
-  const representativePriceType = priceTypes.find((type) => {
-    const deliveryPrice = item.prices.deliveries?.delivery?.find((delivery) => delivery.type === type)?.price;
-    return parsePrice(deliveryPrice) === currentPrice;
-  }) ?? priceTypes[0] ?? "";
-  const activePriceType = priceTypes.includes(selectedPriceType) ? selectedPriceType : representativePriceType;
-  const listPrice = parsePrice(item.prices?.list_price);
-  const discount = currentPrice != null && listPrice != null && listPrice > currentPrice
-    ? Math.round((1 - currentPrice / listPrice) * 100)
-    : 0;
-  const activeHistory = priceHistory
-    .filter((entry) => entry.price_type === activePriceType)
-    .map((entry) => ({ entry, price: parsePrice(entry.price) }))
-    .filter((entry): entry is { entry: FanzaAmateurPriceHistoryEntry; price: number } => entry.price != null)
-    .sort((a, b) => a.entry.observed_at.localeCompare(b.entry.observed_at));
-  const currentDeliveryPrice = item.prices.deliveries?.delivery?.find((delivery) => delivery.type === activePriceType);
-  const currentChartPrice = parsePrice(currentDeliveryPrice?.price);
-  const chartHistory = [...activeHistory];
-  if (currentChartPrice != null && fetchedAt) {
-    const latest = chartHistory.at(-1);
-    if (latest?.entry.observed_at === fetchedAt) {
-      chartHistory[chartHistory.length - 1] = { ...latest, price: currentChartPrice };
-    } else {
-      chartHistory.push({
-        entry: { observed_at: fetchedAt, price_type: activePriceType, price: String(currentChartPrice), list_price: currentDeliveryPrice?.list_price ?? null },
-        price: currentChartPrice,
-      });
-    }
-  }
-  const chartData = chartHistory.map(({ entry, price }) => ({
-    date: new Date(entry.observed_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }),
-    price,
-  }));
-  const lowestPrice = activeHistory.length ? Math.min(...activeHistory.map(({ price }) => price)) : null;
+  const deliveries = item.prices.deliveries?.delivery;
+  const rawListPrice = item.prices?.list_price;
+  const priceProjection = useMemo(() => buildFanzaAmateurDetailPriceProjection({
+    priceHistory,
+    currentPrice,
+    listPrice: rawListPrice,
+    deliveries,
+    selectedPriceType,
+    fetchedAt,
+  }), [priceHistory, currentPrice, rawListPrice, deliveries, selectedPriceType, fetchedAt]);
+  const { priceTypes, activePriceType, listPrice, discount, activeHistory, chartHistory, chartData, lowestPrice } = priceProjection;
   const samplePlayerAvailable = Boolean(officialSampleEmbedUrl || playableMovieUrl);
-  const performers = item.confirmedPerformers ?? [];
-  const makers = item.iteminfo?.maker?.map((maker) => maker.name).filter(Boolean) ?? [];
-  const seriesList = item.iteminfo?.series?.map((series) => series.name).filter(Boolean) ?? [];
-  const genres = item.iteminfo?.genre?.map((genre) => genre.name).filter(Boolean) ?? [];
 
   return (
     <section className="grid gap-2 lg:grid-cols-[minmax(0,1.08fr)_minmax(380px,0.92fr)] lg:gap-8">
@@ -177,7 +131,7 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
         </div>
         <p className="mt-3 text-sm leading-6 text-slate-600">現在価格：{currentPrice != null ? `${currentPrice.toLocaleString("ja-JP")}円` : "未取得"}<br />素人作品データ取得日：{formatDate(fetchedAt)}<br />{lowestPrice != null ? `発掘LABの記録上の最安値（${activePriceType || "価格"}）：${lowestPrice.toLocaleString("ja-JP")}円。` : "価格履歴から最安値を判定するデータはまだありません。"}<br />作品コード：{item.content_id}</p>
         <div className="mt-6 mb-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-3 border-t pt-4"><h2 className="mb-3 text-lg font-bold">価格推移</h2><div className="flex flex-wrap gap-2">{priceTypes.map((type) => <button key={type} type="button" onClick={() => setSelectedPriceType(type)} className={`rounded-full border px-3 py-1 text-sm transition ${activePriceType === type ? "bg-pink-500 text-white" : "bg-pink-50 hover:bg-pink-100"}`}>{formatPriceType(type)}</button>)}</div></div>
+          <div className="mb-3 border-t pt-4"><h2 className="mb-3 text-lg font-bold">価格推移</h2><div className="flex flex-wrap gap-2">{priceTypes.map((type) => <button key={type} type="button" onClick={() => setSelectedPriceType(type)} className={`rounded-full border px-3 py-1 text-sm transition ${activePriceType === type ? "bg-pink-500 text-white" : "bg-pink-50 hover:bg-pink-100"}`}>{formatFanzaAmateurPriceType(type)}</button>)}</div></div>
           {chartData.length > 0 ? <PriceChart data={chartData} /> : <p className="py-8 text-center text-sm text-slate-500">価格推移はまだありません。</p>}
           <div className="text-xs text-slate-500">履歴 {activeHistory.length}点{chartHistory.length > activeHistory.length ? "・最新取得価格を含む" : ""}</div>
         </div>
