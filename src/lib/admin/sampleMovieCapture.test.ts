@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { sampleMovieUpdateFor, shouldCaptureSampleMovie } from "./sampleMovieCapture";
+import { resolveSampleMovieCaptureResult, sampleMovieUpdateFor, shouldCaptureSampleMovie } from "./sampleMovieCapture";
 
 const state = (
   overrides: Partial<Parameters<typeof shouldCaptureSampleMovie>[0]> = {},
@@ -55,4 +55,12 @@ test("capture outcome semantics keep failures retryable and preserve non-null sa
     sampleMovieUpdateFor({ status: "found", url: "https://official/sample.mp4", checkedAt }),
     { sample_movie_url: "https://official/sample.mp4", sample_movie_checked_at: checkedAt },
   );
+});
+
+test("sample-movie-only returns the same result for saved, existing, and missing media", () => {
+  assert.deepEqual(resolveSampleMovieCaptureResult(false, true, "https://official/sample.mp4"), { dataChanged: true });
+  assert.deepEqual(resolveSampleMovieCaptureResult(false, false, null), { dataChanged: false });
+  assert.deepEqual(resolveSampleMovieCaptureResult(true, true, "https://official/sample.mp4"), { dataChanged: true, result: "updated" });
+  assert.deepEqual(resolveSampleMovieCaptureResult(true, false, "https://official/sample.mp4"), { dataChanged: false, result: "unchanged" });
+  assert.deepEqual(resolveSampleMovieCaptureResult(true, false, null), { dataChanged: false, result: "sample_movie_missing" });
 });

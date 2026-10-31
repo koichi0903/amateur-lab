@@ -16,7 +16,7 @@ import { parsePage } from "./parser";
 import { saveWork } from "./save";
 import { watchSampleMovie } from "./sampleMovie";
 import { advanceUnavailableStatus } from "./unavailableStatus";
-import { sampleMovieUpdateFor } from "@/lib/admin/sampleMovieCapture";
+import { resolveSampleMovieCaptureResult, sampleMovieUpdateFor } from "@/lib/admin/sampleMovieCapture";
 
 export type PlaywrightUpdateResult =
   | "updated"
@@ -247,11 +247,7 @@ async function captureInitialSampleMovie(
       console.log(`[SAMPLE_MOVIE_RESULT] ${productId} status=confirmed-none`);
     }
 
-    if (!sampleMovieOnly) return { dataChanged: sampleMovieSaved };
-    return {
-      dataChanged: sampleMovieSaved,
-      result: sampleMovieSaved ? "updated" : sampleMovieUrl ? "unchanged" : "sample_movie_missing",
-    };
+    return resolveSampleMovieCaptureResult(sampleMovieOnly, sampleMovieSaved, sampleMovieUrl);
   } catch (error) {
     console.error(`[SAMPLE_MOVIE_RESULT] ${productId} status=failed-or-unchecked`, error);
     throw error;
