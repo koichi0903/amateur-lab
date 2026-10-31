@@ -47,14 +47,41 @@ function CandidateOptionMatchDetails({ candidate }: { candidate: CandidateOption
   );
 }
 
+function candidateOptionTopicLabels(candidate: CandidateOption) {
+  return {
+    ...candidateOptionTopicTextFields(candidate),
+    ...candidateOptionTopicScoreFields(candidate),
+  };
+}
+
+function candidateOptionTopicTextFields(candidate: CandidateOption) {
+  const topicValue = candidate.topicValue;
+  const visual = candidate.visualUnderstanding;
+  return {
+    topic: candidate.topicIdentity || "-",
+    reason: topicValue?.reasonToCare ?? candidate.reason,
+    visualStatus: visual?.visualAnalysisStatus ?? "unavailable",
+    visualEvidence: visual?.humanObservation || visual?.rawVisualEvidence || "visual断定なし",
+  };
+}
+
+function candidateOptionTopicScoreFields(candidate: CandidateOption) {
+  const topicValue = candidate.topicValue;
+  return {
+    quality: `${candidate.quality.total}/100 / ${candidate.quality.verdict}`,
+    topicValue: `${topicValue?.score ?? "-"} / ${topicValue?.verdict ?? "-"}`,
+  };
+}
+
 function CandidateOptionTopicDetails({ candidate }: { candidate: CandidateOption }) {
+  const labels = candidateOptionTopicLabels(candidate);
   return (
     <div className="grid gap-1 text-xs leading-5 text-zinc-300">
-      <p><span className="font-black text-zinc-500">topic:</span> {candidate.topicIdentity || "-"}</p>
-      <p><span className="font-black text-zinc-500">reason:</span> {candidate.topicValue?.reasonToCare ?? candidate.reason}</p>
-      <p><span className="font-black text-zinc-500">visual根拠:</span> {candidate.visualUnderstanding?.visualAnalysisStatus ?? "unavailable"} / {candidate.visualUnderstanding?.humanObservation || candidate.visualUnderstanding?.rawVisualEvidence || "visual断定なし"}</p>
-      <p><span className="font-black text-zinc-500">Quality:</span> {candidate.quality.total}/100 / {candidate.quality.verdict}</p>
-      <p><span className="font-black text-zinc-500">Topic Value:</span> {candidate.topicValue?.score ?? "-"} / {candidate.topicValue?.verdict ?? "-"}</p>
+      <p><span className="font-black text-zinc-500">topic:</span> {labels.topic}</p>
+      <p><span className="font-black text-zinc-500">reason:</span> {labels.reason}</p>
+      <p><span className="font-black text-zinc-500">visual根拠:</span> {labels.visualStatus} / {labels.visualEvidence}</p>
+      <p><span className="font-black text-zinc-500">Quality:</span> {labels.quality}</p>
+      <p><span className="font-black text-zinc-500">Topic Value:</span> {labels.topicValue}</p>
     </div>
   );
 }
