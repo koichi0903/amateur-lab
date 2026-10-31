@@ -64,6 +64,7 @@ export type DmmSearchOutcome = DmmSearchFailure | {
 };
 
 type DmmSearchLogger = Pick<Console, "info" | "error">;
+type DmmSearchRequest = { keyword: string; normalizedKeyword: string; cid: string | undefined };
 
 function emptyStage(): StageDiagnostic {
   return {
@@ -127,6 +128,16 @@ function normalizeActresses(value: unknown): DmmActress[] | null {
 
 function normalizeSearchText(value: string) {
   return value.normalize("NFKC").replace(/\s+/gu, " ").trim();
+}
+
+function searchRequestFor(requestUrl: string): DmmSearchRequest {
+  const searchParams = new URL(requestUrl).searchParams;
+  const keyword = (searchParams.get("keyword") ?? "素人").trim() || "素人";
+  return {
+    keyword,
+    normalizedKeyword: normalizeSearchText(keyword),
+    cid: searchParams.get("cid")?.trim(),
+  };
 }
 
 function failure(
@@ -259,14 +270,7 @@ function createDmmCaller(
     const result = asDmmResult(data?.result);
     const items = result ? normalizeItems(result.items) : null;
     const actresses = result ? normalizeActresses(result.actress) : null;
-    const diagnostic: StageDiagnostic = {
-      httpStatus: response.status,
-      logicalStatus: result?.status === undefined ? null : String(result.status),
-      logicalCode: result?.code === undefined ? null : String(result.code),
-      totalCount: asCount(result?.total_count),
-      itemsLength: items?.length ?? actresses?.length ?? null,
-      responseShape: responseShape === "valid" && result ? "valid" : "invalid",
-    };
+    const diagnostic = stageDiagnosticFor(response, result, items, actresses, responseShape);
 
     logger.info("DMM API diagnostic", {
       requestedKeyword: keyword,
@@ -281,6 +285,49 @@ function createDmmCaller(
 
     return { response, result, items, actresses: actresses ?? [], diagnostic };
   };
+}
+
+function stageDiagnosticFor(
+  response: Response,
+  result: DmmApiResult | null,
+  items: unknown[] | null,
+  actresses: DmmActress[] | null,
+  responseShape: StageDiagnostic["responseShape"],
+): StageDiagnostic {
+  return {
+    httpStatus: response.status,
+    logicalStatus: result?.status === undefined ? null : String(result.status),
+    logicalCode: result?.code === undefined ? null : String(result.code),
+    totalCount: asCount(result?.total_count),
+    itemsLength: items?.length ?? actresses?.length ?? null,
+    responseShape: responseShape === "valid" && result ? "valid" : "invalid",
+  };
+}
+
+async function fetchPrimaryItemCall(
+  callDmmApi: ReturnType<typeof createDmmCaller>,
+  keyword: string,
+  cid: string | undefined,
+  diagnostics: DmmSearchDiagnostics,
+  logger: DmmSearchLogger,
+): Promise<DmmCall | DmmSearchFailure> {
+  try {
+    const params = new URLSearchParams({ site: "FANZA", service: "digital", floor: "videoa", hits: "100" });
+    if (cid) params.set("cid", cid);
+    else params.set("keyword", keyword);
+    return await callDmmApi("ItemList", params);
+  } catch (error) {
+    logger.error("DMM API network error", error instanceof Error ? error.message : "unknown");
+    return failure(
+      "DMM_API_NETWORK_ERROR",
+      "DMM APIに接続できませんでした。時間をおいて再試行してください。",
+      diagnostics,
+    );
+  }
+}
+
+function finalSourceFor(searchMode: "keyword" | "cid" | "actress", finalItems: unknown[]) {
+  return searchMode === "actress" ? "actress" : finalItems.length > 0 ? "keyword" : "none";
 }
 
 type ActressFallback = {
@@ -377,27 +424,13 @@ export async function searchDmmAffiliate(input: {
   const { apiId, affiliateId } = input;
   const fetcher = input.fetcher ?? fetch;
   const logger = input.logger ?? console;
-  const searchParams = new URL(input.requestUrl).searchParams;
-  const keyword = (searchParams.get("keyword") ?? "素人").trim() || "素人";
-  const normalizedKeyword = normalizeSearchText(keyword);
-  const cid = searchParams.get("cid")?.trim();
+  const { keyword, normalizedKeyword, cid } = searchRequestFor(input.requestUrl);
   const diagnostics = createDiagnostics(keyword);
   const callDmmApi = createDmmCaller(apiId, affiliateId, keyword, fetcher, logger);
 
-  let itemCall: DmmCall;
-  try {
-    const params = new URLSearchParams({ site: "FANZA", service: "digital", floor: "videoa", hits: "100" });
-    if (cid) params.set("cid", cid);
-    else params.set("keyword", keyword);
-    itemCall = await callDmmApi("ItemList", params);
-  } catch (error) {
-    logger.error("DMM API network error", error instanceof Error ? error.message : "unknown");
-    return failure(
-      "DMM_API_NETWORK_ERROR",
-      "DMM APIに接続できませんでした。時間をおいて再試行してください。",
-      diagnostics,
-    );
-  }
+  const primaryCall = await fetchPrimaryItemCall(callDmmApi, keyword, cid, diagnostics, logger);
+  if ("success" in primaryCall) return primaryCall;
+  const itemCall = primaryCall;
 
   diagnostics.primary = { ...itemCall.diagnostic };
   const primaryError = validateItemsCall(
@@ -427,7 +460,7 @@ export async function searchDmmAffiliate(input: {
     searchMode = actressFallback.searchMode;
   }
 
-  diagnostics.finalSource = searchMode === "actress" ? "actress" : finalItems.length > 0 ? "keyword" : "none";
+  diagnostics.finalSource = finalSourceFor(searchMode, finalItems);
   diagnostics.normalizedFinalItemsLength = finalItems.length;
   logger.info("DMM search diagnostics", diagnostics);
   return {

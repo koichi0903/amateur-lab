@@ -88,3 +88,24 @@ test("invalid primary item shape returns the existing API error without actress 
   assert.equal(outcome.status, 502);
   assert.equal(callCount, 1);
 });
+
+test("CID search keeps CID mode and does not request keyword or actress fallback", async () => {
+  const calls: URL[] = [];
+  const outcome = await searchDmmAffiliate({
+    apiId: "api",
+    affiliateId: "affiliate",
+    requestUrl: "https://local.test/api/dmm?cid=sample-001",
+    fetcher: async (input) => {
+      calls.push(new URL(String(input)));
+      return jsonResponse({ result: { status: 200, code: 0, total_count: 1, items: [{ content_id: "work-1" }] } });
+    },
+    logger,
+  });
+
+  assert.equal(outcome.success, true);
+  if (!outcome.success) return;
+  assert.deepEqual(outcome.meta, { searchMode: "cid", totalCount: 1 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].searchParams.get("cid"), "sample-001");
+  assert.equal(calls[0].searchParams.has("keyword"), false);
+});
