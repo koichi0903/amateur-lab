@@ -20,7 +20,7 @@ import { getXWeightedLength } from "@/lib/xText";
 import type { Message } from "./MyfansFormPrimitives";
 import { inputClass } from "./MyfansFormPrimitives";
 import { CreativeCardPreview, downloadCardPng } from "./MyfansCreativeCard";
-import { formatCandidateQualityBreakdown } from "./MyfansExecutionCandidateReview";
+import { buildCandidateVisualReviewValues, formatCandidateQualityBreakdown } from "./MyfansExecutionCandidateReview";
 
 type CopyHandler = (value: string, label: string) => void;
 
@@ -85,17 +85,18 @@ function CandidateIdentityReview({ candidate }: { candidate: ExecutionCandidate 
 }
 
 function CandidateVisualReview({ candidate }: { candidate: ExecutionCandidate }) {
-  if (!candidate.visualUnderstanding) return null;
+  const review = buildCandidateVisualReviewValues(candidate);
+  if (!review) return null;
   return (
     <>
-      <p><span className="font-black text-zinc-500">Visual analysis status:</span> {candidate.visualUnderstanding.visualAnalysisStatus} / {candidate.visualUnderstanding.analyzerVersion}</p>
-      <p><span className="font-black text-zinc-500">raw visual evidence:</span> {candidate.visualUnderstanding.rawVisualEvidence || candidate.visualUnderstanding.concreteVisualCue || "-"} / confidence {candidate.visualUnderstanding.cueConfidence ?? "-"}</p>
-      <p><span className="font-black text-zinc-500">human observation:</span> {candidate.visualUnderstanding.humanObservation || "-"}</p>
-      <p><span className="font-black text-zinc-500">evidence source:</span> {candidate.visualUnderstanding.evidenceSource || candidate.visualUnderstanding.sourceEvidence || "-"}</p>
-      <p><span className="font-black text-zinc-500">visual detail:</span> {candidate.visualUnderstanding.visualMoment} / {candidate.visualUnderstanding.compositionOrStyle || "-"} / {candidate.visualUnderstanding.cameraDistanceOrFraming || "-"}</p>
-      <p><span className="font-black text-zinc-500">Naturalness / visual specificity / why pass:</span> {candidate.quality.breakdown.followReason ?? "-"} / {candidate.quality.breakdown.specificity ?? "-"} / {candidate.quality.reasons.join(" / ")}</p>
-      <p><span className="font-black text-zinc-500">reaction type:</span> {candidate.reactionType ?? "-"}</p>
-      <p><span className="font-black text-zinc-500">why this angle:</span> {candidate.whyThisAngle}</p>
+      <p><span className="font-black text-zinc-500">Visual analysis status:</span> {review.visualAnalysisStatus} / {review.analyzerVersion}</p>
+      <p><span className="font-black text-zinc-500">raw visual evidence:</span> {review.rawVisualEvidence} / confidence {review.cueConfidence}</p>
+      <p><span className="font-black text-zinc-500">human observation:</span> {review.humanObservation}</p>
+      <p><span className="font-black text-zinc-500">evidence source:</span> {review.evidenceSource}</p>
+      <p><span className="font-black text-zinc-500">visual detail:</span> {review.visualMoment} / {review.compositionOrStyle} / {review.cameraDistanceOrFraming}</p>
+      <p><span className="font-black text-zinc-500">Naturalness / visual specificity / why pass:</span> {review.naturalness} / {review.specificity} / {review.qualityReasons}</p>
+      <p><span className="font-black text-zinc-500">reaction type:</span> {review.reactionType}</p>
+      <p><span className="font-black text-zinc-500">why this angle:</span> {review.whyThisAngle}</p>
     </>
   );
 }
