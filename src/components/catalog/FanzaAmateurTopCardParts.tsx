@@ -7,6 +7,7 @@ import MiniPriceHistoryChart from "@/components/home/MiniPriceHistoryChart";
 import SaleCountdown from "@/components/home/SaleCountdown";
 import AmateurFavoriteButton from "@/components/favorites/AmateurFavoriteButton";
 import { trackFanzaAmateurAffiliateClick } from "@/lib/trackFanzaAmateurAffiliateClick";
+import { withHakkutsuSiteAffiliateId } from "@/lib/dmm/siteAffiliateUrl";
 import type { FanzaAmateurHomeCard } from "@/lib/dmm/fanzaAmateurCatalog";
 
 type Card = FanzaAmateurHomeCard;
@@ -203,7 +204,7 @@ export function FanzaAmateurTopCardActions({
   return (
     <div className="mt-auto flex flex-col gap-1.5 pt-2">
       <a
-        href={item.affiliateURL}
+        href={withHakkutsuSiteAffiliateId(item.affiliateURL)}
         target="_blank"
         rel="noopener noreferrer sponsored"
         className="flex min-h-9 w-full items-center justify-center rounded-lg bg-pink-600 px-2 text-[11px] font-black text-white hover:bg-pink-700"
