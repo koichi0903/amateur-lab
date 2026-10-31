@@ -29,6 +29,38 @@ export function resolveTerminalCollectionCursorAdvance(
   };
 }
 
+export function buildCreatorCollectionStatePatch(input: {
+  jobId: number;
+  creatorId: number;
+  rotationOrder: number;
+  collectionState: string;
+  collectorMethod: string;
+  error?: string;
+  collectedCount?: number;
+  evidence?: Record<string, unknown>;
+  now?: () => string;
+}) {
+  const permanent = input.collectionState === "NO_POSTS" || input.collectionState === "PRIVATE";
+  const now = input.now ?? (() => new Date().toISOString());
+  return {
+    creator_id: input.creatorId,
+    rotation_order: input.rotationOrder,
+    collection_enabled: !permanent,
+    state: input.collectionState,
+    exclusion_reason: permanent ? input.collectionState.toLowerCase() : null,
+    excluded_at: permanent ? now() : null,
+    last_processed_at: now(),
+    last_run_id: input.jobId,
+    evidence: {
+      collectorMethod: input.collectorMethod,
+      error: input.error ?? null,
+      collectedCount: input.collectedCount ?? 0,
+      ...(input.evidence ?? {}),
+    },
+    updated_at: now(),
+  };
+}
+
 export function selectCollectionAccounts(
   accounts: readonly CollectionAccount[],
   cursor: CollectionCursor,

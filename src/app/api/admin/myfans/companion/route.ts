@@ -14,7 +14,10 @@ import { resolveQuoteRefreshFinalStatus } from "@/lib/myfans/myfansQuoteRefreshI
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { ensureExactProductForCreator, extractFinalMyfansUrl, fetchResolverProducts, importObservedMyfansPost } from "@/lib/myfans/myfansCompanionImportService";
 import { saveStandardCompanionImport } from "@/lib/myfans/myfansCompanionStandardImport";
-import { resolveTerminalCollectionCursorAdvance } from "@/lib/myfansCollectionRotation";
+import {
+  buildCreatorCollectionStatePatch,
+  resolveTerminalCollectionCursorAdvance,
+} from "@/lib/myfansCollectionRotation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -229,19 +232,17 @@ async function advanceCreatorCollectionCursor(jobId: number, creatorId: number, 
 
 async function persistCreatorCollectionState(jobId: number, creatorId: number, detail: RefreshItemDetail, outcome: RefreshItemOutcome) {
   const { data: existingState } = await supabaseAdmin.from("myfans_creator_collection_state").select("rotation_order").eq("creator_id", creatorId).maybeSingle();
-  const permanent = outcome.collectionState === "NO_POSTS" || outcome.collectionState === "PRIVATE";
-  const { error: stateError } = await supabaseAdmin.from("myfans_creator_collection_state").upsert({
-    creator_id: creatorId,
-    rotation_order: Number(existingState?.rotation_order ?? creatorId),
-    collection_enabled: !permanent,
-    state: outcome.collectionState,
-    exclusion_reason: permanent ? outcome.collectionState.toLowerCase() : null,
-    excluded_at: permanent ? new Date().toISOString() : null,
-    last_processed_at: new Date().toISOString(),
-    last_run_id: jobId,
-    evidence: { collectorMethod: COLLECTOR_METHOD, error: detail.error ?? null, collectedCount: detail.collectedCount ?? 0, ...(detail.evidence ?? {}) },
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "creator_id" });
+  const patch = buildCreatorCollectionStatePatch({
+    jobId,
+    creatorId,
+    rotationOrder: Number(existingState?.rotation_order ?? creatorId),
+    collectionState: outcome.collectionState,
+    collectorMethod: COLLECTOR_METHOD,
+    error: detail.error,
+    collectedCount: detail.collectedCount,
+    evidence: detail.evidence,
+  });
+  const { error: stateError } = await supabaseAdmin.from("myfans_creator_collection_state").upsert(patch, { onConflict: "creator_id" });
   if (stateError) throw stateError;
   if (outcome.finalStatus === "success" || outcome.finalStatus === "skipped") {
     await advanceCreatorCollectionCursor(jobId, creatorId, existingState?.rotation_order);
