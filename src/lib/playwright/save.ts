@@ -16,6 +16,7 @@ import {
 } from "./saveWorkRecord";
 import { syncWorkPrices } from "./syncWorkPrices";
 import { buildLegacyPricePeriodPlan } from "./legacyPricePeriodPlan";
+import { didSaveWorkChange } from "./saveWorkResult";
 
 // saveWork は管理ジョブ専用。anon key では RLS により更新が0件になる場合がある。
 async function repairLegacyPriceHistoryPeriods(
@@ -145,5 +146,5 @@ if (updated && updated.length > 0) {
   }
 }
 
-return Boolean(updated?.length) || priceDataChanged || legacyPriceHistoryChanged;
+return didSaveWorkChange(updated, priceDataChanged, legacyPriceHistoryChanged);
 }
