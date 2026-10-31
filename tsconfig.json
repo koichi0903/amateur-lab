@@ -40,6 +40,7 @@
     ".next-local-update-production-scheduled/dev/types/**/*.ts",
     ".next-amateur-actress-recovery-20261027/types/**/*.ts",
     ".next-amateur-actress-recovery-20261027/dev/types/**/*.ts",
+    ".next-catalog-validation-20261031/types/**/*.ts",
   ],
   "exclude": [
     "node_modules",
