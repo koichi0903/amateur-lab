@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getDmmFanzaAmateurPopularWorks, getFanzaAmateurAffiliateId, normalizeFanzaAmateurCatalogItem } from "@/lib/dmm/fanzaAmateurCatalog";
-import { AMATEUR_X_POSTED_COOLDOWN_DAYS, AMATEUR_X_SHARED_QUEUE_ACCOUNT, amateurXPostJobStatusColumns, amateurXPostJobTextColumns, buildAmateurXReplyText, getLegacyAmateurXReplyTrackingKey, getRecentlyPostedContentIds, getXPostAccountHandle, mergeAmateurXCandidateJobs, withoutSkippedAmateurXCandidates, type AmateurXCandidateJobState } from "@/lib/fanzaAmateurXPostHelpers";
+import { AMATEUR_X_POSTED_COOLDOWN_DAYS, AMATEUR_X_SHARED_QUEUE_ACCOUNT, amateurXPostJobTextColumns, buildAmateurXReplyText, getLegacyAmateurXReplyTrackingKey, getRecentlyPostedContentIds, mergeAmateurXCandidateJobs, projectAmateurXJobStatusUpdate, withoutSkippedAmateurXCandidates, type AmateurXCandidateJobState } from "@/lib/fanzaAmateurXPostHelpers";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { trimVideoForX } from "@/lib/xVideoTrim";
 import { priceNumber } from "@/lib/dmm/fanzaAmateurCatalogNormalize";
@@ -324,12 +324,10 @@ export async function updateAmateurXJobStatus(jobId: number, status: "posted" | 
     .eq("id", jobId).maybeSingle();
   if (loaded.error) throw jobTableError("投稿候補を確認できませんでした", loaded.error);
   if (!loaded.data || loaded.data.status !== "pending") throw new Error("投稿候補はすでに処理済みです。");
-  if (status === "posted" && (!mainText?.trim() || mainText.length > 280 || !replyText?.trim() || replyText.length > 280)) throw new Error("本文と自己リプを確認してから投稿済みにしてください。");
-  const postUrl = xPostUrl?.trim() ?? "";
-  const postedAccount = postUrl ? getXPostAccountHandle(postUrl) : null;
-  if (postUrl && !postedAccount) throw new Error("X投稿URLの形式が正しくありません。");
+  const projection = projectAmateurXJobStatusUpdate({ status, xPostUrl, postedAt: new Date().toISOString(), mainText, replyText });
+  if (projection.kind === "invalid") throw new Error(projection.message);
   const update = supabaseAdmin.from("fanza_amateur_x_post_jobs")
-    .update(amateurXPostJobStatusColumns({ status, xPostUrl: postUrl, postedAt: new Date().toISOString(), mainText, replyText }))
+    .update(projection.update)
     .eq("id", jobId).eq("status", "pending");
   const result = await update.select("id").maybeSingle();
   if (result.error) throw jobTableError("投稿状態を保存できませんでした", result.error);

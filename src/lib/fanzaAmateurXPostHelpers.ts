@@ -23,6 +23,33 @@ export function amateurXPostJobStatusColumns(input: {
   };
 }
 
+export function projectAmateurXJobStatusUpdate(input: {
+  status: "posted" | "skipped";
+  xPostUrl?: string;
+  postedAt: string;
+  mainText?: string;
+  replyText?: string;
+}):
+  | { kind: "invalid"; message: string }
+  | { kind: "valid"; update: ReturnType<typeof amateurXPostJobStatusColumns> } {
+  if (
+    input.status === "posted" &&
+    (!input.mainText?.trim() || input.mainText.length > 280 || !input.replyText?.trim() || input.replyText.length > 280)
+  ) {
+    return { kind: "invalid", message: "本文と自己リプを確認してから投稿済みにしてください。" };
+  }
+
+  const xPostUrl = input.xPostUrl?.trim() ?? "";
+  if (xPostUrl && !getXPostAccountHandle(xPostUrl)) {
+    return { kind: "invalid", message: "X投稿URLの形式が正しくありません。" };
+  }
+
+  return {
+    kind: "valid",
+    update: amateurXPostJobStatusColumns({ ...input, xPostUrl }),
+  };
+}
+
 export function buildAmateurXReplyText(title: string, price: number | null, trackedUrl: string) {
   const lines = [
     title.trim() || "FANZA素人作品",

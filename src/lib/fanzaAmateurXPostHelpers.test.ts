@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AMATEUR_X_POSTED_COOLDOWN_DAYS, AMATEUR_X_SHARED_QUEUE_ACCOUNT, amateurXPostJobStatusColumns, amateurXPostJobTextColumns, buildAmateurXReplyText, getLegacyAmateurXReplyTrackingKey, getRecentlyPostedContentIds, getXPostAccountHandle, mergeAmateurXCandidateJobs, withoutSkippedAmateurXCandidates } from "./fanzaAmateurXPostHelpers.ts";
+import { AMATEUR_X_POSTED_COOLDOWN_DAYS, AMATEUR_X_SHARED_QUEUE_ACCOUNT, amateurXPostJobStatusColumns, amateurXPostJobTextColumns, buildAmateurXReplyText, getLegacyAmateurXReplyTrackingKey, getRecentlyPostedContentIds, getXPostAccountHandle, mergeAmateurXCandidateJobs, projectAmateurXJobStatusUpdate, withoutSkippedAmateurXCandidates } from "./fanzaAmateurXPostHelpers.ts";
 
 test("new amateur X post jobs use the shared unassigned queue", () => {
   assert.equal(AMATEUR_X_SHARED_QUEUE_ACCOUNT, "unassigned");
@@ -40,6 +40,69 @@ test("keeps skipped jobs in the shared queue account", () => {
     account_handle: AMATEUR_X_SHARED_QUEUE_ACCOUNT,
     x_post_url: null,
     posted_at: null,
+  });
+});
+
+test("validates posted state text and maps the X URL into the shared job update", () => {
+  assert.deepEqual(projectAmateurXJobStatusUpdate({
+    status: "posted",
+    xPostUrl: " https://x.com/bijyo1008/status/12345 ",
+    postedAt: "2026-10-31T12:00:00.000Z",
+    mainText: "本文",
+    replyText: "自己リプ",
+  }), {
+    kind: "valid",
+    update: {
+      status: "posted",
+      account_handle: "bijyo1008",
+      x_post_url: "https://x.com/bijyo1008/status/12345",
+      posted_at: "2026-10-31T12:00:00.000Z",
+      main_text: "本文",
+      reply_text: "自己リプ",
+    },
+  });
+});
+
+test("keeps the X post URL optional while requiring both post texts", () => {
+  assert.equal(projectAmateurXJobStatusUpdate({
+    status: "posted",
+    postedAt: "2026-10-31T12:00:00.000Z",
+    mainText: "本文",
+    replyText: "自己リプ",
+  }).kind, "valid");
+
+  assert.deepEqual(projectAmateurXJobStatusUpdate({
+    status: "posted",
+    postedAt: "2026-10-31T12:00:00.000Z",
+    mainText: " ",
+    replyText: "自己リプ",
+  }), {
+    kind: "invalid",
+    message: "本文と自己リプを確認してから投稿済みにしてください。",
+  });
+});
+
+test("rejects malformed X URLs and preserves the skipped shared-queue update", () => {
+  assert.deepEqual(projectAmateurXJobStatusUpdate({
+    status: "skipped",
+    xPostUrl: "https://example.com/post",
+    postedAt: "2026-10-31T12:00:00.000Z",
+  }), {
+    kind: "invalid",
+    message: "X投稿URLの形式が正しくありません。",
+  });
+
+  assert.deepEqual(projectAmateurXJobStatusUpdate({
+    status: "skipped",
+    postedAt: "2026-10-31T12:00:00.000Z",
+  }), {
+    kind: "valid",
+    update: {
+      status: "skipped",
+      account_handle: AMATEUR_X_SHARED_QUEUE_ACCOUNT,
+      x_post_url: null,
+      posted_at: null,
+    },
   });
 });
 
