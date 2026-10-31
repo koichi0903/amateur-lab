@@ -2,7 +2,8 @@ import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
-import type { EntityIndexKind } from "./entityIndexSummaries";
+import { getEntityIndexSummary, type EntityIndexKind } from "./entityIndexSummaries";
+import { preserveWorkOrderByIds } from "./entityWorksProjection";
 
 export const ENTITY_PAGE_SIZE = 60;
 export const CATALOG_PAGE_SIZE = 24;
@@ -25,6 +26,35 @@ function genrePattern(name: string) {
 async function loadCatalogWorksPage(kind: CatalogWorkKind, name: string, page: number, sort: GenreWorkSort = "popular"): Promise<GenreWorksResult> {
   const currentPage = Math.max(1, page);
   const from = (currentPage - 1) * CATALOG_PAGE_SIZE;
+  if (sort === "popular") {
+    const [entityPage, summary] = await Promise.all([
+      getEntityWorksPage(kind, name, currentPage, CATALOG_PAGE_SIZE),
+      getEntityIndexSummary(kind, name),
+    ]);
+    const totalCount = summary?.count ?? 0;
+    if (entityPage.error) {
+      return { error: entityPage.error, works: [], totalCount };
+    }
+
+    const workIds = entityPage.works.map(({ id }) => id);
+    if (workIds.length === 0) return { error: null, works: [], totalCount };
+
+    const result = await supabase.from("works").select(genreWorkSelect).in("id", workIds);
+    if (result.error) {
+      return {
+        error: { code: result.error.code, message: result.error.message, details: result.error.details, hint: result.error.hint },
+        works: [],
+        totalCount,
+      };
+    }
+
+    return {
+      error: null,
+      works: preserveWorkOrderByIds(workIds, (result.data ?? []) as Work[]),
+      totalCount,
+    };
+  }
+
   if (sort === "price-asc" || sort === "price-desc") {
     type PriceRow = { id: number; price: number | null; sale_price: number | null };
     const priceRows: PriceRow[] = [];
@@ -141,10 +171,12 @@ async function loadEntityWorksPage(
   kind: EntityIndexKind,
   name: string,
   page: number,
+  pageSize = ENTITY_PAGE_SIZE,
 ) {
   const currentPage = Math.max(1, page);
-  const from = (currentPage - 1) * ENTITY_PAGE_SIZE;
-  return getCachedEntityWorks(kind, name, from, ENTITY_PAGE_SIZE);
+  const boundedPageSize = Math.min(Math.max(1, pageSize), 300);
+  const from = (currentPage - 1) * boundedPageSize;
+  return getCachedEntityWorks(kind, name, from, boundedPageSize);
 }
 
 async function loadEntityContext(kind: EntityIndexKind, name: string) {
