@@ -57,14 +57,56 @@ function ValueRow({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
+function CompareCurrentPriceRow({ price, isLowest }: { price: number | null; isLowest: boolean }) {
+  return (
+    <ValueRow label="現在の最安価格">
+      <span className={`text-xl font-black ${isLowest ? "text-emerald-600" : "text-pink-600"}`}>{price ? `¥${price.toLocaleString("ja-JP")}` : "価格確認中"}</span>
+      {isLowest && <span className="ml-2 rounded-full bg-emerald-50 px-2 py-1 text-[10px] text-emerald-700">最安</span>}
+    </ValueRow>
+  );
+}
+
+function CompareDiscountRow({ work }: { work: CompareWork }) {
+  return (
+    <ValueRow label="割引・価格実績">
+      <span className="flex flex-wrap gap-1.5">
+        {work.discount_rate && work.discount_rate > 0 ? <span className="rounded-full bg-rose-50 px-2 py-1 text-xs text-rose-700">{Math.round(work.discount_rate)}%OFF</span> : "割引なし"}
+        {work.is_lowest_price && <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-700">過去最安</span>}
+      </span>
+    </ValueRow>
+  );
+}
+
+function CompareScoreRow({ work, bestScore }: { work: CompareWork; bestScore: number }) {
+  const isBest = work.score === bestScore && bestScore > 0;
+  return (
+    <ValueRow label="発掘スコア">
+      <span className={isBest ? "text-pink-600" : ""}>{work.score ? `${work.score}点` : "—"}{isBest && <Check className="ml-1 inline" size={14} />}</span>
+    </ValueRow>
+  );
+}
+
+function CompareReviewRow({ work, bestReview }: { work: CompareWork; bestReview: number }) {
+  const isBest = work.review_average === bestReview && bestReview > 0;
+  return (
+    <ValueRow label="レビュー">
+      <span className="flex items-center gap-1"><Star size={14} className="text-amber-500" fill="currentColor" />{work.review_average ? `${work.review_average.toFixed(2)}（${work.review_count ?? 0}件）` : "—"}{isBest && <Check className="text-emerald-600" size={14} />}</span>
+    </ValueRow>
+  );
+}
+
+function CompareSampleRow({ url }: { url: string | null }) {
+  return <ValueRow label="無料サンプル">{url ? <span className="flex items-center gap-1 text-sky-700"><PlayCircle size={14} />動画あり</span> : "なし・未取得"}</ValueRow>;
+}
+
 function CompareWorkFacts({ work, price, isLowest, bestScore, bestReview }: { work: CompareWork; price: number | null; isLowest: boolean; bestScore: number; bestReview: number }) {
   return (
     <dl className="mt-3">
-      <ValueRow label="現在の最安価格"><span className={`text-xl font-black ${isLowest ? "text-emerald-600" : "text-pink-600"}`}>{price ? `¥${price.toLocaleString("ja-JP")}` : "価格確認中"}</span>{isLowest && <span className="ml-2 rounded-full bg-emerald-50 px-2 py-1 text-[10px] text-emerald-700">最安</span>}</ValueRow>
-      <ValueRow label="割引・価格実績"><span className="flex flex-wrap gap-1.5">{work.discount_rate && work.discount_rate > 0 ? <span className="rounded-full bg-rose-50 px-2 py-1 text-xs text-rose-700">{Math.round(work.discount_rate)}%OFF</span> : "割引なし"}{work.is_lowest_price && <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-700">過去最安</span>}</span></ValueRow>
-      <ValueRow label="発掘スコア"><span className={work.score === bestScore && bestScore > 0 ? "text-pink-600" : ""}>{work.score ? `${work.score}点` : "—"}{work.score === bestScore && bestScore > 0 && <Check className="ml-1 inline" size={14} />}</span></ValueRow>
-      <ValueRow label="レビュー"><span className="flex items-center gap-1"><Star size={14} className="text-amber-500" fill="currentColor" />{work.review_average ? `${work.review_average.toFixed(2)}（${work.review_count ?? 0}件）` : "—"}{work.review_average === bestReview && bestReview > 0 && <Check className="text-emerald-600" size={14} />}</span></ValueRow>
-      <ValueRow label="無料サンプル">{work.sample_movie_url ? <span className="flex items-center gap-1 text-sky-700"><PlayCircle size={14} />動画あり</span> : "なし・未取得"}</ValueRow>
+      <CompareCurrentPriceRow price={price} isLowest={isLowest} />
+      <CompareDiscountRow work={work} />
+      <CompareScoreRow work={work} bestScore={bestScore} />
+      <CompareReviewRow work={work} bestReview={bestReview} />
+      <CompareSampleRow url={work.sample_movie_url} />
       <ValueRow label="女優">{work.actress || "—"}</ValueRow>
       <ValueRow label="ジャンル">{work.genre || "—"}</ValueRow>
       <ValueRow label="メーカー / シリーズ">{[work.maker, work.series].filter(Boolean).join(" / ") || "—"}</ValueRow>
