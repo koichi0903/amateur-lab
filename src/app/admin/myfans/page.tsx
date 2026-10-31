@@ -27,27 +27,66 @@ import {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type MyfansSearchParams = { media?: string; date?: string };
+type MyfansAnalytics = Awaited<ReturnType<typeof getMyfansAnalytics>>;
+type MyfansBoard = ReturnType<typeof buildMyfansExecutionBoard>;
+type MyfansStrategy = ReturnType<typeof getMyfansStrategy>;
+type PersistedSnapshot = ReturnType<typeof restorePersistedDailySnapshot> | null;
+
+const targetPostUrls = [
+  "https://myfans.jp/posts/d9e79b79-c7d0-411d-a4b8-4c4744d2c3d4",
+  "https://myfans.jp/posts/03ba5744-5376-47e7-94bb-d3b1f7ceeb99",
+];
+
 function dateTime(value: string | null | undefined) {
   if (!value) return "-";
   return new Date(value).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", hour12: false });
 }
 
+async function ensureSelectedMedia(searchParams?: Promise<MyfansSearchParams>) {
+  const params = await searchParams;
+  if (params?.media) return params;
+  const { data: defaultMedia } = await supabaseAdmin.from("myfans_approved_media").select("id").eq("status", "active").order("id", { ascending: true }).limit(1).maybeSingle();
+  permanentRedirect(`/admin/myfans?media=${defaultMedia?.id ?? ""}`);
+}
+
+async function loadMarketWinner(strategy: MyfansStrategy, analytics: MyfansAnalytics) {
+  if (strategy.strategyType !== "MARKET_WINNER" || !analytics.selectedMediaId) return null;
+  return readMarketWinnerOpportunities(analytics, analytics.selectedMediaId);
+}
+
+function buildPersistedSnapshot(analytics: MyfansAnalytics, board: MyfansBoard, selectedMediaId: number | null) {
+  const currentPlan = selectCurrentMyfansDailyPlan(analytics.dailyPlans, board.planDate, selectedMediaId);
+  if (!currentPlan) return null;
+  return restorePersistedDailySnapshot({
+    id: currentPlan.id,
+    planDate: currentPlan.plan_date,
+    revision: currentPlan.revision,
+    evaluatedAt: currentPlan.evaluated_at ?? currentPlan.updated_at ?? null,
+    strategyJson: currentPlan.strategy_json,
+    permanentExclusions: analytics.permanentExclusions,
+  });
+}
+
+function buildDisplaySummary(persistedSnapshot: PersistedSnapshot, board: MyfansBoard) {
+  return buildMyfansDailyBoardSummary({
+    persistedSelectedCount: persistedSnapshot?.selectedCount ?? null,
+    candidateOptions: board.candidateOptions,
+    recovery: board.recovery,
+    candidates: board.candidates,
+  });
+}
+
 export default async function MyfansDailyPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ media?: string; date?: string }>;
+  searchParams?: Promise<MyfansSearchParams>;
 }) {
-  const params = await searchParams;
-  if (!params?.media) {
-    const { data: defaultMedia } = await supabaseAdmin.from("myfans_approved_media").select("id").eq("status", "active").order("id", { ascending: true }).limit(1).maybeSingle();
-    permanentRedirect(`/admin/myfans?media=${defaultMedia?.id ?? ""}`);
-  }
+  const params = await ensureSelectedMedia(searchParams);
   const { selectedMediaId, planDate } = parseMyfansDailyPageParams(params);
   const analytics = await getMyfansAnalytics({ approvedMediaId: Number.isFinite(selectedMediaId) ? selectedMediaId : null, includeCompleteDailyFunnelInputs: true });
   const strategy = getMyfansStrategy(selectedMediaId);
-  const marketWinner = strategy.strategyType === "MARKET_WINNER" && analytics.selectedMediaId
-    ? await readMarketWinnerOpportunities(analytics, analytics.selectedMediaId)
-    : null;
+  const marketWinner = await loadMarketWinner(strategy, analytics);
   const [supplyProductsResult, supplyEvidenceResult, latestRefreshResult, latestSuccessfulSupplyResult] = await Promise.all([
     supabaseAdmin.from("myfans_products").select("id,title,product_url,affiliate_url,creator_id,price").order("created_at", { ascending: false }).limit(1000),
     supabaseAdmin.from("myfans_post_product_linkage_evidence").select("id,source_status_url,discovered_myfans_url,final_myfans_url,product_id,confidence,resolution_method,verified_at").order("verified_at", { ascending: false }).limit(1000),
@@ -59,27 +98,10 @@ export default async function MyfansDailyPage({
   const latestRefreshJob = latestRefreshResult.data;
   const latestSuccessfulSupply = latestSuccessfulSupplyResult.data;
   const supplyStatus = buildMyfansSupplyEvidenceStatus(supplyProducts, supplyEvidence);
-  const targetPostUrls = [
-    "https://myfans.jp/posts/d9e79b79-c7d0-411d-a4b8-4c4744d2c3d4",
-    "https://myfans.jp/posts/03ba5744-5376-47e7-94bb-d3b1f7ceeb99",
-  ];
   const planner = buildMyfansAcquisitionPlanner(analytics);
   const board = buildMyfansExecutionBoard(analytics, planDate ? { planDate } : {});
-  const currentPlan = selectCurrentMyfansDailyPlan(analytics.dailyPlans, board.planDate, selectedMediaId);
-  const persistedSnapshot = currentPlan ? restorePersistedDailySnapshot({
-    id: currentPlan.id,
-    planDate: currentPlan.plan_date,
-    revision: currentPlan.revision,
-    evaluatedAt: currentPlan.evaluated_at ?? currentPlan.updated_at ?? null,
-    strategyJson: currentPlan.strategy_json,
-    permanentExclusions: analytics.permanentExclusions,
-  }) : null;
-  const { optionCount: displayOptionCount, selectedCount: displaySelectedCount, selectedStatus: displaySelectedStatus, postCount: displayPostCount } = buildMyfansDailyBoardSummary({
-    persistedSelectedCount: persistedSnapshot?.selectedCount ?? null,
-    candidateOptions: board.candidateOptions,
-    recovery: board.recovery,
-    candidates: board.candidates,
-  });
+  const persistedSnapshot = buildPersistedSnapshot(analytics, board, selectedMediaId);
+  const { optionCount: displayOptionCount, selectedCount: displaySelectedCount, selectedStatus: displaySelectedStatus, postCount: displayPostCount } = buildDisplaySummary(persistedSnapshot, board);
   const quoteTasks = buildQuoteCandidateCollectionTasks(analytics);
 
 
