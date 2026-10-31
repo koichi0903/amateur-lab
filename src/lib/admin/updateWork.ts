@@ -1,6 +1,7 @@
 import { getDmmItem } from "@/lib/dmm/getDmmItem";
 import { updateDmmItem } from "./update";
 import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
+import { resolveUpdateWorkStatus } from "./updateWorkResult";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import type { DmmItem } from "@/types/dmm";
 import type { Browser } from "playwright-core";
@@ -51,12 +52,7 @@ export async function updateWorkDetailed(
   options,
   );
   return {
-    status:
-      playwrightResult === "unavailable_deferred"
-        ? "unavailable_deferred"
-        : changed || playwrightResult === "updated"
-          ? "updated"
-          : "unchanged",
+    status: resolveUpdateWorkStatus(playwrightResult, changed),
     metadataChanged: changed,
     playwrightResult,
   };
