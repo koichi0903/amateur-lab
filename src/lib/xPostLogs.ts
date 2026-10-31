@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { XPostCandidate } from "@/lib/xPostPlanner";
 import { aggregateXCreativeLearning, type XCreativeLearningRow } from "./xCreativeLearningAggregation";
+import { buildLegacyXPostLogFallback } from "./xPostLogFallback";
 export type { XCreativeLearningRow } from "./xCreativeLearningAggregation";
 
 export type XPostLog = {
@@ -136,27 +137,8 @@ export async function saveXPostLog(input: XPostLogInput) {
     creative_genome: input.creativeGenome,
   };
   const result = await supabaseAdmin.from("x_post_logs").upsert(row, { onConflict: "post_key,post_date" });
-
-  if (result.error && (result.error.code === "PGRST204" || result.error.message?.includes("creative_variant_id") || result.error.message?.includes("account_handle") || result.error.message?.includes("post_intent") || result.error.message?.includes("x_post_id"))) {
-    if (input.xPostId) return result;
-    const { account_handle, post_intent, scheduled_slot, planned_at, evaluation_due_at, creative_variant_id, hook_type, image_strategy, link_strategy, cta_strategy, x_post_id, opportunity_id, media_asset_id, creative_genome, ...fallback } = row;
-    void account_handle;
-    void post_intent;
-    void scheduled_slot;
-    void planned_at;
-    void evaluation_due_at;
-    void creative_variant_id;
-    void hook_type;
-    void image_strategy;
-    void link_strategy;
-    void cta_strategy;
-    void x_post_id;
-    void opportunity_id;
-    void media_asset_id;
-    void creative_genome;
-    return supabaseAdmin.from("x_post_logs").upsert(fallback, { onConflict: "post_key,post_date" });
-  }
-
+  const fallback = buildLegacyXPostLogFallback(result.error, input.xPostId, row);
+  if (fallback) return supabaseAdmin.from("x_post_logs").upsert(fallback, { onConflict: "post_key,post_date" });
   return result;
 }
 
