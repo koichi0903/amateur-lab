@@ -5,17 +5,29 @@ import { officialSampleVideoAllowed } from "./xGrowthEligibility";
 import { recommendedTimeLabel } from "./xGrowthOpportunityScoring";
 import { diversityConflicts } from "./xGrowthDailyDiversity";
 
-function whyToday(item: XGrowthOpportunity, role: XGrowthIntent) {
+function visualAndTrendReasons(item: XGrowthOpportunity) {
   return [
     officialSampleVideoAllowed(item) ? "動画で止まりやすい" : "",
     item.rankingHistory.status === "ready" && item.rankingHistory.rankingDelta && item.rankingHistory.rankingDelta >= 10 ? "昨日との差分で続報にできる" : "",
     item.imageUrl ? "画像で作品の雰囲気が一目で伝わる" : "",
+  ].filter(Boolean);
+}
+
+function priceAndContextReasons(item: XGrowthOpportunity, role: XGrowthIntent) {
+  return [
     item.isNinetyDayLow || item.discountRate >= 30 ? "今日見る理由が価格で説明できる" : "",
     item.ranking && item.ranking <= 30 ? "ランキング上位なので初見でも文脈が伝わる" : "",
     item.reviewAverage && item.reviewAverage >= 4.5 ? "評価を少し添えるだけで納得感が出る" : "",
     role === "FOLLOW" ? "毎日追うアカウントとして見せやすい" : "",
     item.freshness.reasons.find((reason) => reason.includes("セール終了")) ?? "",
   ].filter(Boolean);
+}
+
+function whyToday(item: XGrowthOpportunity, role: XGrowthIntent) {
+  return [
+    ...visualAndTrendReasons(item),
+    ...priceAndContextReasons(item, role),
+  ];
 }
 
 function selectedCreative(item: XGrowthOpportunity, role: XGrowthIntent) {

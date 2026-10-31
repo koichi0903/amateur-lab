@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildTopPickCandidate } from "./xGrowthDailyPresentation.ts";
 
-function makeCandidate(imageUrl: string | null) {
+function makeCandidate(
+  imageUrl: string | null,
+  itemOverrides: Record<string, unknown> = {},
+) {
   const variant = {
     id: "comparison-card",
     intent: "FOLLOW",
@@ -30,6 +33,7 @@ function makeCandidate(imageUrl: string | null) {
     reviewAverage: null,
     freshness: { reasons: [] },
     recommendedSlot: "morning",
+    ...itemOverrides,
   };
   return buildTopPickCandidate({
     item,
@@ -61,4 +65,25 @@ test("prefers the work image over a non-price data card when available", () => {
   assert.equal(candidate.mediaType, "existing_link_image");
   assert.equal(candidate.recommendedMediaUrl, imageUrl);
   assert.equal(candidate.mediaDecision, "作品画像を優先。本文は画像説明ではなく見る理由に絞る");
+});
+
+test("keeps daily reasons in their established order", () => {
+  const candidate = makeCandidate("https://pics.dmm.co.jp/work/123.jpg", {
+    rankingHistory: { status: "ready", rankingDelta: 12 },
+    isNinetyDayLow: true,
+    discountRate: 30,
+    ranking: 20,
+    reviewAverage: 4.7,
+    freshness: { reasons: ["セール終了まで1日"] },
+  });
+
+  assert.deepEqual(candidate.whyToday, [
+    "昨日との差分で続報にできる",
+    "画像で作品の雰囲気が一目で伝わる",
+    "今日見る理由が価格で説明できる",
+    "ランキング上位なので初見でも文脈が伝わる",
+    "評価を少し添えるだけで納得感が出る",
+    "毎日追うアカウントとして見せやすい",
+    "セール終了まで1日",
+  ]);
 });
