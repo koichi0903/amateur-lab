@@ -3,6 +3,12 @@ import { getFanzaAmateurPriceFromRawItem } from "@/lib/dmm/fanzaAmateurRawItem";
 import { sendPushNotification, type StoredPushSubscription } from "@/lib/push";
 import { decidePriceAlert, isGonePushEndpointError } from "@/lib/pushPriceAlertDecision";
 import {
+  amateurMakerAlertDeliveryKey,
+  amateurMakerAlertNames,
+  matchesAmateurMakerAlert,
+  type AmateurMakerAlertRule,
+} from "@/lib/amateurMakerAlertRules";
+import {
   getSeriesAlertEntityNames,
   matchesSeriesAlertWork,
   seriesAlertDeliveryKey,
@@ -15,7 +21,6 @@ type WorkPriceRow = { id: number; product_id: string; title: string; price: numb
 type SubscriptionRow = { endpoint: string; p256dh: string; auth: string; active: boolean };
 
 type AmateurPriceAlertRow = { endpoint: string; content_id: string; last_notified_price: number | null };
-type AmateurMakerAlertRow = { endpoint: string; maker_name: string };
 type AmateurWorkRow = { content_id: string; title: string; raw_item: unknown };
 
 async function sendPriceDropAlert(alert: PriceAlertRow, work: WorkPriceRow, subscription: SubscriptionRow, currentPrice: number) {
@@ -167,19 +172,6 @@ export async function notifySeriesAlertsForProducts(productIds: string[]) {
   return { sent, skipped };
 }
 
-function amateurMakerNames(rawItem: unknown) {
-  if (typeof rawItem !== "object" || rawItem === null || Array.isArray(rawItem)) return [];
-  const iteminfo = (rawItem as Record<string, unknown>).iteminfo;
-  if (typeof iteminfo !== "object" || iteminfo === null || Array.isArray(iteminfo)) return [];
-  const makers = (iteminfo as Record<string, unknown>).maker;
-  if (!Array.isArray(makers)) return [];
-  return [...new Set(makers.flatMap((maker) => {
-    if (typeof maker !== "object" || maker === null || Array.isArray(maker)) return [];
-    const name = (maker as Record<string, unknown>).name;
-    return typeof name === "string" && name.trim() ? [name.trim()] : [];
-  }))];
-}
-
 export async function notifyAmateurPriceAlertsForContentIds(contentIds: string[]) {
   const ids = [...new Set(contentIds)].filter(Boolean);
   if (!ids.length) return { sent: 0, skipped: 0 };
@@ -224,45 +216,87 @@ export async function notifyAmateurPriceAlertsForContentIds(contentIds: string[]
   return { sent, skipped };
 }
 
-export async function notifyAmateurMakerAlertsForContentIds(contentIds: string[]) {
+type AmateurMakerAlertBatch = {
+  workRows: AmateurWorkRow[];
+  alertRows: AmateurMakerAlertRule[];
+  subscriptionByEndpoint: Map<string, SubscriptionRow>;
+  delivered: Set<string>;
+};
+
+async function loadAmateurMakerAlertBatch(contentIds: string[]): Promise<AmateurMakerAlertBatch | null> {
   const ids = [...new Set(contentIds)].filter(Boolean);
-  if (!ids.length) return { sent: 0, skipped: 0 };
+  if (!ids.length) return null;
   const { data: works, error: worksError } = await supabaseAdmin.from("fanza_amateur_works").select("content_id,title,raw_item").in("content_id", ids);
   if (worksError) throw worksError;
   const workRows = (works ?? []) as AmateurWorkRow[];
-  const makerNames = [...new Set(workRows.flatMap((work) => amateurMakerNames(work.raw_item)))];
-  if (!makerNames.length) return { sent: 0, skipped: 0 };
+  const makerNames = amateurMakerAlertNames(workRows);
+  if (!makerNames.length) return null;
   const { data: alerts, error: alertsError } = await supabaseAdmin.from("push_amateur_maker_alerts").select("endpoint,maker_name").in("maker_name", makerNames);
   if (alertsError) throw alertsError;
-  const alertRows = (alerts ?? []) as AmateurMakerAlertRow[];
-  if (!alertRows.length) return { sent: 0, skipped: 0 };
+  const alertRows = (alerts ?? []) as AmateurMakerAlertRule[];
+  if (!alertRows.length) return null;
   const endpoints = [...new Set(alertRows.map((alert) => alert.endpoint))];
   const { data: subscriptions, error: subscriptionsError } = await supabaseAdmin.from("push_subscriptions").select("endpoint,p256dh,auth,active").in("endpoint", endpoints).eq("active", true);
   if (subscriptionsError) throw subscriptionsError;
   const subscriptionByEndpoint = new Map((subscriptions ?? []).map((row) => [row.endpoint, row as SubscriptionRow]));
   const { data: deliveries, error: deliveriesError } = await supabaseAdmin.from("push_amateur_maker_alert_deliveries").select("endpoint,maker_name,content_id").in("endpoint", endpoints).in("content_id", ids);
   if (deliveriesError) throw deliveriesError;
-  const delivered = new Set((deliveries ?? []).map((row) => `${row.endpoint}\u0000${row.maker_name}\u0000${row.content_id}`));
+  const delivered = new Set((deliveries ?? []).map((row) => amateurMakerAlertDeliveryKey(row.endpoint, row.maker_name, row.content_id)));
+  return { workRows, alertRows, subscriptionByEndpoint, delivered };
+}
+
+async function sendAmateurMakerAlertWork(
+  alert: AmateurMakerAlertRule,
+  work: AmateurWorkRow,
+  subscription: SubscriptionRow,
+  delivered: Set<string>,
+) {
+  const deliveryKey = amateurMakerAlertDeliveryKey(alert.endpoint, alert.maker_name, work.content_id);
+  if (!matchesAmateurMakerAlert(alert, work) || delivered.has(deliveryKey)) return null;
+
+  try {
+    await sendPushNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } }, { title: "発掘LAB：メーカーの新作です", body: `${alert.maker_name}の新しい素人作品「${work.title}」が登録されました。`, url: `/amateur/${encodeURIComponent(work.content_id)}`, tag: `amateur-maker-${alert.maker_name}` });
+    const { error: deliveryError } = await supabaseAdmin.from("push_amateur_maker_alert_deliveries").insert({ endpoint: alert.endpoint, maker_name: alert.maker_name, content_id: work.content_id });
+    if (deliveryError) throw deliveryError;
+    delivered.add(deliveryKey);
+    return "sent";
+  } catch (error) {
+    console.error("[push] amateur maker notification failed", { endpoint: alert.endpoint, contentId: work.content_id, maker: alert.maker_name, error });
+    return "skipped";
+  }
+}
+
+async function sendAmateurMakerAlertsToSubscription(
+  alert: AmateurMakerAlertRule,
+  subscription: SubscriptionRow,
+  workRows: AmateurWorkRow[],
+  delivered: Set<string>,
+) {
+  let sent = 0;
+  let skipped = 0;
+  for (const work of workRows) {
+    const result = await sendAmateurMakerAlertWork(alert, work, subscription, delivered);
+    if (result === "sent") sent += 1;
+    if (result === "skipped") skipped += 1;
+  }
+  return { sent, skipped };
+}
+
+export async function notifyAmateurMakerAlertsForContentIds(contentIds: string[]) {
+  const batch = await loadAmateurMakerAlertBatch(contentIds);
+  if (!batch) return { sent: 0, skipped: 0 };
 
   let sent = 0;
   let skipped = 0;
-  for (const alert of alertRows) {
-    const subscription = subscriptionByEndpoint.get(alert.endpoint);
-    if (!subscription) { skipped += 1; continue; }
-    for (const work of workRows) {
-      const deliveryKey = `${alert.endpoint}\u0000${alert.maker_name}\u0000${work.content_id}`;
-      if (!amateurMakerNames(work.raw_item).includes(alert.maker_name) || delivered.has(deliveryKey)) continue;
-      try {
-        await sendPushNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } }, { title: "発掘LAB：メーカーの新作です", body: `${alert.maker_name}の新しい素人作品「${work.title}」が登録されました。`, url: `/amateur/${encodeURIComponent(work.content_id)}`, tag: `amateur-maker-${alert.maker_name}` });
-        const { error: deliveryError } = await supabaseAdmin.from("push_amateur_maker_alert_deliveries").insert({ endpoint: alert.endpoint, maker_name: alert.maker_name, content_id: work.content_id });
-        if (deliveryError) throw deliveryError;
-        delivered.add(deliveryKey);
-        sent += 1;
-      } catch (error) {
-        console.error("[push] amateur maker notification failed", { endpoint: alert.endpoint, contentId: work.content_id, maker: alert.maker_name, error });
-        skipped += 1;
-      }
+  for (const alert of batch.alertRows) {
+    const subscription = batch.subscriptionByEndpoint.get(alert.endpoint);
+    if (!subscription) {
+      skipped += 1;
+      continue;
     }
+    const result = await sendAmateurMakerAlertsToSubscription(alert, subscription, batch.workRows, batch.delivered);
+    sent += result.sent;
+    skipped += result.skipped;
   }
   return { sent, skipped };
 }
