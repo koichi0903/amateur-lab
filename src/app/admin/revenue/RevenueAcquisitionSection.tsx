@@ -8,6 +8,7 @@ type GoogleAnalytics = Awaited<ReturnType<typeof getGoogleAcquisitionAnalytics>>
 type OfficialDailyMetrics = Awaited<ReturnType<typeof getFanzaId990DailyOfficialMetrics>>;
 type Id990Confirmed = { dayCount: number; clickCount: number; rewardYen: number };
 type FunnelStatus = "measured" | "google-measured" | "unavailable" | "account-total";
+type FunnelStageProps = { number: number; title: string; value: string; period: string; definition: string; status: FunnelStatus };
 
 function FunnelStage({
   number,
@@ -16,14 +17,7 @@ function FunnelStage({
   period,
   definition,
   status,
-}: {
-  number: number;
-  title: string;
-  value: string;
-  period: string;
-  definition: string;
-  status: FunnelStatus;
-}) {
+}: FunnelStageProps) {
   const statusLabel = status === "measured"
     ? "サイト内実測"
     : status === "google-measured"
@@ -47,6 +41,62 @@ function FunnelStage({
       <p className="mt-2 text-xs leading-5 text-zinc-500">{definition}</p>
     </div>
   );
+}
+
+function searchImpressionsStage(analytics: GoogleAnalytics): FunnelStageProps {
+  return {
+    number: 1,
+    title: "Google検索表示",
+    value: analytics.searchConsole.available ? `${analytics.searchConsole.impressions?.toLocaleString("ja-JP")}回` : "未接続",
+    period: `${analytics.period.startDate}〜${analytics.period.endDate}`,
+    definition: "Search Consoleの表示回数。検索結果に表示された回数で、サイト訪問ではありません。",
+    status: analytics.searchConsole.available ? "google-measured" : "unavailable",
+  };
+}
+
+function siteVisitorsStage(analytics: GoogleAnalytics): FunnelStageProps {
+  return {
+    number: 2,
+    title: "サイト訪問ユーザー",
+    value: analytics.analytics.available ? `${analytics.analytics.activeUsers?.toLocaleString("ja-JP")}人` : "未接続",
+    period: `${analytics.analyticsPeriod.startDate}〜${analytics.analyticsPeriod.endDate}`,
+    definition: "GA4のアクティブユーザー数。検索経由に限らない全流入のユーザーです。前日までの速報値で、後日変わる場合があります。",
+    status: analytics.analytics.available ? "google-measured" : "unavailable",
+  };
+}
+
+function workPageViewsStage(analytics: AffiliateAnalytics): FunnelStageProps {
+  const enabled = analytics.pageViewTrackingEnabled;
+  return {
+    number: 3,
+    title: "作品ページPV",
+    value: enabled ? `${analytics.totals.workPageViewsThirtyDays.toLocaleString("ja-JP")}回` : "未計測",
+    period: "直近30日",
+    definition: enabled ? "記録された作品詳細ページ表示イベント。ユニーク訪問者数ではありません。" : "ページ表示計測が有効ではないため、この期間の数字を出せません。",
+    status: enabled ? "measured" : "unavailable",
+  };
+}
+
+function fanzaCtaStage(thirtyDayTotal: number): FunnelStageProps {
+  return {
+    number: 4,
+    title: "FANZA CTA",
+    value: `${thirtyDayTotal.toLocaleString("ja-JP")}回`,
+    period: "直近30日",
+    definition: "サイト内で記録したFANZAリンク操作。購入・購入者数ではありません。",
+    status: "measured",
+  };
+}
+
+function officialRewardStage(daily: OfficialDailyMetrics, confirmed: Id990Confirmed): FunnelStageProps {
+  return {
+    number: 5,
+    title: "公式報酬（ID990）",
+    value: daily.error ? "未取得" : confirmed.dayCount ? `${confirmed.clickCount.toLocaleString("ja-JP")}クリック / ¥${confirmed.rewardYen.toLocaleString("ja-JP")}` : "未記録",
+    period: daily.error ? "日別テーブル未接続" : `${daily.fromDate}〜${daily.untilDate}`,
+    definition: "DMM公式日別レポートの確定値。未記録日・速報値は除き、商品別月次CSVとは別集計です。",
+    status: !daily.error && confirmed.dayCount > 0 ? "account-total" : "unavailable",
+  };
 }
 
 function GoogleAcquisitionCards({ analytics }: { analytics: GoogleAnalytics }) {
@@ -121,48 +171,17 @@ function RevenueFunnelStages({
   id990Confirmed: Id990Confirmed;
   thirtyDayTotal: number;
 }) {
+  const stages = [
+    searchImpressionsStage(googleAnalytics),
+    siteVisitorsStage(googleAnalytics),
+    workPageViewsStage(affiliateAnalytics),
+    fanzaCtaStage(thirtyDayTotal),
+    officialRewardStage(id990Daily, id990Confirmed),
+  ];
+
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-      <FunnelStage
-        number={1}
-        title="Google検索表示"
-        value={googleAnalytics.searchConsole.available ? `${googleAnalytics.searchConsole.impressions?.toLocaleString("ja-JP")}回` : "未接続"}
-        period={`${googleAnalytics.period.startDate}〜${googleAnalytics.period.endDate}`}
-        definition="Search Consoleの表示回数。検索結果に表示された回数で、サイト訪問ではありません。"
-        status={googleAnalytics.searchConsole.available ? "google-measured" : "unavailable"}
-      />
-      <FunnelStage
-        number={2}
-        title="サイト訪問ユーザー"
-        value={googleAnalytics.analytics.available ? `${googleAnalytics.analytics.activeUsers?.toLocaleString("ja-JP")}人` : "未接続"}
-        period={`${googleAnalytics.analyticsPeriod.startDate}〜${googleAnalytics.analyticsPeriod.endDate}`}
-        definition="GA4のアクティブユーザー数。検索経由に限らない全流入のユーザーです。前日までの速報値で、後日変わる場合があります。"
-        status={googleAnalytics.analytics.available ? "google-measured" : "unavailable"}
-      />
-      <FunnelStage
-        number={3}
-        title="作品ページPV"
-        value={affiliateAnalytics.pageViewTrackingEnabled ? `${affiliateAnalytics.totals.workPageViewsThirtyDays.toLocaleString("ja-JP")}回` : "未計測"}
-        period="直近30日"
-        definition={affiliateAnalytics.pageViewTrackingEnabled ? "記録された作品詳細ページ表示イベント。ユニーク訪問者数ではありません。" : "ページ表示計測が有効ではないため、この期間の数字を出せません。"}
-        status={affiliateAnalytics.pageViewTrackingEnabled ? "measured" : "unavailable"}
-      />
-      <FunnelStage
-        number={4}
-        title="FANZA CTA"
-        value={`${thirtyDayTotal.toLocaleString("ja-JP")}回`}
-        period="直近30日"
-        definition="サイト内で記録したFANZAリンク操作。購入・購入者数ではありません。"
-        status="measured"
-      />
-      <FunnelStage
-        number={5}
-        title="公式報酬（ID990）"
-        value={id990Daily.error ? "未取得" : id990Confirmed.dayCount ? `${id990Confirmed.clickCount.toLocaleString("ja-JP")}クリック / ¥${id990Confirmed.rewardYen.toLocaleString("ja-JP")}` : "未記録"}
-        period={id990Daily.error ? "日別テーブル未接続" : `${id990Daily.fromDate}〜${id990Daily.untilDate}`}
-        definition="DMM公式日別レポートの確定値。未記録日・速報値は除き、商品別月次CSVとは別集計です。"
-        status={!id990Daily.error && id990Confirmed.dayCount > 0 ? "account-total" : "unavailable"}
-      />
+      {stages.map((stage) => <FunnelStage key={stage.number} {...stage} />)}
     </div>
   );
 }
