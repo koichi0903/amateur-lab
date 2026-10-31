@@ -202,36 +202,15 @@ export function buildPublicCopyV8(facts: PublicCopyFacts, postType: string, link
   return reactionDrivenCopyLines(facts, understanding, reactionType, postType, linkStrategy, variant);
 }
 
-function buildPublicCopyV9(facts: PublicCopyFacts, postType: string, linkStrategy: MyfansLinkStrategy, variant = 0) {
-  const understanding = visualUnderstandingFor(facts);
-  const cue = understanding.concreteVisualCue;
-  if (!cue || understanding.visualAnalysisStatus !== "verified") return buildPublicCopyV8(facts, postType, linkStrategy, variant);
-  const context = understanding.visibleChangeOrContrast || understanding.cameraDistanceOrFraming || understanding.compositionOrStyle || understanding.textOverlayCue || understanding.motionCue;
-  const firstOptions = [
-    `${cue}から入るの強い。`,
-    `${cue}で一回止まる。`,
-    `${cue}だけで見どころが分かる。`,
-  ];
-  const secondOptions = [
-    context ? `${context}で一回目が戻る。` : "最後まで見てしまう始まり方。",
-    "これは続きまで確認したくなる。",
-    context ? `${context}からもう少し見たくなる。` : "こういう入りは手が止まるの分かる。",
-  ];
-  const isRevenue = postType === "reply_link_sales" || postType === "body_link_sales";
-  const first = firstOptions[variant % firstOptions.length];
-  const second = isRevenue
-    ? (postType === "body_link_sales" ? "気になる人だけ詳細へ。" : "気になる人だけ自己リプへ。")
-    : secondOptions[variant % secondOptions.length];
-  return [`${first}${postType === "body_link_sales" ? " #PR" : ""}`, second];
-}
-
 export function buildPublicCopyV10(facts: PublicCopyFacts, postType: string, linkStrategy: MyfansLinkStrategy, variant = 0) {
   const understanding = visualUnderstandingFor(facts);
   if (understanding.visualAnalysisStatus !== "verified" || !understanding.attentionMoment || understanding.attentionValue.score < MYFANS_ATTENTION_VALUE_MINIMUM) return buildPublicCopyV8(facts, postType, linkStrategy, variant);
   const isRevenue = postType === "reply_link_sales" || postType === "body_link_sales";
   const variants = humanObservationVariants(understanding, facts, variant);
   const selectedIndex = (variant + stableHash(understanding.rawVisualEvidence || understanding.humanObservation)) % Math.max(1, variants.length);
-  const selected = variants[selectedIndex] ?? buildPublicCopyV9(facts, postType, linkStrategy, variant);
+  const selected = variants[selectedIndex];
+  // The gate above guarantees a verified, strong attention moment; keep V8 as a safe fallback if that invariant changes.
+  if (!selected) return buildPublicCopyV8(facts, postType, linkStrategy, variant);
   if (!isRevenue) return selected;
   return [`${selected[0]}${postType === "body_link_sales" ? " #PR" : ""}`, postType === "body_link_sales" ? "気になる人だけ詳細へ。" : "気になる人だけ自己リプへ。"];
 }
