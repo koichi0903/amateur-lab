@@ -20,28 +20,38 @@ function skipRequest() {
   return new Request("http://localhost/api/admin/myfans", { method: "POST", body: formData });
 }
 
+async function capturedRequestBodyText(init: RequestInit | undefined, request: Request | undefined, method: string) {
+  if (init?.body) return String(init.body);
+  if (request && method !== "GET" && method !== "HEAD") return request.text();
+  return "";
+}
+
+function parseCapturedBody(bodyText: string): unknown {
+  if (!bodyText) return bodyText;
+  try {
+    return JSON.parse(bodyText);
+  } catch {
+    // Keep non-JSON request bodies as text for useful assertions.
+    return bodyText;
+  }
+}
+
+async function toCapturedRequest(input: Parameters<typeof fetch>[0], init: Parameters<typeof fetch>[1]): Promise<CapturedRequest> {
+  const request = input instanceof Request ? input.clone() : undefined;
+  const url = new URL(request?.url ?? String(input));
+  const headers = new Headers(init?.headers ?? request?.headers);
+  const method = init?.method ?? request?.method ?? "GET";
+  const bodyText = await capturedRequestBodyText(init, request, method);
+  return { url, method, headers, body: parseCapturedBody(bodyText) };
+}
+
 async function captureFetches(responses: Response[]) {
   const requests: CapturedRequest[] = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
-    const request = input instanceof Request ? input.clone() : undefined;
-    const url = new URL(request?.url ?? String(input));
-    const headers = new Headers(init?.headers ?? request?.headers);
-    const method = init?.method ?? request?.method ?? "GET";
-    const bodyText = init?.body
-      ? String(init.body)
-      : request && method !== "GET" && method !== "HEAD"
-        ? await request.text()
-        : "";
-    let body: unknown = bodyText;
-    if (bodyText) {
-      try {
-        body = JSON.parse(bodyText);
-      } catch {
-        // Keep non-JSON request bodies as text for useful assertions.
-      }
-    }
-    requests.push({ url, method, headers, body });
+    const captured = await toCapturedRequest(input, init);
+    requests.push(captured);
+    const { url } = captured;
     const response = responses.shift();
     assert.ok(response, `Unexpected request to ${url.pathname}`);
     return response;
