@@ -4,6 +4,10 @@ import { EXTERNAL_ATTRIBUTION_CHANNELS, type ExternalAttributionChannel } from "
 import { normalizeAffiliateSource, type AffiliateSource } from "@/lib/affiliateTracking";
 import { normalizeCtaVariant, type CtaVariant } from "@/lib/ctaExperiment";
 import type { XPostCandidate } from "@/lib/xPostPlanner";
+import {
+  nextAffiliateClickFallback,
+  type AffiliateClickColumnAvailability,
+} from "./affiliateClickQueryFallback";
 
 export type AffiliateClickRow = {
   id: number;
@@ -58,68 +62,53 @@ async function fetchClickPage(
     .range(from, from + PAGE_SIZE - 1);
 }
 
+async function fetchClickPageWithFallback(
+  cutoff: string,
+  from: number,
+  availability: AffiliateClickColumnAvailability,
+) {
+  let result = await fetchClickPage(
+    cutoff,
+    from,
+    availability.sourceAttributionEnabled,
+    availability.ctaExperimentEnabled,
+    availability.externalAttributionEnabled,
+  );
+
+  while (result.error) {
+    const fallback = nextAffiliateClickFallback(result.error.message, availability);
+    if (!fallback) break;
+
+    availability[fallback] = false;
+    result = await fetchClickPage(
+      cutoff,
+      from,
+      availability.sourceAttributionEnabled,
+      availability.ctaExperimentEnabled,
+      availability.externalAttributionEnabled,
+    );
+  }
+
+  return result;
+}
+
 export async function fetchAffiliateClicks(days = 30) {
   const safeDays = Math.min(Math.max(Math.trunc(days), 1), 365);
   const cutoff = new Date(Date.now() - safeDays * DAY_MS).toISOString();
   const rows: AffiliateClickRow[] = [];
-  let sourceAttributionEnabled = true;
-  let ctaExperimentEnabled = true;
-  let externalAttributionEnabled = true;
+  const availability: AffiliateClickColumnAvailability = {
+    sourceAttributionEnabled: true,
+    ctaExperimentEnabled: true,
+    externalAttributionEnabled: true,
+  };
 
   for (let from = 0; from < MAX_ROWS; from += PAGE_SIZE) {
-    let result = await fetchClickPage(
-      cutoff,
-      from,
-      sourceAttributionEnabled,
-      ctaExperimentEnabled,
-      externalAttributionEnabled,
-    );
-
-    if (result.error && ctaExperimentEnabled && result.error.message.includes("cta_variant")) {
-      ctaExperimentEnabled = false;
-      result = await fetchClickPage(
-        cutoff,
-        from,
-        sourceAttributionEnabled,
-        false,
-        externalAttributionEnabled,
-      );
-    }
-
-    if (result.error && sourceAttributionEnabled && result.error.message.includes("source_page")) {
-      sourceAttributionEnabled = false;
-      result = await fetchClickPage(
-        cutoff,
-        from,
-        false,
-        ctaExperimentEnabled,
-        externalAttributionEnabled,
-      );
-    }
-
-    if (
-      result.error &&
-      externalAttributionEnabled &&
-      ["external_channel", "external_source", "landing_path"].some((column) =>
-        result.error?.message.includes(column)
-      )
-    ) {
-      externalAttributionEnabled = false;
-      result = await fetchClickPage(
-        cutoff,
-        from,
-        sourceAttributionEnabled,
-        ctaExperimentEnabled,
-        false,
-      );
-    }
+    const result = await fetchClickPageWithFallback(cutoff, from, availability);
 
     if (result.error) {
       return {
         rows: [] as AffiliateClickRow[],
-        sourceAttributionEnabled,
-        ctaExperimentEnabled,
-        externalAttributionEnabled,
+        ...availability,
         error: result.error.message,
       };
     }
@@ -159,9 +148,7 @@ export async function fetchAffiliateClicks(days = 30) {
 
   return {
     rows,
-    sourceAttributionEnabled,
-    ctaExperimentEnabled,
-    externalAttributionEnabled,
+    ...availability,
     error: null as string | null,
   };
 }
