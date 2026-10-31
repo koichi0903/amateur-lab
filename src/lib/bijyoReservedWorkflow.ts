@@ -40,6 +40,43 @@ export function isBijyoManualCandidate(
     && !eligibility.hasExistingJob;
 }
 
+export function isBijyoManualWorkEligible<TWork extends { stage: string; release_date: string | null }>(
+  work: TWork | null,
+  officialSample: boolean,
+): work is TWork {
+  return Boolean(work && isBijyoManualCandidate(work, { officialSample, hasExistingJob: false }));
+}
+
+export function isReusableBijyoManualJobStatus(status: string): boolean {
+  return status === "pending" || status === "trim_failed";
+}
+
+export function resolveExistingBijyoManualJob<TConflict extends object>(
+  record: { id: unknown; status?: unknown },
+  conflict: (state: string) => TConflict,
+) {
+  const jobId = Number(record.id);
+  const status = String(record.status ?? "");
+  return isReusableBijyoManualJobStatus(status)
+    ? { ok: true as const, jobId, existing: true as const }
+    : { ...conflict(status), jobId };
+}
+
+export function resolveBijyoManualJobInsertRace<TConflict extends object>(
+  data: { id: unknown; status?: unknown } | null,
+  error: boolean,
+  conflict: (state: string) => TConflict,
+) {
+  if (error || !data) {
+    return {
+      ok: false as const,
+      error: "同時更新を確認できませんでした。もう一度画面を更新してください。",
+      code: "retry_required" as const,
+    };
+  }
+  return resolveExistingBijyoManualJob(data, conflict);
+}
+
 export type ReleaseDateRange = { todayDate: string; startDate: string; endDate: string };
 
 export type BijyoFutureEligibility = { eligible: boolean; reason: string | null };
@@ -69,6 +106,36 @@ export function isBijyoFutureOperationEligible(stage: string, releaseDate: strin
 
 export function isBijyoReservedQueueEligible(stage: string, releaseDate: string | null | undefined, todayDate: string) {
   return stage === "RESERVED" && Boolean(releaseDate) && releaseDate!.slice(0, 10) > todayDate;
+}
+
+export function isBijyoFutureWorkSkipEligible<TWork extends { stage: string; release_date: string | null }>(
+  work: TWork | null,
+  dateRange: ReleaseDateRange,
+  officialSample: boolean,
+): work is TWork {
+  if (!work || !officialSample) return false;
+  return evaluateBijyoFutureOperation(work.stage, work.release_date, dateRange).eligible
+    || isBijyoReservedQueueEligible(work.stage, work.release_date, dateRange.todayDate);
+}
+
+export function resolveExistingBijyoFutureSkip<TConflict>(
+  status: string,
+  conflict: (state: string) => TConflict,
+) {
+  return status === "skipped" ? { ok: true as const, existing: true as const } : conflict(status);
+}
+
+export function resolveBijyoFutureSkipInsertRace<TConflict>(
+  data: { status?: unknown } | null,
+  conflict: (state: string) => TConflict,
+) {
+  if (data?.status === "skipped") return { ok: true as const, existing: true as const };
+  if (data) return conflict(String(data.status));
+  return {
+    ok: false as const,
+    error: "同時更新を確認できませんでした。もう一度画面を更新してください。",
+    code: "retry_required" as const,
+  };
 }
 
 export type RecentReleaseWork = {
