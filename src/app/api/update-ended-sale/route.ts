@@ -8,16 +8,16 @@ export async function POST() {
 
   try {
   const result = await updateEndedSaleWorks();
-    await revalidatePublicCacheForTasks(["ended-sale"], { workIds: result?.workIds });
+    await revalidatePublicCacheForTasks(["ended-sale"], { workIds: result.workIds });
 
 return Response.json({
   success: true,
   completed: true,
-  processedCount: result?.processedCount ?? 0,
-  totalCount: result?.totalCount ?? 0,
-  deferredCount: result?.deferredCount ?? 0,
-  deferredProductIds: result?.deferredProductIds ?? [],
-  message: result?.deferredCount
+  processedCount: result.processedCount ?? 0,
+  totalCount: result.totalCount ?? 0,
+  deferredCount: result.deferredCount ?? 0,
+  deferredProductIds: result.deferredProductIds ?? [],
+  message: result.deferredCount
     ? `終了セール更新は完了しました。価格を確認できなかった${result.deferredCount}件は別日で自動再確認します。`
     : "終了セール更新が完了しました。",
 });
