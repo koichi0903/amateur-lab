@@ -2,23 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { parseAffiliateClickPayload } from "@/lib/affiliateClickPayload";
 import { isOperatorLandingPath } from "@/lib/externalAttribution";
-
-function isMissingCtaVariant(error: { code?: string; message?: string }) {
-  return error.code === "PGRST204" || error.message?.includes("cta_variant");
-}
-
-function isMissingAttribution(error: { code?: string; message?: string }) {
-  return (
-    error.code === "PGRST204" ||
-    error.message?.includes("external_channel") ||
-    error.message?.includes("external_source") ||
-    error.message?.includes("landing_path")
-  );
-}
-
-function isMissingXPostKey(error: { code?: string; message?: string }) {
-  return error.code === "PGRST204" || error.message?.includes("x_post_key");
-}
+import { insertAffiliateClickWithSchemaFallback } from "@/lib/affiliateClickPersistence";
 
 export async function POST(request: Request) {
   // Preview deployments share the production Supabase project; never persist QA traffic.
@@ -55,40 +39,10 @@ export async function POST(request: Request) {
     landing_path: externalAttribution?.landingPath,
   };
 
-  let { error } = await supabaseAdmin.from("affiliate_clicks").insert(clickEvent);
-
-  if (error && isMissingXPostKey(error)) {
-    const fallback = await supabaseAdmin.from("affiliate_clicks").insert({
-      work_id: workId,
-      placement,
-      source_page: sourcePage,
-      cta_variant: ctaVariant,
-      external_channel: externalAttribution?.channel,
-      external_source: externalAttribution?.source,
-      landing_path: externalAttribution?.landingPath,
-    });
-    error = fallback.error;
-  }
-
-  if (error && isMissingAttribution(error)) {
-    const fallback = await supabaseAdmin.from("affiliate_clicks").insert({
-      work_id: workId,
-      placement,
-      source_page: sourcePage,
-      cta_variant: ctaVariant,
-    });
-    error = fallback.error;
-  }
-
-  // Do not lose click tracking while the database migration is being applied.
-  if (error && isMissingCtaVariant(error)) {
-    const fallback = await supabaseAdmin.from("affiliate_clicks").insert({
-      work_id: workId,
-      placement,
-      source_page: sourcePage,
-    });
-    error = fallback.error;
-  }
+  const error = await insertAffiliateClickWithSchemaFallback(
+    clickEvent,
+    async (record) => await supabaseAdmin.from("affiliate_clicks").insert(record),
+  );
 
   if (error) {
     const safeLogText = (value: string | null | undefined) =>
