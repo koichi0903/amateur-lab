@@ -144,10 +144,9 @@ function untaggedVideoLines(input: XCreativeInput, intent: XGrowthIntent, direct
   return [`${subject}、サンプルが少し気になる。`, decisionProof || ending, authorityQuestion].filter(Boolean);
 }
 
-function manuallyTaggedVideoLines(
+function manuallyTaggedVideoParts(
   input: XCreativeInput,
   intent: XGrowthIntent,
-  linkPlan: XLinkPlan,
   tag: Exclude<XVideoManualTag, "too_explicit_for_reach" | "weak_visual">,
 ) {
   const actress = primaryActress(input);
@@ -157,8 +156,6 @@ function manuallyTaggedVideoLines(
   const proof = input.decisionFacts
     ? strongestFacts(input).find((fact) => fact !== decisionProof) ?? ""
     : humanProofLine(input, intent);
-  const link = linkPlan === "body_link" ? input.url : "";
-  const second = proof && (tag === "first_seconds_strong" || tag === "visual_mismatch") ? proof : "";
   const lineByTag: Record<Exclude<XVideoManualTag, "too_explicit_for_reach" | "weak_visual">, string> = {
     first_seconds_strong: "開いてすぐ、目が止まった。",
     visual_mismatch: `${subject}、ジャケより動画の方が気になる。`,
@@ -173,6 +170,21 @@ function manuallyTaggedVideoLines(
     scene_surprise: "この入り方、少し気になる。",
     safe_preview: "強く言わなくても、これで十分。",
   };
+  return {
+    opening: lineByTag[tag],
+    proof: proof && (tag === "first_seconds_strong" || tag === "visual_mismatch") ? proof : "",
+    closing: closingByTag[tag],
+  };
+}
+
+function manuallyTaggedVideoLines(
+  input: XCreativeInput,
+  intent: XGrowthIntent,
+  linkPlan: XLinkPlan,
+  tag: Exclude<XVideoManualTag, "too_explicit_for_reach" | "weak_visual">,
+) {
+  const parts = manuallyTaggedVideoParts(input, intent, tag);
   const authorityQuestion = intent === "AUTHORITY" ? "この入り方、気になりますか。" : "";
-  return [lineByTag[tag], second, closingByTag[tag], authorityQuestion, link].filter(Boolean);
+  const link = linkPlan === "body_link" ? input.url : "";
+  return [parts.opening, parts.proof, parts.closing, authorityQuestion, link].filter(Boolean);
 }

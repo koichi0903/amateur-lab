@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { buildVisualVideoFacts } from "./xVisualVideoFacts";
 import { buildXCreativeVariants, finalNativeXVoiceGate, validateXCopyGrammar, voiceArchetype } from "./xCreativeEngine";
 import { buildDecisionFacts } from "./domain/decisionFacts";
+import { videoSpecificLines } from "./xCreativeVideoCopy";
+import type { XCreativeInput, XVideoManualTag } from "./xCreativeTypes";
 import type { XPostLog } from "./xPostLogs";
 
 const movieUrl = "https://cc3001.dmm.co.jp/litevideo/freepv/test/test_dmb_w.mp4";
@@ -30,6 +32,31 @@ const baseInput = {
   sourceType: "WORK" as const,
   visualFacts: buildVisualVideoFacts({ sampleMovieUrl: movieUrl, manualTags: ["scene_surprise"] }),
 };
+
+const videoTagCopyCases: Array<{
+  tag: Exclude<XVideoManualTag, "too_explicit_for_reach" | "weak_visual">;
+  opening: string;
+  closing: string;
+  includesProof: boolean;
+}> = [
+  { tag: "first_seconds_strong", opening: "開いてすぐ、目が止まった。", closing: "固定女優、この空気はかなり好み。", includesProof: true },
+  { tag: "visual_mismatch", opening: "固定女優、ジャケより動画の方が気になる。", closing: "こっちの雰囲気の方が好きな人いそう。", includesProof: true },
+  { tag: "actress_fit", opening: "固定女優、この空気だと見え方が変わる。", closing: "名前だけで流すの、少しもったいない。", includesProof: false },
+  { tag: "scene_surprise", opening: "入り方が少し予想とズレます。", closing: "この入り方、少し気になる。", includesProof: false },
+  { tag: "safe_preview", opening: "固定女優、数字より先に動画で分かる。", closing: "強く言わなくても、これで十分。", includesProof: false },
+];
+for (const copyCase of videoTagCopyCases) {
+  const lines = videoSpecificLines({
+    ...baseInput,
+    key: `manual-tag-${copyCase.tag}`,
+    mediaManualTags: [copyCase.tag],
+    visualFacts: null,
+  } as XCreativeInput, "REACH", "body_link", "curiosity");
+  assert.equal(lines[0], copyCase.opening, `${copyCase.tag} opening`);
+  assert.equal(lines.at(-2), copyCase.closing, `${copyCase.tag} closing`);
+  assert.equal(lines.includes("評価4.7"), copyCase.includesProof, `${copyCase.tag} proof placement`);
+  assert.equal(lines.at(-1), baseInput.url, `${copyCase.tag} body link`);
+}
 
 const voiceArchetypeCases = [
   ["confession", "spontaneous_reaction"], ["missed", "spontaneous_reaction"],
