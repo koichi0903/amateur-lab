@@ -34,6 +34,14 @@ const STATUS_LABELS: Record<Run["status"], string> = {
   stale: "停止済み（異常終了）",
 };
 
+const STATUS_COLORS: Record<Run["status"], string> = {
+  running: "text-amber-300",
+  completed: "text-emerald-400",
+  failed: "text-red-400",
+  skipped: "text-zinc-400",
+  stale: "text-orange-300",
+};
+
 function formatDate(value: string | null | undefined) {
   if (!value) return "記録なし";
   return new Intl.DateTimeFormat("ja-JP", {
@@ -95,16 +103,7 @@ export default function ScheduleStatusPanel() {
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {schedules.map((schedule) => {
             const status = schedule.latest?.status;
-            const statusColor =
-              status === "completed"
-                ? "text-emerald-400"
-                : status === "failed"
-                  ? "text-red-400"
-                : status === "running"
-                    ? "text-amber-300"
-                    : status === "stale"
-                      ? "text-orange-300"
-                      : "text-zinc-400";
+              const statusColor = status ? STATUS_COLORS[status] : "text-zinc-400";
 
             return (
               <article key={schedule.group} className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
