@@ -9,15 +9,14 @@ export type DmmActressApiResult = {
   total_count?: string | number;
 };
 
-export async function fetchDmmActressProfiles(
+type FetchPage = typeof fetch;
+type Sleep = (milliseconds: number) => Promise<void>;
+
+async function fetchActressApiResponse(
   url: string,
-  dependencies: {
-    fetch?: typeof fetch;
-    sleep?: (milliseconds: number) => Promise<void>;
-  } = {},
-): Promise<DmmActressApiResult> {
-  const fetchPage = dependencies.fetch ?? fetch;
-  const sleep = dependencies.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  fetchPage: FetchPage,
+  sleep: Sleep,
+): Promise<Response> {
   let response: Response | null = null;
   let lastError: unknown = null;
 
@@ -40,6 +39,10 @@ export async function fetchDmmActressProfiles(
   }
 
   if (!response) throw lastError instanceof Error ? lastError : new Error("DMM女優APIへの接続に失敗しました。");
+  return response;
+}
+
+async function readActressApiResult(response: Response): Promise<DmmActressApiResult> {
   if (!response.ok) throw new Error(`DMM女優APIがHTTP ${response.status}を返しました。`);
 
   const payload = (await response.json()) as { result?: DmmActressApiResult };
@@ -48,4 +51,17 @@ export async function fetchDmmActressProfiles(
     throw new Error("DMM女優APIの応答が不正です。");
   }
   return result;
+}
+
+export async function fetchDmmActressProfiles(
+  url: string,
+  dependencies: {
+    fetch?: typeof fetch;
+    sleep?: Sleep;
+  } = {},
+): Promise<DmmActressApiResult> {
+  const fetchPage = dependencies.fetch ?? fetch;
+  const sleep = dependencies.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  const response = await fetchActressApiResponse(url, fetchPage, sleep);
+  return readActressApiResult(response);
 }
