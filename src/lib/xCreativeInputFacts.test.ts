@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { calculateHookScore } from "./xCreativeInputFacts";
+import { calculateHookScore, strongestFacts } from "./xCreativeInputFacts";
 import type { XCreativeInput } from "./xCreativeTypes";
 
 const baseInput: XCreativeInput = {
@@ -45,3 +45,42 @@ const ninetyDayLow = calculateHookScore({
   isNinetyDayLow: true,
 });
 assert.equal(ninetyDayLow.axes.price_anomaly.score, 92);
+
+assert.deepEqual(strongestFacts({
+  ...baseInput,
+  rankingHistoryCount: 2,
+  previousRanking: 50,
+}), ["50位→42位", "評価4.7"]);
+
+assert.deepEqual(strongestFacts({
+  ...baseInput,
+  ranking: 20,
+  reviewAverage: null,
+  reviewCount: 0,
+  discountRate: 0,
+}), ["ランキング20位"]);
+
+assert.deepEqual(strongestFacts({
+  ...baseInput,
+  ranking: 20,
+  reviewAverage: 4.7,
+  reviewCount: 120,
+  discountRate: 0,
+}), ["評価4.7", "ランキング20位"]);
+
+assert.deepEqual(strongestFacts({
+  ...baseInput,
+  sourceType: "MONEY",
+  ranking: null,
+  reviewAverage: null,
+  reviewCount: 0,
+  discountRate: 0,
+}), ["現在100円"]);
+
+assert.deepEqual(strongestFacts({
+  ...baseInput,
+  ranking: null,
+  reviewAverage: null,
+  reviewCount: 0,
+  discountRate: 0,
+}), []);

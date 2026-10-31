@@ -127,19 +127,34 @@ export function evidenceLines(input: XCreativeInput) {
   ].filter(Boolean);
 }
 
+function rankingFallbackEvidence(input: XCreativeInput, trend: string | null) {
+  return input.ranking && !trend && input.ranking <= 80 ? `ランキング${input.ranking}位` : "";
+}
+
+function reviewEvidence(input: XCreativeInput) {
+  return input.reviewAverage && input.reviewAverage >= 4.7 ? `評価${input.reviewAverage.toFixed(1)}` : "";
+}
+
+function supportingFacts(input: XCreativeInput) {
+  const facts = [
+    input.isNinetyDayLow ? `過去90日最安級` : "",
+    input.discountRate >= 30 ? `${pct(input.discountRate)}OFF` : "",
+    input.reviewCount >= 20 ? `レビュー${input.reviewCount}件` : "",
+  ];
+  if (input.sourceType === "MONEY" && input.currentPrice) facts.push(`現在${yen(input.currentPrice)}`);
+  return facts;
+}
+
 export function strongestFacts(input: XCreativeInput) {
   const decisionProof = input.decisionFacts ? decisionFactProofLine(input.decisionFacts) : "";
   const trend = rankingTrendLine(input);
   const facts = [
     decisionProof,
     trend ? `${trend}` : "",
-    input.reviewAverage && input.reviewAverage >= 4.7 ? `評価${input.reviewAverage.toFixed(1)}` : "",
-    input.ranking && !trend && input.ranking <= 80 ? `ランキング${input.ranking}位` : "",
-    input.isNinetyDayLow ? `過去90日最安級` : "",
-    input.discountRate >= 30 ? `${pct(input.discountRate)}OFF` : "",
-    input.reviewCount >= 20 ? `レビュー${input.reviewCount}件` : "",
+    reviewEvidence(input),
+    rankingFallbackEvidence(input, trend),
+    ...supportingFacts(input),
   ];
-  if (input.sourceType === "MONEY" && input.currentPrice) facts.push(`現在${yen(input.currentPrice)}`);
   return facts.filter(Boolean).slice(0, STRONG_FACT_LIMIT);
 }
 
