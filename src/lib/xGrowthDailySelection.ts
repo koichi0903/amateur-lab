@@ -10,6 +10,7 @@ import { clamp } from "./xGrowthOpportunityScoring";
 import { DAY_MS, hoursUntil } from "./xGrowthTime";
 import { diversityConflicts } from "./xGrowthDailyDiversity";
 import { buildTopPickCandidate } from "./xGrowthDailyPresentation";
+import { buildVariantMediaKeys } from "./xGrowthVariantMediaKeys";
 
 const POSTED_WORK_COOLDOWN_DAYS = 14;
 export const DECISION_TYPES: readonly DecisionType[] = ["RECORD_LOW", "HIGH_DISCOUNT_NOT_LOW", "HIDDEN_VALUE"];
@@ -181,6 +182,51 @@ type RankedGrowthCandidate = {
   mediaType: "sample_movie" | "existing_link_image";
 };
 
+type RankedSelectionState = {
+  selected: RankedGrowthCandidate[];
+  selectedWorkIds: Set<number>;
+  selectedMedia: Set<string>;
+  videoCount: number;
+  imageCount: number;
+};
+
+function addRankedCandidate(
+  candidate: RankedGrowthCandidate,
+  state: RankedSelectionState,
+  mediaTargets?: { videos: number; images: number },
+) {
+  if (state.selected.length >= 9 || state.selectedWorkIds.has(candidate.item.workId)) return false;
+  const mediaKeys = buildVariantMediaKeys(candidate.item, candidate.variant);
+  if (mediaKeys.some((key) => state.selectedMedia.has(key))) return false;
+  if (mediaTargets && candidate.mediaType === "sample_movie" && state.videoCount >= mediaTargets.videos) return false;
+  if (mediaTargets && candidate.mediaType === "existing_link_image" && state.imageCount >= mediaTargets.images) return false;
+  state.selected.push(candidate);
+  state.selectedWorkIds.add(candidate.item.workId);
+  for (const key of mediaKeys) state.selectedMedia.add(key);
+  if (candidate.mediaType === "sample_movie") state.videoCount += 1;
+  else state.imageCount += 1;
+  return true;
+}
+
+function selectRankedCandidates(rankedPool: RankedGrowthCandidate[], targetVideos: number, targetImages: number) {
+  const state: RankedSelectionState = {
+    selected: [],
+    selectedWorkIds: new Set<number>(),
+    selectedMedia: new Set<string>(),
+    videoCount: 0,
+    imageCount: 0,
+  };
+  const mediaTargets = { videos: targetVideos, images: targetImages };
+  for (const candidate of rankedPool) addRankedCandidate(candidate, state, mediaTargets);
+  // Fill any remaining positions without changing the preferred media mix.
+  for (const candidate of rankedPool) {
+    if (state.selected.length >= 9) break;
+    if (state.selectedWorkIds.has(candidate.item.workId)) continue;
+    addRankedCandidate(candidate, state);
+  }
+  return state.selected;
+}
+
 export type RankedSelectionDiagnostics = {
   candidateVariants: number;
   uniqueWorksBeforeCollapse: number;
@@ -214,21 +260,6 @@ function buildRankedCandidatePool(
   };
   const toMediaType = (variant: XCreativeVariant): RankedGrowthCandidate["mediaType"] =>
     variant.mediaType === "sample_movie" ? "sample_movie" : "existing_link_image";
-  const variantMediaKeys = (item: XGrowthOpportunity, variant: XCreativeVariant) => {
-    const commonKeys = [
-      variant.url?.trim() ? `destination_url:${variant.url.trim()}` : null,
-      variant.bodyText.trim() ? `body:${variant.bodyText.trim()}` : null,
-      variant.creativeGenome ? `fingerprint:${JSON.stringify(variant.creativeGenome)}` : null,
-    ].filter((key): key is string => Boolean(key));
-    if (variant.mediaType === "sample_movie") {
-      const keys = [
-        Number.isSafeInteger(Number(item.mediaAsset?.id)) && Number(item.mediaAsset?.id) > 0 ? `media_asset:${Number(item.mediaAsset?.id)}` : null,
-        item.sampleMovieUrl?.trim() ? `sample_movie_url:${item.sampleMovieUrl.trim()}` : null,
-      ];
-      return [...keys.filter((key): key is string => Boolean(key)), ...commonKeys];
-    }
-    return [...(item.imageUrl?.trim() ? [`image_url:${item.imageUrl.trim()}`] : [`work:${item.workId}`]), ...commonKeys];
-  };
   const candidates: RankedGrowthCandidate[] = [];
   let excludedPosted = 0;
   let excludedUnusable = 0;
@@ -272,14 +303,14 @@ function buildRankedCandidatePool(
   const rankedMix = selectRankedMediaMix(candidates.map((candidate) => ({
     ...candidate,
     workId: candidate.item.workId,
-    mediaKey: variantMediaKeys(candidate.item, candidate.variant)[0] ?? `work:${candidate.item.workId}`,
-    mediaKeys: variantMediaKeys(candidate.item, candidate.variant),
+    mediaKey: buildVariantMediaKeys(candidate.item, candidate.variant)[0] ?? `work:${candidate.item.workId}`,
+    mediaKeys: buildVariantMediaKeys(candidate.item, candidate.variant),
     decisionTypes: decisionTypesForCandidate(candidate.item),
   })));
   const rankedPool = rankedMix.rankedPool.map(({ item, role, variant, score, mediaType }) => ({ item, role, variant, score, mediaType }));
   const videoEligibleUnique = new Set(rankedPool.filter((candidate) => candidate.mediaType === "sample_movie").map((candidate) => candidate.item.workId)).size;
   const imageEligibleUnique = new Set(rankedPool.filter((candidate) => candidate.mediaType === "existing_link_image").map((candidate) => candidate.item.workId)).size;
-  return { candidates, rankedPool, duplicateBreakdown: rankedMix.duplicateBreakdown, eligibleItems, excludedPosted, excludedUnusable, excludedHardQuality, excludedSemantic, videoEligibleUnique, imageEligibleUnique, variantMediaKeys };
+  return { candidates, rankedPool, duplicateBreakdown: rankedMix.duplicateBreakdown, eligibleItems, excludedPosted, excludedUnusable, excludedHardQuality, excludedSemantic, videoEligibleUnique, imageEligibleUnique };
 }
 export function selectRankedDailyTopPicks(
   opportunities: XGrowthOpportunity[],
@@ -287,41 +318,11 @@ export function selectRankedDailyTopPicks(
   recentDailyPickWorkIds = new Set<number>(),
   postedWorkIds = recentPostedWorkIds(logs),
 ) {
-  const { candidates, rankedPool, duplicateBreakdown, eligibleItems, excludedPosted, excludedUnusable, excludedHardQuality, excludedSemantic, videoEligibleUnique, imageEligibleUnique, variantMediaKeys } =
+  const { candidates, rankedPool, duplicateBreakdown, eligibleItems, excludedPosted, excludedUnusable, excludedHardQuality, excludedSemantic, videoEligibleUnique, imageEligibleUnique } =
     buildRankedCandidatePool(opportunities, logs, recentDailyPickWorkIds, postedWorkIds);
   const targetVideos = videoEligibleUnique >= 5 ? 5 : videoEligibleUnique >= 4 ? 4 : Math.max(0, Math.min(videoEligibleUnique, 9 - 4));
   const targetImages = 9 - targetVideos;
-  const selected: RankedGrowthCandidate[] = [];
-  const selectedWorkIds = new Set<number>();
-  const selectedMedia = new Set<string>();
-  let videoCount = 0;
-  let imageCount = 0;
-  const add = (candidate: RankedGrowthCandidate) => {
-    if (selected.length >= 9 || selectedWorkIds.has(candidate.item.workId)) return false;
-    const mediaKeys = variantMediaKeys(candidate.item, candidate.variant);
-    if (mediaKeys.some((key) => selectedMedia.has(key))) return false;
-    if (candidate.mediaType === "sample_movie" && videoCount >= targetVideos) return false;
-    if (candidate.mediaType === "existing_link_image" && imageCount >= targetImages) return false;
-    selected.push(candidate);
-    selectedWorkIds.add(candidate.item.workId);
-    for (const key of mediaKeys) selectedMedia.add(key);
-    if (candidate.mediaType === "sample_movie") videoCount += 1;
-    else imageCount += 1;
-    return true;
-  };
-  for (const candidate of rankedPool) add(candidate);
-  // Fill any remaining positions without changing the preferred media mix.
-  for (const candidate of rankedPool) {
-    if (selected.length >= 9) break;
-    if (selectedWorkIds.has(candidate.item.workId)) continue;
-    const mediaKeys = variantMediaKeys(candidate.item, candidate.variant);
-    if (mediaKeys.some((key) => selectedMedia.has(key))) continue;
-    selected.push(candidate);
-    selectedWorkIds.add(candidate.item.workId);
-    for (const key of mediaKeys) selectedMedia.add(key);
-    if (candidate.mediaType === "sample_movie") videoCount += 1;
-    else imageCount += 1;
-  }
+  const selected = selectRankedCandidates(rankedPool, targetVideos, targetImages);
   const decisionCoverageAdjustments = 0;
   const slots = [
     { slotId: "slot_1" as const, slotRole: "REACH" as const, slotLabel: "投稿枠1: ranked 1〜3" },
