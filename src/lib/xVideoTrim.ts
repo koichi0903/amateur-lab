@@ -24,6 +24,35 @@ export type TrimVideoForXResult = {
   trimEndSeconds: number | null;
 };
 
+type VideoProbeData = {
+  format?: { duration?: string };
+  streams?: Array<{ codec_type?: string; codec_name?: string; duration?: string }>;
+};
+
+function firstProbeDuration(data: VideoProbeData) {
+  const formatDuration = data.format?.duration;
+  if (formatDuration) return formatDuration;
+  return data.streams?.find((stream) => stream.duration)?.duration;
+}
+
+function codecForStream(data: VideoProbeData, codecType: "video" | "audio") {
+  return data.streams?.find((stream) => stream.codec_type === codecType)?.codec_name ?? null;
+}
+
+function parseVideoProbeOutput(stdout: string) {
+  const data = JSON.parse(stdout) as VideoProbeData;
+  const durationSeconds = Number(firstProbeDuration(data));
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    throw new Error("動画の長さを取得できませんでした。");
+  }
+
+  return {
+    durationSeconds,
+    codec: codecForStream(data, "video"),
+    audioCodec: codecForStream(data, "audio"),
+  };
+}
+
 function runBinary(command: string, args: string[]) {
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     const child = spawn(command, args, { windowsHide: true });
@@ -57,19 +86,7 @@ export async function probeVideoFile(file: string) {
     "-show_streams",
     file,
   ]);
-  const data = JSON.parse(stdout) as {
-    format?: { duration?: string };
-    streams?: Array<{ codec_type?: string; codec_name?: string; duration?: string }>;
-  };
-  const durationSeconds = Number(data.format?.duration ?? data.streams?.find((stream) => stream.duration)?.duration);
-  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error("動画の長さを取得できませんでした。");
-  const video = data.streams?.find((stream) => stream.codec_type === "video");
-  const audio = data.streams?.find((stream) => stream.codec_type === "audio");
-  return {
-    durationSeconds,
-    codec: video?.codec_name ?? null,
-    audioCodec: audio?.codec_name ?? null,
-  };
+  return parseVideoProbeOutput(stdout);
 }
 
 export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds: number; trimEndSeconds?: number | null }) {
