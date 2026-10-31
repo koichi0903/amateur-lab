@@ -6,6 +6,7 @@ import { analyzeSampleMovie, videoSourceFingerprint, VIDEO_ANALYSIS_VERSION } fr
 import { buildXMediaAssetReviewPlan, type XMediaAssetReviewInput } from "@/lib/xGrowthMediaReview";
 import { buildXMediaAssetTrimReviewPlan } from "@/lib/xGrowthMediaTrimReview";
 import { selectPreferredXMediaAssetsByWork } from "@/lib/xGrowthMediaAssetSelection";
+import { classifyVideoAnalysisAsset } from "@/lib/xGrowthVideoAnalysisEligibility";
 
 const ACCOUNT = X_GROWTH_ACCOUNT;
 export async function auditXGrowth(action: string, detail: Record<string, unknown>) {
@@ -44,8 +45,13 @@ export async function fetchMediaAssets(workIds: number[]) {
 export async function analyzeUncachedVideoFacts(assets: Map<number, XMediaAsset>, limit = 24) {
   const started = Date.now(); let analyzed = 0; let reused = 0; const diagnostics: Array<{ workId: number | null; sourceUrl: string; status: string; detail?: string }> = [];
   for (const asset of [...assets.values()].slice(0, limit)) {
-    if (!asset.work_id || !asset.source_url || (asset.media_type !== "video" && asset.media_type !== "sample_movie")) continue;
-    if (asset.video_analysis_version === VIDEO_ANALYSIS_VERSION && asset.video_analysis_source_fingerprint === videoSourceFingerprint(asset.source_url) && asset.visual_video_facts) { reused += 1; continue; }
+    const action = classifyVideoAnalysisAsset(
+      asset,
+      VIDEO_ANALYSIS_VERSION,
+      asset.source_url ? videoSourceFingerprint(asset.source_url) : null,
+    );
+    if (action === "skip") continue;
+    if (action === "reuse") { reused += 1; continue; }
     const jacketResult = asset.work_id ? await supabaseAdmin.from("works").select("image_url").eq("id", asset.work_id).maybeSingle() : { data: null };
     const result = await analyzeSampleMovie({ sourceUrl: asset.source_url, trimStartSeconds: asset.trim_start_seconds ?? 0, jacketUrl: (jacketResult.data as { image_url?: string | null } | null)?.image_url });
     const facts = buildVisualVideoFacts({ sampleMovieUrl: asset.source_url, videoEvidence: result.videoEvidence, jacketEvidence: result.jacketEvidence });
