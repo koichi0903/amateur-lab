@@ -445,7 +445,7 @@ function radarAvailableForCategory(category: XPostCandidate["category"]) {
   return RADAR_CATEGORIES.has(category);
 }
 
-function candidateCreativePlanFor(context: {
+type CandidateCreativePlanContext = {
   work: CandidateWork;
   category: XPostCandidate["category"];
   chart: XPostPriceChart | null;
@@ -457,43 +457,95 @@ function candidateCreativePlanFor(context: {
   url: string;
   presentationFacts: DecisionFacts;
   presentation: CandidatePresentation;
-} ) {
-  const { work, category, chart, funnel, logs, price, regular, discountRate, url, presentationFacts, presentation } = context;
-  const sourceType = sourceTypeFor(category, work, chart);
-  const creativeInput: XCreativeInput = {
+};
+
+function candidateCreativeWorkFieldsFor(context: CandidateCreativePlanContext): Pick<
+  XCreativeInput,
+  | "key"
+  | "title"
+  | "category"
+  | "actress"
+  | "genre"
+  | "reviewAverage"
+  | "reviewCount"
+  | "ranking"
+  | "score"
+  | "sampleMovieUrl"
+  | "hasRightsCheckedMovie"
+  | "recentLogs"
+> {
+  const { work, category, logs } = context;
+  return {
     key: category + "-" + work.id,
     title: work.title,
-    url,
     category,
     actress: work.actress,
     genre: work.genre,
-    currentPrice: price,
-    previousPrice: chart?.previousPrice ?? regular,
-    discountRate,
     reviewAverage: work.review_average,
     reviewCount: work.review_count ?? 0,
     ranking: work.ranking,
     score: Math.round(work.score ?? 0),
+    sampleMovieUrl: work.sample_movie_url,
+    hasRightsCheckedMovie: false,
+    recentLogs: logs,
+  };
+}
+
+function candidateCreativeEvidenceFieldsFor(
+  context: CandidateCreativePlanContext,
+  sourceType: XPostCandidate["sourceType"],
+): Pick<
+  XCreativeInput,
+  | "currentPrice"
+  | "previousPrice"
+  | "discountRate"
+  | "discoveryScore"
+  | "buyTimingScore"
+  | "isNinetyDayLow"
+  | "decisionFacts"
+  | "xPageViews"
+  | "xFanzaClicks"
+  | "seriesName"
+  | "seriesObservationCount"
+  | "radarAvailable"
+  | "sourceType"
+> {
+  const { chart, funnel, price, regular, discountRate, presentationFacts, presentation, category } = context;
+  return {
+    currentPrice: price,
+    previousPrice: chart?.previousPrice ?? regular,
+    discountRate,
     discoveryScore: presentation.discoveryScoreValue,
     buyTimingScore: presentation.buyTimingScoreValue,
     isNinetyDayLow: chart?.isNinetyDayLow ?? false,
     decisionFacts: presentationFacts,
-    sampleMovieUrl: work.sample_movie_url,
-    hasRightsCheckedMovie: false,
     xPageViews: funnel.pageViews,
     xFanzaClicks: funnel.fanzaClicks,
-    seriesName: chart?.seriesName ?? work.series,
+    seriesName: chart?.seriesName ?? context.work.series,
     seriesObservationCount: chart?.seriesObservationCount ?? 0,
-    recentLogs: logs,
     radarAvailable: radarAvailableForCategory(category),
     sourceType,
+  };
+}
+
+function primaryCreativeVariantFor(creativeVariants: ReturnType<typeof buildXCreativeVariants>) {
+  return creativeVariants.find((variant) => variant.quality.passed && variant.weightedLength <= 280)
+    ?? creativeVariants.find((variant) => variant.intent === "FOLLOW")
+    ?? creativeVariants[0];
+}
+
+function candidateCreativePlanFor(context: CandidateCreativePlanContext) {
+  const { work, category, chart, url, presentation } = context;
+  const sourceType = sourceTypeFor(category, work, chart);
+  const creativeInput: XCreativeInput = {
+    ...candidateCreativeWorkFieldsFor(context),
+    url,
+    ...candidateCreativeEvidenceFieldsFor(context, sourceType),
   };
   const hookScore = calculateHookScore(creativeInput);
   const timing = plannedAtFor(category);
   const creativeVariants = buildXCreativeVariants({ ...creativeInput, recommendedSlot: timing.recommendedSlot }, hookScore);
-  const primaryVariant = creativeVariants.find((variant) => variant.quality.passed && variant.weightedLength <= 280)
-    ?? creativeVariants.find((variant) => variant.intent === "FOLLOW")
-    ?? creativeVariants[0];
+  const primaryVariant = primaryCreativeVariantFor(creativeVariants);
   const postText = primaryVariant?.bodyText ?? fitPost(presentation.lines, work.title);
   return { workId: work.id, category, sourceType, hookScore, timing, creativeVariants, primaryVariant, postText };
 }
