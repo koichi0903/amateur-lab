@@ -9,6 +9,7 @@ import { normalizeMyfansPostUrl } from "@/lib/myfansProductResolver";
 import { companionPersistenceError } from "@/lib/myfansCompanionErrors";
 import { buildMyfansCreatorSavePlan, type MyfansCreatorSaveRecord } from "@/lib/myfansCreatorSavePlan";
 import { buildObservedProductRecords, type ExistingObservedMyfansProduct } from "@/lib/myfansObservedPostImport";
+import { decideExactProductMatch } from "@/lib/myfansExactProductMatch";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { QuoteScanPayload } from "@/lib/myfansQuoteScanTypes";
 export function xHandleFromUrl(value: string) {
@@ -338,27 +339,37 @@ async function observeMyfansPostForImport(finalMyfansUrl: string) {
   }
 }
 
-export async function ensureExactProductForCreator(finalMyfansUrl: string, creatorId: number, approvedMediaId: number | null): Promise<ExactProductResolution> {
-  const canonicalUrl = normalizeMyfansPostUrl(finalMyfansUrl);
-  if (!canonicalUrl) return { product: null, status: "blocked", method: "invalid_final_myfans_url", missing: ["canonical MyFans post URL"] };
+async function resolveExistingExactProduct(
+  canonicalUrl: string,
+  creatorId: number,
+  approvedMediaId: number | null,
+): Promise<ExactProductResolution | null> {
   const { data: matches, error: findError } = await supabaseAdmin
     .from("myfans_products")
     .select("id,creator_id,approved_media_id,title,product_url,creator_x_url,affiliate_url,price")
     .eq("product_url", canonicalUrl);
   if (findError) throw findError;
-  if ((matches ?? []).length > 1) return { product: null, status: "ambiguous", method: "exact_canonical_url_duplicate", missing: [] };
-  if ((matches ?? []).length === 1) {
-    const existing = matches[0] as Record<string, unknown>;
-    if (existing.creator_id != null && Number(existing.creator_id) !== creatorId) {
-      return { product: null, status: "ambiguous", method: "exact_url_creator_conflict", missing: [] };
-    }
-    const { data: updated, error } = await supabaseAdmin.from("myfans_products")
-      .update({ creator_id: creatorId, ...(approvedMediaId ? { approved_media_id: approvedMediaId } : {}), updated_at: new Date().toISOString() })
-      .eq("id", existing.id).select("id,creator_id,approved_media_id,title,product_url,creator_x_url,affiliate_url,price").single();
-    if (error) throw error;
-    return { product: updated as Record<string, unknown>, status: "exact", method: "existing_canonical_url_then_creator_exact", missing: [] };
+  const decision = decideExactProductMatch(
+    (matches ?? []) as Record<string, unknown>[],
+    creatorId,
+  );
+  if (decision.kind === "not_found") return null;
+  if (decision.kind === "ambiguous") {
+    return { product: null, status: "ambiguous", method: decision.method, missing: [] };
   }
 
+  const { data: updated, error } = await supabaseAdmin.from("myfans_products")
+    .update({ creator_id: creatorId, ...(approvedMediaId ? { approved_media_id: approvedMediaId } : {}), updated_at: new Date().toISOString() })
+    .eq("id", decision.product.id).select("id,creator_id,approved_media_id,title,product_url,creator_x_url,affiliate_url,price").single();
+  if (error) throw error;
+  return { product: updated as Record<string, unknown>, status: "exact", method: "existing_canonical_url_then_creator_exact", missing: [] };
+}
+
+async function importAndLinkObservedProduct(
+  canonicalUrl: string,
+  creatorId: number,
+  approvedMediaId: number | null,
+): Promise<ExactProductResolution> {
   const observed = await observeMyfansPostForImport(canonicalUrl);
   if (!observed.title) return { product: null, status: "blocked", method: "canonical_url_observed_title_missing", missing: ["MyFans表示タイトル", observed.reason] };
   const imported = await importObservedMyfansPost({ productUrl: canonicalUrl, productTitle: observed.title, price: observed.price, pageUrl: canonicalUrl }, approvedMediaId);
@@ -369,5 +380,19 @@ export async function ensureExactProductForCreator(finalMyfansUrl: string, creat
     .select("id,creator_id,approved_media_id,title,product_url,creator_x_url,affiliate_url,price").single();
   if (linkError) throw linkError;
   return { product: linked as Record<string, unknown>, status: "exact", method: "canonical_url_observed_import_then_creator_exact", missing: [] };
+}
+
+export async function ensureExactProductForCreator(finalMyfansUrl: string, creatorId: number, approvedMediaId: number | null): Promise<ExactProductResolution> {
+  const canonicalUrl = normalizeMyfansPostUrl(finalMyfansUrl);
+  if (!canonicalUrl) return { product: null, status: "blocked", method: "invalid_final_myfans_url", missing: ["canonical MyFans post URL"] };
+
+  const existing = await resolveExistingExactProduct(
+    canonicalUrl,
+    creatorId,
+    approvedMediaId,
+  );
+  if (existing) return existing;
+
+  return importAndLinkObservedProduct(canonicalUrl, creatorId, approvedMediaId);
 }
 
