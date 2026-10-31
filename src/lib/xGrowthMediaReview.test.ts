@@ -52,3 +52,38 @@ test("review update mirrors rights and audit defaults for allowed and blocked st
     assert.equal(blocked.update.commercial_use_allowed, false);
   }
 });
+
+test("review update preserves explicit empty metadata while applying permission flags", () => {
+  const review = buildXMediaAssetReviewPlan({
+    id: 4,
+    status: "review",
+    rightsBasisType: "",
+    rightsBasisUrl: "",
+    rightsBasisNote: "",
+    reviewedBy: "",
+    reviewSource: "",
+    mediaQuality: "weak",
+    manualTags: ["manual"],
+  }, "reviewed-at");
+
+  assert.deepEqual(review, {
+    ok: true,
+    update: {
+      rights_status: "review",
+      rights_basis_type: "",
+      rights_basis_url: "",
+      evidence_ref: "",
+      rights_basis_note: "",
+      reviewed_at: "reviewed-at",
+      reviewed_by: "",
+      review_source: "",
+      x_usage_allowed: false,
+      can_reupload: false,
+      can_modify: false,
+      quote_only: true,
+      commercial_use_allowed: false,
+      media_quality: "weak",
+      manual_tags: ["manual"],
+    },
+  });
+});

@@ -32,6 +32,24 @@ export type XMediaAssetReviewPlan =
   | { ok: false; error: string }
   | { ok: true; update: XMediaAssetReviewUpdate };
 
+function buildRightsEvidenceFields(input: XMediaAssetReviewInput) {
+  return {
+    rights_basis_type: input.rightsBasisType ?? (input.status === "blocked" ? "insufficient_evidence" : null),
+    rights_basis_url: input.rightsBasisUrl ?? null,
+    evidence_ref: input.rightsBasisUrl ?? null,
+    rights_basis_note: input.rightsBasisNote ?? "",
+  };
+}
+
+function buildReviewMetadataFields(input: XMediaAssetReviewInput) {
+  return {
+    reviewed_by: input.reviewedBy ?? "admin_x_growth",
+    review_source: input.reviewSource ?? "admin",
+    media_quality: input.mediaQuality ?? "unreviewed",
+    manual_tags: input.manualTags ?? [],
+  };
+}
+
 export function buildXMediaAssetReviewPlan(
   input: XMediaAssetReviewInput,
   reviewedAt: string,
@@ -45,20 +63,14 @@ export function buildXMediaAssetReviewPlan(
     ok: true,
     update: {
       rights_status: input.status,
-      rights_basis_type: input.rightsBasisType ?? (input.status === "blocked" ? "insufficient_evidence" : null),
-      rights_basis_url: input.rightsBasisUrl ?? null,
-      evidence_ref: input.rightsBasisUrl ?? null,
-      rights_basis_note: input.rightsBasisNote ?? "",
+      ...buildRightsEvidenceFields(input),
       reviewed_at: reviewedAt,
-      reviewed_by: input.reviewedBy ?? "admin_x_growth",
-      review_source: input.reviewSource ?? "admin",
+      ...buildReviewMetadataFields(input),
       x_usage_allowed: allowed,
       can_reupload: allowed,
       can_modify: false,
       quote_only: !allowed,
       commercial_use_allowed: allowed,
-      media_quality: input.mediaQuality ?? "unreviewed",
-      manual_tags: input.manualTags ?? [],
     },
   };
 }
