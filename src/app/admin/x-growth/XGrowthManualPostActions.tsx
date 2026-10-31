@@ -42,6 +42,11 @@ function TrimPreview({
   );
 }
 
+function trimDurationLabel(duration: number, previewRequested: boolean) {
+  if (duration > 0) return `${duration.toFixed(1)}秒`;
+  return previewRequested ? "未取得" : "未読み込み";
+}
+
 function TrimStatus({
   currentTime,
   duration,
@@ -66,7 +71,7 @@ function TrimStatus({
   return (
     <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-cyan-100">
       <span>現在 {currentTime.toFixed(1)}秒</span>
-      <span>動画長 {duration > 0 ? `${duration.toFixed(1)}秒` : previewRequested ? "未取得" : "未読み込み"}</span>
+      <span>動画長 {trimDurationLabel(duration, previewRequested)}</span>
       {mediaError && <span className="text-rose-200">動画を読み込めません</span>}
       <span>保存済み {savedSeconds.toFixed(1)}秒</span>
       {dirty && <span className="text-amber-200">未保存</span>}
