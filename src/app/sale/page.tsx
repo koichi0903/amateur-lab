@@ -51,6 +51,39 @@ function SaleCard({ work, insight }: { work: Work; insight?: HomePriceInsightWor
   return <FanzaStyleWorkCard work={work} sourcePage="sale" insight={insight} />;
 }
 
+function buildSaleQuery({ sort, maxPrice, minRating }: { sort: SaleSort; maxPrice: number | null; minRating: number | null }) {
+  let query = supabase
+    .from("works")
+    .select("id,product_id,title,image_url,actress,genre,maker,series,price,sale_price,list_price,discount_rate,score,review_average,review_count,sale_end_at,sample_movie_url,is_bottom_price,lowest_price,ranking,realtime_rank,affiliate_url", { count: "exact" })
+    .gt("sale_price", 0)
+    .gt("discount_rate", 0);
+
+  if (maxPrice) query = query.lte("sale_price", maxPrice);
+  if (minRating) query = query.gte("review_average", minRating);
+  if (sort === "price") query = query.order("sale_price", { ascending: true });
+  else if (sort === "rating") query = query.order("review_average", { ascending: false }).order("review_count", { ascending: false });
+  else if (sort === "ending") query = query.gt("sale_end_at", new Date().toISOString()).order("sale_end_at", { ascending: true, nullsFirst: false });
+  else if (sort === "discount") query = query.order("discount_rate", { ascending: false }).order("review_count", { ascending: false, nullsFirst: false });
+  else query = query.order("realtime_rank", { ascending: true, nullsFirst: false }).order("review_count", { ascending: false, nullsFirst: false });
+
+  return query;
+}
+
+async function loadSaleInsights(works: Work[]): Promise<HomePriceInsightWork[]> {
+  if (!works.length) return [];
+
+  try {
+    return await buildInsightsForWorks(
+      works as unknown as HomePriceInsightWork[],
+      new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+      { requireBuyTimingSignal: false },
+    );
+  } catch (historyError) {
+    console.warn("[sale] price histories are temporarily unavailable", historyError);
+    return [];
+  }
+}
+
 function formatTodayJa() {
   const parts = new Intl.DateTimeFormat("ja-JP", {
     timeZone: "Asia/Tokyo",
@@ -69,35 +102,10 @@ export default async function SalePage({ searchParams }: { searchParams: Promise
   const maxPrice = parsePositiveNumber(params.maxPrice);
   const minRating = parsePositiveNumber(params.minRating);
   const offset = (page - 1) * PAGE_SIZE;
-  let query = supabase
-    .from("works")
-    .select("id,product_id,title,image_url,actress,genre,maker,series,price,sale_price,list_price,discount_rate,score,review_average,review_count,sale_end_at,sample_movie_url,is_bottom_price,lowest_price,ranking,realtime_rank,affiliate_url", { count: "exact" })
-    .gt("sale_price", 0)
-    .gt("discount_rate", 0);
-
-  if (maxPrice) query = query.lte("sale_price", maxPrice);
-  if (minRating) query = query.gte("review_average", minRating);
-  if (sort === "price") query = query.order("sale_price", { ascending: true });
-  else if (sort === "rating") query = query.order("review_average", { ascending: false }).order("review_count", { ascending: false });
-  else if (sort === "ending") query = query.gt("sale_end_at", new Date().toISOString()).order("sale_end_at", { ascending: true, nullsFirst: false });
-  else if (sort === "discount") query = query.order("discount_rate", { ascending: false }).order("review_count", { ascending: false, nullsFirst: false });
-  else query = query.order("realtime_rank", { ascending: true, nullsFirst: false }).order("review_count", { ascending: false, nullsFirst: false });
-
-  const { data, count, error } = await query.range(offset, offset + PAGE_SIZE - 1);
+  const { data, count, error } = await buildSaleQuery({ sort, maxPrice, minRating }).range(offset, offset + PAGE_SIZE - 1);
 
   const works = (data ?? []) as unknown as Work[];
-  let saleInsights: HomePriceInsightWork[] = [];
-  if (works.length) {
-    try {
-      saleInsights = await buildInsightsForWorks(
-        works as unknown as HomePriceInsightWork[],
-        new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
-        { requireBuyTimingSignal: false },
-      );
-    } catch (historyError) {
-      console.warn("[sale] price histories are temporarily unavailable", historyError);
-    }
-  }
+  const saleInsights = await loadSaleInsights(works);
   const saleInsightsById = new Map(saleInsights.map((insight) => [insight.id, insight]));
   const total = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
