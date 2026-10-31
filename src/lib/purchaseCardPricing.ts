@@ -32,6 +32,31 @@ export type PurchaseCardPricing = {
   isLowestPrice: boolean;
 };
 
+export function buildPurchaseDecisionFacts({
+  isLowestPrice,
+  sampleMovieAvailable,
+  reviewAverage,
+  reviewCount,
+  recommendationTitle,
+}: {
+  isLowestPrice: boolean;
+  sampleMovieAvailable: boolean;
+  reviewAverage: number | null;
+  reviewCount: number | null;
+  recommendationTitle?: string | null;
+}) {
+  return [
+    isLowestPrice ? "登録以降の最安価格" : null,
+    sampleMovieAvailable ? "無料サンプル動画あり" : null,
+    reviewAverage && reviewAverage > 0
+      ? `レビュー ${reviewAverage.toFixed(2)} / 5（${reviewCount ?? 0}件）`
+      : null,
+    recommendationTitle ?? null,
+  ]
+    .filter((fact): fact is string => !!fact)
+    .slice(0, 3);
+}
+
 const effectivePrice = (offer: PurchasePriceOffer) =>
   offer.sale_price && offer.sale_price > 0
     ? offer.sale_price

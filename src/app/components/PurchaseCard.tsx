@@ -1,6 +1,7 @@
 import type { RecommendReason } from "@/lib/analyzers/recommendAnalyzer";
 import { formatJapanDateTime } from "@/lib/dateTime";
 import {
+  buildPurchaseDecisionFacts,
   calculatePurchaseCardPricing,
   type PurchasePriceOffer,
 } from "@/lib/purchaseCardPricing";
@@ -49,16 +50,13 @@ export default function PurchaseCard({
   const saleEnd = work.is_on_sale ? formatJapanDateTime(work.sale_end_at) : null;
   const checkedLabel = formatJapanDateTime(checkedAt);
   const affiliateUrl = work.affiliate_url?.trim() || null;
-  const decisionFacts = [
-    isLowestPrice ? "登録以降の最安価格" : null,
-    sampleMovieAvailable ? "無料サンプル動画あり" : null,
-    work.review_average && work.review_average > 0
-      ? `レビュー ${work.review_average.toFixed(2)} / 5（${work.review_count ?? 0}件）`
-      : null,
-    recommendationReasons[0]?.title ?? null,
-  ]
-    .filter((fact): fact is string => !!fact)
-    .slice(0, 3);
+  const decisionFacts = buildPurchaseDecisionFacts({
+    isLowestPrice,
+    sampleMovieAvailable,
+    reviewAverage: work.review_average,
+    reviewCount: work.review_count,
+    recommendationTitle: recommendationReasons[0]?.title,
+  });
 
   return (
     <aside className="sticky top-6 hidden space-y-5 lg:block">

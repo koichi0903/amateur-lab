@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculatePurchaseCardPricing } from "./purchaseCardPricing.ts";
+import {
+  buildPurchaseDecisionFacts,
+  calculatePurchaseCardPricing,
+} from "./purchaseCardPricing.ts";
 
 const baseWork = {
   sale_price: 250,
@@ -11,6 +14,29 @@ const baseWork = {
   is_on_sale: true,
   sale_end_at: "2026-10-31T00:00:00+09:00",
 };
+
+test("購入カードの判断材料を順序と3件上限を保って組み立てる", () => {
+  assert.deepEqual(buildPurchaseDecisionFacts({
+    isLowestPrice: true,
+    sampleMovieAvailable: true,
+    reviewAverage: 4.25,
+    reviewCount: 12,
+    recommendationTitle: "人気作品",
+  }), [
+    "登録以降の最安価格",
+    "無料サンプル動画あり",
+    "レビュー 4.25 / 5（12件）",
+  ]);
+});
+
+test("購入カードの判断材料がない場合は空配列を返す", () => {
+  assert.deepEqual(buildPurchaseDecisionFacts({
+    isLowestPrice: false,
+    sampleMovieAvailable: false,
+    reviewAverage: null,
+    reviewCount: null,
+  }), []);
+});
 
 test("有効なセールでは商品価格と一致する販売形式を選び、割引と最安を判定する", () => {
   const pricing = calculatePurchaseCardPricing(
