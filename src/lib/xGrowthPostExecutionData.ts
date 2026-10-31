@@ -38,6 +38,53 @@ function xGrowthCreativeLogFields(
   };
 }
 
+type ManualXGrowthPostLogData = {
+  accountHandle: string;
+  candidateId: string;
+  candidateRank?: string | null;
+  intent?: string | null;
+  linkStrategy: "reply_link" | "body_link" | null;
+  mediaAssetId?: number | null;
+  postDate: string;
+  postKey: string;
+  postText: string;
+  slotId?: string | null;
+  slotRole?: string | null;
+  title: string;
+  workId: number;
+  xPostId: string;
+};
+
+function manualPostCreativeGenome(input: ManualXGrowthPostLogData): Record<string, unknown> {
+  return {
+    candidate_id: input.candidateId,
+    slot_id: input.slotId ?? null,
+    slot_role: input.slotRole ?? null,
+    candidate_rank: input.candidateRank ?? null,
+    intent: input.intent ?? null,
+    completion_source: "admin_manual_posted_button",
+  };
+}
+
+export function buildManualXGrowthPostLogInput(input: ManualXGrowthPostLogData): XPostLogInput {
+  return {
+    postKey: input.postKey,
+    workId: input.workId,
+    category: "score",
+    title: input.title.slice(0, 300),
+    postText: input.postText,
+    postDate: input.postDate,
+    accountHandle: input.accountHandle,
+    creativeVariantId: input.candidateId,
+    xPostId: input.xPostId,
+    postIntent: "work_link",
+    scheduledSlot: input.slotId ?? null,
+    mediaAssetId: input.mediaAssetId ?? null,
+    linkStrategy: input.linkStrategy,
+    creativeGenome: manualPostCreativeGenome(input),
+  };
+}
+
 export function buildXGrowthPostLogInput(input: {
   opportunity: Record<string, unknown>;
   persistedPick: SerializedTopPick | null;

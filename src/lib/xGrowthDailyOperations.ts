@@ -4,7 +4,7 @@ import { canTrimFanzaXGrowthSampleMovie, isFanzaXGrowthTechnicalSampleMovie, typ
 import type { XPostLogInput } from "@/lib/xPostLogs";
 import { saveXPostLog } from "@/lib/xPostLogs";
 import { xPostKeyFromText } from "@/lib/xPostTracking";
-import { buildXGrowthPostLogInput } from "./xGrowthPostExecutionData";
+import { buildManualXGrowthPostLogInput, buildXGrowthPostLogInput } from "./xGrowthPostExecutionData";
 import { normalizeTopPickCandidates } from "@/lib/xGrowthTopPicks";
 import type { XDailyMission, XDailyTopPick } from "@/lib/xGrowthOS";
 import { mergePersistedTopPickMediaAsset, serializeTopPick } from "./xGrowthDailyPlanSerialization";
@@ -135,14 +135,16 @@ export async function recordManualXPost(input: {
   const candidateId = input.candidateId?.trim() || `manual-${input.workId}`;
   const trackedPostKey = xPostKeyFromText(input.postText) ?? xPostKeyFromText(input.trackingUrl);
   const linkStrategy = normalizeManualLinkStrategy(input.linkStrategy);
-  const result = await saveXPostLog({
-    postKey: trackedPostKey ?? `manual-${todayTokyo()}-${candidateId}`.slice(0, 120), workId: input.workId, category: "score",
-    title: input.title.slice(0, 300), postText: input.postText, postDate: todayTokyo(), accountHandle: ACCOUNT,
-    xPostId: input.xPostId,
-    postIntent: "work_link", scheduledSlot: input.slotId ?? null, creativeVariantId: candidateId,
-    mediaAssetId: input.mediaAssetId ?? null, linkStrategy,
-    creativeGenome: { candidate_id: candidateId, slot_id: input.slotId ?? null, slot_role: input.slotRole ?? null, candidate_rank: input.candidateRank ?? null, intent: input.intent ?? null, completion_source: "admin_manual_posted_button" },
-  });
+  const postKey = trackedPostKey ?? `manual-${todayTokyo()}-${candidateId}`.slice(0, 120);
+  const postDate = todayTokyo();
+  const result = await saveXPostLog(buildManualXGrowthPostLogInput({
+    ...input,
+    accountHandle: ACCOUNT,
+    candidateId,
+    linkStrategy,
+    postDate,
+    postKey,
+  }));
   if (result.error) return { error: result.error.message };
   await invalidateTodayPlanWork(input.workId);
   await auditXGrowth("manual_x_post_recorded", { workId: input.workId, candidateId, slotId: input.slotId ?? null, candidateRank: input.candidateRank ?? null });
