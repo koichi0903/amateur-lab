@@ -221,8 +221,9 @@ assert.match(quoteScanProductResolution, /return async function resolveBatchProd
 assert.match(quoteScanProductResolution, /await input\.ensureExactProductForCreator\(finalMyfansUrl, input\.creatorId, input\.approvedMediaId\)/);
 assert.match(companionSource, /\.eq\("creator_id", creatorId\)\.eq\("x_post_url", postUrl\)/);
 assert.match(quoteScanPersistence, /quote_candidate_id: savedCandidateId/);
-assert.match(companionApi, /cursor_after_order: cursorAfterOrder/);
-assert.match(companionApi, /cycle_completed: cycleCompleted/);
+assert.match(companionApi, /resolveTerminalCollectionCursorAdvance\(currentCursor, terminalOrder, lastEligibleOrder\)/);
+assert.match(companionApi, /cursor_after_order: advance\.cursorOrder/);
+assert.match(companionApi, /cycle_completed: advance\.cycleCompleted/);
 assert.match(companionSource, /existing_canonical_url_then_creator_exact/);
 assert.match(companionSource, /canonical_url_observed_import_then_creator_exact/);
 assert.match(companionSource, /canonical_url_observed_title_missing/);

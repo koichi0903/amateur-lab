@@ -1,8 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { collectionOutcomeForResult, selectCollectionAccounts } from "./myfansCollectionRotation.ts";
+import {
+  collectionOutcomeForResult,
+  resolveTerminalCollectionCursorAdvance,
+  selectCollectionAccounts,
+} from "./myfansCollectionRotation.ts";
 
 const accounts = Array.from({ length: 12 }, (_, index) => ({ creatorId: index + 1, rotationOrder: index + 1, collectionEnabled: true }));
+
+test("advances the persistent cursor only after a later terminal creator", () => {
+  assert.deepEqual(
+    resolveTerminalCollectionCursorAdvance({ cursorOrder: 5, cycleNo: 2 }, 4, 10),
+    { cursorOrder: 5, cycleNo: 2, cycleCompleted: false, shouldAdvance: false },
+  );
+  assert.deepEqual(
+    resolveTerminalCollectionCursorAdvance({ cursorOrder: 5, cycleNo: 2 }, 8, 10),
+    { cursorOrder: 8, cycleNo: 2, cycleCompleted: false, shouldAdvance: true },
+  );
+});
+
+test("wraps the cursor and increments the cycle at the last eligible creator", () => {
+  assert.deepEqual(
+    resolveTerminalCollectionCursorAdvance({ cursorOrder: 8, cycleNo: 2 }, 10, 10),
+    { cursorOrder: 0, cycleNo: 3, cycleCompleted: true, shouldAdvance: true },
+  );
+});
 
 test("caps one low-load run at five and continues after the cursor", () => {
   const manyAccounts = Array.from({ length: 30 }, (_, index) => ({ creatorId: index + 1, rotationOrder: index + 1, collectionEnabled: true }));

@@ -14,6 +14,7 @@ import { resolveQuoteRefreshFinalStatus } from "@/lib/myfans/myfansQuoteRefreshI
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { ensureExactProductForCreator, extractFinalMyfansUrl, fetchResolverProducts, importObservedMyfansPost } from "@/lib/myfans/myfansCompanionImportService";
 import { saveStandardCompanionImport } from "@/lib/myfans/myfansCompanionStandardImport";
+import { resolveTerminalCollectionCursorAdvance } from "@/lib/myfansCollectionRotation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -201,27 +202,27 @@ async function advanceCreatorCollectionCursor(jobId: number, creatorId: number, 
   const { data: cursor } = await supabaseAdmin.from("myfans_collection_cursors").select("cursor_order,cycle_no").eq("collector_key", "myfans_quote_refresh").maybeSingle();
   const terminalOrder = Number(existingRotationOrder ?? creatorId);
   const currentCursorOrder = Number(cursor?.cursor_order ?? 0);
-  let cursorAfterOrder = currentCursorOrder;
-  let cycleCompleted = false;
-  let cycleNo = Number(cursor?.cycle_no ?? 1);
+  const currentCursor = { cursorOrder: currentCursorOrder, cycleNo: Number(cursor?.cycle_no ?? 1) };
+  let lastEligibleOrder = terminalOrder;
   if (terminalOrder > currentCursorOrder) {
     const { data: lastEligible } = await supabaseAdmin.from("myfans_creator_collection_state").select("rotation_order").eq("collection_enabled", true).order("rotation_order", { ascending: false }).limit(1).maybeSingle();
-    cycleCompleted = terminalOrder >= Number(lastEligible?.rotation_order ?? terminalOrder);
-    cursorAfterOrder = cycleCompleted ? 0 : terminalOrder;
-    cycleNo += cycleCompleted ? 1 : 0;
+    lastEligibleOrder = Number(lastEligible?.rotation_order ?? terminalOrder);
+  }
+  const advance = resolveTerminalCollectionCursorAdvance(currentCursor, terminalOrder, lastEligibleOrder);
+  if (advance.shouldAdvance) {
     const { error: cursorError } = await supabaseAdmin.from("myfans_collection_cursors").upsert({
       collector_key: "myfans_quote_refresh",
-      cursor_order: cursorAfterOrder,
-      cycle_no: cycleNo,
+      cursor_order: advance.cursorOrder,
+      cycle_no: advance.cycleNo,
       last_run_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }, { onConflict: "collector_key" });
     if (cursorError) throw cursorError;
   }
   const { error: jobCursorError } = await supabaseAdmin.from("myfans_quote_refresh_jobs").update({
-    cursor_after_order: cursorAfterOrder,
-    collection_cycle_no: cycleNo,
-    cycle_completed: cycleCompleted,
+    cursor_after_order: advance.cursorOrder,
+    collection_cycle_no: advance.cycleNo,
+    cycle_completed: advance.cycleCompleted,
   }).eq("id", jobId);
   if (jobCursorError) throw jobCursorError;
 }

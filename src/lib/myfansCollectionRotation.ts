@@ -14,6 +14,21 @@ export type CollectionCursor = {
   cycleNo: number;
 };
 
+export function resolveTerminalCollectionCursorAdvance(
+  cursor: CollectionCursor,
+  terminalOrder: number,
+  lastEligibleOrder: number,
+) {
+  const shouldAdvance = terminalOrder > cursor.cursorOrder;
+  const cycleCompleted = shouldAdvance && terminalOrder >= lastEligibleOrder;
+  return {
+    cursorOrder: cycleCompleted ? 0 : shouldAdvance ? terminalOrder : cursor.cursorOrder,
+    cycleNo: cursor.cycleNo + (cycleCompleted ? 1 : 0),
+    cycleCompleted,
+    shouldAdvance,
+  };
+}
+
 export function selectCollectionAccounts(
   accounts: readonly CollectionAccount[],
   cursor: CollectionCursor,
