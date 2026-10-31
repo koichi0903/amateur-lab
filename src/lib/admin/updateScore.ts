@@ -16,6 +16,7 @@ import {
   updateJobProgress,
 } from "@/lib/jobs";
 import { simpleErrorMessage } from "@/lib/errorMessage";
+import { shouldFlushScoreBatch } from "./scoreBatchPolicy";
 
 type ScoreUpdateWork = {
   id: number;
@@ -271,10 +272,11 @@ export async function updateScore(productIds?: string[]) {
         changedProductIds.add(work.product_id);
       }
 
-      if (
-        updates.length === UPDATE_BATCH_SIZE ||
-        (index === targets.length - 1 && updates.length > 0)
-      ) {
+      if (shouldFlushScoreBatch(
+        updates.length,
+        UPDATE_BATCH_SIZE,
+        index === targets.length - 1,
+      )) {
         const batchSize = updates.length;
         const { error } = await supabase.from("works").upsert(updates);
         if (error) throw error;
