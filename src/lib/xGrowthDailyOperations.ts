@@ -428,8 +428,7 @@ export async function updateOpportunityStatus(id: number, status: XOpportunitySt
   return { error: null };
 }
 
-async function downloadOpportunitySampleMovie(
-  id: number,
+async function loadOpportunityMediaAsset(
   opportunity: Record<string, unknown>,
   persistedPick: SerializedTopPick | null,
 ) {
@@ -441,23 +440,54 @@ async function downloadOpportunitySampleMovie(
     asset = assetResult.data as XMediaAsset | null;
     if (assetResult.error || !asset) throw new Error(assetResult.error?.message ?? "Media asset not found.");
   }
+  return { assetId, asset };
+}
 
-  const verdict = isFanzaXGrowthTechnicalSampleMovie(asset, persistedPick?.recommendedMediaUrl ?? undefined);
+async function assertOpportunitySampleMovieTechnical(
+  id: number,
+  assetId: number,
+  asset: Partial<XMediaAsset> | null,
+  sampleMovieUrl: string | undefined,
+) {
+  const verdict = isFanzaXGrowthTechnicalSampleMovie(asset, sampleMovieUrl);
   if (!verdict.usable) {
     await auditXGrowth("media_technical_blocked", { opportunityId: id, mediaAssetId: assetId, reasons: verdict.reasons });
     throw new Error("公式FANZA/DMM動画のtechnical条件を満たしていません。");
   }
-  if (!asset?.source_url) throw new Error("sample_movie_urlが見つかりません。");
+}
 
+function requireOpportunitySampleMovieSource(
+  asset: Partial<XMediaAsset> | null,
+): asserts asset is Partial<XMediaAsset> & { source_url: string } {
+  if (!asset?.source_url) throw new Error("sample_movie_urlが見つかりません。");
+}
+
+async function assertOpportunitySampleMovieTrimAllowed(
+  id: number,
+  assetId: number,
+  asset: Partial<XMediaAsset>,
+  sampleMovieUrl: string | undefined,
+) {
   if (Number(asset.trim_start_seconds ?? 0) > 0) {
-    const trimVerdict = canTrimFanzaXGrowthSampleMovie(asset, persistedPick?.recommendedMediaUrl ?? undefined);
+    const trimVerdict = canTrimFanzaXGrowthSampleMovie(asset, sampleMovieUrl);
     if (!trimVerdict.usable) {
       await auditXGrowth("media_trim_blocked", { opportunityId: id, mediaAssetId: assetId, reasons: trimVerdict.reasons });
       throw new Error(`トリム動画は使えません: ${trimVerdict.reasons.join(" / ")}`);
     }
   }
+}
 
-  return downloadTempVideo(asset.source_url as string);
+async function downloadOpportunitySampleMovie(
+  id: number,
+  opportunity: Record<string, unknown>,
+  persistedPick: SerializedTopPick | null,
+) {
+  const { assetId, asset } = await loadOpportunityMediaAsset(opportunity, persistedPick);
+  const sampleMovieUrl = persistedPick?.recommendedMediaUrl ?? undefined;
+  await assertOpportunitySampleMovieTechnical(id, assetId, asset, sampleMovieUrl);
+  requireOpportunitySampleMovieSource(asset);
+  await assertOpportunitySampleMovieTrimAllowed(id, assetId, asset, sampleMovieUrl);
+  return downloadTempVideo(asset.source_url);
 }
 
 async function recordPostedOpportunity(
