@@ -39,6 +39,17 @@ function dateTime(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString("ja-JP") : "未実行";
 }
 
+async function applyRunProgress(run: Mp4Run | null, setMessage: (message: string) => void) {
+  if (run?.status === "completed") {
+    setMessage(`${LABELS[run.run_type]}が完了しました。取得${count(run.found_count)}件・動画なし${count(run.no_video_count)}件。`);
+    return;
+  }
+  if (run?.status === "running") {
+    setMessage(`${LABELS[run.run_type]}：${count(run.processed_count)} / ${count(run.target_count)}件を確認 · MP4取得 ${count(run.found_count)}件 · 3回失敗で動画なしとして終了`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
 function RunCardActions({
   runType,
   activeRun,
@@ -62,6 +73,56 @@ function RunCardActions({
       {isBusy && <button type="button" onClick={onStop} className="rounded-xl border border-zinc-600 px-4 py-3 text-sm font-bold">一時停止</button>}
     </div>
   );
+}
+
+function Mp4RunCard({
+  runType,
+  description,
+  rangeDescription,
+  runs,
+  activeRun,
+  busyType,
+  onRunAll,
+  onStop,
+}: {
+  runType: RunType;
+  description: string;
+  rangeDescription: string;
+  runs: Record<RunType, Mp4Run | null>;
+  activeRun: Mp4Run | null;
+  busyType: RunType | null;
+  onRunAll: (runType: RunType, resumeRun?: Mp4Run) => void;
+  onStop: () => void;
+}) {
+  const run = runs[runType];
+  const status = run ? STATUS_LABELS[run.status] : "未実行";
+  return (
+    <article className="rounded-2xl border border-violet-900 bg-zinc-900 p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div><p className="text-xs font-black tracking-[0.14em] text-violet-300">WEEKLY FULL CATALOG</p><h3 className="mt-2 text-lg font-black">{LABELS[runType]}</h3></div>
+        <span className="rounded-full bg-zinc-800 px-3 py-1 text-xs font-bold">{status}</span>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-zinc-300">{description}</p>
+      <p className="mt-2 text-xs text-zinc-400">対象：{rangeDescription}</p>
+      <RunMetrics run={run} />
+      <RunError run={run} />
+      <RunCardActions runType={runType} activeRun={activeRun} busyType={busyType} onRunAll={onRunAll} onStop={onStop} />
+    </article>
+  );
+}
+
+function RunMetrics({ run }: { run: Mp4Run | null }) {
+  return <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+    <Metric label="処理済み / 対象" value={`${count(run?.processed_count ?? 0)} / ${count(run?.target_count ?? 0)}`} />
+    <Metric label="MP4取得" value={`${count(run?.found_count ?? 0)}件`} />
+    <Metric label="動画なし確定" value={`${count(run?.no_video_count ?? 0)}件`} />
+    <Metric label="最終実行" value={dateTime(run?.completed_at ?? run?.started_at)} />
+  </div>;
+}
+
+function RunError({ run }: { run: Mp4Run | null }) {
+  if (!run?.last_error) return null;
+  return <p className="mt-3 rounded-lg bg-amber-950/60 p-3 text-xs leading-5 text-amber-200">{run.last_error}</p>;
 }
 
 export default function FanzaAmateurMp4Completion() {
@@ -104,12 +165,7 @@ export default function FanzaAmateurMp4Completion() {
       let run = resumeRun ?? await request("start", runType);
       while (run?.status === "running" && !stopRef.current) {
         run = await request("continue", runType, run.id);
-        if (run?.status === "completed") {
-          setMessage(`${LABELS[runType]}が完了しました。取得${count(run.found_count)}件・動画なし${count(run.no_video_count)}件。`);
-        } else if (run?.status === "running") {
-          setMessage(`${LABELS[runType]}：${count(run.processed_count)} / ${count(run.target_count)}件を確認 · MP4取得 ${count(run.found_count)}件 · 3回失敗で動画なしとして終了`);
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        }
+        await applyRunProgress(run, setMessage);
       }
       if (stopRef.current && run?.status === "running") setMessage("一時停止しました。再開ボタンから続けられます。");
       await refresh().catch(() => undefined);
@@ -134,41 +190,21 @@ export default function FanzaAmateurMp4Completion() {
     void refresh().catch((error: unknown) => setMessage(error instanceof Error ? error.message : "MP4補完状態を読み込めませんでした。"));
   }, [refresh, runAll]);
 
-  function renderCard(runType: RunType, description: string, rangeDescription: string) {
-    const run = runs[runType];
-    const status = run ? STATUS_LABELS[run.status] : "未実行";
-    return (
-      <article key={runType} className="rounded-2xl border border-violet-900 bg-zinc-900 p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div><p className="text-xs font-black tracking-[0.14em] text-violet-300">WEEKLY FULL CATALOG</p><h3 className="mt-2 text-lg font-black">{LABELS[runType]}</h3></div>
-          <span className="rounded-full bg-zinc-800 px-3 py-1 text-xs font-bold">{status}</span>
-        </div>
-        <p className="mt-3 text-sm leading-6 text-zinc-300">{description}</p>
-        <p className="mt-2 text-xs text-zinc-400">対象：{rangeDescription}</p>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Metric label="処理済み / 対象" value={`${count(run?.processed_count ?? 0)} / ${count(run?.target_count ?? 0)}`} />
-          <Metric label="MP4取得" value={`${count(run?.found_count ?? 0)}件`} />
-          <Metric label="動画なし確定" value={`${count(run?.no_video_count ?? 0)}件`} />
-          <Metric label="最終実行" value={dateTime(run?.completed_at ?? run?.started_at)} />
-        </div>
-        {run?.last_error && <p className="mt-3 rounded-lg bg-amber-950/60 p-3 text-xs leading-5 text-amber-200">{run.last_error}</p>}
-        <RunCardActions
-          runType={runType}
-          activeRun={activeRun}
-          busyType={busyType}
-          onRunAll={runAll}
-          onStop={() => { stopRef.current = true; }}
-        />
-      </article>
-    );
-  }
-
   return (
     <section className="rounded-2xl border border-violet-900 bg-zinc-900 p-6">
       <p className="text-xs font-black tracking-[0.16em] text-violet-300">FANZA AMATEUR / OFFICIAL MP4 URL</p>
       <h2 className="mt-2 text-2xl font-black">週次・全対象MP4リンク補完</h2>
       <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-300">APIに含まれない公式MP4リンクを、既存と同じ商品ページ・プレイヤー検出方法で確認し、素人専用テーブルに保存します。処理時間を抑えるため、最大3作品を同時に確認し、1回の通信で最大6作品を進めます。MP4取得済みと動画なし確定の作品は再処理しません。失敗は実行ごとに1回だけ記録し、3回目で動画なしとして終了します。</p>
-      <div className="mt-5">{renderCard("weekly_full", "掲載中作品のうちMP4未取得で試行回数が3回未満の作品をすべて確認します。取得済みと3回失敗済みは対象外です。", "素人専用テーブルの全未処理作品")}</div>
+      <div className="mt-5"><Mp4RunCard
+        runType="weekly_full"
+        description="掲載中作品のうちMP4未取得で試行回数が3回未満の作品をすべて確認します。取得済みと3回失敗済みは対象外です。"
+        rangeDescription="素人専用テーブルの全未処理作品"
+        runs={runs}
+        activeRun={activeRun}
+        busyType={busyType}
+        onRunAll={runAll}
+        onStop={() => { stopRef.current = true; }}
+      /></div>
       {activeRun?.run_type === "daily_incremental" && <div className="mt-4 rounded-xl border border-amber-800 bg-amber-950/40 p-4 text-sm text-amber-100">旧方式の日次新作MP4補完が進行中です。続きから再開して終了できます。<button type="button" disabled={busyType !== null} onClick={() => void runAll("daily_incremental", activeRun)} className="ml-3 rounded-lg bg-amber-400 px-3 py-2 font-bold text-zinc-950 disabled:opacity-50">旧ジョブを再開</button></div>}
       {message && <p role="status" className="mt-4 rounded-xl bg-zinc-950 p-4 text-sm leading-6 text-zinc-200">{message}</p>}
       <p className="mt-4 text-[11px] leading-5 text-zinc-500">週次の全対象補完を必要に応じて手動で開始します。自動時刻実行は設定しません。MP4取得済み・3回失敗済みの作品は再処理しません。</p>
