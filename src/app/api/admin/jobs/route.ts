@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { decodeJobProgress } from "@/lib/jobs/progress";
+import {
+  getJobProgressProductIds,
+  projectAdminJobProgress,
+} from "@/lib/admin/jobProgressProjection";
 
 export async function GET() {
   const { data: jobs, error } = await supabaseAdmin
@@ -19,13 +23,7 @@ export async function GET() {
     job,
     progress: decodeJobProgress(job.last_product_id),
   }));
-  const productIds = [
-    ...new Set(
-      jobsWithProgress
-        .map(({ job, progress }) => progress?.productId ?? job.last_product_id)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  ];
+  const productIds = getJobProgressProductIds(jobsWithProgress);
   const { data: works, error: worksError } = productIds.length
     ? await supabaseAdmin
         .from("works")
@@ -42,15 +40,8 @@ export async function GET() {
   );
 
   return NextResponse.json({
-    jobs: jobsWithProgress.map(({ job, progress }) => ({
-      ...job,
-      last_product_id: progress?.productId ?? (progress ? null : job.last_product_id),
-      progress_phase: progress?.phase,
-      phase_processed: progress?.current,
-      phase_total: progress?.total,
-      last_product_title: (progress?.productId ?? job.last_product_id)
-        ? titleByProductId.get(progress?.productId ?? job.last_product_id ?? "")
-        : undefined,
-    })),
+    jobs: jobsWithProgress.map(({ job, progress }) =>
+      projectAdminJobProgress(job, progress, titleByProductId),
+    ),
   });
 }
