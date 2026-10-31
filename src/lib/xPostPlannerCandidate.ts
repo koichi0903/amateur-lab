@@ -241,13 +241,18 @@ function todayBuyPresentationFor(context: CandidatePresentationContext): Candida
 
 type MarketPresentationCategory = "market_scan" | "comparison_pick" | "judgment_pick" | "review_gap" | "discovery_gap";
 
+function marketScanSelectionReasonFor(work: CandidateWork, genreName?: string, makerName?: string) {
+  const focus = genreName ? `${genreName}系` : makerName ? `${makerName}系` : "同条件";
+  return `今日のセール群から${focus}に寄った作品を抽出。ランキング${work.ranking ?? "未取得"}位、評価${work.review_average?.toFixed(1) ?? "未取得"}。`;
+}
+
 function setMarketScanPresentation(context: CandidatePresentationContext, presentation: CandidatePresentation) {
   const { work, discountRate } = context;
   const genreName = work.genre?.split(/[,、/]/)[0]?.trim();
   const makerName = work.maker?.trim();
   presentation.label = "市場メモ";
   presentation.reason = `${discountRate}%OFF・${genreName ?? makerName ?? "注目枠"}`;
-  presentation.selectionReason = `今日のセール群から${genreName ? `${genreName}系` : makerName ? `${makerName}系` : "同条件"}に寄った作品を抽出。ランキング${work.ranking ?? "未取得"}位、評価${work.review_average?.toFixed(1) ?? "未取得"}。`;
+  presentation.selectionReason = marketScanSelectionReasonFor(work, genreName, makerName);
   presentation.creativeKind = "comparison";
   presentation.lines = ["【今日の市場メモ】", genreName ? `今日のセール欄は${genreName}寄り。` : "今日のセール欄は上位だけだと少し見落としそう。", `代表: 「__TITLE__」`, `${discountRate}%OFF / 評価${work.review_average?.toFixed(1) ?? "-"}`, "#PR #FANZA"];
 }
