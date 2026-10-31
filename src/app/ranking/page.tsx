@@ -8,6 +8,7 @@ import type { Work } from "@/types/work";
 import { pageMetadata } from "@/lib/seo";
 import FanzaStyleWorkCard from "@/components/catalog/FanzaStyleWorkCard";
 import { buildRankingPageHref } from "@/lib/ranking/rankingPageHref";
+import { resolveRankingMetadata } from "@/lib/ranking/rankingMetadata";
 import { loadEntityRankingPageData, loadOverallRankingPageData, loadRankingPageInsights } from "@/lib/ranking/rankingPageData";
 import type { HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 
@@ -25,18 +26,16 @@ type RankingType = keyof typeof rankingTypes;
 type RankingParams = { type?: string; page?: string; sale?: string; sample?: string; maxPrice?: string };
 
 export async function generateMetadata({ searchParams }: { searchParams: Promise<RankingParams> }): Promise<Metadata> {
-  const params = await searchParams;
-  const type: RankingType = params.type && params.type in rankingTypes ? params.type as RankingType : "overall";
-  const requestedPage = Number.parseInt(params.page ?? "1", 10);
-  const page = Number.isFinite(requestedPage) && requestedPage > 1 ? requestedPage : 1;
-  const query = new URLSearchParams();
-  if (type !== "overall") query.set("type", type);
-  if (page > 1) query.set("page", String(page));
+  const { type, page, canonical, noIndex } = resolveRankingMetadata(
+    await searchParams,
+    Object.keys(rankingTypes) as RankingType[],
+    "overall",
+  );
   return pageMetadata({
     title: `${rankingTypes[type].title}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
     description: rankingTypes[type].description,
-    canonical: query.size ? `/ranking?${query}` : "/ranking",
-    robots: params.sale || params.sample || params.maxPrice ? { index: false, follow: true } : undefined,
+    canonical,
+    robots: noIndex ? { index: false, follow: true } : undefined,
   });
 }
 
