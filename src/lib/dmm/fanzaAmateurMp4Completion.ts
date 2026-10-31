@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Browser } from "playwright-core";
 import { captureFanzaSampleMovieUrl } from "@/lib/playwright/captureFanzaSampleMovie";
+import { projectFanzaAmateurMp4AttemptCompletion } from "@/lib/dmm/fanzaAmateurMp4CompletionProjection";
 import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -185,22 +186,20 @@ async function attemptTarget(target: Mp4Target, run: FanzaAmateurMp4Run, browser
     failure = (error instanceof Error ? error.message : "MP4リンク取得に失敗しました。").slice(0, 500);
   }
 
-  const checkedAt = new Date().toISOString();
-  const found = Boolean(movieUrl);
-  const terminal = !found && attemptCount >= 3;
+  const completion = projectFanzaAmateurMp4AttemptCompletion({
+    movieUrl,
+    failure,
+    attemptCount,
+    checkedAt: new Date().toISOString(),
+  });
   const { error: saveError } = await supabaseAdmin
     .from("fanza_amateur_works")
-    .update({
-      mp4_url: movieUrl,
-      mp4_status: found ? "found" : terminal ? "no_video" : "pending",
-      mp4_checked_at: checkedAt,
-      mp4_last_error: found ? null : terminal ? "3回の取得試行でMP4リンクを確認できませんでした。" : failure,
-    })
+    .update(completion.update)
     .eq("content_id", target.content_id)
     .eq("mp4_last_attempt_run_id", run.id)
     .is("mp4_url", null);
   if (saveError) throw new Error(`取得したMP4情報を保存できませんでした: ${saveError.message}`);
-  return { kind: found ? "found" as const : terminal ? "no_video" as const : "failed" as const };
+  return { kind: completion.kind };
 }
 
 export async function continueFanzaAmateurMp4Run(runId: string) {
