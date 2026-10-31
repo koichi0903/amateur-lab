@@ -57,7 +57,7 @@ export function buildMyfansCandidateRecord(input: CandidateRecordInput) {
     multiAngleAttempt: input.multiAngleAttempt,
     generatorVersion: input.generatorVersion,
     copyInputHash,
-    ...quoteOutputFields({ analytics, copy, product }),
+    ...buildMyfansQuoteOutputFields({ analytics, copy, product }),
     ...sourceOutputFields({ copy, product, resolution }),
     sourceAuthorHandle,
     sourceAuthorLabel,
@@ -94,9 +94,15 @@ export function buildMyfansCandidateRecord(input: CandidateRecordInput) {
     assetRole: mediaPlan?.reason ?? "",
     ...postModeFields(input),
     ...affiliateTargetFields(input),
+    ...productLinkFields(candidateProduct),
+    ...affiliateConnectionFields(input),
+  };
+}
+
+function productLinkFields(candidateProduct: MyfansProduct | null) {
+  return {
     creatorMyfansUrl: creatorMyfansUrl(candidateProduct),
     productMyfansUrl: candidateProduct?.product_url || "",
-    ...affiliateConnectionFields(input),
     affiliateUrlGeneratedAt: candidateProduct?.affiliate_url_generated_at ?? null,
     affiliateUrlExpiresAt: candidateProduct?.affiliate_url_expires_at ?? null,
     affiliateUrlSource: candidateProduct?.affiliate_url_source ?? "",
@@ -116,18 +122,29 @@ function candidateCopyFields(input: CandidateRecordInput) {
   };
 }
 
-function quoteOutputFields({ analytics, copy, product }: QuoteOutputInput) {
+export function buildMyfansQuoteOutputFields({ analytics, copy, product }: QuoteOutputInput) {
   const quote = copy.quoteForSlot;
   return {
-    sourceXUrl: quote?.x_post_url || product?.source_x_url || "",
+    sourceXUrl: sourceXUrlForQuote(quote, product),
     quoteXUrl: copy.creative?.quoteXUrl ?? "",
     mediaPermalink: quote?.media_permalink || "",
     quoteCandidateId: quote?.id ?? null,
-    marketPatternKey: analytics.selectedMediaId === 5 ? "QUOTE_HOOK" : null,
-    globalContentFingerprint: analytics.selectedMediaId === 5 && quote
-      ? `quote:${stableHash(`${quote.x_post_url}|${quote.text_excerpt}`)}`
-      : null,
+    marketPatternKey: marketPatternKeyForMedia(analytics.selectedMediaId),
+    globalContentFingerprint: quoteContentFingerprint(analytics.selectedMediaId, quote),
   };
+}
+
+function sourceXUrlForQuote(quote: MyfansQuoteCandidate | null, product: MyfansProduct | null) {
+  return quote?.x_post_url || product?.source_x_url || "";
+}
+
+function marketPatternKeyForMedia(selectedMediaId: number | null) {
+  return selectedMediaId === 5 ? "QUOTE_HOOK" : null;
+}
+
+function quoteContentFingerprint(selectedMediaId: number | null, quote: MyfansQuoteCandidate | null) {
+  if (selectedMediaId !== 5 || !quote) return null;
+  return `quote:${stableHash(`${quote.x_post_url}|${quote.text_excerpt}`)}`;
 }
 
 function sourceOutputFields({ copy, product, resolution }: AttributionInput) {

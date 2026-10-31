@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { isValidMyfansAffiliateUrl, myfansAffiliateLinkStatus, normalizeMyfansAffiliateUrl } from "@/lib/myfansAffiliateLink";
 import { MYFANS_PUBLIC_COPY_GENERATOR_VERSION, MYFANS_QUALITY_GATE_MINIMUM, buildMyfansExecutionBoard, detectPublicCopyLeak, evaluateMyfansPublicCopyQuality, evaluateMyfansTopicValue, hasConcreteSourceContext, publicCopyInputHash, type PublicCopyFacts } from "@/lib/myfansXExecution";
+import { buildMyfansQuoteOutputFields } from "./myfansCandidateRecord";
+import { stableHash } from "./myfansHash";
 import { analyzeMyfansQuoteVisual, selectVisualVerificationBatch } from "@/lib/myfansVisualVerification";
 
 const leakingBodies = [
@@ -344,6 +346,41 @@ const analytics = {
 };
 
 const board = buildMyfansExecutionBoard(analytics as never, { planDate: "2026-09-09", operationDay: 1 });
+const quoteForProjection = analytics.quoteCandidates[0];
+const quoteProjectionCopy = {
+  quoteForSlot: quoteForProjection,
+  creative: { quoteXUrl: "https://x.com/creator/status/1" },
+} as never;
+const quoteFields = buildMyfansQuoteOutputFields({
+  analytics: { selectedMediaId: 1 } as never,
+  copy: quoteProjectionCopy,
+  product: { source_x_url: "https://x.com/product/status/9" } as never,
+});
+assert.equal(quoteFields.sourceXUrl, quoteForProjection.x_post_url);
+assert.equal(quoteFields.quoteXUrl, "https://x.com/creator/status/1");
+assert.equal(quoteFields.mediaPermalink, quoteForProjection.media_permalink);
+assert.equal(quoteFields.quoteCandidateId, quoteForProjection.id);
+assert.equal(quoteFields.marketPatternKey, null);
+assert.equal(quoteFields.globalContentFingerprint, null);
+
+const quoteHookFields = buildMyfansQuoteOutputFields({
+  analytics: { selectedMediaId: 5 } as never,
+  copy: quoteProjectionCopy,
+  product: null,
+});
+assert.equal(quoteHookFields.marketPatternKey, "QUOTE_HOOK");
+assert.equal(quoteHookFields.globalContentFingerprint, `quote:${stableHash(`${quoteForProjection.x_post_url}|${quoteForProjection.text_excerpt}`)}`);
+
+const emptyQuoteHookFields = buildMyfansQuoteOutputFields({
+  analytics: { selectedMediaId: 5 } as never,
+  copy: { quoteForSlot: null, creative: null } as never,
+  product: { source_x_url: "https://x.com/product/status/9" } as never,
+});
+assert.equal(emptyQuoteHookFields.sourceXUrl, "https://x.com/product/status/9");
+assert.equal(emptyQuoteHookFields.quoteXUrl, "");
+assert.equal(emptyQuoteHookFields.quoteCandidateId, null);
+assert.equal(emptyQuoteHookFields.marketPatternKey, "QUOTE_HOOK");
+assert.equal(emptyQuoteHookFields.globalContentFingerprint, null);
 assert.equal(board.recovery.targetPosts, 4);
 assert.ok(board.recovery.attemptedCandidates >= 4);
 assert.ok(board.recovery.history.every((row) => row.score >= 0 && row.score <= 100));
