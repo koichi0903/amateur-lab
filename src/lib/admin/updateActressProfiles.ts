@@ -1,5 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { fetchDmmActressProfiles } from "./actressProfileApi";
+import {
+  fetchDmmActressProfiles,
+  getNextDmmActressProfileOffset,
+} from "./actressProfileApi";
 import { normalizeDmmActressProfile } from "./actressProfileNormalization";
 
 const DMM_ENDPOINT = "https://api.dmm.com/affiliate/v3/ActressSearch";
@@ -30,6 +33,11 @@ export async function updateActressProfiles(offset = 1, requestedPageSize = DEFA
   }
 
   const totalCount = Number(result.total_count ?? 0);
-  const nextOffset = profiles.length > 0 && offset + pageSize <= totalCount ? offset + pageSize : null;
+  const nextOffset = getNextDmmActressProfileOffset({
+    processedCount: profiles.length,
+    offset,
+    pageSize,
+    totalCount,
+  });
   return { processedCount: profiles.length, totalCount, offset, nextOffset, completed: nextOffset === null };
 }

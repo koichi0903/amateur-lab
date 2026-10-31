@@ -1,6 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fetchDmmActressProfiles } from "./actressProfileApi.ts";
+import {
+  fetchDmmActressProfiles,
+  getNextDmmActressProfileOffset,
+} from "./actressProfileApi.ts";
+
+test("advances to a next actress page only when the current page has processed profiles", () => {
+  assert.equal(getNextDmmActressProfileOffset({
+    processedCount: 100,
+    offset: 1,
+    pageSize: 100,
+    totalCount: 101,
+  }), 101);
+  assert.equal(getNextDmmActressProfileOffset({
+    processedCount: 100,
+    offset: 1,
+    pageSize: 100,
+    totalCount: 100,
+  }), null);
+  assert.equal(getNextDmmActressProfileOffset({
+    processedCount: 0,
+    offset: 1,
+    pageSize: 100,
+    totalCount: 500,
+  }), null);
+});
 
 test("retries a failed DMM response before returning profiles", async () => {
   const statuses = [500, 200];

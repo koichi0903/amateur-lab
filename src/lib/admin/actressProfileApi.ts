@@ -9,6 +9,22 @@ export type DmmActressApiResult = {
   total_count?: string | number;
 };
 
+export function getNextDmmActressProfileOffset({
+  processedCount,
+  offset,
+  pageSize,
+  totalCount,
+}: {
+  processedCount: number;
+  offset: number;
+  pageSize: number;
+  totalCount: number;
+}) {
+  return processedCount > 0 && offset + pageSize <= totalCount
+    ? offset + pageSize
+    : null;
+}
+
 type FetchPage = typeof fetch;
 type Sleep = (milliseconds: number) => Promise<void>;
 
