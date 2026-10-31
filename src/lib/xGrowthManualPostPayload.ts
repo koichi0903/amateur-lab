@@ -31,21 +31,46 @@ function getXPostId(payload: Record<string, unknown> | null) {
   return match?.[1] ?? null;
 }
 
-function buildManualXPostInput(payload: Record<string, unknown> | null, xPostId: string): ManualXPostInput {
-  const mediaAssetId = Number(payload?.mediaAssetId);
+function manualPostSlotFields(
+  payload: Record<string, unknown> | null,
+): Pick<ManualXPostInput, "candidateId" | "slotId" | "candidateRank" | "slotRole" | "intent"> {
   return {
-    workId: Number(payload?.workId),
     candidateId: stringOrNull(payload?.candidateId),
     slotId: stringOrNull(payload?.slotId),
     candidateRank: stringOrNull(payload?.candidateRank),
     slotRole: stringOrNull(payload?.slotRole),
+    intent: stringOrNull(payload?.intent),
+  };
+}
+
+function manualPostCopyFields(
+  payload: Record<string, unknown> | null,
+): Pick<ManualXPostInput, "title" | "postText"> {
+  return {
     title: stringOrNull(payload?.title) ?? "FANZA X Growth投稿",
     postText: stringOrNull(payload?.postText) ?? "",
-    intent: stringOrNull(payload?.intent),
+  };
+}
+
+function manualPostTrackingFields(
+  payload: Record<string, unknown> | null,
+  xPostId: string,
+): Pick<ManualXPostInput, "xPostId" | "trackingUrl" | "mediaAssetId" | "linkStrategy"> {
+  const mediaAssetId = Number(payload?.mediaAssetId);
+  return {
     xPostId,
     trackingUrl: stringOrNull(payload?.trackingUrl),
     mediaAssetId: Number.isSafeInteger(mediaAssetId) ? mediaAssetId : null,
     linkStrategy: stringOrNull(payload?.linkStrategy),
+  };
+}
+
+function buildManualXPostInput(payload: Record<string, unknown> | null, xPostId: string): ManualXPostInput {
+  return {
+    workId: Number(payload?.workId),
+    ...manualPostSlotFields(payload),
+    ...manualPostCopyFields(payload),
+    ...manualPostTrackingFields(payload, xPostId),
   };
 }
 
