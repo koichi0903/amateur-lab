@@ -51,6 +51,7 @@ const chart: XPostPriceChart = {
 };
 
 const funnel: FunnelStat = { pageViews: 2, fanzaClicks: 1, ctr: 50 };
+const candidateEvaluationTime = Date.parse("2026-10-20T12:00:00.000Z");
 
 const categoryExpectations: Array<{
   category: XPostCandidate["category"];
@@ -80,11 +81,17 @@ const categoryExpectations: Array<{
 
 for (const expected of categoryExpectations) {
   test(`candidate presentation stays stable for ${expected.category}`, () => {
-    const candidate = makeCandidate(work, expected.category, chart, 30, funnel, []);
-    assert.equal(candidate.label, expected.label);
-    assert.equal(candidate.reason, expected.reason);
-    assert.equal(candidate.selectionReason.split(" 直近30日X流入")[0], expected.selectionReasonPrefix);
-    assert.equal(candidate.creativeKind, expected.creativeKind);
-    assert.equal(candidate.sourceType, expected.sourceType);
+    const originalNow = Date.now;
+    Date.now = () => candidateEvaluationTime;
+    try {
+      const candidate = makeCandidate(work, expected.category, chart, 30, funnel, []);
+      assert.equal(candidate.label, expected.label);
+      assert.equal(candidate.reason, expected.reason);
+      assert.equal(candidate.selectionReason.split(" 直近30日X流入")[0], expected.selectionReasonPrefix);
+      assert.equal(candidate.creativeKind, expected.creativeKind);
+      assert.equal(candidate.sourceType, expected.sourceType);
+    } finally {
+      Date.now = originalNow;
+    }
   });
 }

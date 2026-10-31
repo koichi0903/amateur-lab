@@ -363,6 +363,26 @@ function recordedLowestPriceFor(work: CandidateWork, chart: XPostPriceChart | nu
   return work.lowest_price && work.lowest_price > 0 ? work.lowest_price : chart?.seriesMinimumPrice ?? null;
 }
 
+function candidatePriceSeriesFactsFor(chart: XPostPriceChart | null) {
+  if (!chart) {
+    return {
+      recordedLowestAt: null,
+      coverageStart: null,
+      coverageEnd: null,
+      priceSeries: { displayName: null, period: null },
+      newRecordedLowToday: null,
+    };
+  }
+
+  return {
+    recordedLowestAt: chart.seriesLowestAt ?? null,
+    coverageStart: chart.seriesStartedAt ?? null,
+    coverageEnd: chart.checkedAt ?? null,
+    priceSeries: { displayName: chart.seriesName ?? null, period: chart.seriesPeriod ?? null },
+    newRecordedLowToday: chart.newRecordedLowToday ?? null,
+  };
+}
+
 function candidateDecisionFactsFor(
   work: CandidateWork,
   chart: XPostPriceChart | null,
@@ -379,11 +399,7 @@ function candidateDecisionFactsFor(
     ranking: work.ranking,
     reviewAverage: work.review_average,
     reviewCount: work.review_count,
-    recordedLowestAt: chart?.seriesLowestAt ?? null,
-    coverageStart: chart?.seriesStartedAt ?? null,
-    coverageEnd: chart?.checkedAt ?? null,
-    priceSeries: { displayName: chart?.seriesName ?? null, period: chart?.seriesPeriod ?? null },
-    newRecordedLowToday: chart?.newRecordedLowToday ?? null,
+    ...candidatePriceSeriesFactsFor(chart),
   });
   return {
     decisionFacts,
