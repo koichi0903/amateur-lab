@@ -3,6 +3,7 @@
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
+  inferBlueskyShareAttribution,
   isOperatorLandingPath,
   type ExternalAttribution,
   type ExternalAttributionChannel,
@@ -37,6 +38,8 @@ const socialHosts = [
   "facebook.com",
   "instagram.com",
   "threads.net",
+  "bsky.app",
+  "bsky.social",
   "t.co",
   "youtube.com",
   "youtu.be",
@@ -101,7 +104,10 @@ function storeFirstPartyAttribution(isInitialPageLoad: boolean) {
       return;
     }
 
-    const referrer = classifyReferrer(document.referrer);
+    const referrer = inferBlueskyShareAttribution(
+      classifyReferrer(document.referrer),
+      window.location.search,
+    );
     const urlXPostKey = currentXPostKey();
     if (urlXPostKey) {
       window.sessionStorage.setItem(SESSION_X_POST_KEY, urlXPostKey);
