@@ -3,18 +3,34 @@ import type { FanzaXGrowth } from "@/lib/fanzaXAccountGrowth";
 import type { XCreativeLearningRow, XPostLog } from "@/lib/xPostLogs";
 import type { XDailyMission, XGrowthIntent, XGrowthOpportunity } from "@/lib/xGrowthOS";
 
-export function buildStrategicMission(growth: FanzaXGrowth, outcomes: XPostLog[], persistedLearning: XCreativeLearningRow[]): XDailyMission {
-  const profileRate = growth.impressions30d > 0 ? growth.profileVisits30d / growth.impressions30d : 0;
-  const followRate = growth.profileVisits30d > 0 ? growth.newFollows30d / growth.profileVisits30d : 0;
-  const siteRate = growth.impressions30d > 0 ? growth.xPageViews30d / growth.impressions30d : 0;
-  const affiliateRate = growth.xPageViews30d > 0 ? growth.fanzaClicks30d / growth.xPageViews30d : 0;
+type GrowthRates = {
+  profile: number;
+  follow: number;
+  site: number;
+  affiliate: number;
+};
+
+function calculateGrowthRates(growth: FanzaXGrowth): GrowthRates {
+  return {
+    profile: growth.impressions30d > 0 ? growth.profileVisits30d / growth.impressions30d : 0,
+    follow: growth.profileVisits30d > 0 ? growth.newFollows30d / growth.profileVisits30d : 0,
+    site: growth.impressions30d > 0 ? growth.xPageViews30d / growth.impressions30d : 0,
+    affiliate: growth.xPageViews30d > 0 ? growth.fanzaClicks30d / growth.xPageViews30d : 0,
+  };
+}
+
+function selectMissionIntent(growth: FanzaXGrowth, outcomes: XPostLog[], rates: GrowthRates): XGrowthIntent {
   const lastMoney = outcomes.filter((log) => log.post_intent === "work_link").slice(0, 20);
   const weakMoney = lastMoney.length >= 5 && growth.fanzaClicks30d < lastMoney.length;
-  const weak: XGrowthIntent = growth.impressions30d < 1000 ? "REACH"
-    : profileRate < 0.015 ? "AUTHORITY"
-      : followRate < 0.08 ? "FOLLOW"
-        : siteRate < 0.01 || affiliateRate < 0.08 || weakMoney ? "MONEY"
-          : "CONVERSATION";
+  if (growth.impressions30d < 1000) return "REACH";
+  if (rates.profile < 0.015) return "AUTHORITY";
+  if (rates.follow < 0.08) return "FOLLOW";
+  if (rates.site < 0.01 || rates.affiliate < 0.08 || weakMoney) return "MONEY";
+  return "CONVERSATION";
+}
+
+export function buildStrategicMission(growth: FanzaXGrowth, outcomes: XPostLog[], persistedLearning: XCreativeLearningRow[]): XDailyMission {
+  const weak = selectMissionIntent(growth, outcomes, calculateGrowthRates(growth));
   const mixes: Record<XGrowthIntent, Record<XGrowthIntent, number>> = {
     REACH: { REACH: 3, AUTHORITY: 1, FOLLOW: 0, CONVERSATION: 1, MONEY: 1 },
     AUTHORITY: { REACH: 1, AUTHORITY: 3, FOLLOW: 1, CONVERSATION: 1, MONEY: 1 },
