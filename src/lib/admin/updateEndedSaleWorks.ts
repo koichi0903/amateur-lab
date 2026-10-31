@@ -10,6 +10,7 @@ import {
   processEndedSaleBatches,
 } from "./endedSaleBatch";
 import {
+  buildEndedSaleDeferredMessage,
   classifyEndedSaleRemaining,
   selectEndedSaleFinalRetryTargets,
   summarizeEndedSaleOutcomes,
@@ -307,12 +308,7 @@ export async function updateEndedSaleWorks() {
       );
     }
 
-    const deferredMessage = remainingDeferred.length > 0
-      ? `INFO: FANZA側で価格を確認できなかった${remainingDeferred.length}件は、誤って配信終了にしないため別日で自動再確認中です。対象: ${remainingDeferred
-          .slice(0, 20)
-          .map((target) => target.product_id)
-          .join(", ")}${remainingDeferred.length > 20 ? " …" : ""}`
-      : null;
+    const deferredMessage = buildEndedSaleDeferredMessage(remainingDeferred);
     await finishJob(JOBS.ENDED_SALE, deferredMessage);
     console.log(
       `終了セール更新完了: ${state.processed}件（開始時点対象${totalCount}件）` +

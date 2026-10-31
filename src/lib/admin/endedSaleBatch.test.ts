@@ -6,6 +6,7 @@ import {
   selectEndedSaleBatch,
 } from "./endedSaleBatch.ts";
 import {
+  buildEndedSaleDeferredMessage,
   classifyEndedSaleRemaining,
   isDeferredUnavailableStatus,
   selectEndedSaleFinalRetryTargets,
@@ -147,6 +148,23 @@ test("keeps ended-sale counters semantically separate", () => {
     "unchanged",
   ]);
   assert.deepEqual(result, { updated: 1, deferred: 25, unchanged: 1 });
+});
+
+test("builds a bounded deferred notice and omits it when no targets are deferred", () => {
+  assert.equal(buildEndedSaleDeferredMessage([]), null);
+  assert.match(
+    buildEndedSaleDeferredMessage([{ product_id: "work-1", playwright_status: null }]) ?? "",
+    /価格を確認できなかった1件.*対象: work-1$/,
+  );
+
+  const many = Array.from({ length: 21 }, (_, index) => ({
+    product_id: `work-${index + 1}`,
+    playwright_status: null,
+  }));
+  const message = buildEndedSaleDeferredMessage(many) ?? "";
+  assert.match(message, /価格を確認できなかった21件/);
+  assert.match(message, /work-20 …$/);
+  assert.doesNotMatch(message, /work-21/);
 });
 
 test("advances SALE to UNAVAILABLE_1 without clearing sale fields", () => {
