@@ -7,6 +7,7 @@ import { buildQuoteScanCollectionEvidence, normalizeQuoteScanCandidates } from "
 import { firstFinalMyfansUrl, persistRankedQuoteScanCandidates } from "@/lib/myfansQuoteScanPersistence";
 import { completeQuoteScanCollection } from "@/lib/myfansQuoteScanCompletion";
 import { createBatchProductResolver, fetchQuoteScanProduct, type ExactQuoteProductResolution } from "@/lib/myfansQuoteScanProductResolution";
+import { resolveNoReadyQuoteCandidateOutcome } from "@/lib/myfansQuoteScanNoReady";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { QuoteScanPayload } from "@/lib/myfansQuoteScanTypes";
 
@@ -281,10 +282,13 @@ async function noReadyQuoteCandidateResponse(input: {
 }) {
   const { payload, normalized, sourceTextMissingCount, collectionEvidence, collectorMethod, incompleteStatuses, markRefreshItem, terminalCollectionReport } = input;
   const statuses = payload.collectionStatuses;
-  if (normalized.some((candidate) => candidate.collectorMethod === collectorMethod) && Array.isArray(statuses)) {
-    const incomplete = statuses.some((item) => incompleteStatuses.has(cleanText(item.status)));
-    const reason = statuses.find((item) => incompleteStatuses.has(cleanText(item.status)))?.status || "THREAD_INCOMPLETE_WITHOUT_LINK";
-    const error = incomplete ? `${reason}: status threadを十分に観測できませんでした。` : undefined;
+  const outcome = resolveNoReadyQuoteCandidateOutcome({
+    hasCollectorCandidate: normalized.some((candidate) => candidate.collectorMethod === collectorMethod),
+    statuses,
+    incompleteStatuses,
+  });
+  if (outcome.kind === "thread-status") {
+    const { incomplete, reason, error } = outcome;
     await markRefreshItem(payload, incomplete ? "failed" : "success", { collectedCount: 0, topScore: null, error, evidence: collectionEvidence });
     return NextResponse.json({
       ok: !incomplete,
@@ -292,7 +296,7 @@ async function noReadyQuoteCandidateResponse(input: {
       errorCode: incomplete ? reason : null,
       importedType: "quote_candidates",
       candidatesCount: 0,
-      collectionStatuses: statuses,
+      collectionStatuses: outcome.statuses,
       profileCounts: payload.profileCounts ?? {},
       statusCounts: payload.statusCounts ?? {},
       stateTransitions: payload.stateTransitions ?? [],
