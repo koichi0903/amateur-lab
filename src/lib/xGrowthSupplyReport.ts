@@ -6,6 +6,7 @@ import { isAllowedXGrowthMediaType } from "./xGrowthEligibility";
 import { buildXGrowthVariantDiagnostic, summarizeXGrowthVariantDiagnostics } from "./xGrowthDiagnostics";
 import { DECISION_TYPES, decisionTypeForCandidate, hasRealConversationSource, isEligibleForDecisionType, passesLinklessQualityGate, type RankedSelectionDiagnostics } from "./xGrowthDailySelection";
 import { buildMediaSupplyStageDiagnostics, semanticSupplyDiagnostics, type MediaSupplyStageDiagnostics } from "./xGrowthSupplyDiagnostics";
+import { buildXGrowthRoleMetricsFor } from "./xGrowthRoleMetrics";
 import { SEMANTIC_CATEGORY_QUOTA } from "./xGrowthSemantic";
 
 export function buildSupplyDiagnostics(
@@ -90,7 +91,8 @@ export function buildSupplyDiagnostics(
   },
 ) {
   const sourceMetrics = sourceMetricsFor(opportunities);
-  const roleMetrics = roleMetricsFor(opportunities);
+  const roleMetrics = buildXGrowthRoleMetricsFor(opportunities);
+  const shortagesByRole = roleShortagesByTypeFor(roleMetrics.generatedByRole);
   const reachMetrics = reachMetricsFor(roleMetrics.generatedBySource, roleMetrics.gateOkBySource);
   const slotAllocation = slotAllocationFor(picks);
   const decisionTypeSelected = decisionTypeSelectedFor(picks);
@@ -127,7 +129,7 @@ export function buildSupplyDiagnostics(
     crossPostDiversityRejected: diversityRejected,
     generatedByRole: roleMetrics.generatedByRole,
     gateOkByRole: roleMetrics.gateOkByRole,
-    shortagesByRole: roleMetrics.shortagesByRole,
+    shortagesByRole,
     reachGenerated: reachMetrics.reachGenerated,
     reachGateOk: reachMetrics.reachGateOk,
     shortages,
@@ -178,34 +180,13 @@ function sourceMetricsFor(opportunities: XGrowthOpportunity[]) {
   return { eligibleByIntent, mediaTypeCounts, sourceTypeCounts, creativeAngleCounts, decisionTypeCounts };
 }
 
-function roleMetricsFor(opportunities: XGrowthOpportunity[]) {
-  const gateOkBySource: Record<string, number> = {};
-  const generatedBySource: Record<string, number> = {};
-  const humanVoiceNgBySource: Record<string, number> = {};
-  const nativeVoiceNgBySource: Record<string, number> = {};
-  const generatedByRole: Record<XGrowthIntent, number> = { REACH: 0, FOLLOW: 0, AUTHORITY: 0, CONVERSATION: 0, MONEY: 0 };
-  const gateOkByRole: Record<XGrowthIntent, number> = { REACH: 0, FOLLOW: 0, AUTHORITY: 0, CONVERSATION: 0, MONEY: 0 };
-  for (const item of opportunities) {
-    generatedBySource[item.sourceType] = (generatedBySource[item.sourceType] ?? 0) + 1;
-    const ok = item.creativeVariants.some((variant) => variant.quality.passed);
-    if (ok) gateOkBySource[item.sourceType] = (gateOkBySource[item.sourceType] ?? 0) + 1;
-    for (const role of new Set(item.creativeVariants.map((variant) => variant.intent))) {
-      generatedByRole[role] = (generatedByRole[role] ?? 0) + 1;
-    }
-    for (const role of new Set(item.creativeVariants.filter((variant) => variant.quality.passed).map((variant) => variant.intent))) {
-      gateOkByRole[role] = (gateOkByRole[role] ?? 0) + 1;
-    }
-    const hasHumanNg = item.creativeVariants.some((variant) => !variant.quality.lastMile.humanVoice.passed);
-    if (hasHumanNg) humanVoiceNgBySource[item.sourceType] = (humanVoiceNgBySource[item.sourceType] ?? 0) + 1;
-    const hasNativeNg = item.creativeVariants.some((variant) => !variant.quality.lastMile.nativeXVoice.passed);
-    if (hasNativeNg) nativeVoiceNgBySource[item.sourceType] = (nativeVoiceNgBySource[item.sourceType] ?? 0) + 1;
-  }
+function roleShortagesByTypeFor(generatedByRole: Record<XGrowthIntent, number>) {
   const roleTargets: Record<XGrowthIntent, number> = { REACH: 5, FOLLOW: 3, AUTHORITY: 2, CONVERSATION: 0, MONEY: 2 };
   const shortagesByRole = (Object.keys(roleTargets) as XGrowthIntent[]).reduce((acc, role) => {
     acc[role] = Math.max(0, roleTargets[role] - (generatedByRole[role] ?? 0));
     return acc;
   }, {} as Record<XGrowthIntent, number>);
-  return { gateOkBySource, generatedBySource, humanVoiceNgBySource, nativeVoiceNgBySource, generatedByRole, gateOkByRole, shortagesByRole };
+  return shortagesByRole;
 }
 
 function reachMetricsFor(generatedBySource: Record<string, number>, gateOkBySource: Record<string, number>) {
@@ -445,7 +426,7 @@ function selectionShortagesFor(picks: XDailyTopPick[]) {
 
 function supplyShortagesFor(
   reachMetrics: ReturnType<typeof reachMetricsFor>,
-  roleMetrics: ReturnType<typeof roleMetricsFor>,
+  roleMetrics: ReturnType<typeof buildXGrowthRoleMetricsFor>,
   picks: XDailyTopPick[],
 ) {
   return [
