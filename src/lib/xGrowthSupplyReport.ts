@@ -300,6 +300,28 @@ function decisionTypePipelineByTypeFor(
   ));
 }
 
+function decisionSelectionCountsFor(
+  picks: XDailyTopPick[],
+  decisionSelection: DecisionSelectionInput,
+) {
+  const selection = decisionSelection ?? {} as NonNullable<DecisionSelectionInput>;
+  return {
+    eligible: Object.values(selection.eligibleSupply ?? {}).reduce((sum, count) => sum + count, 0),
+    dedupedEligible: selection.dedupedEligibleSupply ?? 0,
+    selectedBeforeReplenishment: selection.selectedBeforeReplenishment ?? picks.length,
+    replenished: selection.replenished ?? 0,
+    selected: selection.selected ?? picks.length,
+  };
+}
+
+function decisionSelectionTypesFor(decisionSelection: DecisionSelectionInput) {
+  const selection = decisionSelection ?? {} as NonNullable<DecisionSelectionInput>;
+  return {
+    eligibleByType: selection.eligibleSupply ?? { RECORD_LOW: 0, HIGH_DISCOUNT_NOT_LOW: 0, HIDDEN_VALUE: 0 },
+    selectedByType: selection.selectedByType ?? { RECORD_LOW: 0, HIGH_DISCOUNT_NOT_LOW: 0, HIDDEN_VALUE: 0 },
+  };
+}
+
 function decisionPipelineSummaryFor(
   opportunities: XGrowthOpportunity[],
   classified: number,
@@ -307,17 +329,14 @@ function decisionPipelineSummaryFor(
   decisionSelection: DecisionSelectionInput,
   byType: ReturnType<typeof decisionTypePipelineByTypeFor>,
 ) {
+  const counts = decisionSelectionCountsFor(picks, decisionSelection);
+  const types = decisionSelectionTypesFor(decisionSelection);
   return {
     rawSupply: opportunities.length,
     classified,
-    eligible: Object.values(decisionSelection?.eligibleSupply ?? {}).reduce((sum, count) => sum + count, 0),
-    dedupedEligible: decisionSelection?.dedupedEligibleSupply ?? 0,
-    selectedBeforeReplenishment: decisionSelection?.selectedBeforeReplenishment ?? picks.length,
-    replenished: decisionSelection?.replenished ?? 0,
-    selected: decisionSelection?.selected ?? picks.length,
+    ...counts,
     persisted: picks.length,
-    eligibleByType: decisionSelection?.eligibleSupply ?? { RECORD_LOW: 0, HIGH_DISCOUNT_NOT_LOW: 0, HIDDEN_VALUE: 0 },
-    selectedByType: decisionSelection?.selectedByType ?? { RECORD_LOW: 0, HIGH_DISCOUNT_NOT_LOW: 0, HIDDEN_VALUE: 0 },
+    ...types,
     byType,
   };
 }

@@ -19,6 +19,13 @@ test("empty supply reports configured shortages and zeroed diagnostic defaults",
     finalSelected: 0,
   });
   assert.deepEqual(report.decisionPipeline.eligibleByType, { RECORD_LOW: 0, HIGH_DISCOUNT_NOT_LOW: 0, HIDDEN_VALUE: 0 });
+  assert.equal(report.decisionPipeline.eligible, 0);
+  assert.equal(report.decisionPipeline.dedupedEligible, 0);
+  assert.equal(report.decisionPipeline.selectedBeforeReplenishment, 0);
+  assert.equal(report.decisionPipeline.replenished, 0);
+  assert.equal(report.decisionPipeline.selected, 0);
+  assert.equal(report.decisionPipeline.persisted, 0);
+  assert.deepEqual(report.decisionPipeline.selectedByType, { RECORD_LOW: 0, HIGH_DISCOUNT_NOT_LOW: 0, HIDDEN_VALUE: 0 });
   assert.equal(report.mediaMix.uniqueAudit.passed, true);
 });
 
@@ -107,7 +114,10 @@ test("supplied pipeline and decision selection diagnostics remain authoritative"
   assert.deepEqual(report.pipeline, { rawCandidates: 9, afterPosted: 8 });
   assert.equal(report.decisionPipeline.eligible, 9);
   assert.equal(report.decisionPipeline.dedupedEligible, 8);
+  assert.equal(report.decisionPipeline.selectedBeforeReplenishment, 3);
   assert.equal(report.decisionPipeline.replenished, 1);
+  assert.equal(report.decisionPipeline.selected, 4);
   assert.equal(report.decisionPipeline.persisted, 0);
+  assert.deepEqual(report.decisionPipeline.eligibleByType, { RECORD_LOW: 4, HIGH_DISCOUNT_NOT_LOW: 3, HIDDEN_VALUE: 2, UNKNOWN: 0 });
   assert.deepEqual(report.decisionPipeline.selectedByType, { RECORD_LOW: 2, HIGH_DISCOUNT_NOT_LOW: 1, HIDDEN_VALUE: 1, UNKNOWN: 0 });
 });
