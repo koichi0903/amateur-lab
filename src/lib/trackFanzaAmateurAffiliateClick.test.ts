@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { HAKKUTSU_SITE_DMM_AFFILIATE_ID } from "./dmm/siteAffiliateUrl";
 import { trackFanzaAmateurAffiliateClick } from "./trackFanzaAmateurAffiliateClick.ts";
 
 test("affiliate click records GA4 and first-party attribution without delaying navigation", async () => {
@@ -30,7 +31,7 @@ test("affiliate click records GA4 and first-party attribution without delaying n
       {
         content_id: "sample-001",
         source_page: "amateur_detail",
-        affiliate_id: "991",
+        affiliate_id: HAKKUTSU_SITE_DMM_AFFILIATE_ID,
         placement: "detail-sidebar",
       },
     ]]);
