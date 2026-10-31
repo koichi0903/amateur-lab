@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ExternalLink, FileUp, LoaderCircle, MousePointerClick, Plus, RefreshCw, Save } from "lucide-react";
 import type { MyfansQuoteCollectionTask } from "@/lib/myfansXExecution";
 import type { MyfansApprovedMedia, MyfansCreator, MyfansProduct, MyfansXPost } from "@/lib/myfansAnalytics";
-import type { PersistedDailySnapshotView } from "@/lib/myfansDailySnapshotView";
+import type { PersistedDailyCandidateView, PersistedDailySnapshotView } from "@/lib/myfansDailySnapshotView";
 import type { Message } from "./MyfansFormPrimitives";
 import { inputClass, StatusMessage } from "./MyfansFormPrimitives";
 import { postFormData } from "./myfansFormApi";
@@ -145,34 +145,7 @@ export function PersistedDailyPlanBoard({ snapshot }: { snapshot: PersistedDaily
               <p className="text-xs font-black text-zinc-400">選択済み: {selectedLabel || "なし"}</p>
             </div>
             <div className="mt-4 grid gap-4 lg:grid-cols-3">
-              {slot.candidates.map((candidate) => {
-                const selected = selectedLabel === candidate.optionLabel;
-                return (
-                  <div key={candidate.id} className={`rounded-lg border p-4 ${selected ? "border-emerald-500 bg-emerald-950/25" : "border-zinc-800 bg-zinc-950"}`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-black text-white">候補{candidate.optionLabel}（{candidate.optionName}）</p>
-                        <p className="mt-1 text-xs font-bold text-zinc-500">{candidate.candidateType || "保存済み候補"} / {candidate.role || "-"} / {candidate.postType || "-"}</p>
-                      </div>
-                      <span className={`rounded-md px-2 py-1 text-[11px] font-black ${selected ? "bg-emerald-400 text-black" : "bg-zinc-800 text-zinc-300"}`}>{selected ? "選択済み" : "未選択"}</span>
-                    </div>
-                    <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900 p-3">
-                      <p className="text-xs font-black text-zinc-500">公開本文全文</p>
-                      <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-zinc-100">{candidate.body || "保存済み本文なし"}</p>
-                    </div>
-                    <div className="mt-3 grid gap-1 text-xs leading-5 text-zinc-300">
-                      <p><span className="font-black text-zinc-500">引用元X:</span> {candidate.quoteXUrl || candidate.sourceXUrl || "-"}</p>
-                      <p><span className="font-black text-zinc-500">引用画像/動画:</span> {candidate.mediaPermalink || "なし（status URLを使用）"}</p>
-                      <p><span className="font-black text-zinc-500">候補タイプ:</span> {candidate.candidateType || "-"} / {candidate.monetizableStatus || "unlinked"}</p>
-                      <p><span className="font-black text-zinc-500">myfans作品:</span> {candidate.productTitle || "なし"}</p>
-                      <p><span className="font-black text-zinc-500">送客先:</span> {candidate.myfansTargetUrl || "なし"}</p>
-                      <p><span className="font-black text-zinc-500">アフィリエイト:</span> {candidate.affiliateUrl ? candidate.affiliateUrl : "なし（product-less discoveryを含む）"}</p>
-                      <p><span className="font-black text-zinc-500">Quality:</span> {candidate.quality ?? "-"} / Topic Value {candidate.topicValue ?? "-"}</p>
-                      <p><span className="font-black text-zinc-500">新規性:</span> {candidate.noveltyLabel || "保存値"} / 同じsource: {candidate.sameSourceStatus || "-"}</p>
-                    </div>
-                  </div>
-                );
-              })}
+              {slot.candidates.map((candidate) => <PersistedDailyCandidateCard key={candidate.id} candidate={candidate} selected={selectedLabel === candidate.optionLabel} />)}
             </div>
           </article>
         );
@@ -180,6 +153,58 @@ export function PersistedDailyPlanBoard({ snapshot }: { snapshot: PersistedDaily
       {!snapshot.slots.length && <p className="rounded-xl border border-amber-800 bg-amber-950/20 p-5 text-sm text-amber-200">保存済みplanの候補snapshotが空です。再評価は実行せず、保存状態を保持しています。</p>}
     </section>
   );
+}
+
+function PersistedDailyCandidateCard({ candidate, selected }: { candidate: PersistedDailyCandidateView; selected: boolean }) {
+  return <div className={`rounded-lg border p-4 ${selected ? "border-emerald-500 bg-emerald-950/25" : "border-zinc-800 bg-zinc-950"}`}>
+    <PersistedCandidateHeading candidate={candidate} selected={selected} />
+    <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+      <p className="text-xs font-black text-zinc-500">公開本文全文</p>
+      <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-zinc-100">{candidate.body || "保存済み本文なし"}</p>
+    </div>
+    <PersistedCandidateMetadata candidate={candidate} />
+  </div>;
+}
+
+function PersistedCandidateHeading({ candidate, selected }: { candidate: PersistedDailyCandidateView; selected: boolean }) {
+  return <div className="flex items-start justify-between gap-3">
+    <div>
+      <p className="text-sm font-black text-white">候補{candidate.optionLabel}（{candidate.optionName}）</p>
+      <p className="mt-1 text-xs font-bold text-zinc-500">{candidate.candidateType || "保存済み候補"} / {candidate.role || "-"} / {candidate.postType || "-"}</p>
+    </div>
+    <span className={`rounded-md px-2 py-1 text-[11px] font-black ${selected ? "bg-emerald-400 text-black" : "bg-zinc-800 text-zinc-300"}`}>{selected ? "選択済み" : "未選択"}</span>
+  </div>;
+}
+
+function PersistedCandidateMetadata({ candidate }: { candidate: PersistedDailyCandidateView }) {
+  return <div className="mt-3 grid gap-1 text-xs leading-5 text-zinc-300">
+    <PersistedCandidateSourceMetadata candidate={candidate} />
+    <PersistedCandidateProductMetadata candidate={candidate} />
+    <PersistedCandidateQualityMetadata candidate={candidate} />
+  </div>;
+}
+
+function PersistedCandidateSourceMetadata({ candidate }: { candidate: PersistedDailyCandidateView }) {
+  return <>
+    <p><span className="font-black text-zinc-500">引用元X:</span> {candidate.quoteXUrl || candidate.sourceXUrl || "-"}</p>
+    <p><span className="font-black text-zinc-500">引用画像/動画:</span> {candidate.mediaPermalink || "なし（status URLを使用）"}</p>
+  </>;
+}
+
+function PersistedCandidateProductMetadata({ candidate }: { candidate: PersistedDailyCandidateView }) {
+  return <>
+    <p><span className="font-black text-zinc-500">候補タイプ:</span> {candidate.candidateType || "-"} / {candidate.monetizableStatus || "unlinked"}</p>
+    <p><span className="font-black text-zinc-500">myfans作品:</span> {candidate.productTitle || "なし"}</p>
+    <p><span className="font-black text-zinc-500">送客先:</span> {candidate.myfansTargetUrl || "なし"}</p>
+    <p><span className="font-black text-zinc-500">アフィリエイト:</span> {candidate.affiliateUrl ? candidate.affiliateUrl : "なし（product-less discoveryを含む）"}</p>
+  </>;
+}
+
+function PersistedCandidateQualityMetadata({ candidate }: { candidate: PersistedDailyCandidateView }) {
+  return <>
+    <p><span className="font-black text-zinc-500">Quality:</span> {candidate.quality ?? "-"} / Topic Value {candidate.topicValue ?? "-"}</p>
+    <p><span className="font-black text-zinc-500">新規性:</span> {candidate.noveltyLabel || "保存値"} / 同じsource: {candidate.sameSourceStatus || "-"}</p>
+  </>;
 }
 
 export function CreatorForm() {
