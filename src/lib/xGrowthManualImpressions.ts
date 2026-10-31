@@ -11,18 +11,33 @@ export type ManualImpressionPayloadValidation =
   | { error: string }
   | ManualImpressionPayload;
 
-export function validateManualImpressionPayload(value: unknown): ManualImpressionPayloadValidation {
-  const payload = typeof value === "object" && value !== null && !Array.isArray(value)
+function asPayloadRecord(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function hasValidPostIdentity(postKey: string, account: string) {
+  return Boolean(postKey) && postKey.length <= 180 && ACCOUNTS.has(account);
+}
+
+function isValidImpressionCount(value: unknown): value is number {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value <= 1_000_000_000;
+}
+
+export function validateManualImpressionPayload(value: unknown): ManualImpressionPayloadValidation {
+  const payload = asPayloadRecord(value);
   const postKey = typeof payload?.postKey === "string" ? payload.postKey.trim() : "";
   const account = typeof payload?.account === "string" ? payload.account : "";
   const impressions = payload?.impressions;
 
-  if (!postKey || postKey.length > 180 || !ACCOUNTS.has(account)) {
+  if (!hasValidPostIdentity(postKey, account)) {
     return { error: "投稿情報が正しくありません。画面を再読み込みしてください。" };
   }
-  if (typeof impressions !== "number" || !Number.isSafeInteger(impressions) || impressions < 0 || impressions > 1_000_000_000) {
+  if (!isValidImpressionCount(impressions)) {
     return { error: "Xに表示された閲覧数を0以上の整数で入力してください。" };
   }
 
