@@ -93,28 +93,51 @@ function hasRestoredFieldsChanged(
   );
 }
 
+function deriveLowestPrice(
+  current: ExistingWorkRecord | null,
+  currentDisplayPrice: number | null,
+) {
+  if (currentDisplayPrice == null) return current?.lowest_price ?? null;
+  if (current?.lowest_price == null) return currentDisplayPrice;
+  return Math.min(current.lowest_price, currentDisplayPrice);
+}
+
+function isNewLowestPrice(
+  current: ExistingWorkRecord | null,
+  currentDisplayPrice: number | null,
+) {
+  return (
+    currentDisplayPrice != null &&
+    (current?.lowest_price == null || currentDisplayPrice < current.lowest_price)
+  );
+}
+
+function isLowestPrice(
+  current: ExistingWorkRecord | null,
+  currentDisplayPrice: number | null,
+) {
+  return (
+    currentDisplayPrice != null &&
+    current?.lowest_price != null &&
+    (currentDisplayPrice < current.lowest_price ||
+      (currentDisplayPrice === current.lowest_price &&
+        current.is_lowest_price === true))
+  );
+}
+
 function deriveWorkPriceState(
   current: ExistingWorkRecord | null,
   summary: WorkPriceSummary,
 ) {
   const currentDisplayPrice = summary.salePrice ?? summary.price;
-  const lowestPrice =
-    currentDisplayPrice == null
-      ? current?.lowest_price ?? null
-      : current?.lowest_price == null
-        ? currentDisplayPrice
-        : Math.min(current.lowest_price, currentDisplayPrice);
-  const isNewLowestPrice =
-    currentDisplayPrice != null &&
-    (current?.lowest_price == null || currentDisplayPrice < current.lowest_price);
-  const isLowestPrice =
-    currentDisplayPrice != null &&
-    current?.lowest_price != null &&
-    (currentDisplayPrice < current.lowest_price ||
-      (currentDisplayPrice === current.lowest_price &&
-        current.is_lowest_price === true));
+  const lowestPrice = deriveLowestPrice(current, currentDisplayPrice);
 
-  return { currentDisplayPrice, lowestPrice, isNewLowestPrice, isLowestPrice };
+  return {
+    currentDisplayPrice,
+    lowestPrice,
+    isNewLowestPrice: isNewLowestPrice(current, currentDisplayPrice),
+    isLowestPrice: isLowestPrice(current, currentDisplayPrice),
+  };
 }
 
 function deriveFallbackActress(

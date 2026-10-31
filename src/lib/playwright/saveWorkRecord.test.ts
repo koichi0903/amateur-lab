@@ -64,6 +64,24 @@ test("records a newly observed low and only fills a missing list price", () => {
   assert.equal(result.workUpdate.is_lowest_price, true);
 });
 
+test("preserves lowest-price status only when the current price ties the recorded low", () => {
+  const alreadyLowest = buildWorkRecordUpdate(
+    currentWork({ lowest_price: 1000, is_lowest_price: true }),
+    data,
+    summary,
+  );
+  const notLowest = buildWorkRecordUpdate(
+    currentWork({ lowest_price: 1000, is_lowest_price: false }),
+    data,
+    summary,
+  );
+
+  assert.equal(alreadyLowest.isNewLowestPrice, false);
+  assert.equal(alreadyLowest.workUpdate.is_lowest_price, true);
+  assert.equal(notLowest.isNewLowestPrice, false);
+  assert.equal(notLowest.workUpdate.is_lowest_price, false);
+});
+
 test("restores the prior stage from a discontinued work status", () => {
   const result = buildWorkRecordUpdate(
     currentWork({
