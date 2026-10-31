@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { isFanzaXGrowthTechnicalSampleMovie, isOfficialFanzaDmmSampleUrl, isUsableXMediaAsset, sourceDomain, sourceKindFor, X_GROWTH_ACCOUNT, type XMediaAsset } from "@/lib/xMediaAssets";
+import { isFanzaXGrowthTechnicalSampleMovie, sourceDomain, sourceKindFor, X_GROWTH_ACCOUNT, type XMediaAsset } from "@/lib/xMediaAssets";
 import type { XGrowthOpportunity } from "@/lib/xGrowthOS";
 import { buildVisualVideoFacts } from "@/lib/xVisualVideoFacts";
 import { analyzeSampleMovie, videoSourceFingerprint, VIDEO_ANALYSIS_VERSION } from "@/lib/xVideoAnalysis";
@@ -7,6 +7,7 @@ import { buildXMediaAssetReviewPlan, type XMediaAssetReviewInput } from "@/lib/x
 import { buildXMediaAssetTrimReviewPlan } from "@/lib/xGrowthMediaTrimReview";
 import { selectPreferredXMediaAssetsByWork } from "@/lib/xGrowthMediaAssetSelection";
 import { classifyVideoAnalysisAsset } from "@/lib/xGrowthVideoAnalysisEligibility";
+import { projectXGrowthMediaEligibility } from "@/lib/xGrowthMediaEligibility";
 
 const ACCOUNT = X_GROWTH_ACCOUNT;
 export async function auditXGrowth(action: string, detail: Record<string, unknown>) {
@@ -64,50 +65,7 @@ export async function analyzeUncachedVideoFacts(assets: Map<number, XMediaAsset>
 }
 
 export function applyMediaEligibility(opportunities: XGrowthOpportunity[], assets: Map<number, XMediaAsset>) {
-  return opportunities.map((item) => {
-    const storedAsset = assets.get(item.workId);
-    const asset = storedAsset ?? (item.mediaType === "sample_movie" && item.sampleMovieUrl ? {
-      id: undefined,
-      account_handle: ACCOUNT,
-      work_id: item.workId,
-      product_id: item.productId,
-      media_type: "sample_movie",
-      source_url: item.sampleMovieUrl,
-      source_domain: sourceDomain(item.sampleMovieUrl),
-      source_kind: sourceKindFor(item.sampleMovieUrl),
-      fetch_status: null,
-      rights_status: "unknown",
-      x_usage_allowed: false,
-      can_reupload: false,
-      can_modify: false,
-      quote_only: true,
-      commercial_use_allowed: false,
-      media_quality: "unreviewed",
-      manual_tags: [],
-      trim_start_seconds: 0,
-      trim_modify_confirmed: false,
-      notes: "virtual official sample_movie_url candidate",
-    } : null);
-    const recommendedUrlFallback = item.mediaType === "sample_movie"
-      && !item.sampleMovieUrl
-      && !storedAsset
-      && isOfficialFanzaDmmSampleUrl(item.recommendedMediaUrl);
-    const verdict = item.mediaType === "sample_movie"
-      ? recommendedUrlFallback
-        ? { usable: true, reasons: ["official recommendedMediaUrl fallback; HTTP/MIME未確認"] }
-        : isFanzaXGrowthTechnicalSampleMovie(asset, item.sampleMovieUrl)
-      : isUsableXMediaAsset(asset);
-    if (item.mediaType !== "sample_movie") return { ...item, mediaUsage: "allowed" as const, canNativeVideo: verdict.usable, mediaAsset: asset ?? null };
-    return {
-      ...item,
-      mediaUsage: verdict.usable ? "allowed" as const : "not_available" as const,
-      canNativeVideo: verdict.usable,
-      mediaAsset: asset ?? null,
-      mediaDecision: recommendedUrlFallback
-        ? "公式recommendedMediaUrlのフォールバック（HTTP/MIME未確認）"
-        : verdict.usable ? "公式FANZA/DMM sample_movie_url。HTTP/MIME/取得可能性を確認済み" : `動画は${verdict.reasons.join(" / ") || "technical条件未確認"}のため未使用`,
-    };
-  });
+  return opportunities.map((item) => projectXGrowthMediaEligibility(item, assets));
 }
 
 type SampleMovieWork = { id: number; product_id: string | null; sample_movie_url: string | null };
