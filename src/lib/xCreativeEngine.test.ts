@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { buildVisualVideoFacts } from "./xVisualVideoFacts";
 import { buildXCreativeVariants, finalNativeXVoiceGate, validateXCopyGrammar, voiceArchetype } from "./xCreativeEngine";
 import { buildDecisionFacts } from "./domain/decisionFacts";
-import { videoSpecificLines } from "./xCreativeVideoCopy";
-import type { XCreativeInput, XVideoManualTag } from "./xCreativeTypes";
+import { videoSpecificLines } from "./x-growth/xCreativeVideoCopy";
+import type { XCreativeInput, XVideoManualTag } from "./x-growth/xCreativeTypes";
 import type { XPostLog } from "./xPostLogs";
 
 const movieUrl = "https://cc3001.dmm.co.jp/litevideo/freepv/test/test_dmb_w.mp4";

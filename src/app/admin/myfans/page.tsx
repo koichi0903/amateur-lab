@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildMyfansAcquisitionPlanner } from "@/lib/myfansAcquisitionPlanner";
 import { buildMyfansExecutionBoard, buildQuoteCandidateCollectionTasks } from "@/lib/myfansXExecution";
 import { restorePersistedDailySnapshot } from "@/lib/myfansDailySnapshotView";
-import { buildMyfansDailyBoardSummary, buildMyfansSupplyEvidenceStatus, parseMyfansDailyPageParams, selectCurrentMyfansDailyPlan } from "@/lib/myfansDailyPageProjection";
+import { buildMyfansDailyBoardSummary, buildMyfansSupplyEvidenceStatus, parseMyfansDailyPageParams, selectCurrentMyfansDailyPlan } from "@/lib/myfans/myfansDailyPageProjection";
 import { AffiliatePasteImportForm, PersistedDailyPlanBoard, QuickProductForm, QuoteCandidateTasks, XExecutionBoard } from "./MyfansAdminForms";
 import { permanentRedirect } from "next/navigation";
 import { getMyfansStrategy } from "@/lib/myfansStrategy";

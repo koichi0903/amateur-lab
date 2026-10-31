@@ -1,11 +1,11 @@
 import { filterBySelectedMedia } from "@/lib/myfansAnalytics";
-import { selectMyfansFinalDailyCandidates } from "@/lib/myfansDailySelection";
-import { buildMyfansDailyOptionSlots } from "@/lib/myfansDailyOptionSlots";
-import { buildMyfansQuoteCollectionTasks as buildMyfansQuoteCollectionTasksFromPool, type MyfansQuoteCollectionTask } from "@/lib/myfansQuoteCollectionTasks";
-import { buildMyfansLinkedCandidateFunnel, type MyfansLinkedCandidateFunnelCandidate } from "@/lib/myfansLinkedCandidateFunnel";
-import { selectMyfansQuoteForAttempt, type MyfansQuoteAttemptContext } from "./myfansQuoteAttempt";
-import { buildMyfansAggregateCandidate } from "./myfansAggregateCandidate";
-import { daysBetweenDates } from "@/lib/myfansTime";
+import { selectMyfansFinalDailyCandidates } from "@/lib/myfans/myfansDailySelection";
+import { buildMyfansDailyOptionSlots } from "@/lib/myfans/myfansDailyOptionSlots";
+import { buildMyfansQuoteCollectionTasks as buildMyfansQuoteCollectionTasksFromPool, type MyfansQuoteCollectionTask } from "@/lib/myfans/myfansQuoteCollectionTasks";
+import { buildMyfansLinkedCandidateFunnel, type MyfansLinkedCandidateFunnelCandidate } from "@/lib/myfans/myfansLinkedCandidateFunnel";
+import { selectMyfansQuoteForAttempt, type MyfansQuoteAttemptContext } from "./myfans/myfansQuoteAttempt";
+import { buildMyfansAggregateCandidate } from "./myfans/myfansAggregateCandidate";
+import { daysBetweenDates } from "@/lib/myfans/myfansTime";
 import type { MyfansAnalytics, MyfansProduct, MyfansQuoteCandidate } from "@/lib/myfansAnalytics";
 import {
   MYFANS_DAILY_FRESH_DAYS,
@@ -21,40 +21,40 @@ import {
   daysSinceIsoAtPlanDate,
   normalizeSourceUrl,
   quoteUrlFromCandidate,
-} from "@/lib/myfansQuotePool";
-import type { MyfansReasonToCare, MyfansTopicValue } from "@/lib/myfansQuotePool";
-import type { HumanReactionType } from "./myfansExecutionTypes";
-import { buildMyfansCandidatePoolContext } from "@/lib/myfansCandidatePool";
-import { creatorMyfansUrl, isRevenueTargetProduct } from "./myfansCandidateResolution";
-import { buildMyfansCandidate, MYFANS_MULTI_ANGLE_ATTEMPTS_PER_TOPIC, MYFANS_PUBLIC_COPY_GENERATOR_VERSION, type MyfansCandidateBuildContext } from "./myfansCandidateBuilder";
-import { buildMyfansCandidateRecovery, classifyMyfansHoldReason } from "./myfansCandidateRecovery";
+} from "@/lib/myfans/myfansQuotePool";
+import type { MyfansReasonToCare, MyfansTopicValue } from "@/lib/myfans/myfansQuotePool";
+import type { HumanReactionType } from "./myfans/myfansExecutionTypes";
+import { buildMyfansCandidatePoolContext } from "@/lib/myfans/myfansCandidatePool";
+import { creatorMyfansUrl, isRevenueTargetProduct } from "./myfans/myfansCandidateResolution";
+import { buildMyfansCandidate, MYFANS_MULTI_ANGLE_ATTEMPTS_PER_TOPIC, MYFANS_PUBLIC_COPY_GENERATOR_VERSION, type MyfansCandidateBuildContext } from "./myfans/myfansCandidateBuilder";
+import { buildMyfansCandidateRecovery, classifyMyfansHoldReason } from "./myfans/myfansCandidateRecovery";
 export { MYFANS_PUBLIC_COPY_GENERATOR_VERSION };
-import { evaluateMyfansCandidateDiversity, holdQuality, isMyfansDailyOptionDiverseEnough, recordAcceptedMyfansCandidate, type MyfansDailyOptionDiversityCandidate } from "./myfansCandidateDiversity";
-import { buildMyfansExecutionAudit } from "@/lib/myfansExecutionAudit";
-import { prepareMyfansExecution } from "./myfansExecutionPreparation";
-import { buildTopicBaselines, evaluateMyfansTopicValue } from "@/lib/myfansTopicValue";
-import { buildBottleneck, buildOutboundTasks, buildProfileFunnel, buildTodayStrategy, planningReasonFor } from "@/lib/myfansGrowthSummary";
-export type * from "./myfansExecutionTypes";
-export { summarizeTodayActions } from "@/lib/myfansGrowthSummary";
-import { MYFANS_QUALITY_GATE_MINIMUM } from "@/lib/myfansPublicCopyQuality";
-export { evaluateMyfansPublicCopyQuality, MYFANS_QUALITY_GATE_MINIMUM, reviewPublicCopyReaction } from "@/lib/myfansPublicCopyQuality";
-export type { PublicCopyReactionReview } from "@/lib/myfansPublicCopyQuality";
-export { MYFANS_ATTENTION_VALUE_MINIMUM, MYFANS_TOPIC_VALUE_THRESHOLDS, evaluateMyfansTopicValue, hasConcreteSourceContext } from "@/lib/myfansTopicValue";
-export type { DailyRole, MyfansTopicBaselines } from "@/lib/myfansTopicValue";
-export { publicCopyInputHash } from "@/lib/myfansPublicCopyFacts";
+import { evaluateMyfansCandidateDiversity, holdQuality, isMyfansDailyOptionDiverseEnough, recordAcceptedMyfansCandidate, type MyfansDailyOptionDiversityCandidate } from "./myfans/myfansCandidateDiversity";
+import { buildMyfansExecutionAudit } from "@/lib/myfans/myfansExecutionAudit";
+import { prepareMyfansExecution } from "./myfans/myfansExecutionPreparation";
+import { buildTopicBaselines, evaluateMyfansTopicValue } from "@/lib/myfans/myfansTopicValue";
+import { buildBottleneck, buildOutboundTasks, buildProfileFunnel, buildTodayStrategy, planningReasonFor } from "@/lib/myfans/myfansGrowthSummary";
+export type * from "./myfans/myfansExecutionTypes";
+export { summarizeTodayActions } from "@/lib/myfans/myfansGrowthSummary";
+import { MYFANS_QUALITY_GATE_MINIMUM } from "@/lib/myfans/myfansPublicCopyQuality";
+export { evaluateMyfansPublicCopyQuality, MYFANS_QUALITY_GATE_MINIMUM, reviewPublicCopyReaction } from "@/lib/myfans/myfansPublicCopyQuality";
+export type { PublicCopyReactionReview } from "@/lib/myfans/myfansPublicCopyQuality";
+export { MYFANS_ATTENTION_VALUE_MINIMUM, MYFANS_TOPIC_VALUE_THRESHOLDS, evaluateMyfansTopicValue, hasConcreteSourceContext } from "@/lib/myfans/myfansTopicValue";
+export type { DailyRole, MyfansTopicBaselines } from "@/lib/myfans/myfansTopicValue";
+export { publicCopyInputHash } from "@/lib/myfans/myfansPublicCopyFacts";
 import { buildPermanentExclusionSets } from "@/lib/myfansPermanentExclusions";
-import { detectPublicCopyLeak, hasPublicCopyDiversityIssue } from "@/lib/myfansPublicCopyRules";
-import { evaluateMyfansCandidateNovelty } from "@/lib/myfansCandidateNovelty";
-import { MYFANS_DAILY_SELECTED_MAX } from "./myfansDailyPlanSelection";
-export { MYFANS_DAILY_SELECTED_MAX } from "./myfansDailyPlanSelection";
+import { detectPublicCopyLeak, hasPublicCopyDiversityIssue } from "@/lib/myfans/myfansPublicCopyRules";
+import { evaluateMyfansCandidateNovelty } from "@/lib/myfans/myfansCandidateNovelty";
+import { MYFANS_DAILY_SELECTED_MAX } from "./myfans/myfansDailyPlanSelection";
+export { MYFANS_DAILY_SELECTED_MAX } from "./myfans/myfansDailyPlanSelection";
 
-export { MYFANS_VISUAL_ANALYZER_VERSION } from "@/lib/myfansCreativeEvidence";
-export { buildMyfansLearning, compareByStrategy, MYFANS_DIAGNOSIS_THRESHOLDS } from "@/lib/myfansLearning";
-export type { MyfansLearningAxis, MyfansCreativeLearningAxis } from "@/lib/myfansLearning";
-export type { MyfansSupplyAudit, MyfansSupplyAuditRow, MyfansSupplyAuditStage } from "@/lib/myfansSupplyAudit";
-export { detectPublicCopyLeak } from "@/lib/myfansPublicCopyRules";
-export { buildCreatorPartnershipCandidates } from "@/lib/myfansPartnership";
-export type { MyfansQuoteCollectionTask } from "@/lib/myfansQuoteCollectionTasks";
+export { MYFANS_VISUAL_ANALYZER_VERSION } from "@/lib/myfans/myfansCreativeEvidence";
+export { buildMyfansLearning, compareByStrategy, MYFANS_DIAGNOSIS_THRESHOLDS } from "@/lib/myfans/myfansLearning";
+export type { MyfansLearningAxis, MyfansCreativeLearningAxis } from "@/lib/myfans/myfansLearning";
+export type { MyfansSupplyAudit, MyfansSupplyAuditRow, MyfansSupplyAuditStage } from "@/lib/myfans/myfansSupplyAudit";
+export { detectPublicCopyLeak } from "@/lib/myfans/myfansPublicCopyRules";
+export { buildCreatorPartnershipCandidates } from "@/lib/myfans/myfansPartnership";
+export type { MyfansQuoteCollectionTask } from "@/lib/myfans/myfansQuoteCollectionTasks";
 export { buildMyfansQuotePool, currentPlanDate };
 export type { MyfansReasonToCare, MyfansTopicValue };
 
@@ -64,10 +64,10 @@ import {
   MYFANS_30_DAY_STRATEGY,
   MYFANS_GROWTH_TARGETS,
   MYFANS_PROFILE_GUIDE,
-} from "./myfansGrowthStrategy";
+} from "./myfans/myfansGrowthStrategy";
 import type {
   RotationItem,
-} from "./myfansGrowthStrategy";
+} from "./myfans/myfansGrowthStrategy";
 export { getGrowthStage, getOperationDay, MYFANS_30_DAY_STRATEGY, MYFANS_GROWTH_TARGETS, MYFANS_PROFILE_GUIDE };
 export type {
   MyfansCandidateType,
@@ -77,7 +77,7 @@ export type {
   MyfansMonetizableStatus,
   MyfansObjective,
   RotationItem,
-} from "./myfansGrowthStrategy";
+} from "./myfans/myfansGrowthStrategy";
 
 export const MYFANS_PUBLIC_COPY_V9_GENERATOR_VERSION = "public-copy-v9-visual-grounded";
 export const MYFANS_PUBLIC_COPY_V10_GENERATOR_VERSION = "public-copy-v10-human-observation";

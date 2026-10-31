@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const route = fs.readFileSync("src/app/api/admin/myfans/companion/route.ts", "utf8");
-const saveQuoteScan = fs.readFileSync("src/lib/myfansQuoteScanService.ts", "utf8");
-const saveSingleStatusCollection = fs.readFileSync("src/lib/myfansSingleStatusCollectionService.ts", "utf8");
+const saveQuoteScan = fs.readFileSync("src/lib/myfans/myfansQuoteScanService.ts", "utf8");
+const saveSingleStatusCollection = fs.readFileSync("src/lib/myfans/myfansSingleStatusCollectionService.ts", "utf8");
 const background = fs.readFileSync("public/myfans-companion/background.js", "utf8");
 const quoteRefresh = fs.readFileSync("src/app/api/admin/myfans/quote-refresh/route.ts", "utf8");
-const quoteRefreshAudit = fs.readFileSync("src/lib/myfansQuoteRefreshAudit.ts", "utf8");
+const quoteRefreshAudit = fs.readFileSync("src/lib/myfans/myfansQuoteRefreshAudit.ts", "utf8");
 const quoteRefreshSource = `${quoteRefresh}\n${quoteRefreshAudit}`;
-const diagnosticStatusScanService = fs.readFileSync("src/lib/myfansDiagnosticStatusScanService.ts", "utf8");
+const diagnosticStatusScanService = fs.readFileSync("src/lib/myfans/myfansDiagnosticStatusScanService.ts", "utf8");
 const migration = fs.readFileSync("supabase/migrations/20260924120000_add_myfans_quote_refresh_item_terminal_contract.sql", "utf8");
 
 const terminalCases = ["SUCCESS_SAVE", "NO_CANDIDATES", "NO_BODY", "CREATOR_MISMATCH", "LOGIN_OR_CHALLENGE", "FATAL_SESSION_AUTH"];

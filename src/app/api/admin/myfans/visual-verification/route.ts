@@ -10,7 +10,7 @@ import {
   deriveVisualVerificationProgress,
   numberValue,
   type VisualVerificationSaveInput,
-} from "@/lib/myfansVisualVerificationPayload";
+} from "@/lib/myfans/myfansVisualVerificationPayload";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

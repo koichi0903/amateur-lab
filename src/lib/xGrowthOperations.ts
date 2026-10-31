@@ -1,16 +1,16 @@
-import type { buildStrategicMission } from "@/lib/xGrowthPlanning";
+import type { buildStrategicMission } from "@/lib/x-growth/xGrowthPlanning";
 import { getXApiCapabilityStatus } from "@/lib/xApi";
 import type { XMediaAsset } from "@/lib/xMediaAssets";
 import type { XCreativeLearningRow } from "@/lib/xPostLogs";
 import type { XGrowthOpportunity } from "@/lib/xGrowthOS";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { ACCOUNT, todayTokyo, withXPostTrackingText, scoreBreakdown, isMissingRelation } from "./xGrowthOperationUtils";
-import type { XDailyPlanStatus, XOpportunityStatus } from "./xGrowthDailyOperations";
-import { buildRankingSnapshotHistories, type RankingSnapshotRow } from "./xGrowthRankingSnapshotHistory";
+import { ACCOUNT, todayTokyo, withXPostTrackingText, scoreBreakdown, isMissingRelation } from "./x-growth/xGrowthOperationUtils";
+import type { XDailyPlanStatus, XOpportunityStatus } from "./x-growth/xGrowthDailyOperations";
+import { buildRankingSnapshotHistories, type RankingSnapshotRow } from "./x-growth/xGrowthRankingSnapshotHistory";
 
-export * from "./xGrowthDailyOperations";
-export { buildSeriesIdeas, buildStrategicMission } from "@/lib/xGrowthPlanning";
-export { auditXGrowth, fetchMediaAssets, analyzeUncachedVideoFacts, applyMediaEligibility, checkMediaAssetUrlsForWorkIds, syncSampleMovieAssetsForWorkIds, syncSampleMovieAssets, reviewMediaAsset, updateMediaAssetTrim } from "./xGrowthMediaOperations";
+export * from "./x-growth/xGrowthDailyOperations";
+export { buildSeriesIdeas, buildStrategicMission } from "@/lib/x-growth/xGrowthPlanning";
+export { auditXGrowth, fetchMediaAssets, analyzeUncachedVideoFacts, applyMediaEligibility, checkMediaAssetUrlsForWorkIds, syncSampleMovieAssetsForWorkIds, syncSampleMovieAssets, reviewMediaAsset, updateMediaAssetTrim } from "./x-growth/xGrowthMediaOperations";
 
 export type PersistedOpportunity = {
   id: number;

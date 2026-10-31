@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { importAffiliateText, importProducts, saveCreator, saveMedia, saveProduct, updateAffiliateLink } from "@/lib/myfansAdminCatalogActions";
-import { importRevenue, saveClick, saveXAccountMetric } from "@/lib/myfansAdminMetricsActions";
-import { savePost, selectDailyPlanCandidate, skipPermanentCandidate, updatePostExecution, updateQuoteCandidate } from "@/lib/myfansAdminPostActions";
-import { text } from "@/lib/myfansAdminShared";
+import { importAffiliateText, importProducts, saveCreator, saveMedia, saveProduct, updateAffiliateLink } from "@/lib/myfans/myfansAdminCatalogActions";
+import { importRevenue, saveClick, saveXAccountMetric } from "@/lib/myfans/myfansAdminMetricsActions";
+import { savePost, selectDailyPlanCandidate, skipPermanentCandidate, updatePostExecution, updateQuoteCandidate } from "@/lib/myfans/myfansAdminPostActions";
+import { text } from "@/lib/myfans/myfansAdminShared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

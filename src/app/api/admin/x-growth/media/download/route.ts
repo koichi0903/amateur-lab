@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { canTrimFanzaXGrowthSampleMovie, isFanzaXGrowthTechnicalSampleMovie, sourceDomain, sourceKindFor } from "@/lib/xMediaAssets";
 import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
 import { xGrowthMediaResponseHeaders } from "@/lib/xGrowthMediaPreview";
-import { xGrowthMediaDataCard } from "@/lib/xGrowthMediaDataCard";
+import { xGrowthMediaDataCard } from "@/lib/x-growth/xGrowthMediaDataCard";
 
 export const dynamic = "force-dynamic";
 

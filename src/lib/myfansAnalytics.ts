@@ -1,11 +1,11 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { fetchAllMyfansDailyFunnelInputs, fetchAllMyfansQuoteCandidates, fetchMyfansProducts, fetchMyfansXPosts, firstRelation } from "./myfansAnalyticsQueries";
+import { fetchAllMyfansDailyFunnelInputs, fetchAllMyfansQuoteCandidates, fetchMyfansProducts, fetchMyfansXPosts, firstRelation } from "./myfans/myfansAnalyticsQueries";
 import type { MyfansPostProductLinkageEvidence } from "@/lib/myfansProductResolver";
 import { derivePostedExclusions, fetchMyfansPermanentExclusions, type MyfansPermanentExclusion } from "@/lib/myfansPermanentExclusions";
-import { buildMyfansXAccountGrowthSummary } from "./myfansAnalyticsGrowth";
-import { firstMyfansAnalyticsLoadError, ignoreUnavailableOptionalMyfansTable } from "./myfansAnalyticsLoadErrors";
-import { selectMyfansAnalyticsRows } from "./myfansAnalyticsSelection";
-export { filterBySelectedMedia } from "./myfansAnalyticsSelection";
+import { buildMyfansXAccountGrowthSummary } from "./myfans/myfansAnalyticsGrowth";
+import { firstMyfansAnalyticsLoadError, ignoreUnavailableOptionalMyfansTable } from "./myfans/myfansAnalyticsLoadErrors";
+import { selectMyfansAnalyticsRows } from "./myfans/myfansAnalyticsSelection";
+export { filterBySelectedMedia } from "./myfans/myfansAnalyticsSelection";
 
 import type {
   MyfansCreator,
@@ -20,7 +20,7 @@ import type {
   MyfansQuoteCandidate,
   MyfansDailyPlanHistory,
   MyfansXGrowthDiagnosis,
-} from "./myfansAnalyticsTypes";
+} from "./myfans/myfansAnalyticsTypes";
 export type {
   MyfansCreator,
   MyfansProduct,
@@ -36,7 +36,7 @@ export type {
   MyfansQuoteCandidate,
   MyfansDailyPlanHistory,
   MyfansXGrowthDiagnosis,
-} from "./myfansAnalyticsTypes";
+} from "./myfans/myfansAnalyticsTypes";
 
 const EMPTY_ANALYTICS = {
   totals: {

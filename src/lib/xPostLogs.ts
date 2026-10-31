@@ -1,8 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { XPostCandidate } from "@/lib/xPostPlanner";
-import { aggregateXCreativeLearning, type XCreativeLearningRow } from "./xCreativeLearningAggregation";
-import { buildLegacyXPostLogFallback } from "./xPostLogFallback";
-export type { XCreativeLearningRow } from "./xCreativeLearningAggregation";
+import { aggregateXCreativeLearning, type XCreativeLearningRow } from "./x-growth/xCreativeLearningAggregation";
+import { buildLegacyXPostLogFallback } from "./x-growth/xPostLogFallback";
+export type { XCreativeLearningRow } from "./x-growth/xCreativeLearningAggregation";
 
 export type XPostLog = {
   id: number;

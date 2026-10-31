@@ -3,7 +3,7 @@ import fs from "node:fs";
 
 const migration = fs.readFileSync("supabase/migrations/20260924153224_harden_myfans_daily_snapshot_and_post_idempotency.sql", "utf8");
 const snapshot = fs.readFileSync("src/lib/myfansDailySnapshot.ts", "utf8");
-const postActions = fs.readFileSync("src/lib/myfansAdminPostActions.ts", "utf8");
+const postActions = fs.readFileSync("src/lib/myfans/myfansAdminPostActions.ts", "utf8");
 const reevaluateRoute = fs.readFileSync("src/app/api/admin/myfans/daily-plan/reevaluate/route.ts", "utf8");
 const forms = fs.readFileSync("src/app/admin/myfans/MyfansAdminForms.tsx", "utf8");
 

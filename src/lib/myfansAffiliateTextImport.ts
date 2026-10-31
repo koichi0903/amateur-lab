@@ -1,8 +1,8 @@
 import { calculateMyfansSelectionScore, myfansLaunchPriority } from "@/lib/myfansScore";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { parseMyfansAffiliateText } from "./myfansAffiliateTextParser";
+import { parseMyfansAffiliateText } from "./myfans/myfansAffiliateTextParser";
 
-export { parseMyfansAffiliateText } from "./myfansAffiliateTextParser";
+export { parseMyfansAffiliateText } from "./myfans/myfansAffiliateTextParser";
 
 const DEFAULT_MEDIA_NAME = "@lumi_reviw";
 

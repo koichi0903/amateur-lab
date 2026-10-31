@@ -5,9 +5,9 @@ const root = new URL("..", import.meta.url);
 const board = fs.readFileSync(new URL("src/app/admin/myfans/XExecutionBoard.tsx", root), "utf8");
 const candidateForm = fs.readFileSync(new URL("src/app/admin/myfans/myfansExecutionCandidateForm.ts", root), "utf8");
 const candidateCard = fs.readFileSync(new URL("src/app/admin/myfans/MyfansExecutionCandidateCard.tsx", root), "utf8");
-const postActions = fs.readFileSync(new URL("src/lib/myfansAdminPostActions.ts", root), "utf8");
+const postActions = fs.readFileSync(new URL("src/lib/myfans/myfansAdminPostActions.ts", root), "utf8");
 const refresh = fs.readFileSync(new URL("src/app/api/admin/myfans/quote-refresh/route.ts", root), "utf8");
-const recommendations = fs.readFileSync(new URL("src/lib/myfansTargetedCreatorRecommendations.ts", root), "utf8");
+const recommendations = fs.readFileSync(new URL("src/lib/myfans/myfansTargetedCreatorRecommendations.ts", root), "utf8");
 
 assert.match(candidateForm, /formData\.set\("quote_x_url", candidate\.quoteXUrl \|\| candidate\.sourceXUrl\)/);
 assert.match(candidateForm, /formData\.set\("global_content_fingerprint", candidate\.globalContentFingerprint\)/);

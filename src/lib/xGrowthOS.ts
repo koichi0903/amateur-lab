@@ -6,8 +6,8 @@ import type { FanzaXGrowth } from "@/lib/fanzaXAccountGrowth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getXPostCandidates } from "@/lib/xPostPlanner";
 import type { XCreativeLearningRow, XPostLog, XPostOutcome } from "@/lib/xPostLogs";
-import { buildSeriesIdeas, buildStrategicMission } from "@/lib/xGrowthPlanning";
-import { applyMediaEligibility, fetchMediaAssets } from "@/lib/xGrowthMediaOperations";
+import { buildSeriesIdeas, buildStrategicMission } from "@/lib/x-growth/xGrowthPlanning";
+import { applyMediaEligibility, fetchMediaAssets } from "@/lib/x-growth/xGrowthMediaOperations";
 import {
   buildConversationRadarFromData,
   fetchRankingSnapshotHistory,
@@ -25,34 +25,34 @@ import {
 } from "@/lib/xGrowthOperations";
 import { getXMediaSupplyStatus, getRightsReviewQueue } from "@/lib/xMediaAssets";
 import { syncAndProbeCandidateMedia } from "./xGrowthMediaPreflight";
-import { finalizeXGrowthMediaMix } from "./xGrowthFinalMediaMix";
+import { finalizeXGrowthMediaMix } from "./x-growth/xGrowthFinalMediaMix";
 
 import type { DecisionType } from "@/lib/domain/decisionFacts";
-import { auditCandidateUniqueness } from "./xGrowthCandidateIdentity";
-export { auditCandidateUniqueness, candidateDedupeKey, candidateMediaDedupeKey, isDistinctCandidate } from "./xGrowthCandidateIdentity";
-import type { RankedDuplicateBreakdown } from "./xGrowthMediaMix";
-export { selectRankedMediaMix, type RankedDuplicateBreakdown, type RankedMediaMixCandidate } from "./xGrowthMediaMix";
-import { VIDEO_QUALITY_EVALUATION_WORK_LIMIT, X_GROWTH_PINNED_EVALUATION_WORK_IDS, cheapCandidatePrefilter, preserveDecisionLanesBeforeLimit } from "./xGrowthEligibility";
-import { tokyoDate } from "./xGrowthTime";
-import { compareOpportunitiesByPeakScore, expandCreativeSupply, scoreOpportunity } from "./xGrowthOpportunityScoring";
-export { expandCreativeSupply, presentationDecisionFactsForSource, scoreOpportunity } from "./xGrowthOpportunityScoring";
-import { auditDailyDiversity, type MediaSupplyStageDiagnostics } from "./xGrowthSupplyDiagnostics";
-import { buildLearning, buildNativeXLearning } from "./xGrowthLearning";
-import { withCreativeQuality } from "./xGrowthCreativeQuality";
+import { auditCandidateUniqueness } from "./x-growth/xGrowthCandidateIdentity";
+export { auditCandidateUniqueness, candidateDedupeKey, candidateMediaDedupeKey, isDistinctCandidate } from "./x-growth/xGrowthCandidateIdentity";
+import type { RankedDuplicateBreakdown } from "./x-growth/xGrowthMediaMix";
+export { selectRankedMediaMix, type RankedDuplicateBreakdown, type RankedMediaMixCandidate } from "./x-growth/xGrowthMediaMix";
+import { VIDEO_QUALITY_EVALUATION_WORK_LIMIT, X_GROWTH_PINNED_EVALUATION_WORK_IDS, cheapCandidatePrefilter, preserveDecisionLanesBeforeLimit } from "./x-growth/xGrowthEligibility";
+import { tokyoDate } from "./x-growth/xGrowthTime";
+import { compareOpportunitiesByPeakScore, expandCreativeSupply, scoreOpportunity } from "./x-growth/xGrowthOpportunityScoring";
+export { expandCreativeSupply, presentationDecisionFactsForSource, scoreOpportunity } from "./x-growth/xGrowthOpportunityScoring";
+import { auditDailyDiversity, type MediaSupplyStageDiagnostics } from "./x-growth/xGrowthSupplyDiagnostics";
+import { buildLearning, buildNativeXLearning } from "./x-growth/xGrowthLearning";
+import { withCreativeQuality } from "./x-growth/xGrowthCreativeQuality";
 export { withCreativeQuality };
-export { VIDEO_QUALITY_EVALUATION_WORK_LIMIT, X_GROWTH_PINNED_EVALUATION_WORK_IDS, cheapCandidatePrefilter, isAllowedXGrowthMediaType, isOfficialEligibleVideoCandidate, isStrongSafeVideoCandidate, officialVideoWorkIds, preserveDecisionLanesBeforeLimit, videoEligibilityReasons } from "./xGrowthEligibility";
-export { isMediaVariantSelectionEligible, isSoftQualityEligible } from "./xGrowthEligibility";
-export { buildXGrowthVariantDiagnostic, summarizeXGrowthVariantDiagnostics } from "./xGrowthDiagnostics";
-import { applyRankingHistory, recentPostedWorkIds, selectRankedDailyTopPicks } from "./xGrowthDailySelection";
-import { buildSupplyDiagnostics } from "./xGrowthSupplyReport";
-export { buildXGrowthVideoCandidateEvaluation, type XGrowthVideoCandidateEvaluation } from "./xGrowthVideoCandidateEvaluation";
-import { buildXGrowthPipelineReport } from "./xGrowthPipelineReport";
-import type { XDailyMission, XDailyTopPick, XGrowthAudit, XGrowthIntent, XGrowthOpportunity, XMoneyGateReason, XSemanticHookCategory } from "./xGrowthTypes";
-export type { XCreativeAngle, XDailyMission, XDailyTopPick, XGrowthAudit, XGrowthIntent, XGrowthOpportunity, XGrowthVariantDiagnostic, XMoneyGateReason, XOpportunityEvent, XOpportunitySourceType, XSemanticHookCategory } from "./xGrowthTypes";
+export { VIDEO_QUALITY_EVALUATION_WORK_LIMIT, X_GROWTH_PINNED_EVALUATION_WORK_IDS, cheapCandidatePrefilter, isAllowedXGrowthMediaType, isOfficialEligibleVideoCandidate, isStrongSafeVideoCandidate, officialVideoWorkIds, preserveDecisionLanesBeforeLimit, videoEligibilityReasons } from "./x-growth/xGrowthEligibility";
+export { isMediaVariantSelectionEligible, isSoftQualityEligible } from "./x-growth/xGrowthEligibility";
+export { buildXGrowthVariantDiagnostic, summarizeXGrowthVariantDiagnostics } from "./x-growth/xGrowthDiagnostics";
+import { applyRankingHistory, recentPostedWorkIds, selectRankedDailyTopPicks } from "./x-growth/xGrowthDailySelection";
+import { buildSupplyDiagnostics } from "./x-growth/xGrowthSupplyReport";
+export { buildXGrowthVideoCandidateEvaluation, type XGrowthVideoCandidateEvaluation } from "./x-growth/xGrowthVideoCandidateEvaluation";
+import { buildXGrowthPipelineReport } from "./x-growth/xGrowthPipelineReport";
+import type { XDailyMission, XDailyTopPick, XGrowthAudit, XGrowthIntent, XGrowthOpportunity, XMoneyGateReason, XSemanticHookCategory } from "./x-growth/xGrowthTypes";
+export type { XCreativeAngle, XDailyMission, XDailyTopPick, XGrowthAudit, XGrowthIntent, XGrowthOpportunity, XGrowthVariantDiagnostic, XMoneyGateReason, XOpportunityEvent, XOpportunitySourceType, XSemanticHookCategory } from "./x-growth/xGrowthTypes";
 
 export { assignSemanticHook, SEMANTIC_CATEGORY_QUOTA, semanticHookCategory } from "./xGrowthSemantic";
 
-export { decisionTypeForCandidate, decisionTypesForCandidate, isDecisionFactEligible } from "./xGrowthDailySelection";
+export { decisionTypeForCandidate, decisionTypesForCandidate, isDecisionFactEligible } from "./x-growth/xGrowthDailySelection";
 
 export type XGrowthOS = {
   opportunities: XGrowthOpportunity[];

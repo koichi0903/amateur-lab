@@ -5,7 +5,7 @@ const page = fs.readFileSync("src/app/admin/myfans/page.tsx", "utf8");
 const forms = fs.readFileSync("src/app/admin/myfans/MyfansAdminForms.tsx", "utf8");
 const route = fs.readFileSync("src/app/api/admin/myfans/daily-plan/reevaluate/route.ts", "utf8");
 const view = fs.readFileSync("src/lib/myfansDailySnapshotView.ts", "utf8");
-const projection = fs.readFileSync("src/lib/myfansDailyPageProjection.ts", "utf8");
+const projection = fs.readFileSync("src/lib/myfans/myfansDailyPageProjection.ts", "utf8");
 
 assert.match(page, /restorePersistedDailySnapshot/);
 assert.match(page, /currentPlan = selectCurrentMyfansDailyPlan\(analytics\.dailyPlans, board\.planDate, selectedMediaId\)/);

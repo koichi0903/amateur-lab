@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { isValidMyfansAffiliateUrl, myfansAffiliateLinkStatus, normalizeMyfansAffiliateUrl } from "@/lib/myfansAffiliateLink";
 import { MYFANS_PUBLIC_COPY_GENERATOR_VERSION, MYFANS_QUALITY_GATE_MINIMUM, buildMyfansExecutionBoard, detectPublicCopyLeak, evaluateMyfansPublicCopyQuality, evaluateMyfansTopicValue, hasConcreteSourceContext, publicCopyInputHash, type PublicCopyFacts } from "@/lib/myfansXExecution";
-import { buildMyfansQuoteOutputFields } from "./myfansCandidateRecord";
-import { stableHash } from "./myfansHash";
+import { buildMyfansQuoteOutputFields } from "./myfans/myfansCandidateRecord";
+import { stableHash } from "./myfans/myfansHash";
 import { analyzeMyfansQuoteVisual, selectVisualVerificationBatch } from "@/lib/myfansVisualVerification";
 
 const leakingBodies = [

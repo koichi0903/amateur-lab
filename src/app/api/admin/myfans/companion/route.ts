@@ -1,19 +1,19 @@
 import { NextResponse } from "next/server";
-import { createSaveSingleStatusCollectionHandler } from "@/lib/myfansSingleStatusCollectionService";
-import { createSaveQuoteScanHandler } from "@/lib/myfansQuoteScanService";
-import { saveQuoteCandidate, updateGlobalQuoteRanks } from "@/lib/myfansQuoteCandidateStore";
-import { saveDiagnosticStatusScan } from "@/lib/myfansDiagnosticStatusScanService";
-import type { QuoteScanPayload } from "@/lib/myfansQuoteScanTypes";
+import { createSaveSingleStatusCollectionHandler } from "@/lib/myfans/myfansSingleStatusCollectionService";
+import { createSaveQuoteScanHandler } from "@/lib/myfans/myfansQuoteScanService";
+import { saveQuoteCandidate, updateGlobalQuoteRanks } from "@/lib/myfans/myfansQuoteCandidateStore";
+import { saveDiagnosticStatusScan } from "@/lib/myfans/myfansDiagnosticStatusScanService";
+import type { QuoteScanPayload } from "@/lib/myfans/myfansQuoteScanTypes";
 import {
   cleanDiagnosticStatusUrl,
   cleanText,
-} from "@/lib/myfansCompanionInput";
+} from "@/lib/myfans/myfansCompanionInput";
 import { normalizeMyfansPostUrl } from "@/lib/myfansProductResolver";
 import { normalizeCompanionError } from "@/lib/myfansCompanionErrors";
-import { resolveQuoteRefreshFinalStatus } from "@/lib/myfansQuoteRefreshItemStatus";
+import { resolveQuoteRefreshFinalStatus } from "@/lib/myfans/myfansQuoteRefreshItemStatus";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { ensureExactProductForCreator, extractFinalMyfansUrl, fetchResolverProducts, importObservedMyfansPost } from "@/lib/myfansCompanionImportService";
-import { saveStandardCompanionImport } from "@/lib/myfansCompanionStandardImport";
+import { ensureExactProductForCreator, extractFinalMyfansUrl, fetchResolverProducts, importObservedMyfansPost } from "@/lib/myfans/myfansCompanionImportService";
+import { saveStandardCompanionImport } from "@/lib/myfans/myfansCompanionStandardImport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

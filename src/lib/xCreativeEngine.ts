@@ -1,10 +1,10 @@
 import { getXWeightedLength } from "@/lib/xText";
 import { primaryUsableVisualFact } from "@/lib/xVisualVideoFacts";
 import { decisionFactProofLine } from "@/lib/domain/decisionFacts";
-import { stableChoiceIndex } from "./xCreativeDeterminism";
-import { humanProofLine } from "./xCreativeProof";
-import { concreteVisualPhrase, videoSpecificLines } from "./xCreativeVideoCopy";
-import { judgmentSourceLine } from "./xCreativeJudgment";
+import { stableChoiceIndex } from "./x-growth/xCreativeDeterminism";
+import { humanProofLine } from "./x-growth/xCreativeProof";
+import { concreteVisualPhrase, videoSpecificLines } from "./x-growth/xCreativeVideoCopy";
+import { judgmentSourceLine } from "./x-growth/xCreativeJudgment";
 import type {
   XCreativeInput,
   XCreativeMedia,
@@ -18,12 +18,12 @@ import type {
   XHumanVoiceArchetype,
   XLinkPlan,
   XPostFormat,
-} from "./xCreativeTypes";
-import { calculateHookScore, clamp, formatText, hasRankingTrend, hookSubject, pct, primaryActress, primaryVideoTag, safeTitleFragment, strongestFacts } from "./xCreativeInputFacts";
-import { containsConcreteVisualPhrase, lastMileGate, qualityFor, sanitizePublicText } from "./xCreativeQuality";
-export { finalNativeXVoiceGate, validateXCopyGrammar } from "./xCreativeQuality";
+} from "./x-growth/xCreativeTypes";
+import { calculateHookScore, clamp, formatText, hasRankingTrend, hookSubject, pct, primaryActress, primaryVideoTag, safeTitleFragment, strongestFacts } from "./x-growth/xCreativeInputFacts";
+import { containsConcreteVisualPhrase, lastMileGate, qualityFor, sanitizePublicText } from "./x-growth/xCreativeQuality";
+export { finalNativeXVoiceGate, validateXCopyGrammar } from "./x-growth/xCreativeQuality";
 export { calculateHookScore };
-export type * from "./xCreativeTypes";
+export type * from "./x-growth/xCreativeTypes";
 
 const INTENTS: XGrowthIntent[] = ["REACH", "FOLLOW", "AUTHORITY", "MONEY"];
 

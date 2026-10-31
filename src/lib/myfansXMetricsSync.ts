@@ -2,7 +2,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   projectMyfansXPostMetrics,
   type XMetricPost,
-} from "./myfansXMetricsSyncProjection";
+} from "./myfans/myfansXMetricsSyncProjection";
 
 type XMetricsResponse = {
   data?: XMetricPost[];

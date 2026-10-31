@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { recordManualXPost } from "@/lib/xGrowthOperations";
-import { parseManualXPostPayload } from "@/lib/xGrowthManualPostPayload";
+import { parseManualXPostPayload } from "@/lib/x-growth/xGrowthManualPostPayload";
 
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => null) as unknown;

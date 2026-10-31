@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummary";
-import { auditContinuation } from "@/lib/myfansQuoteRefreshAudit";
-import { reconcileLegacyActiveJobs, reconcileStaleActiveJobs } from "@/lib/myfansQuoteRefreshStaleJobs";
-import { buildTargetedCreatorRecommendations } from "@/lib/myfansTargetedCreatorRecommendations";
+import { auditContinuation } from "@/lib/myfans/myfansQuoteRefreshAudit";
+import { reconcileLegacyActiveJobs, reconcileStaleActiveJobs } from "@/lib/myfans/myfansQuoteRefreshStaleJobs";
+import { buildTargetedCreatorRecommendations } from "@/lib/myfans/myfansTargetedCreatorRecommendations";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { MAX_MYFANS_ACCOUNTS_PER_RUN, MYFANS_COLLECTION_KEY } from "@/lib/myfansCollectionRotation";
 import { isTerminalQuoteRefreshStatus, recomputeQuoteRefreshStatus, STALE_QUOTE_REFRESH_ITEM_AGE_MS } from "@/lib/myfansQuoteRefreshLifecycle";
-import { classifyQuoteRefreshNextItemGate, type QuoteRefreshNextItemGate } from "@/lib/myfansQuoteRefreshNextItemGate";
-import { buildQuoteRefreshCollectionSelection, buildQuoteRefreshCreatorStates, orderQuoteRefreshCreators } from "@/lib/myfansQuoteRefreshPreparation";
-import { summarizeMyfansQuoteRefreshJobItems } from "@/lib/myfansQuoteRefreshJobCounts";
-import { summarizeMyfansQuoteRefreshEvidence } from "@/lib/myfansQuoteRefreshEvidenceCounts";
-import { buildMyfansQuoteRefreshProgressSummary } from "@/lib/myfansQuoteRefreshProgressSummary";
-import { cleanText, normalizeQuoteRefreshCreateRequest, normalizeTargetedCreatorIds, numberValue } from "@/lib/myfansQuoteRefreshRequest";
+import { classifyQuoteRefreshNextItemGate, type QuoteRefreshNextItemGate } from "@/lib/myfans/myfansQuoteRefreshNextItemGate";
+import { buildQuoteRefreshCollectionSelection, buildQuoteRefreshCreatorStates, orderQuoteRefreshCreators } from "@/lib/myfans/myfansQuoteRefreshPreparation";
+import { summarizeMyfansQuoteRefreshJobItems } from "@/lib/myfans/myfansQuoteRefreshJobCounts";
+import { summarizeMyfansQuoteRefreshEvidence } from "@/lib/myfans/myfansQuoteRefreshEvidenceCounts";
+import { buildMyfansQuoteRefreshProgressSummary } from "@/lib/myfans/myfansQuoteRefreshProgressSummary";
+import { cleanText, normalizeQuoteRefreshCreateRequest, normalizeTargetedCreatorIds, numberValue } from "@/lib/myfans/myfansQuoteRefreshRequest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

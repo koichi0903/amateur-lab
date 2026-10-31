@@ -3,7 +3,7 @@ import {
   deleteXPostLog,
   saveXPostLog,
 } from "@/lib/xPostLogs";
-import { isValidPostDate, parseXPostLogPayload } from "@/lib/xPostLogPayload";
+import { isValidPostDate, parseXPostLogPayload } from "@/lib/x-growth/xPostLogPayload";
 
 export async function POST(request: Request) {
   let payload: unknown;

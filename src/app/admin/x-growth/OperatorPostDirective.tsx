@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Check, Copy, ExternalLink, Lightbulb } from "lucide-react";
-import { parseDirective, type Channel, type Directive } from "@/lib/xGrowthOperatorDirective";
+import { parseDirective, type Channel, type Directive } from "@/lib/x-growth/xGrowthOperatorDirective";
 
 export default function OperatorPostDirective() {
   const [directive, setDirective] = useState<Directive | null>(null);

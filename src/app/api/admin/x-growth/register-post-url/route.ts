@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { parseXGrowthPostRegistrationInput } from "@/lib/xGrowthPostRegistration";
+import { parseXGrowthPostRegistrationInput } from "@/lib/x-growth/xGrowthPostRegistration";
 
 export async function POST(request: NextRequest) {
   if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });

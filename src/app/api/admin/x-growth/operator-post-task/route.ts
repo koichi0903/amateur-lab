@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { operatorPostTaskConflict, validateOperatorPostTask } from "@/lib/xGrowthOperatorPostTask";
+import { operatorPostTaskConflict, validateOperatorPostTask } from "@/lib/x-growth/xGrowthOperatorPostTask";
 
 export async function POST(request: NextRequest) {
   if (!(await isAdminRequest(request))) {

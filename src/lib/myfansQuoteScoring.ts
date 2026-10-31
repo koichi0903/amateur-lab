@@ -1,4 +1,4 @@
-import { daysSinceIso } from "@/lib/myfansTime";
+import { daysSinceIso } from "@/lib/myfans/myfansTime";
 
 export type MyfansQuoteScanCandidate = {
   xPostUrl: string;

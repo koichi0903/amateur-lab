@@ -9,7 +9,7 @@ import {
   type MarketWinnerPatternLabel,
   type MarketWinnerPatternRow,
   type SavedMarketWinnerRow,
-} from "./myfansMarketWinnerCandidates";
+} from "./myfans/myfansMarketWinnerCandidates";
 import type { CrossAccountGuard, MarketPatternKey } from "./myfansMarketWinner";
 
 type ExistingOpportunityRow = {

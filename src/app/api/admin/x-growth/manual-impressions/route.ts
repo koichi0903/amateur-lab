@@ -5,7 +5,7 @@ import {
   existingManualSnapshotConflict,
   validateManualImpressionPayload,
   validateManualPostAge,
-} from "@/lib/xGrowthManualImpressions";
+} from "@/lib/x-growth/xGrowthManualImpressions";
 
 type ManualSnapshotInsert = {
   account_handle: string;
