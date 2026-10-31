@@ -24,6 +24,11 @@ import {
   buildTrafficInsights,
   countBy,
 } from "./affiliateAnalyticsInsights";
+import {
+  affiliateAnalyticsJstDayKey as jstDayKey,
+  buildAffiliateClickTimeMetrics,
+  buildAffiliateDailyClickCounts,
+} from "./affiliateAnalyticsTime";
 
 export type TrafficInsightAction =
   | "expand"
@@ -93,18 +98,6 @@ export const AFFILIATE_PLACEMENT_LABELS: Record<string, string> = {
 };
 
 
-function jstDayKey(value: Date) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    timeZone: "Asia/Tokyo",
-  }).formatToParts(value);
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((item) => item.type === type)?.value ?? "";
-  return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
 export async function getAffiliateAnalytics(categoryDays = 7) {
   const safeCategoryDays = categoryDays === 30 ? 30 : 7;
   const categoryCutoff = Date.now() - safeCategoryDays * DAY_MS;
@@ -115,26 +108,18 @@ export async function getAffiliateAnalytics(categoryDays = 7) {
     fetchXPostLogMap(safeCategoryDays),
   ]);
   const now = new Date();
-  const todayKey = jstDayKey(now);
-  const sevenDayCutoff = now.getTime() - 7 * DAY_MS;
-  const previousSevenDayCutoff = now.getTime() - 14 * DAY_MS;
   const reportingRows = result.rows.filter(
     (row) => !isOperatorLandingPath(row.landing_path),
   );
-
-  const today = reportingRows.filter(
-    (row) => jstDayKey(new Date(row.clicked_at)) === todayKey,
-  ).length;
-  const lastSevenDays = reportingRows.filter(
-    (row) => new Date(row.clicked_at).getTime() >= sevenDayCutoff,
-  ).length;
-  const previousSevenDays = reportingRows.filter((row) => {
-    const time = new Date(row.clicked_at).getTime();
-    return time >= previousSevenDayCutoff && time < sevenDayCutoff;
-  }).length;
-  const growthRate = previousSevenDays > 0
-    ? Math.round(((lastSevenDays - previousSevenDays) / previousSevenDays) * 100)
-    : null;
+  const clickTimeMetrics = buildAffiliateClickTimeMetrics(reportingRows, now);
+  const {
+    todayKey,
+    sevenDayCutoff,
+    previousSevenDayCutoff,
+    today,
+    lastSevenDays,
+    growthRate,
+  } = clickTimeMetrics;
 
   const workCounts = countBy(reportingRows.map((row) => String(row.work_id)))
     .slice(0, 10);
@@ -154,14 +139,7 @@ export async function getAffiliateAnalytics(categoryDays = 7) {
     ...new Set(pageViewResult.rows.map((row) => row.x_post_key).filter((key): key is string => Boolean(key))),
   ]);
 
-  const dailyKeys = Array.from({ length: 14 }, (_, index) =>
-    jstDayKey(new Date(now.getTime() - (13 - index) * DAY_MS)),
-  );
-  const dailyCounts = new Map(dailyKeys.map((key) => [key, 0]));
-  for (const row of reportingRows) {
-    const key = jstDayKey(new Date(row.clicked_at));
-    if (dailyCounts.has(key)) dailyCounts.set(key, (dailyCounts.get(key) ?? 0) + 1);
-  }
+  const daily = buildAffiliateDailyClickCounts(reportingRows, now);
 
   const sourcePlacementMap = new Map<AffiliateSource, { total: number; desktop: number; mobile: number }>();
   for (const row of reportingRows) {
@@ -285,7 +263,7 @@ export async function getAffiliateAnalytics(categoryDays = 7) {
       uniqueWorks: new Set(reportingRows.map((row) => row.work_id)).size,
       growthRate,
     },
-    daily: dailyKeys.map((key) => ({ key, count: dailyCounts.get(key) ?? 0 })),
+    daily,
     sources: countBy(reportingRows.map((row) => row.source_page)).map((item) => ({
       ...item,
       label: AFFILIATE_SOURCE_LABELS[item.key],
