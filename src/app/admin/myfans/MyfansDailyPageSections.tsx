@@ -253,13 +253,24 @@ function buildMyfansSupplyLoopDisplay(
 }
 
 function getMyfansSupplyLoopCounts(job: Parameters<typeof MyfansSupplyLoopStatus>[0]["latestRefreshJob"]) {
+  if (!job) {
+    return {
+      candidatesSaved: 0,
+      cycle: "-",
+      cursor: "-",
+      accountsProcessed: 0,
+      threadsFound: 0,
+      noMatch: 0,
+    };
+  }
+
   return {
-    candidatesSaved: job?.candidates_saved ?? 0,
-    cycle: job?.collection_cycle_no ?? "-",
-    cursor: job?.cursor_after_order ?? "-",
-    accountsProcessed: job?.accounts_processed ?? job?.processed_creators ?? 0,
-    threadsFound: job?.complete_threads_found ?? 0,
-    noMatch: job?.no_match ?? 0,
+    candidatesSaved: job.candidates_saved ?? 0,
+    cycle: job.collection_cycle_no ?? "-",
+    cursor: job.cursor_after_order ?? "-",
+    accountsProcessed: job.accounts_processed ?? job.processed_creators ?? 0,
+    threadsFound: job.complete_threads_found ?? 0,
+    noMatch: job.no_match ?? 0,
   };
 }
 
