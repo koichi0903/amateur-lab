@@ -10,10 +10,14 @@ import { pageMetadata } from "@/lib/seo";
 export const revalidate = 1800;
 type NewParams = { page?: string };
 
+function resolveRequestedPage(value: string | undefined) {
+  const requestedPage = Number.parseInt(value ?? "1", 10);
+  return Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+}
+
 export async function generateMetadata({ searchParams }: { searchParams: Promise<NewParams> }): Promise<Metadata> {
   const params = await searchParams;
-  const requestedPage = Number.parseInt(params.page ?? "1", 10);
-  const page = Number.isFinite(requestedPage) && requestedPage > 1 ? requestedPage : 1;
+  const page = resolveRequestedPage(params.page);
   return pageMetadata({
     title: `FANZA新着作品${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
     description: "発売日の新しいFANZA作品を、価格・割引・レビュー情報とあわせて紹介します。",
@@ -28,8 +32,7 @@ function WorkCard({ work }: { work: Work }) {
 
 export default async function NewPage({ searchParams }: { searchParams: Promise<NewParams> }) {
   const params = await searchParams;
-  const requestedPage = Number.parseInt(params.page ?? "1", 10);
-  const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const page = resolveRequestedPage(params.page);
   let offset = (page - 1) * PAGE_SIZE;
   const buildQuery = () => supabase.from("works").select("id,product_id,title,image_url,actress,genre,maker,series,price,sale_price,list_price,discount_rate,release_date,review_average,review_count,sale_end_at,affiliate_url", { count: "exact" }).eq("stage", "NEW").order("release_date", { ascending: false, nullsFirst: false }).order("id", { ascending: false });
   let response = await buildQuery().range(offset, offset + PAGE_SIZE - 1);
