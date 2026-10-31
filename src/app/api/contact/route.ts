@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { validateContactPayload, type ContactPayload } from "@/lib/contactPayload";
+import { buildContactEmailText, validateContactRequest } from "@/lib/contactRequestPolicy";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -35,24 +36,18 @@ export async function POST(request: NextRequest) {
   const from = process.env.CONTACT_FROM_EMAIL?.trim();
   const apiKey = process.env.RESEND_API_KEY?.trim();
 
-  if (!contactEmail || !from || !apiKey) {
-    return NextResponse.json({ message: "お問い合わせ窓口は現在準備中です。" }, { status: 503 });
-  }
-
   const origin = request.headers.get("origin");
-  if (origin) {
-    try {
-      if (new URL(origin).host !== request.nextUrl.host) {
-        return NextResponse.json({ message: "このサイトから送信してください。" }, { status: 403 });
-      }
-    } catch {
-      return NextResponse.json({ message: "不正な送信元です。" }, { status: 403 });
-    }
-  }
-
   const contentLength = Number(request.headers.get("content-length") || 0);
-  if (contentLength > 20_000) {
-    return NextResponse.json({ message: "入力内容が長すぎます。" }, { status: 413 });
+  const rejection = validateContactRequest({
+    contactEmail,
+    from,
+    apiKey,
+    origin,
+    requestHost: request.nextUrl.host,
+    contentLength,
+  });
+  if (rejection) {
+    return NextResponse.json({ message: rejection.message }, { status: rejection.status });
   }
 
   let payload: ContactPayload;
@@ -74,17 +69,7 @@ export async function POST(request: NextRequest) {
   }
 
   const referenceId = randomUUID();
-  const text = [
-    "発掘LAB お問い合わせ",
-    `受付ID: ${referenceId}`,
-    `種別: ${category}`,
-    `お名前: ${name || "未入力"}`,
-    `返信先: ${replyEmail}`,
-    `対象URL: ${targetUrl || "未入力"}`,
-    "",
-    "お問い合わせ内容:",
-    details,
-  ].join("\n");
+  const text = buildContactEmailText({ referenceId, category, name, replyEmail, targetUrl, details });
 
   try {
     const resendResponse = await fetch("https://api.resend.com/emails", {
