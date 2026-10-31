@@ -7,6 +7,7 @@ import {
   createDmmWorkUpdatePayload,
   hasDmmActressChange,
   hasDmmWorkMetadataChanges,
+  needsDmmWorkRowUpdate,
   type CurrentDmmWork,
 } from "./updateDmmItemData.ts";
 
@@ -84,6 +85,8 @@ test("sample image comparison ignores empty incoming data and detects length or 
 test("metadata gates and update-price option preserve update behavior", () => {
   const facts = createDmmItemUpdateFacts(item, currentWork);
   assert.equal(hasDmmWorkMetadataChanges(currentWork, facts), false);
+  assert.equal(needsDmmWorkRowUpdate(currentWork, facts), false);
+  assert.equal(needsDmmWorkRowUpdate(undefined, facts), true);
   const changedMetadata: CurrentDmmWork[] = [
     { ...currentWork, review_count: 11 },
     { ...currentWork, review_average: 4.4 },
@@ -94,10 +97,12 @@ test("metadata gates and update-price option preserve update behavior", () => {
   ];
   for (const changedWork of changedMetadata) {
     assert.equal(hasDmmWorkMetadataChanges(changedWork, facts), true);
+    assert.equal(needsDmmWorkRowUpdate(changedWork, facts), true);
   }
   assert.equal(hasDmmWorkMetadataChanges(undefined, facts), true);
   assert.equal(hasDmmActressChange(currentWork, facts.nextActress), false);
   assert.equal(hasDmmActressChange({ ...currentWork, actress: "Old actress" }, facts.nextActress), true);
+  assert.equal(needsDmmWorkRowUpdate({ ...currentWork, actress: "Old actress" }, facts), true);
 
   const withoutPrices = createDmmWorkUpdatePayload(facts, false, "2026-10-29T00:00:00.000Z");
   assert.equal("price" in withoutPrices, false);

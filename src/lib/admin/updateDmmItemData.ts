@@ -122,6 +122,12 @@ export function hasDmmActressChange(currentWork: CurrentDmmWork | undefined, nex
   return nextActress != null && currentWork?.actress !== nextActress;
 }
 
+export function needsDmmWorkRowUpdate(currentWork: CurrentDmmWork | undefined, facts: DmmItemUpdateFacts) {
+  return !currentWork ||
+    hasDmmWorkMetadataChanges(currentWork, facts) ||
+    hasDmmActressChange(currentWork, facts.nextActress);
+}
+
 export function createDmmWorkUpdatePayload(
   facts: DmmItemUpdateFacts,
   updatePrices: boolean,

@@ -5,8 +5,7 @@ import {
   areDmmSampleImagesDifferent,
   createDmmItemUpdateFacts,
   createDmmWorkUpdatePayload,
-  hasDmmActressChange,
-  hasDmmWorkMetadataChanges,
+  needsDmmWorkRowUpdate,
   type CurrentDmmWork,
 } from "./updateDmmItemData";
 
@@ -43,9 +42,7 @@ export async function updateDmmItem(
     if (sampleImageError) throw sampleImageError;
   }
 
-  const hasChanges = hasDmmWorkMetadataChanges(currentWork, facts);
-  const hasActressChange = hasDmmActressChange(currentWork, facts.nextActress);
-  if (currentWork && !hasChanges && !hasActressChange) return sampleImagesChanged;
+  if (!needsDmmWorkRowUpdate(currentWork, facts)) return sampleImagesChanged;
 
   const { error } = await supabase
     .from("works")
