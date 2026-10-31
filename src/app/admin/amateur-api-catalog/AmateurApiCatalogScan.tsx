@@ -31,6 +31,11 @@ type ScanRun = {
 };
 type RunResponse = { run: ScanRun | null; processedItemCount: number; error?: string };
 type RunsResponse = { runs: Record<RunType, ScanRun | null>; activeRun: ScanRun | null; error?: string };
+type CatalogRunRequest = (
+  action: "start" | "continue",
+  runType: RunType,
+  runId?: string,
+) => Promise<RunResponse>;
 type AmateurWork = {
   content_id: string;
   title: string | null;
@@ -78,6 +83,42 @@ function statusLabel(run: ScanRun | null) {
   if (run.status === "needs_attention") return "要確認";
   if (run.status === "limit_reached") return "API上限";
   return "失敗";
+}
+
+function runStatusTone(run: ScanRun | null, isLegacy: boolean) {
+  if (isLegacy || run?.status === "needs_attention") {
+    return "bg-amber-900 text-amber-200";
+  }
+  if (run?.status === "running") return "bg-blue-900 text-blue-200";
+  return "bg-zinc-800 text-zinc-300";
+}
+
+function RunCardStatus({ run, isLegacy }: { run: ScanRun | null; isLegacy: boolean }) {
+  return (
+    <span className={`rounded-full px-3 py-1 text-xs font-bold ${runStatusTone(run, isLegacy)}`}>
+      {isLegacy ? "旧仕様・要切替" : statusLabel(run)}
+    </span>
+  );
+}
+
+function RunCardMetrics({ run }: { run: ScanRun | null }) {
+  const fetchedItemCount = run?.fetched_item_count ?? 0;
+  const completedRangeCount = run?.completed_range_count ?? 0;
+  const rangeCount = run?.range_count ?? 0;
+  const lastRunAt = run?.completed_at ?? run?.started_at;
+
+  return (
+    <div className="mt-4 grid gap-2 sm:grid-cols-3">
+      <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">処理済み</p><strong className="mt-1 block">{count(fetchedItemCount)}</strong></div>
+      <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">分割範囲</p><strong className="mt-1 block">{count(completedRangeCount)} / {count(rangeCount)}</strong></div>
+      <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">最終実行</p><strong className="mt-1 block text-xs">{dateTime(lastRunAt)}</strong></div>
+    </div>
+  );
+}
+
+function RunCardError({ error }: { error: string | null | undefined }) {
+  if (!error) return null;
+  return <p className="mt-3 rounded-lg bg-amber-950/60 p-3 text-xs leading-5 text-amber-200">{error}</p>;
 }
 
 function RunCardActions({
@@ -139,16 +180,12 @@ function AmateurApiCatalogRunCard({
           <p className="text-xs font-black tracking-[0.14em] text-emerald-300">WEEKLY FULL RECONCILIATION</p>
           <h2 className="mt-2 text-xl font-black">{RUN_LABELS[runType]}</h2>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-bold ${isLegacy || run?.status === "needs_attention" ? "bg-amber-900 text-amber-200" : run?.status === "running" ? "bg-blue-900 text-blue-200" : "bg-zinc-800 text-zinc-300"}`}>{isLegacy ? "旧仕様・要切替" : statusLabel(run)}</span>
+        <RunCardStatus run={run} isLegacy={isLegacy} />
       </div>
       <p className="mt-3 text-sm leading-6 text-zinc-300">{description}</p>
       <p className="mt-2 text-xs text-zinc-400">対象期間：{rangeDescription}</p>
-      <div className="mt-4 grid gap-2 sm:grid-cols-3">
-        <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">処理済み</p><strong className="mt-1 block">{count(run?.fetched_item_count ?? 0)}</strong></div>
-        <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">分割範囲</p><strong className="mt-1 block">{count(run?.completed_range_count ?? 0)} / {count(run?.range_count ?? 0)}</strong></div>
-        <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">最終実行</p><strong className="mt-1 block text-xs">{dateTime(run?.completed_at ?? run?.started_at)}</strong></div>
-      </div>
-      {run?.last_error && <p className="mt-3 rounded-lg bg-amber-950/60 p-3 text-xs leading-5 text-amber-200">{run.last_error}</p>}
+      <RunCardMetrics run={run} />
+      <RunCardError error={run?.last_error} />
       <RunCardActions
         runType={runType}
         activeRun={activeRun}
@@ -160,6 +197,38 @@ function AmateurApiCatalogRunCard({
       />
     </article>
   );
+}
+
+async function continueCatalogRun({
+  runType,
+  resumeRun,
+  request,
+  refreshWorks,
+  shouldStop,
+  setMessage,
+}: {
+  runType: RunType;
+  resumeRun?: ScanRun;
+  request: CatalogRunRequest;
+  refreshWorks: (page?: number) => Promise<void>;
+  shouldStop: () => boolean;
+  setMessage: (message: string) => void;
+}) {
+  let next = resumeRun
+    ? { run: resumeRun, processedItemCount: resumeRun.fetched_item_count }
+    : await request("start", runType);
+  let step = 0;
+  while (next.run?.status === "running" && !shouldStop()) {
+    next = await request("continue", runType, next.run.id);
+    step += 1;
+    const effects = catalogRunStepEffects(next.run, RUN_LABELS[runType], runType, step);
+    if (effects.message) setMessage(effects.message);
+    if (effects.refreshWorks) await refreshWorks(1).catch(() => undefined);
+    if (effects.wait) await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  if (shouldStop() && next.run?.status === "running") {
+    setMessage("一時停止しました。画面を開き直して「続きから再開」できます。");
+  }
 }
 
 export default function AmateurApiCatalogScan() {
@@ -211,19 +280,14 @@ export default function AmateurApiCatalogScan() {
     stopRef.current = false;
     setMessage(`${RUN_LABELS[runType]}を準備しています。`);
     try {
-      let next = resumeRun
-        ? { run: resumeRun, processedItemCount: resumeRun.fetched_item_count }
-        : await request("start", runType);
-      let step = 0;
-      while (next.run?.status === "running" && !stopRef.current) {
-        next = await request("continue", runType, next.run.id);
-        step += 1;
-        const effects = catalogRunStepEffects(next.run, RUN_LABELS[runType], runType, step);
-        if (effects.message) setMessage(effects.message);
-        if (effects.refreshWorks) await refreshWorks(1).catch(() => undefined);
-        if (effects.wait) await new Promise((resolve) => setTimeout(resolve, 1_000));
-      }
-      if (stopRef.current && next.run?.status === "running") setMessage("一時停止しました。画面を開き直して「続きから再開」できます。");
+      await continueCatalogRun({
+        runType,
+        resumeRun,
+        request,
+        refreshWorks,
+        shouldStop: () => stopRef.current,
+        setMessage,
+      });
       await refreshRuns().catch(() => undefined);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "DMM API補完に失敗しました。");
