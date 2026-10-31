@@ -5,6 +5,7 @@ import {
   isEntityIndexable,
 } from "@/lib/catalog/entityIndexSummaries";
 import { getEntityWorksPage } from "@/lib/catalog/entityWorks";
+import { shouldIndexCatalogMetadata } from "./catalogMetadataPolicy";
 
 export type CatalogKind = "maker" | "genre";
 
@@ -26,14 +27,11 @@ export async function catalogMetadata(kind: CatalogKind, name: string, page = 1,
       ? await getEntityWorksPage(kind, name, 1)
       : null;
 
-    if (
-      page === 1 &&
-      pageResult &&
-      !pageResult.error &&
-      pageResult.works.length > 0 &&
-      summary &&
-      isEntityIndexable(kind, summary)
-    ) {
+    if (shouldIndexCatalogMetadata({
+      page,
+      result: pageResult,
+      summaryIsIndexable: Boolean(summary && isEntityIndexable(kind, summary)),
+    })) {
       robots = undefined;
     }
   } catch {
