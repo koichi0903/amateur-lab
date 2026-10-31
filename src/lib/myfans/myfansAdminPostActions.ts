@@ -8,8 +8,9 @@ import { exclusionTargetForCandidate, manualCandidateExclusionTarget, recordMyfa
 import { supabaseAdmin } from "../supabaseAdmin";
 import { buildMyfansPatternLearningValues, buildMyfansPostExecutionRecord, type MyfansAttributedPostMetrics, type MyfansPatternLearningRow, type MyfansPostExecutionRecord } from "./myfansPostExecutionData";
 import { buildMyfansPostRecord, type MyfansPostRecordContext } from "./myfansAdminPostData";
+import { assertMyfansQuoteCandidateOwner } from "./myfansQuoteCandidateValidation";
 
-async function resolvePostRecordContext(formData: FormData, productId: number | null): Promise<MyfansPostRecordContext> {
+async function resolveApprovedMediaContext(formData: FormData, productId: number | null) {
   let approvedMediaId = nullableId(formData, "approved_media_id");
   let approvedMediaName = text(formData, "approved_media_name");
   if (productId && !approvedMediaId) {
@@ -21,7 +22,10 @@ async function resolvePostRecordContext(formData: FormData, productId: number | 
     approvedMediaId = product?.approved_media_id ?? null;
     approvedMediaName = approvedMediaName || product?.approved_media_name || "";
   }
+  return { approvedMediaId, approvedMediaName };
+}
 
+async function resolvePatternId(formData: FormData) {
   let patternId = nullableId(formData, "pattern_id");
   const patternKey = text(formData, "market_pattern_key");
   if (!patternId && patternKey) {
@@ -33,7 +37,13 @@ async function resolvePostRecordContext(formData: FormData, productId: number | 
     if (patternError && !/market_patterns|schema cache|column/i.test(patternError.message)) throw patternError;
     patternId = pattern?.id ?? null;
   }
-  return { productId, approvedMediaId, approvedMediaName, patternId };
+  return patternId;
+}
+
+async function resolvePostRecordContext(formData: FormData, productId: number | null): Promise<MyfansPostRecordContext> {
+  const media = await resolveApprovedMediaContext(formData, productId);
+  const patternId = await resolvePatternId(formData);
+  return { productId, ...media, patternId };
 }
 
 function myfansPostIdempotencyKey(formData: FormData, id: number | null, approvedMediaId: number | null, record: ReturnType<typeof buildMyfansPostRecord>) {
@@ -226,13 +236,7 @@ export async function updateQuoteCandidate(formData: FormData) {
     .maybeSingle();
   if (productError) throw productError;
   if (!product) throw new Error("商品が見つかりません。");
-  if (product.creator_x_url) {
-    const creatorHandle = String(product.creator_x_url).match(/(?:x\.com|twitter\.com)\/([^/?#]+)/)?.[1]?.toLowerCase();
-    const quoteHandle = quoteUrl.match(/(?:x\.com|twitter\.com)\/([^/?#]+)/)?.[1]?.toLowerCase();
-    if (creatorHandle && quoteHandle && creatorHandle !== quoteHandle) {
-      throw new Error("creator本人のX投稿URLだけ登録できます。");
-    }
-  }
+  assertMyfansQuoteCandidateOwner(product.creator_x_url, quoteUrl);
   const { error } = await supabaseAdmin
     .from("myfans_products")
     .update({ quote_candidate_x_url: quoteUrl, updated_at: new Date().toISOString() })

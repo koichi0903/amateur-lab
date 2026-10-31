@@ -10,6 +10,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
+    "test:myfans-quote-candidate-validation": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfans/myfansQuoteCandidateValidation.test.ts",
     "test:myfans-public-copy": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfansPublicCopy.test.ts && node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfans/myfansTopicValue.test.ts && node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfans/myfansCreativeEvidence.test.ts",
     "test:myfans-acquisition-planner": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfans/myfansAcquisitionPlanner.test.ts",
     "test:myfans-daily-transaction": "node scripts/test-myfans-daily-transaction-contract.mjs && node scripts/test-myfans-persistence-contract.mjs && node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfansDailySnapshotView.test.ts",
