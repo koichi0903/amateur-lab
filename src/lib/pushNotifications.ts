@@ -1,15 +1,19 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getFanzaAmateurPriceFromRawItem } from "@/lib/dmm/fanzaAmateurRawItem";
-import { splitEntityNames } from "@/lib/entityNames";
 import { sendPushNotification, type StoredPushSubscription } from "@/lib/push";
 import { decidePriceAlert, isGonePushEndpointError } from "@/lib/pushPriceAlertDecision";
+import {
+  getSeriesAlertEntityNames,
+  matchesSeriesAlertWork,
+  seriesAlertDeliveryKey,
+  type SeriesAlertRule,
+  type SeriesAlertWork,
+} from "@/lib/pushSeriesAlertRules";
 
 type PriceAlertRow = { endpoint: string; work_id: number; last_notified_price: number | null };
 type WorkPriceRow = { id: number; product_id: string; title: string; price: number | null; sale_price: number | null };
 type SubscriptionRow = { endpoint: string; p256dh: string; auth: string; active: boolean };
-type SeriesWorkRow = { id: number; product_id: string; title: string; actress: string | null; maker: string | null; series: string | null };
 
-type EntityAlertRow = { endpoint: string; alert_type: "actress" | "maker"; series_name: string };
 type AmateurPriceAlertRow = { endpoint: string; content_id: string; last_notified_price: number | null };
 type AmateurMakerAlertRow = { endpoint: string; maker_name: string };
 type AmateurWorkRow = { content_id: string; title: string; raw_item: unknown };
@@ -78,50 +82,87 @@ export async function notifyPriceAlertsForProducts(productIds: string[]) {
   return { sent, skipped };
 }
 
-export async function notifySeriesAlertsForProducts(productIds: string[]) {
+type SeriesAlertBatch = {
+  workRows: SeriesAlertWork[];
+  alertRows: SeriesAlertRule[];
+  delivered: Set<string>;
+  subscriptionByEndpoint: Map<string, SubscriptionRow>;
+};
+
+async function loadSeriesAlertBatch(productIds: string[]): Promise<SeriesAlertBatch | null> {
   const ids = [...new Set(productIds)].filter(Boolean);
-  if (!ids.length) return { sent: 0, skipped: 0 };
+  if (!ids.length) return null;
   const { data: works, error: worksError } = await supabaseAdmin.from("works").select("id,product_id,title,actress,maker,series").in("product_id", ids);
   if (worksError) throw worksError;
-  const workRows = (works ?? []) as SeriesWorkRow[];
-  const entityNames = [...new Set(workRows.flatMap((work) => [
-    ...splitEntityNames(work.actress),
-    ...splitEntityNames(work.maker),
-  ]))];
-  if (!entityNames.length) return { sent: 0, skipped: 0 };
+  const workRows = (works ?? []) as SeriesAlertWork[];
+  const entityNames = getSeriesAlertEntityNames(workRows);
+  if (!entityNames.length) return null;
 
   const { data: alerts, error: alertsError } = await supabaseAdmin.from("push_series_alerts").select("endpoint,alert_type,series_name").in("series_name", entityNames).in("alert_type", ["actress", "maker"]);
   if (alertsError) throw alertsError;
-  const alertRows = (alerts ?? []) as EntityAlertRow[];
-  if (!alertRows.length) return { sent: 0, skipped: 0 };
+  const alertRows = (alerts ?? []) as SeriesAlertRule[];
+  if (!alertRows.length) return null;
   const { data: deliveries, error: deliveriesError } = await supabaseAdmin.from("push_series_alert_deliveries").select("endpoint,alert_type,series_name,work_id").in("endpoint", [...new Set(alertRows.map((alert) => alert.endpoint))]).in("work_id", workRows.map((work) => work.id));
   if (deliveriesError) throw deliveriesError;
-  const delivered = new Set((deliveries ?? []).map((row) => `${row.endpoint}\u0000${row.alert_type}\u0000${row.series_name}\u0000${row.work_id}`));
+  const delivered = new Set((deliveries ?? []).map((row) => seriesAlertDeliveryKey(row.endpoint, row.alert_type, row.series_name, row.work_id)));
   const { data: subscriptions, error: subscriptionsError } = await supabaseAdmin.from("push_subscriptions").select("endpoint,p256dh,auth,active").in("endpoint", [...new Set(alertRows.map((alert) => alert.endpoint))]).eq("active", true);
   if (subscriptionsError) throw subscriptionsError;
   const subscriptionByEndpoint = new Map((subscriptions ?? []).map((subscription) => [subscription.endpoint, subscription as SubscriptionRow]));
+  return { workRows, alertRows, delivered, subscriptionByEndpoint };
+}
+
+async function sendSeriesAlertWork(
+  alert: SeriesAlertRule,
+  work: SeriesAlertWork,
+  subscription: SubscriptionRow,
+  delivered: Set<string>,
+) {
+  const deliveryKey = seriesAlertDeliveryKey(alert.endpoint, alert.alert_type, alert.series_name, work.id);
+  if (!matchesSeriesAlertWork(alert, work) || delivered.has(deliveryKey)) return null;
+
+  try {
+    const label = alert.alert_type === "actress" ? "女優" : "メーカー";
+    await sendPushNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } }, { title: `発掘LAB：${label}の新作です`, body: `${alert.series_name}の新しい作品「${work.title}」が登録されました。`, url: `/works/${work.id}`, tag: `${alert.alert_type}-${alert.series_name}` });
+    await supabaseAdmin.from("push_series_alert_deliveries").insert({ endpoint: alert.endpoint, alert_type: alert.alert_type, series_name: alert.series_name, work_id: work.id });
+    delivered.add(deliveryKey);
+    return "sent";
+  } catch (error) {
+    console.error("[push] series notification failed", { endpoint: alert.endpoint, workId: work.id, error });
+    return "skipped";
+  }
+}
+
+async function sendSeriesAlertToSubscription(
+  alert: SeriesAlertRule,
+  subscription: SubscriptionRow,
+  workRows: SeriesAlertWork[],
+  delivered: Set<string>,
+) {
+  let sent = 0;
+  let skipped = 0;
+  for (const work of workRows) {
+    const result = await sendSeriesAlertWork(alert, work, subscription, delivered);
+    if (result === "sent") sent += 1;
+    if (result === "skipped") skipped += 1;
+  }
+  return { sent, skipped };
+}
+
+export async function notifySeriesAlertsForProducts(productIds: string[]) {
+  const batch = await loadSeriesAlertBatch(productIds);
+  if (!batch) return { sent: 0, skipped: 0 };
 
   let sent = 0;
   let skipped = 0;
-  for (const alert of alertRows) {
-    const subscription = subscriptionByEndpoint.get(alert.endpoint);
-    if (!subscription) { skipped += 1; continue; }
-    for (const work of workRows) {
-      const names = alert.alert_type === "actress" ? splitEntityNames(work.actress) : splitEntityNames(work.maker);
-      const matches = names.includes(alert.series_name);
-      const deliveryKey = `${alert.endpoint}\u0000${alert.alert_type}\u0000${alert.series_name}\u0000${work.id}`;
-      if (!matches || delivered.has(deliveryKey)) continue;
-      try {
-        const label = alert.alert_type === "actress" ? "女優" : "メーカー";
-        await sendPushNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } }, { title: `発掘LAB：${label}の新作です`, body: `${alert.series_name}の新しい作品「${work.title}」が登録されました。`, url: `/works/${work.id}`, tag: `${alert.alert_type}-${alert.series_name}` });
-        await supabaseAdmin.from("push_series_alert_deliveries").insert({ endpoint: alert.endpoint, alert_type: alert.alert_type, series_name: alert.series_name, work_id: work.id });
-        delivered.add(deliveryKey);
-        sent += 1;
-      } catch (error) {
-        console.error("[push] series notification failed", { endpoint: alert.endpoint, workId: work.id, error });
-        skipped += 1;
-      }
+  for (const alert of batch.alertRows) {
+    const subscription = batch.subscriptionByEndpoint.get(alert.endpoint);
+    if (!subscription) {
+      skipped += 1;
+      continue;
     }
+    const result = await sendSeriesAlertToSubscription(alert, subscription, batch.workRows, batch.delivered);
+    sent += result.sent;
+    skipped += result.skipped;
   }
   return { sent, skipped };
 }
