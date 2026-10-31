@@ -162,14 +162,12 @@ function salesPresentationFor(context: CandidatePresentationContext): CandidateP
   return presentation;
 }
 
-function discoveryPresentationFor(context: CandidatePresentationContext): CandidatePresentation {
-  const presentation = initialCandidatePresentation(context);
-  const { work, chart, funnel, category, discountRate, url } = context;
-  const priceRows = (chart?.points ?? []).map((point) => ({ normal_price: point.price, sale_price: null }));
+function discoveryScoreInputFor(context: Pick<CandidatePresentationContext, "work" | "chart" | "funnel">) {
+  const { work, chart, funnel } = context;
   const adjustedCtr = calculateAdjustedCtr(funnel.pageViews, funnel.fanzaClicks);
-  const scoreInput = {
+  return {
     work,
-    priceHistory: priceRows,
+    priceHistory: (chart?.points ?? []).map((point) => ({ normal_price: point.price, sale_price: null })),
     funnel: {
       pageViews: funnel.pageViews,
       fanzaClicks: funnel.fanzaClicks,
@@ -178,22 +176,42 @@ function discoveryPresentationFor(context: CandidatePresentationContext): Candid
       confidence: adjustedCtr.confidence,
     },
   };
+}
+
+function discoverySelectionReasonFor(work: CandidateWork, discovery: ReturnType<typeof calculateDiscoveryScore>) {
+  return `ランキング${work.ranking ?? "未取得"}位、評価${work.review_average?.toFixed(1) ?? "未取得"}、レビュー${work.review_count ?? 0}件。${discovery.reasons.slice(0, 2).join("。")}。`;
+}
+
+function discoveryPostLinesFor(
+  context: CandidatePresentationContext,
+  discoveryScore: number,
+  buyTimingScore: number,
+) {
+  const { work, category, discountRate, url } = context;
+  const categoryTitle = category === "today_discovery" ? "今日の発掘" : "値下げ×埋もれ名作";
+  return [
+    `【${categoryTitle}】`,
+    "「__TITLE__」",
+    `ランキング${work.ranking ?? "未取得"}位 / 評価${work.review_average?.toFixed(1) ?? "-"} / レビュー${work.review_count ?? 0}件`,
+    `${discountRate}%OFF / 発掘指数${discoveryScore} / 買い時${buyTimingScore}`,
+    url,
+    "#PR #FANZA",
+  ];
+}
+
+function discoveryPresentationFor(context: CandidatePresentationContext): CandidatePresentation {
+  const presentation = initialCandidatePresentation(context);
+  const { work, chart, category } = context;
+  const scoreInput = discoveryScoreInputFor(context);
   const buyTiming = calculateBuyTimingScore(scoreInput);
   const discovery = calculateDiscoveryScore({ ...scoreInput, buyTimingScore: buyTiming.score });
   presentation.discoveryScoreValue = discovery.score;
   presentation.buyTimingScoreValue = buyTiming.score;
   presentation.label = category === "today_discovery" ? "今日の発掘" : "値下げ×埋もれ名作";
   presentation.reason = `発掘指数${discovery.score}・買い時${buyTiming.score}`;
-  presentation.selectionReason = `ランキング${work.ranking ?? "未取得"}位、評価${work.review_average?.toFixed(1) ?? "未取得"}、レビュー${work.review_count ?? 0}件。${discovery.reasons.slice(0, 2).join("。")}。`;
+  presentation.selectionReason = discoverySelectionReasonFor(work, discovery);
   presentation.creativeKind = chart?.hadPriceDrop ? "price-chart" : "discovery";
-  presentation.lines = [
-    category === "today_discovery" ? "【今日の発掘】" : "【値下げ×埋もれ名作】",
-    "「__TITLE__」",
-    `ランキング${work.ranking ?? "未取得"}位 / 評価${work.review_average?.toFixed(1) ?? "-"} / レビュー${work.review_count ?? 0}件`,
-    `${discountRate}%OFF / 発掘指数${discovery.score} / 買い時${buyTiming.score}`,
-    url,
-    "#PR #FANZA",
-  ];
+  presentation.lines = discoveryPostLinesFor(context, discovery.score, buyTiming.score);
   return presentation;
 }
 
