@@ -1,9 +1,10 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { isFanzaXGrowthTechnicalSampleMovie, isOfficialFanzaDmmSampleUrl, isUsableXMediaAsset, sourceDomain, sourceKindFor, validateTrimStartSeconds, X_GROWTH_ACCOUNT, type XMediaAsset } from "@/lib/xMediaAssets";
+import { isFanzaXGrowthTechnicalSampleMovie, isOfficialFanzaDmmSampleUrl, isUsableXMediaAsset, sourceDomain, sourceKindFor, X_GROWTH_ACCOUNT, type XMediaAsset } from "@/lib/xMediaAssets";
 import type { XGrowthOpportunity } from "@/lib/xGrowthOS";
 import { buildVisualVideoFacts } from "@/lib/xVisualVideoFacts";
 import { analyzeSampleMovie, videoSourceFingerprint, VIDEO_ANALYSIS_VERSION } from "@/lib/xVideoAnalysis";
 import { buildXMediaAssetReviewPlan, type XMediaAssetReviewInput } from "@/lib/xGrowthMediaReview";
+import { buildXMediaAssetTrimReviewPlan } from "@/lib/xGrowthMediaTrimReview";
 import { selectPreferredXMediaAssetsByWork } from "@/lib/xGrowthMediaAssetSelection";
 
 const ACCOUNT = X_GROWTH_ACCOUNT;
@@ -237,21 +238,9 @@ export async function updateMediaAssetTrim(input: {
   const beforeResult = await supabaseAdmin.from("x_media_assets").select("*").eq("account_handle", ACCOUNT).eq("id", input.id).single();
   if (beforeResult.error || !beforeResult.data) return { error: beforeResult.error?.message ?? "素材が見つかりません。" };
   const existing = beforeResult.data as Partial<XMediaAsset>;
-  const official = sourceKindFor(String(existing.source_url ?? "")) === "official_sample";
-  if (!official && existing.can_modify !== true && existing.trim_modify_confirmed !== true) {
-    return { error: "外部動画のトリムには編集許可の確認が必要です。" };
-  }
-  const validation = validateTrimStartSeconds(input.trimStartSeconds);
-  if (!validation.ok) return { error: validation.error };
-  const update = {
-    trim_start_seconds: validation.value,
-    trim_reviewed_at: new Date().toISOString(),
-    trim_reviewed_by: input.reviewedBy ?? "admin_x_growth",
-    trim_review_source: input.reviewSource ?? "user_confirmed",
-    trim_modify_confirmed: official ? true : input.trimModifyConfirmed === true,
-    trim_note: input.trimNote ?? "",
-  };
-  const result = await supabaseAdmin.from("x_media_assets").update(update).eq("account_handle", ACCOUNT).eq("id", input.id);
-  if (!result.error) await auditXGrowth("media_trim_reviewed", { mediaAssetId: input.id, old: beforeResult.data, new: update });
-  return { error: result.error?.message ?? null, trimStartSeconds: validation.value };
+  const plan = buildXMediaAssetTrimReviewPlan(existing, input, new Date().toISOString());
+  if (!plan.ok) return { error: plan.error };
+  const result = await supabaseAdmin.from("x_media_assets").update(plan.update).eq("account_handle", ACCOUNT).eq("id", input.id);
+  if (!result.error) await auditXGrowth("media_trim_reviewed", { mediaAssetId: input.id, old: beforeResult.data, new: plan.update });
+  return { error: result.error?.message ?? null, trimStartSeconds: plan.trimStartSeconds };
 }
