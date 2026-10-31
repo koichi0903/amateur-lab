@@ -20,6 +20,7 @@ import { getXWeightedLength } from "@/lib/xText";
 import type { Message } from "./MyfansFormPrimitives";
 import { inputClass } from "./MyfansFormPrimitives";
 import { CreativeCardPreview, downloadCardPng } from "./MyfansCreativeCard";
+import { formatCandidateQualityBreakdown } from "./MyfansExecutionCandidateReview";
 
 type CopyHandler = (value: string, label: string) => void;
 
@@ -41,7 +42,7 @@ function CandidateQualityScore({ candidate }: { candidate: ExecutionCandidate })
         <p className="text-sm font-black">{candidate.quality.verdict} {candidate.quality.total}/100</p>
         <p className="mt-1 text-xs leading-5 text-zinc-300">{candidate.quality.reasons.join(" / ")}</p>
         <p className="mt-2 text-xs leading-5 text-zinc-400">
-          stop {candidate.quality.breakdown.stopPower ?? candidate.quality.breakdown.firstLineStop ?? "-"} / visual {candidate.quality.breakdown.visualLeverage ?? candidate.quality.breakdown.visual ?? "-"} / specificity {candidate.quality.breakdown.specificity ?? "-"} / proof {candidate.quality.breakdown.proof ?? "-"} / curiosity {candidate.quality.breakdown.broadCuriosity ?? candidate.quality.breakdown.audience ?? "-"} / follow {candidate.quality.breakdown.followReason ?? "-"} / role {candidate.quality.breakdown.roleDifferentiation ?? "-"} / smell {candidate.quality.breakdown.spamSalesSmell ?? "-"}
+          {formatCandidateQualityBreakdown(candidate.quality.breakdown)}
         </p>
       </div>
     </>
