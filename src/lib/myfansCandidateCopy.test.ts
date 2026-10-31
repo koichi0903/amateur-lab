@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { attentionScoreFor, bodyFor, hookIntelligence } from "./myfansCandidateCopy.ts";
+import { attentionScoreFor, bodyFor, hookIntelligence, sourceSpecificityScore } from "./myfansCandidateCopy.ts";
 import type { MyfansAnalytics, MyfansProduct, MyfansQuoteCandidate } from "./myfansAnalytics.ts";
 import type { MyfansTopicValue } from "./myfansQuotePool.ts";
+import type { VisualUnderstanding } from "./myfansXExecution.ts";
 
 function product(overrides: Partial<MyfansProduct> = {}): MyfansProduct {
   return {
@@ -108,6 +109,38 @@ test("hook classification keeps visual and social proof ahead of product signals
   );
   assert.equal(socialProof.hook, "SOCIAL_PROOF");
   assert.equal(socialProof.evidence.likes, 1000);
+});
+
+test("social proof thresholds stay inclusive for views, likes, and reposts", () => {
+  assert.equal(hookIntelligence(product(), quote({ views: 49_999, likes: 999, reposts: 99 })).hook, "COMPARISON");
+  for (const metrics of [
+    { views: 50_000, likes: 0, reposts: 0 },
+    { views: 0, likes: 1000, reposts: 0 },
+    { views: 0, likes: 0, reposts: 100 },
+  ]) {
+    const result = hookIntelligence(product(), quote(metrics));
+    assert.equal(result.hook, "SOCIAL_PROOF");
+    assert.deepEqual(result.evidence, {
+      ...metrics,
+      x_post_url: "https://x.com/creator/status/1",
+    });
+  }
+});
+
+test("source specificity preserves quote, visual, and empty-source scores", () => {
+  const source = quote({
+    text_excerpt: "制服の色と表情に距離感が出る場面が好き",
+    source_x_handle: "@creator",
+  });
+  const visual = {
+    attentionMoment: "赤い制服で目線が近い",
+    humanObservation: "視線の表情が柔らかい",
+    concreteVisualCue: "字幕の位置が右上",
+  } as unknown as VisualUnderstanding;
+
+  assert.equal(sourceSpecificityScore("【制服と表情】赤い衣装の目線、距離感が近め。@creator", source, visual), 60);
+  assert.equal(sourceSpecificityScore("作品の雰囲気を楽しめる", source, null), 20);
+  assert.equal(sourceSpecificityScore("短く紹介します", null, null), 20);
 });
 
 test("product hook precedence stays newcomer, ranking, anomaly, scarcity, price, comparison", () => {

@@ -38,12 +38,26 @@ function strongVisualHook(quote: MyfansQuoteCandidate | null): HookIntelligenceR
   };
 }
 
+function socialProofMetrics(quote: MyfansQuoteCandidate | null) {
+  return {
+    views: quote?.views,
+    likes: quote?.likes,
+    reposts: quote?.reposts,
+    x_post_url: quote?.x_post_url,
+  };
+}
+
+function hasSocialProofThreshold({ views, likes, reposts }: ReturnType<typeof socialProofMetrics>) {
+  return (views ?? 0) >= 50_000 || (likes ?? 0) >= 1000 || (reposts ?? 0) >= 100;
+}
+
 function socialProofHook(quote: MyfansQuoteCandidate | null): HookIntelligenceResult | null {
-  if (!((quote?.views ?? 0) >= 50_000 || (quote?.likes ?? 0) >= 1000 || (quote?.reposts ?? 0) >= 100)) return null;
+  const evidence = socialProofMetrics(quote);
+  if (!hasSocialProofThreshold(evidence)) return null;
   return {
     hook: "SOCIAL_PROOF",
     label: "反応の強いcreator投稿",
-    evidence: { views: quote?.views, likes: quote?.likes, reposts: quote?.reposts, x_post_url: quote?.x_post_url },
+    evidence,
   };
 }
 
@@ -190,22 +204,47 @@ export function attentionScoreFor(product: MyfansProduct, quote: MyfansQuoteCand
   };
 }
 
-export function sourceSpecificityScore(body: string, quote: MyfansQuoteCandidate | null, understanding: VisualUnderstanding | null) {
-  const sourceText = compactSourceText(quote?.text_excerpt ?? "", 80);
-  const sourceTokens = sourceText
+function normalizedSpecificityTokens(text: string, minimumLength: number) {
+  return text
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .split(/\s+/)
-    .filter((token) => token.length >= 3);
+    .filter((token) => token.length >= minimumLength);
+}
+
+function sourceSpecificityTokens(quote: MyfansQuoteCandidate | null) {
+  return normalizedSpecificityTokens(compactSourceText(quote?.text_excerpt ?? "", 80), 3);
+}
+
+function visualSpecificityTokens(understanding: VisualUnderstanding | null) {
   const visualCue = understanding?.attentionMoment || understanding?.humanObservation || understanding?.concreteVisualCue || "";
-  const cueTokens = visualCue
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .split(/\s+/)
-    .filter((token) => token.length >= 2);
+  return normalizedSpecificityTokens(visualCue, 2);
+}
+
+function specificityTokenHits(tokens: string[], body: string) {
   const compactBody = body.replace(/[^\p{L}\p{N}]+/gu, "");
-  const tokenHits = [...sourceTokens, ...cueTokens].filter((token) => compactBody.includes(token.replace(/\s+/g, ""))).length;
-  const properSource = /【[^】]+】|#[^\s#]+|@[A-Za-z0-9_]+|[A-Za-z0-9]{4,}|[一-龠ぁ-んァ-ヶー]{4,}/.test(body);
-  const visualSpecific = /(制服|階段|海辺|砂浜|赤|黒|ベッド|距離|くま|踊|引き|近め|表情|目線|衣装|ポーズ|字幕|テロップ|タイトル|設定)/.test(body);
-  return Math.min(100, tokenHits * 24 + (properSource ? 20 : 0) + (visualSpecific ? 24 : 0) + (quote?.source_x_handle && body.includes(quote.source_x_handle) ? 16 : 0));
+  return tokens.filter((token) => compactBody.includes(token.replace(/\s+/g, ""))).length;
+}
+
+function hasProperSourceMarker(body: string) {
+  return /【[^】]+】|#[^\s#]+|@[A-Za-z0-9_]+|[A-Za-z0-9]{4,}|[一-龠ぁ-んァ-ヶー]{4,}/.test(body);
+}
+
+function hasConcreteVisualSpecificity(body: string) {
+  return /(制服|階段|海辺|砂浜|赤|黒|ベッド|距離|くま|踊|引き|近め|表情|目線|衣装|ポーズ|字幕|テロップ|タイトル|設定)/.test(body);
+}
+
+function quoteHandleSpecificityBonus(body: string, quote: MyfansQuoteCandidate | null) {
+  return quote?.source_x_handle && body.includes(quote.source_x_handle) ? 16 : 0;
+}
+
+export function sourceSpecificityScore(body: string, quote: MyfansQuoteCandidate | null, understanding: VisualUnderstanding | null) {
+  const sourceTokens = sourceSpecificityTokens(quote);
+  const cueTokens = visualSpecificityTokens(understanding);
+  const tokenHits = specificityTokenHits([...sourceTokens, ...cueTokens], body);
+  const properSource = hasProperSourceMarker(body);
+  const visualSpecific = hasConcreteVisualSpecificity(body);
+  const handleBonus = quoteHandleSpecificityBonus(body, quote);
+  return Math.min(100, tokenHits * 24 + (properSource ? 20 : 0) + (visualSpecific ? 24 : 0) + handleBonus);
 }
 
 export function readerValueFor(postType: string, product: MyfansProduct) {
