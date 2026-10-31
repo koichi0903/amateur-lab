@@ -77,12 +77,16 @@ function patternLearningIdentity(post: MyfansAttributedPostMetrics) {
   };
 }
 
+function sumNullableMetrics(...values: Array<number | null | undefined>) {
+  return values.reduce<number>((total, value) => total + (value ?? 0), 0);
+}
+
 function patternLearningCounts(post: MyfansAttributedPostMetrics, learning: MyfansPatternLearningRow | null) {
   return {
-    impressions: (learning?.impressions ?? 0) + (post.impressions ?? 0),
-    engagements: (learning?.engagements ?? 0) + (post.likes_count ?? 0) + (post.reposts_count ?? 0) + (post.replies_count ?? 0),
-    clicks: (learning?.clicks ?? 0) + (post.clicks ?? 0),
-    posts_count: (learning?.posts_count ?? 0) + 1,
+    impressions: sumNullableMetrics(learning?.impressions, post.impressions),
+    engagements: sumNullableMetrics(learning?.engagements, post.likes_count, post.reposts_count, post.replies_count),
+    clicks: sumNullableMetrics(learning?.clicks, post.clicks),
+    posts_count: sumNullableMetrics(learning?.posts_count, 1),
   };
 }
 

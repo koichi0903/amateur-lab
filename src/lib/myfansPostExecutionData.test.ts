@@ -59,3 +59,24 @@ test("pattern learning values preserve the existing additive metrics and posteri
   assert.equal(values.updated_at, "2026-10-29T00:00:01.000Z");
   assert.deepEqual(values.metadata, { feedback_source: "myfans_x_posts_metrics", post_id: 99 });
 });
+
+test("pattern learning values treat missing metrics as zero and still count the post", () => {
+  const values = buildMyfansPatternLearningValues({
+    approved_media_id: 2,
+    pattern_id: 4,
+    creator_id: null,
+    product_id: null,
+    quote_candidate_id: null,
+    impressions: null,
+    likes_count: null,
+    reposts_count: null,
+    replies_count: null,
+    clicks: null,
+  }, null, 100, { lastObservedAt: "2026-10-31T00:00:00.000Z", updatedAt: "2026-10-31T00:00:01.000Z" });
+
+  assert.equal(values.impressions, 0);
+  assert.equal(values.engagements, 0);
+  assert.equal(values.clicks, 0);
+  assert.equal(values.posts_count, 1);
+  assert.equal(values.posterior_weight, 1);
+});
