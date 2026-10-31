@@ -30,6 +30,14 @@ function finalVideoCandidate(variant: XCreativeVariant, isVideo: boolean, offici
     && variant.quality.dimensions.adSmell <= (variant.intent === "MONEY" ? 48 : 30);
 }
 
+function qualityRejectionReason(variant: XCreativeVariant) {
+  return `quality gate NG: ${variant.quality.gate.failed.join(", ") || variant.quality.lastMile.reasons.join(" / ") || variant.quality.recommendation}`;
+}
+
+function videoRejectionReason(videoReasons: string[]) {
+  return `動画供給候補外: ${videoReasons.join(" / ") || "official/soft-quality条件未達"}`;
+}
+
 function selectedDiagnosticReason(
   selected: boolean,
   selectedPick: XDailyTopPick | undefined,
@@ -41,10 +49,8 @@ function selectedDiagnosticReason(
 ) {
   if (selected) return selectedPick?.alternativeReason || selectedPick?.whyBuzz || "最終候補として選定";
   if (sameWorkSelected) return "同一workの別variant/roleを選定";
-  if (!variant.quality.passed) {
-    return `quality gate NG: ${variant.quality.gate.failed.join(", ") || variant.quality.lastMile.reasons.join(" / ") || variant.quality.recommendation}`;
-  }
-  if (isVideo && !finalCandidate) return `動画供給候補外: ${videoReasons.join(" / ") || "official/soft-quality条件未達"}`;
+  if (!variant.quality.passed) return qualityRejectionReason(variant);
+  if (isVideo && !finalCandidate) return videoRejectionReason(videoReasons);
   return "枠・多様性・重複・スコアによる最終選定で非選択（個別reject codeなし）";
 }
 
