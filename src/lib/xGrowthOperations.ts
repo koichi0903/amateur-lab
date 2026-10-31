@@ -6,6 +6,7 @@ import type { XGrowthOpportunity } from "@/lib/xGrowthOS";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { ACCOUNT, todayTokyo, withXPostTrackingText, scoreBreakdown, isMissingRelation } from "./xGrowthOperationUtils";
 import type { XDailyPlanStatus, XOpportunityStatus } from "./xGrowthDailyOperations";
+import { buildRankingSnapshotHistories, type RankingSnapshotRow } from "./xGrowthRankingSnapshotHistory";
 
 export * from "./xGrowthDailyOperations";
 export { buildSeriesIdeas, buildStrategicMission } from "@/lib/xGrowthPlanning";
@@ -213,20 +214,6 @@ export async function fetchRankingSnapshotHistory(workIds: number[]) {
     .order("captured_at", { ascending: false })
     .limit(ids.length * 8);
   if (error) return { histories, error: error.message };
-
-  const grouped = new Map<number, Array<{ ranking: number; captured_date: string; captured_at: string }>>();
-  for (const row of (data ?? []) as Array<{ work_id: number; ranking: number; captured_date: string; captured_at: string }>) {
-    if (!row.work_id || !row.ranking) continue;
-    grouped.set(row.work_id, [...(grouped.get(row.work_id) ?? []), row]);
-  }
-  for (const [workId, rows] of grouped) {
-    const byDate = new Map<string, { ranking: number; captured_at: string }>();
-    for (const row of rows) {
-      const current = byDate.get(row.captured_date);
-      if (!current || row.captured_at > current.captured_at) byDate.set(row.captured_date, { ranking: row.ranking, captured_at: row.captured_at });
-    }
-    const ordered = [...byDate.entries()].sort((a, b) => b[0].localeCompare(a[0]));
-    histories.set(workId, { observations: ordered.length, previousRanking: ordered[1]?.[1].ranking ?? null });
-  }
-  return { histories, error: null };
+  const snapshotRows = (data ?? []) as RankingSnapshotRow[];
+  return { histories: buildRankingSnapshotHistories(snapshotRows), error: null };
 }
