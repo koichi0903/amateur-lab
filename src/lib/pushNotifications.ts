@@ -37,7 +37,13 @@ async function sendPriceDropAlert(alert: PriceAlertRow, work: WorkPriceRow, subs
   }
 }
 
-async function loadPriceAlertBatch(productIds: string[]) {
+type PriceAlertBatch = {
+  alertRows: PriceAlertRow[];
+  workById: Map<number, WorkPriceRow>;
+  subscriptionByEndpoint: Map<string, SubscriptionRow>;
+};
+
+async function loadPriceAlertBatch(productIds: string[]): Promise<PriceAlertBatch | null> {
   const ids = [...new Set(productIds)].filter(Boolean);
   if (!ids.length) return null;
 
@@ -59,30 +65,32 @@ async function loadPriceAlertBatch(productIds: string[]) {
   return { alertRows, workById, subscriptionByEndpoint };
 }
 
+async function processPriceAlert(alert: PriceAlertRow, batch: PriceAlertBatch): Promise<"sent" | "skipped"> {
+  const work = batch.workById.get(alert.work_id);
+  const subscription = batch.subscriptionByEndpoint.get(alert.endpoint);
+  const currentPrice = work && work.sale_price && work.sale_price > 0 ? work.sale_price : work?.price;
+  if (!work || !subscription || !currentPrice || currentPrice <= 0) return "skipped";
+
+  const decision = decidePriceAlert(currentPrice, alert.last_notified_price);
+  if (decision !== "notify") {
+    if (decision !== "unchanged") await supabaseAdmin.from("push_price_alerts").update({ last_notified_price: currentPrice }).eq("endpoint", alert.endpoint).eq("work_id", alert.work_id);
+    return "skipped";
+  }
+
+  const sent = await sendPriceDropAlert(alert, work, subscription, currentPrice);
+  await supabaseAdmin.from("push_price_alerts").update({ last_notified_price: currentPrice }).eq("endpoint", alert.endpoint).eq("work_id", alert.work_id);
+  return sent ? "sent" : "skipped";
+}
+
 export async function notifyPriceAlertsForProducts(productIds: string[]) {
   const batch = await loadPriceAlertBatch(productIds);
   if (!batch) return { sent: 0, skipped: 0 };
-  const { alertRows, workById, subscriptionByEndpoint } = batch;
 
   let sent = 0;
   let skipped = 0;
-  for (const alert of alertRows) {
-    const work = workById.get(alert.work_id);
-    const subscription = subscriptionByEndpoint.get(alert.endpoint);
-    const currentPrice = work && work.sale_price && work.sale_price > 0 ? work.sale_price : work?.price;
-    if (!work || !subscription || !currentPrice || currentPrice <= 0) {
-      skipped += 1;
-      continue;
-    }
-    const decision = decidePriceAlert(currentPrice, alert.last_notified_price);
-    if (decision !== "notify") {
-      if (decision !== "unchanged") await supabaseAdmin.from("push_price_alerts").update({ last_notified_price: currentPrice }).eq("endpoint", alert.endpoint).eq("work_id", alert.work_id);
-      skipped += 1;
-      continue;
-    }
-    if (await sendPriceDropAlert(alert, work, subscription, currentPrice)) sent += 1;
+  for (const alert of batch.alertRows) {
+    if (await processPriceAlert(alert, batch) === "sent") sent += 1;
     else skipped += 1;
-    await supabaseAdmin.from("push_price_alerts").update({ last_notified_price: currentPrice }).eq("endpoint", alert.endpoint).eq("work_id", alert.work_id);
   }
   return { sent, skipped };
 }
@@ -172,46 +180,65 @@ export async function notifySeriesAlertsForProducts(productIds: string[]) {
   return { sent, skipped };
 }
 
-export async function notifyAmateurPriceAlertsForContentIds(contentIds: string[]) {
+type AmateurPriceAlertBatch = {
+  workById: Map<string, AmateurWorkRow>;
+  alertRows: AmateurPriceAlertRow[];
+  subscriptionByEndpoint: Map<string, SubscriptionRow>;
+};
+
+async function loadAmateurPriceAlertBatch(contentIds: string[]): Promise<AmateurPriceAlertBatch | null> {
   const ids = [...new Set(contentIds)].filter(Boolean);
-  if (!ids.length) return { sent: 0, skipped: 0 };
+  if (!ids.length) return null;
   const { data: works, error: worksError } = await supabaseAdmin.from("fanza_amateur_works").select("content_id,title,raw_item").in("content_id", ids);
   if (worksError) throw worksError;
   const workById = new Map(((works ?? []) as AmateurWorkRow[]).map((work) => [work.content_id, work]));
   const { data: alerts, error: alertsError } = await supabaseAdmin.from("push_amateur_price_alerts").select("endpoint,content_id,last_notified_price").in("content_id", ids);
   if (alertsError) throw alertsError;
   const alertRows = (alerts ?? []) as AmateurPriceAlertRow[];
-  if (!alertRows.length) return { sent: 0, skipped: 0 };
+  if (!alertRows.length) return null;
   const endpoints = [...new Set(alertRows.map((alert) => alert.endpoint))];
   const { data: subscriptions, error: subscriptionsError } = await supabaseAdmin.from("push_subscriptions").select("endpoint,p256dh,auth,active").in("endpoint", endpoints).eq("active", true);
   if (subscriptionsError) throw subscriptionsError;
   const subscriptionByEndpoint = new Map((subscriptions ?? []).map((row) => [row.endpoint, row as SubscriptionRow]));
+  return { workById, alertRows, subscriptionByEndpoint };
+}
+
+async function sendAmateurPriceAlert(alert: AmateurPriceAlertRow, batch: AmateurPriceAlertBatch): Promise<"sent" | "skipped"> {
+  const work = batch.workById.get(alert.content_id);
+  const subscription = batch.subscriptionByEndpoint.get(alert.endpoint);
+  const currentPrice = work ? getFanzaAmateurPriceFromRawItem(work.raw_item) : null;
+  if (!work || !subscription || currentPrice == null) return "skipped";
+
+  const decision = decidePriceAlert(currentPrice, alert.last_notified_price);
+  if (decision !== "notify") {
+    if (decision !== "unchanged") await supabaseAdmin.from("push_amateur_price_alerts").update({ last_notified_price: currentPrice }).eq("endpoint", alert.endpoint).eq("content_id", alert.content_id);
+    return "skipped";
+  }
+
+  let result: "sent" | "skipped" = "sent";
+  const pushSubscription: StoredPushSubscription = { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } };
+  try {
+    await sendPushNotification(pushSubscription, { title: "発掘LAB：価格が下がりました", body: `${work.title} が ¥${currentPrice.toLocaleString("ja-JP")} になりました。`, url: `/amateur/${encodeURIComponent(work.content_id)}`, tag: `amateur-price-${work.content_id}` });
+  } catch (error) {
+    result = "skipped";
+    console.error("[push] amateur price notification failed", { endpoint: alert.endpoint, contentId: alert.content_id, error });
+    if (isGonePushEndpointError(error)) {
+      await supabaseAdmin.from("push_subscriptions").update({ active: false, last_error_at: new Date().toISOString() }).eq("endpoint", alert.endpoint);
+    }
+  }
+  await supabaseAdmin.from("push_amateur_price_alerts").update({ last_notified_price: currentPrice }).eq("endpoint", alert.endpoint).eq("content_id", alert.content_id);
+  return result;
+}
+
+export async function notifyAmateurPriceAlertsForContentIds(contentIds: string[]) {
+  const batch = await loadAmateurPriceAlertBatch(contentIds);
+  if (!batch) return { sent: 0, skipped: 0 };
 
   let sent = 0;
   let skipped = 0;
-  for (const alert of alertRows) {
-    const work = workById.get(alert.content_id);
-    const subscription = subscriptionByEndpoint.get(alert.endpoint);
-    const currentPrice = work ? getFanzaAmateurPriceFromRawItem(work.raw_item) : null;
-    if (!work || !subscription || currentPrice == null) { skipped += 1; continue; }
-    const decision = decidePriceAlert(currentPrice, alert.last_notified_price);
-    if (decision !== "notify") {
-      if (decision !== "unchanged") await supabaseAdmin.from("push_amateur_price_alerts").update({ last_notified_price: currentPrice }).eq("endpoint", alert.endpoint).eq("content_id", alert.content_id);
-      skipped += 1;
-      continue;
-    }
-    const pushSubscription: StoredPushSubscription = { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } };
-    try {
-      await sendPushNotification(pushSubscription, { title: "発掘LAB：価格が下がりました", body: `${work.title} が ¥${currentPrice.toLocaleString("ja-JP")} になりました。`, url: `/amateur/${encodeURIComponent(work.content_id)}`, tag: `amateur-price-${work.content_id}` });
-      sent += 1;
-    } catch (error) {
-      console.error("[push] amateur price notification failed", { endpoint: alert.endpoint, contentId: alert.content_id, error });
-      if (isGonePushEndpointError(error)) {
-        await supabaseAdmin.from("push_subscriptions").update({ active: false, last_error_at: new Date().toISOString() }).eq("endpoint", alert.endpoint);
-      }
-      skipped += 1;
-    }
-    await supabaseAdmin.from("push_amateur_price_alerts").update({ last_notified_price: currentPrice }).eq("endpoint", alert.endpoint).eq("content_id", alert.content_id);
+  for (const alert of batch.alertRows) {
+    if (await sendAmateurPriceAlert(alert, batch) === "sent") sent += 1;
+    else skipped += 1;
   }
   return { sent, skipped };
 }
