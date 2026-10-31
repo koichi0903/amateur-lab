@@ -338,8 +338,8 @@ export function MyfansProductSupplyPanel({
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           {targetPostUrls.map((url) => {
             const product = productByUrl.get(url);
-            const evidence = evidenceRows.filter((row) => row.final_myfans_url === url || row.discovered_myfans_url === url || row.product_id === product?.id).sort((a, b) => String(b.verified_at).localeCompare(String(a.verified_at)))[0];
-            const label = evidence?.confidence === "exact" && product ? "exact / affiliate ready候補" : product ? "商品登録済み・affiliate未発行" : evidence?.confidence === "strong" ? "UUID解決済み・DB商品未登録" : "未登録";
+            const evidence = getLatestMyfansSupplyEvidence(url, product, evidenceRows);
+            const label = getMyfansSupplyTargetLabel(product, evidence);
             return <div key={url} className="rounded-lg bg-zinc-950 p-4 text-xs leading-5 text-zinc-300">
               <p className="font-black text-white">{label}</p>
               <p className="mt-1 break-all text-zinc-500">{url}</p>
@@ -353,6 +353,19 @@ export function MyfansProductSupplyPanel({
       </div>
     </details>
   );
+}
+
+function getLatestMyfansSupplyEvidence(url: string, product: SupplyProduct | undefined, evidenceRows: readonly SupplyEvidence[]) {
+  return evidenceRows
+    .filter((row) => row.final_myfans_url === url || row.discovered_myfans_url === url || row.product_id === product?.id)
+    .sort((a, b) => String(b.verified_at).localeCompare(String(a.verified_at)))[0];
+}
+
+function getMyfansSupplyTargetLabel(product: SupplyProduct | undefined, evidence: SupplyEvidence | undefined) {
+  if (evidence?.confidence === "exact" && product) return "exact / affiliate ready候補";
+  if (product) return "商品登録済み・affiliate未発行";
+  if (evidence?.confidence === "strong") return "UUID解決済み・DB商品未登録";
+  return "未登録";
 }
 
 export function MyfansAcquisitionPlanner({ planner }: { planner: ReturnType<typeof import("@/lib/myfansAcquisitionPlanner").buildMyfansAcquisitionPlanner> }) {
