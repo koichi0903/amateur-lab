@@ -7,11 +7,7 @@ import {
   withReviewDatabaseRetry,
 } from "./reviewUpdateSupport";
 import { processReviewBatch, type ReviewUpdateOutcome } from "./reviewUpdateBatch";
-
-type ReviewUpdateOptions = {
-  maxItems?: number;
-  timeBudgetMs?: number;
-};
+import { createReviewUpdatePlan, resolveReviewPageState, shouldStopReviewUpdateForDeadline, type ReviewUpdateOptions } from "./reviewUpdatePlan";
 
 export type ReviewUpdateResult = {
   completed: boolean;
@@ -159,6 +155,55 @@ async function processReviewTargets(
   }
 }
 
+async function processReviewPages(options: {
+  initialProcessedCount: number;
+  targetEnd: number;
+  deadline: number | null;
+  totalCount: number;
+  progress: ReviewProgress;
+  updateOne: (work: ReviewTarget) => Promise<ReviewUpdateOutcome>;
+}) {
+  const { initialProcessedCount, targetEnd, deadline, totalCount, progress, updateOne } = options;
+  let reachedEnd = false;
+
+  while (progress.current < targetEnd) {
+    if (shouldStopReviewUpdateForDeadline(progress.current, initialProcessedCount, deadline)) break;
+
+    const pageStart = progress.current;
+    const pageEnd = Math.min(targetEnd, pageStart + DB_PAGE_SIZE);
+    const requestedCount = pageEnd - pageStart;
+    const data = await withReviewDatabaseRetry(
+      `対象作品の取得 ${pageStart}-${pageEnd - 1}`,
+      async () => {
+        const result = await supabase
+          .from("works")
+          .select(REVIEW_SELECT)
+          .order("id", { ascending: true })
+          .range(pageStart, pageEnd - 1);
+        if (result.error) throw result.error;
+        return result.data;
+      },
+    );
+
+    const targets = (data ?? []) as ReviewTarget[];
+    if (targets.length === 0) {
+      reachedEnd = true;
+      break;
+    }
+
+    await processReviewTargets(targets, deadline, totalCount, progress, updateOne);
+
+    const pageState = resolveReviewPageState(progress.current, pageEnd, targets.length, requestedCount);
+    if (pageState === "paused") break;
+    if (pageState === "complete") {
+      reachedEnd = true;
+      break;
+    }
+  }
+
+  return reachedEnd;
+}
+
 export async function updateReviewWorks(
   options: ReviewUpdateOptions = {},
 ): Promise<ReviewUpdateResult> {
@@ -178,13 +223,7 @@ export async function updateReviewWorks(
     }
 
     const initialProcessedCount = Math.max(job.processed_count ?? 0, 0);
-    const maxItems = options.maxItems === undefined
-      ? Number.POSITIVE_INFINITY
-      : Math.max(1, options.maxItems);
-    const targetEnd = initialProcessedCount + maxItems;
-    const deadline = options.timeBudgetMs && options.timeBudgetMs > 0
-      ? Date.now() + options.timeBudgetMs
-      : null;
+    const { targetEnd, deadline } = createReviewUpdatePlan(initialProcessedCount, options);
     const progress: ReviewProgress = {
       current: initialProcessedCount,
       success: 0,
@@ -193,43 +232,14 @@ export async function updateReviewWorks(
       workIds: [],
     };
     const updateOne = createReviewUpdater();
-    let reachedEnd = false;
-
-    while (progress.current < targetEnd) {
-      if (progress.current > initialProcessedCount && deadline !== null && Date.now() >= deadline) {
-        break;
-      }
-
-      const pageStart = progress.current;
-      const pageEnd = Math.min(targetEnd, pageStart + DB_PAGE_SIZE);
-      const requestedCount = pageEnd - pageStart;
-      const data = await withReviewDatabaseRetry(
-        `対象作品の取得 ${pageStart}-${pageEnd - 1}`,
-        async () => {
-          const result = await supabase
-            .from("works")
-            .select(REVIEW_SELECT)
-            .order("id", { ascending: true })
-            .range(pageStart, pageEnd - 1);
-          if (result.error) throw result.error;
-          return result.data;
-        },
-      );
-
-      const targets = (data ?? []) as ReviewTarget[];
-      if (targets.length === 0) {
-        reachedEnd = true;
-        break;
-      }
-
-      await processReviewTargets(targets, deadline, totalCount, progress, updateOne);
-
-      if (progress.current < pageEnd) break;
-      if (targets.length < requestedCount) {
-        reachedEnd = true;
-        break;
-      }
-    }
+    const reachedEnd = await processReviewPages({
+      initialProcessedCount,
+      targetEnd,
+      deadline,
+      totalCount,
+      progress,
+      updateOne,
+    });
 
     const completed = reachedEnd;
     if (completed) {
