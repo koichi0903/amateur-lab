@@ -115,35 +115,70 @@ function hasVideoHookEvidence(
   );
 }
 
-/** Cheap, deterministic narrowing before the expensive Human Voice matrix. */
-export function cheapCandidatePrefilter(items: XGrowthOpportunity[], limit = 300) {
-  const ranked = [...items].sort((a, b) => {
-    const visual = (candidate: XGrowthOpportunity) => candidate.visualScoring.videoHookStrength + candidate.visualScoring.visualSpecificity;
-    const score = (candidate: XGrowthOpportunity) => Math.max(candidate.reachScore, candidate.followScore, candidate.authorityScore, candidate.revenueScore) + visual(candidate) * 0.08;
-    return score(b) - score(a);
-  });
-  const selected = new Map<string, XGrowthOpportunity>();
-  const add = (item: XGrowthOpportunity) => { if (selected.size < limit) selected.set(item.key, item); };
+function cheapPrefilterScore(candidate: XGrowthOpportunity) {
+  const visualScore = candidate.visualScoring.videoHookStrength + candidate.visualScoring.visualSpecificity;
+  const audienceScore = Math.max(candidate.reachScore, candidate.followScore, candidate.authorityScore, candidate.revenueScore);
+  return audienceScore + visualScore * 0.08;
+}
+
+function addPrefilterCandidate(
+  selected: Map<string, XGrowthOpportunity>,
+  item: XGrowthOpportunity,
+  limit: number,
+) {
+  if (selected.size < limit) selected.set(item.key, item);
+}
+
+function reserveTopVideoCandidates(
+  ranked: XGrowthOpportunity[],
+  selected: Map<string, XGrowthOpportunity>,
+  limit: number,
+) {
   const reservedVideoWorks = new Set<number>();
   for (const item of ranked) {
     if (reservedVideoWorks.size >= Math.min(VIDEO_QUALITY_EVALUATION_WORK_LIMIT, limit)) break;
     if (!isVideoCandidate({ ...item, mediaType: "sample_movie" }) || !officialSampleVideoAllowed(item) || reservedVideoWorks.has(item.workId)) continue;
-    add(item);
+    addPrefilterCandidate(selected, item, limit);
     reservedVideoWorks.add(item.workId);
   }
-  for (const item of ranked.filter((candidate) => candidate.sourceType === "MONEY").slice(0, 30)) add(item);
+}
+
+function reserveTopCandidatesByRole(
+  ranked: XGrowthOpportunity[],
+  selected: Map<string, XGrowthOpportunity>,
+  limit: number,
+) {
   for (const role of ["REACH", "FOLLOW", "AUTHORITY", "MONEY"] as const) {
     [...ranked].sort((a, b) => {
       const score = (item: XGrowthOpportunity) => role === "REACH" ? item.reachScore : role === "FOLLOW" ? item.followScore : role === "AUTHORITY" ? item.authorityScore : item.revenueScore;
       return score(b) - score(a);
-    }).slice(0, 30).forEach(add);
+    }).slice(0, 30).forEach((item) => addPrefilterCandidate(selected, item, limit));
   }
+}
+
+function reserveFirstCandidatesPerSource(
+  ranked: XGrowthOpportunity[],
+  selected: Map<string, XGrowthOpportunity>,
+  limit: number,
+) {
   const perSource = new Map<string, number>();
   for (const item of ranked) {
     if ((perSource.get(item.sourceType) ?? 0) >= 3) continue;
-    add(item);
+    addPrefilterCandidate(selected, item, limit);
     perSource.set(item.sourceType, (perSource.get(item.sourceType) ?? 0) + 1);
   }
+}
+
+/** Cheap, deterministic narrowing before the expensive Human Voice matrix. */
+export function cheapCandidatePrefilter(items: XGrowthOpportunity[], limit = 300) {
+  const ranked = [...items].sort((a, b) => cheapPrefilterScore(b) - cheapPrefilterScore(a));
+  const selected = new Map<string, XGrowthOpportunity>();
+  reserveTopVideoCandidates(ranked, selected, limit);
+  for (const item of ranked.filter((candidate) => candidate.sourceType === "MONEY").slice(0, 30)) {
+    addPrefilterCandidate(selected, item, limit);
+  }
+  reserveTopCandidatesByRole(ranked, selected, limit);
+  reserveFirstCandidatesPerSource(ranked, selected, limit);
   return ranked.filter((item) => selected.has(item.key)).slice(0, limit);
 }
 
