@@ -68,25 +68,36 @@ export function FanzaStyleWorkCardPrice({
   isSale,
   price,
   dark,
-  showChart,
-  insight,
 }: {
   work: Work;
   isSale: boolean;
   price: number;
   dark: boolean;
+}) {
+  return (
+    <div className={`mt-3 flex min-h-[56px] items-end justify-between gap-2 border-t pt-2 ${dark ? "border-zinc-800" : "border-slate-100"}`}>
+      <div className="min-w-0">
+        {isSale && <p className="text-[10px] font-bold text-slate-400 line-through">¥{work.price.toLocaleString("ja-JP")}</p>}
+        <p className={`text-base font-black ${isSale ? "text-pink-500" : dark ? "text-white" : "text-slate-900"}`}>{price > 0 ? `¥${price.toLocaleString("ja-JP")}` : "価格未取得"}</p>
+      </div>
+      {isSale && work.sale_end_at && <SaleCountdown saleEndAt={work.sale_end_at} />}
+    </div>
+  );
+}
+
+export function FanzaStyleWorkCardSignals({
+  work,
+  showChart,
+  insight,
+  dark,
+}: {
+  work: Work;
   showChart: boolean;
   insight?: HomePriceInsightWork;
+  dark: boolean;
 }) {
   return (
     <>
-      <div className={`mt-3 flex min-h-[56px] items-end justify-between gap-2 border-t pt-2 ${dark ? "border-zinc-800" : "border-slate-100"}`}>
-        <div className="min-w-0">
-          {isSale && <p className="text-[10px] font-bold text-slate-400 line-through">¥{work.price.toLocaleString("ja-JP")}</p>}
-          <p className={`text-base font-black ${isSale ? "text-pink-500" : dark ? "text-white" : "text-slate-900"}`}>{price > 0 ? `¥${price.toLocaleString("ja-JP")}` : "価格未取得"}</p>
-        </div>
-        {isSale && work.sale_end_at && <SaleCountdown saleEndAt={work.sale_end_at} />}
-      </div>
       <div className={`mt-2 flex min-h-5 items-center justify-between text-[11px] font-bold ${dark ? "text-zinc-500" : "text-slate-500"}`}><span className="text-amber-500">★ {work.review_average > 0 ? work.review_average.toFixed(1) : "-"}</span><span>({work.review_count ?? 0})</span></div>
       {showChart && insight && <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1"><MiniPriceHistoryChart points={insight.priceHistory} windowStartAt={insight.priceWindowStartAt} windowEndAt={insight.priceWindowEndAt} lowPrice={insight.low90Price} currentPrice={insight.currentPrice} variant="compact" /></div>}
     </>
