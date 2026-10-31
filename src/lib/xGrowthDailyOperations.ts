@@ -521,12 +521,11 @@ async function recordPostedOpportunity(
   await auditXGrowth("x_post_created", { opportunityId: id, xPostId: created.id, mediaId: created.mediaId ?? null });
 }
 
-export async function executeOpportunityPost(id: number) {
-  const { data, error } = await supabaseAdmin.from("x_growth_opportunities").select("*").eq("account_handle", ACCOUNT).eq("id", id).single();
-  if (error || !data) return { error: error?.message ?? "Opportunity not found", postId: null as string | null };
-
-  const opportunity = data as Record<string, unknown>;
-  const persistedPick = ((opportunity.creative_genome as Record<string, unknown> | null)?.persisted_top_pick ?? null) as SerializedTopPick | null;
+async function runOpportunityPost(
+  id: number,
+  opportunity: Record<string, unknown>,
+  persistedPick: SerializedTopPick | null,
+) {
   let temp: Awaited<ReturnType<typeof downloadTempVideo>> | null = null;
   try {
     if (String(opportunity.media_type ?? "text") === "sample_movie") {
@@ -541,4 +540,13 @@ export async function executeOpportunityPost(id: number) {
   } finally {
     if (temp) await cleanupTempVideo(temp.dir);
   }
+}
+
+export async function executeOpportunityPost(id: number) {
+  const { data, error } = await supabaseAdmin.from("x_growth_opportunities").select("*").eq("account_handle", ACCOUNT).eq("id", id).single();
+  if (error || !data) return { error: error?.message ?? "Opportunity not found", postId: null as string | null };
+
+  const opportunity = data as Record<string, unknown>;
+  const persistedPick = ((opportunity.creative_genome as Record<string, unknown> | null)?.persisted_top_pick ?? null) as SerializedTopPick | null;
+  return runOpportunityPost(id, opportunity, persistedPick);
 }
