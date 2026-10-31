@@ -22,6 +22,7 @@ import { restoreDiscontinuedWorks } from "./restoreDiscontinuedWorks";
 import { updateWork } from "./updateWork";
 import { notifySeriesAlertsForProducts } from "@/lib/pushNotifications";
 import { shouldCaptureSampleMovie } from "./sampleMovieCapture";
+import { shouldSkipUnchangedNewWorkUpdate } from "./newWorkUpdatePolicy";
 
 type NewProduct = Awaited<ReturnType<typeof getNewItems>>["products"][number];
 
@@ -223,14 +224,12 @@ export async function updateNewWorks() {
 
           // PENDING means initial Playwright completion is still required even
           // when the headline price already matches the listing page.
-          if (
-            work.playwright_status !== "PENDING" &&
-            !work.playwright_status?.startsWith("UNAVAILABLE_") &&
-            dbPrice != null &&
-            latestPrice != null &&
-            dbPrice === latestPrice &&
-            !captureSampleMovie
-          ) {
+          if (shouldSkipUnchangedNewWorkUpdate({
+            playwrightStatus: work.playwright_status,
+            databasePrice: dbPrice,
+            latestPrice,
+            captureSampleMovie,
+          })) {
             console.log(`[SKIP] ${work.product_id} price=${dbPrice}`);
             return;
           }
