@@ -154,15 +154,24 @@ export function isFanzaXGrowthTechnicalSampleMovie(asset: Partial<XMediaAsset> |
 }
 
 function xMediaPermissionReasons(asset: Partial<XMediaAsset> | null | undefined) {
-  const reasons: string[] = [];
-  if (!asset) reasons.push("rights未確認");
   const status = normalizeRightsStatus(asset?.rights_status);
-  if (status !== "allowed") reasons.push(status === "blocked" ? "rights blocked" : "rights未確認");
-  if (asset?.x_usage_allowed !== true) reasons.push("X usage不可");
-  if (asset?.can_reupload !== true) reasons.push("reupload不可");
-  if (asset?.quote_only === true) reasons.push("quote only");
-  if (asset?.commercial_use_allowed !== true) reasons.push("commercial use未確認");
-  return reasons;
+  return [
+    !asset ? "rights未確認" : null,
+    rightsStatusReason(status),
+    permissionReason(asset?.x_usage_allowed === true, "X usage不可"),
+    permissionReason(asset?.can_reupload === true, "reupload不可"),
+    permissionReason(asset?.quote_only !== true, "quote only"),
+    permissionReason(asset?.commercial_use_allowed === true, "commercial use未確認"),
+  ].filter((reason): reason is string => reason !== null);
+}
+
+function rightsStatusReason(status: XMediaRightsStatus) {
+  if (status === "allowed") return null;
+  return status === "blocked" ? "rights blocked" : "rights未確認";
+}
+
+function permissionReason(isAllowed: boolean, reason: string) {
+  return isAllowed ? null : reason;
 }
 
 function xMediaTechnicalReasons(asset: Partial<XMediaAsset> | null | undefined) {

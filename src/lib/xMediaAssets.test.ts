@@ -22,6 +22,7 @@ assert.equal(isUsableXMediaAsset({ ...base, quote_only: true }).usable, false);
 assert.equal(isUsableXMediaAsset({ ...base, fetch_status: "dead" }).usable, false);
 assert.equal(isUsableXMediaAsset({ ...base, fetch_status: "unknown" }).usable, false);
 assert.equal(isUsableXMediaAsset(base).usable, true);
+assert.deepEqual(isUsableXMediaAsset(null).reasons, ["rights未確認", "X usage不可", "reupload不可", "commercial use未確認", "technical未確認"]);
 assert.deepEqual(
   isUsableXMediaAsset({
     ...base,
