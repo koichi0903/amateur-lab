@@ -23,13 +23,22 @@ test("uses saved cover and sample images while preserving catalog fallbacks", ()
   } as FanzaAmateurCatalogItem;
   const projected = projectFanzaAmateurActressWorkRow(row, () => item);
 
-  assert.equal(projected?.fetchedAt, row.fetched_at);
-  assert.equal(projected?.item.imageURL?.large, "saved-large");
-  assert.equal(projected?.item.imageURL?.small, "catalog-small");
-  assert.equal(projected?.item.imageURL?.list, "saved-list");
-  assert.deepEqual(projected?.item.sampleImageURL?.sample_l?.image, ["saved-large-sample"]);
-  assert.deepEqual(projected?.item.sampleImageURL?.sample_s?.image, ["saved-small-sample"]);
-  assert.deepEqual(projected?.item.confirmedPerformers, ["confirmed name"]);
+  assert.ok(projected);
+  assert.equal(projected.fetchedAt, row.fetched_at);
+  const imageURL = projected.item.imageURL;
+  assert.ok(imageURL);
+  assert.equal(imageURL.large, "saved-large");
+  assert.equal(imageURL.small, "catalog-small");
+  assert.equal(imageURL.list, "saved-list");
+  const sampleImageURL = projected.item.sampleImageURL;
+  assert.ok(sampleImageURL);
+  const largeSamples = sampleImageURL.sample_l;
+  const smallSamples = sampleImageURL.sample_s;
+  assert.ok(largeSamples);
+  assert.ok(smallSamples);
+  assert.deepEqual(largeSamples.image, ["saved-large-sample"]);
+  assert.deepEqual(smallSamples.image, ["saved-small-sample"]);
+  assert.deepEqual(projected.item.confirmedPerformers, ["confirmed name"]);
 });
 
 test("keeps sample fallbacks for empty saved samples and skips invalid catalog items", () => {
@@ -38,7 +47,10 @@ test("keeps sample fallbacks for empty saved samples and skips invalid catalog i
     sampleImageURL: { sample_l: { image: ["catalog-sample"] } },
   } as FanzaAmateurCatalogItem;
   const projected = projectFanzaAmateurActressWorkRow({ ...row, sample_image_url: null, confirmed_performers: null }, () => item);
-  assert.deepEqual(projected?.item.sampleImageURL?.sample_l?.image, ["catalog-sample"]);
-  assert.deepEqual(projected?.item.confirmedPerformers, []);
+  assert.ok(projected);
+  assert.ok(projected.item.sampleImageURL);
+  assert.ok(projected.item.sampleImageURL.sample_l);
+  assert.deepEqual(projected.item.sampleImageURL.sample_l.image, ["catalog-sample"]);
+  assert.deepEqual(projected.item.confirmedPerformers, []);
   assert.equal(projectFanzaAmateurActressWorkRow(row, () => null), null);
 });
