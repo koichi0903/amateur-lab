@@ -12,6 +12,7 @@ import { cachePreparedBijyoVideo, canUseLocalBijyoVideoStore, readCachedBijyoVid
 import { getBijyoHistoryPage, getBijyoReservedQueueWorks, HISTORY_PAGE_SIZE } from "@/lib/bijyoReadPages";
 import { BIJYO_ACCOUNT } from "@/lib/bijyoConfig";
 import { resolveBijyoTrimPlan } from "@/lib/bijyoVideoPreparation";
+import { collectBijyoActiveWorkIds, hydrateBijyoActiveJobs } from "@/lib/bijyoActiveJobProjection";
 
 export { buildBijyoMainText, buildBijyoReplyText, tokyoDate } from "@/lib/bijyoReservedWorkflow";
 export { BIJYO_ACCOUNT };
@@ -41,25 +42,29 @@ function conflictResult(state: string): BijyoActionResult {
 
 const JOB_SELECT = "id,work_id,kind,slot_date,slot_index,scheduled_at,status,trim_start_seconds,trim_status,trim_reason,trim_failure_reason,main_text,reply_text,x_post_id,posted_at,failure_reason,skip_reason";
 
-async function activeJobs(select = JOB_SELECT, options: { ascending?: boolean; limit?: number; offset?: number; kind?: "auto" | "manual"; statuses?: string[]; count?: boolean } = {}) {
+type ActiveJobsOptions = { ascending?: boolean; limit?: number; offset?: number; kind?: "auto" | "manual"; statuses?: string[]; count?: boolean };
+
+function buildActiveJobsQuery(select: string, options: ActiveJobsOptions) {
   let query = supabaseAdmin.from("bijyo_reserved_post_jobs").select(select, options.count ? { count: "exact" } : undefined).eq("account_handle", BIJYO_ACCOUNT).order("posted_at", { ascending: options.ascending ?? false, nullsFirst: false }).order("scheduled_at", { ascending: false });
   if (options.kind === "manual") query = query.order("id", { ascending: false });
   if (options.kind) query = query.eq("kind", options.kind);
   if (options.statuses?.length) query = query.in("status", options.statuses);
   if (options.limit !== undefined) query = query.range(options.offset ?? 0, (options.offset ?? 0) + options.limit - 1);
+  return query;
+}
+
+async function activeJobs(select = JOB_SELECT, options: ActiveJobsOptions = {}) {
+  const query = buildActiveJobsQuery(select, options);
   const result = await query;
   if (result.error) return { jobs: [] as BijyoJob[], total: 0, error: result.error.message };
-  const rows = (result.data ?? []) as unknown as Array<Record<string, unknown>>;
-  const workIds = [...new Set(rows.map((row) => Number(row.work_id)).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  const rows = (result.data ?? []) as unknown as Array<Record<string, unknown> & { work_id: unknown }>;
+  const workIds = collectBijyoActiveWorkIds(rows);
   const worksResult = workIds.length
     ? await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").in("id", workIds)
     : { data: [], error: null };
   if (worksResult.error) return { jobs: [] as BijyoJob[], total: 0, error: worksResult.error.message };
-  const worksById = new Map((worksResult.data as Work[]).map((work) => [work.id, work]));
-  return { jobs: rows.map((row) => {
-    const workId = Number(row.work_id);
-    return { ...row, reply_text: buildBijyoReplyText(workId), work: worksById.get(workId) ?? null } as unknown as BijyoJob;
-  }), total: result.count ?? rows.length, error: null };
+  const jobs = hydrateBijyoActiveJobs(rows, worksResult.data as Work[], buildBijyoReplyText);
+  return { jobs: jobs as unknown as BijyoJob[], total: result.count ?? rows.length, error: null };
 }
 
 async function jobRefs(workIds: number[]) {
@@ -135,6 +140,11 @@ async function loadJob(jobId: number, workId?: number) {
   const workResult = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("id", job.work_id).maybeSingle();
   if (workResult.error) return { job: null, error: workResult.error.message };
   return { job: { ...job, reply_text: buildBijyoReplyText(job.work_id), work: (workResult.data as Work | null) ?? null }, error: null };
+}
+
+function requireBijyoPreparationJob(loaded: Awaited<ReturnType<typeof loadJob>>) {
+  if (loaded.error || !loaded.job || !loaded.job.work) throw new BijyoVideoNotFoundError(loaded.error ?? "投稿候補が見つかりません。");
+  return { job: loaded.job, work: loaded.job.work as Work };
 }
 
 export async function getPreparedBijyoVideo(jobId: number, workId: number) {
@@ -230,10 +240,7 @@ async function loadBijyoPreparationJob(jobId: number, workId?: number) {
     if (!ensured.ok || !ensured.jobId) throw new BijyoVideoNotFoundError(ensured.error ?? "投稿候補が見つかりません。");
     loaded = await loadJob(ensured.jobId, workId);
   }
-  if (loaded.error || !loaded.job || !loaded.job.work) throw new BijyoVideoNotFoundError(loaded.error ?? "投稿候補が見つかりません。");
-  const job = loaded.job;
-  const work = job.work as Work;
-  return { job, work };
+  return requireBijyoPreparationJob(loaded);
 }
 
 async function claimBijyoVideoPreparation(job: BijyoJob) {
