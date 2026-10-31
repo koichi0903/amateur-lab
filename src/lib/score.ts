@@ -125,6 +125,59 @@ function applyTrustCaps({
   return Math.min(score, cap);
 }
 
+function getDiscountPoint({
+  safeDiscountRate,
+  currentPrice,
+  lowestPrice,
+}: {
+  safeDiscountRate: number;
+  currentPrice: number | null;
+  lowestPrice: number | null;
+}) {
+  const lowestPricePoint = getLowestPricePoint(currentPrice, lowestPrice);
+  const pricePoint = currentPrice && currentPrice <= 500
+    ? 2
+    : currentPrice && currentPrice <= 1000
+      ? 1
+      : 0;
+  const discountPoint =
+    clamp(lowestPricePoint + (safeDiscountRate / 50) * 5, 0, 13) + pricePoint;
+  return clamp(discountPoint, 0, 15);
+}
+
+type DecisionSupportParams = {
+  actressPoint: number;
+  genrePoint: number;
+  makerPoint: number;
+  releaseDate: string | null;
+  effectivePrice: number | null;
+  hasSampleMovie: boolean;
+  sampleImageCount: number;
+  hasImage: boolean;
+};
+
+function getDecisionSupportPoint({
+  actressPoint,
+  genrePoint,
+  makerPoint,
+  releaseDate,
+  effectivePrice,
+  hasSampleMovie,
+  sampleImageCount,
+  hasImage,
+}: DecisionSupportParams) {
+  const enoughInfoCount = [
+    actressPoint > 0,
+    genrePoint > 0,
+    makerPoint > 0,
+    releaseDate,
+    effectivePrice,
+  ].filter(Boolean).length;
+  return (hasSampleMovie ? 3 : 0) +
+    (sampleImageCount > 0 || hasImage ? 1 : 0) +
+    (enoughInfoCount >= 4 ? 1 : 0);
+}
+
 export function calculateScore({
   reviewAverage,
   reviewCount,
@@ -160,23 +213,21 @@ export function calculateScore({
 
   const popularityPoint = getHiddenPotential(bestRank, qualityTrustPoint);
 
-  const lowestPricePoint = getLowestPricePoint(effectivePrice, effectiveLowestPrice);
-  const discountPoint =
-    clamp(lowestPricePoint + (safeDiscountRate / 50) * 5, 0, 13) +
-    (effectivePrice && effectivePrice <= 500 ? 2 : effectivePrice && effectivePrice <= 1000 ? 1 : 0);
-  const cappedDiscountPoint = clamp(discountPoint, 0, 15);
-
-  const enoughInfoCount = [
-    actressPoint > 0,
-    genrePoint > 0,
-    makerPoint > 0,
+  const cappedDiscountPoint = getDiscountPoint({
+    safeDiscountRate,
+    currentPrice: effectivePrice,
+    lowestPrice: effectiveLowestPrice,
+  });
+  const decisionSupportPoint = getDecisionSupportPoint({
+    actressPoint,
+    genrePoint,
+    makerPoint,
     releaseDate,
     effectivePrice,
-  ].filter(Boolean).length;
-  const decisionSupportPoint =
-    (hasSampleMovie ? 3 : 0) +
-    (sampleImageCount > 0 || hasImage ? 1 : 0) +
-    (enoughInfoCount >= 4 ? 1 : 0);
+    hasSampleMovie,
+    sampleImageCount,
+    hasImage,
+  });
 
   const rawScore =
     qualityTrustPoint + popularityPoint + cappedDiscountPoint + decisionSupportPoint;
