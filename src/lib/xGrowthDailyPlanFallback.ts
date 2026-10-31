@@ -54,7 +54,7 @@ function fallbackSetDiversity(row: OpportunityFallbackRow, pick: PartialPick): N
   };
 }
 
-function fallbackMediaFields(row: OpportunityFallbackRow, pick: PartialPick) {
+function fallbackMediaPresentationFields(row: OpportunityFallbackRow, pick: PartialPick) {
   return {
     mediaUsage: pick.mediaUsage ?? "allowed",
     canNativeVideo: Boolean(pick.canNativeVideo),
@@ -62,14 +62,32 @@ function fallbackMediaFields(row: OpportunityFallbackRow, pick: PartialPick) {
     recommendedTimeLabel: pick.recommendedTimeLabel ?? "",
     whyToday: pick.whyToday ?? [],
     whyBuzz: pick.whyBuzz ?? String(row.adoption_reason ?? ""),
+  };
+}
+
+function fallbackMediaDecisionFields(pick: PartialPick) {
+  return {
     mediaDecision: pick.mediaDecision ?? "",
     alternativeReason: pick.alternativeReason ?? null,
     dailyScore: pick.dailyScore ?? 0,
     sourceEvidence: pick.sourceEvidence ?? [],
     decisionFacts: pick.decisionFacts ?? null,
+  };
+}
+
+function fallbackMediaReferenceFields(row: OpportunityFallbackRow, pick: PartialPick) {
+  return {
     setDiversity: pick.setDiversity ?? fallbackSetDiversity(row, pick),
     mediaAsset: pick.mediaAsset ?? fallbackMediaAsset(row),
     selectedVariant: pick.selectedVariant ?? null,
+  };
+}
+
+function fallbackMediaFields(row: OpportunityFallbackRow, pick: PartialPick) {
+  return {
+    ...fallbackMediaPresentationFields(row, pick),
+    ...fallbackMediaDecisionFields(pick),
+    ...fallbackMediaReferenceFields(row, pick),
   };
 }
 
