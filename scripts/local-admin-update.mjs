@@ -15,6 +15,7 @@ import {
   getProductionRevalidationEndpoint,
   getRevalidationSiteUrls,
   isSuccessfulTaskResponse,
+  requestReadinessAttempt,
   runTaskSequence,
   writeFileWithRetry,
 } from "./local-admin-update-helpers.mjs";
@@ -479,37 +480,24 @@ async function run(taskName) {
         );
       }
       const attemptStartedAt = Date.now();
-      try {
-        // Next.js can need longer than five seconds to serve its first request
-        // after a cold start. Repeatedly aborting that request can keep the
-        // local server from becoming ready, so give it the remaining readiness
-        // budget instead of imposing a shorter per-request timeout.
-        const remainingMs = Math.max(1, deadline - Date.now());
-        const response = await fetch(targetUrl, {
-          signal: AbortSignal.timeout(remainingMs),
-        });
-        const body = await response.text();
-        const elapsedMs = Date.now() - attemptStartedAt;
-        if (response.ok) {
-          console.log(
-            `[readiness:ok] ${new Date().toISOString()} phase=${phase} attempt=${attempt} http=${response.status} request=${elapsedMs}ms total=${Date.now() - startedAt}ms body=${JSON.stringify(body.slice(0, 160))}`,
-          );
-          return;
-        }
-        lastFailure = describeReadinessFailure({ phase, status: response.status, body });
+      // Let a cold first request use the remaining readiness budget instead of
+      // repeatedly aborting it with a shorter per-request timeout.
+      const remainingMs = Math.max(1, deadline - Date.now());
+      const result = await requestReadinessAttempt({ targetUrl, remainingMs });
+      const elapsedMs = Date.now() - attemptStartedAt;
+      if (result.kind === "ready") {
+        console.log(
+          `[readiness:ok] ${new Date().toISOString()} phase=${phase} attempt=${attempt} http=${result.status} request=${elapsedMs}ms total=${Date.now() - startedAt}ms body=${JSON.stringify(result.body.slice(0, 160))}`,
+        );
+        return;
+      }
+      if (result.kind === "http-error") {
+        lastFailure = describeReadinessFailure({ phase, status: result.status, body: result.body });
         console.warn(
           `[readiness:http-error] ${new Date().toISOString()} attempt=${attempt} request=${elapsedMs}ms total=${Date.now() - startedAt}ms ${lastFailure}`,
         );
-      } catch (error) {
-        const elapsedMs = Date.now() - attemptStartedAt;
-        const cause = error?.cause;
-        const errorDetail = [
-          error?.name ?? "Error",
-          error?.code ? `code=${error.code}` : null,
-          cause?.code ? `causeCode=${cause.code}` : null,
-          error?.message ?? String(error),
-        ].filter(Boolean).join(" ");
-        lastFailure = describeReadinessFailure({ phase, error: errorDetail });
+      } else {
+        lastFailure = describeReadinessFailure({ phase, error: result.errorDetail });
         console.error(
           `[readiness:request-error] ${new Date().toISOString()} attempt=${attempt} request=${elapsedMs}ms total=${Date.now() - startedAt}ms ${lastFailure}`,
         );

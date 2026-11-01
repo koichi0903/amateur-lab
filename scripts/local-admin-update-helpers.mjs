@@ -17,6 +17,32 @@ export function describeReadinessFailure({ phase, status, body, error, timeoutMs
   return details.join(" ");
 }
 
+function getReadinessRequestErrorDetail(error) {
+  const cause = error?.cause;
+  return [
+    error?.name ?? "Error",
+    error?.code ? `code=${error.code}` : null,
+    cause?.code ? `causeCode=${cause.code}` : null,
+    error?.message ?? String(error),
+  ].filter(Boolean).join(" ");
+}
+
+export async function requestReadinessAttempt({ targetUrl, remainingMs, fetchImpl = fetch }) {
+  try {
+    const response = await fetchImpl(targetUrl, {
+      signal: AbortSignal.timeout(remainingMs),
+    });
+    const body = await response.text();
+    return {
+      kind: response.ok ? "ready" : "http-error",
+      status: response.status,
+      body,
+    };
+  } catch (error) {
+    return { kind: "request-error", errorDetail: getReadinessRequestErrorDetail(error) };
+  }
+}
+
 export function isSuccessfulTaskResponse(responseOk, result) {
   return responseOk && result?.success !== false;
 }

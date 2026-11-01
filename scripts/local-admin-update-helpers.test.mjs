@@ -14,6 +14,7 @@ import {
   getProductionRevalidationEndpoint,
   getRevalidationSiteUrls,
   isSuccessfulTaskResponse,
+  requestReadinessAttempt,
   runTaskSequence,
   summarizeResponseBody,
   writeFileWithRetry,
@@ -35,6 +36,40 @@ test("includes phase, status, body, and timeout in readiness diagnostics", () =>
   assert.match(message, /HTTP 500/);
   assert.match(message, /body=Browser failed to start\./);
   assert.match(message, /timeout=60000ms/);
+});
+
+test("classifies readiness success and HTTP responses without changing their bodies", async () => {
+  const ready = await requestReadinessAttempt({
+    targetUrl: "http://127.0.0.1:3000/health",
+    remainingMs: 1_000,
+    fetchImpl: async () => ({ ok: true, status: 200, text: async () => " ready " }),
+  });
+  const httpError = await requestReadinessAttempt({
+    targetUrl: "http://127.0.0.1:3000/health",
+    remainingMs: 1_000,
+    fetchImpl: async () => ({ ok: false, status: 503, text: async () => "warming" }),
+  });
+
+  assert.deepEqual(ready, { kind: "ready", status: 200, body: " ready " });
+  assert.deepEqual(httpError, { kind: "http-error", status: 503, body: "warming" });
+});
+
+test("preserves readiness request error and cause codes", async () => {
+  const result = await requestReadinessAttempt({
+    targetUrl: "http://127.0.0.1:3000/health",
+    remainingMs: 1_000,
+    fetchImpl: async () => {
+      const error = new TypeError("connection reset");
+      error.code = "ERR_REQUEST";
+      error.cause = Object.assign(new Error("socket closed"), { code: "ECONNRESET" });
+      throw error;
+    },
+  });
+
+  assert.deepEqual(result, {
+    kind: "request-error",
+    errorDetail: "TypeError code=ERR_REQUEST causeCode=ECONNRESET connection reset",
+  });
 });
 
 test("keeps ranking and score eligible after a non-fatal ended-sale warning", () => {
