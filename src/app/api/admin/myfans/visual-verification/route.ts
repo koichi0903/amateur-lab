@@ -11,6 +11,7 @@ import {
   numberValue,
   type VisualVerificationSaveInput,
 } from "@/lib/myfans/myfansVisualVerificationPayload";
+import { buildVisualVerificationQueueRows } from "@/lib/myfans/myfansVisualVerificationQueueRows";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,24 +40,13 @@ async function ensureQueue(payload: Record<string, unknown>) {
   if (approvedMediaId) query = query.or(`approved_media_id.eq.${approvedMediaId},approved_media_id.is.null`);
   const { data: candidates, error: candidateError } = await query;
   if (candidateError) throw candidateError;
-  const unique = new Map<string, Record<string, unknown>>();
-  for (const candidate of candidates ?? []) {
-    const sourceUrl = String(candidate.media_permalink || candidate.x_post_url || "").trim();
-    if (sourceUrl && !unique.has(sourceUrl)) unique.set(sourceUrl, { ...candidate, source_url: sourceUrl });
-  }
+  const queueRows = buildVisualVerificationQueueRows(candidates ?? [], MYFANS_VISUAL_ANALYZER_VERSION);
   const { data: job, error: jobError } = await supabaseAdmin
     .from("myfans_visual_verification_jobs")
-    .insert({ approved_media_id: approvedMediaId, status: "pending", batch_size: batchSize, total_sources: Math.min(42, unique.size), analyzer_version: MYFANS_VISUAL_ANALYZER_VERSION })
+    .insert({ approved_media_id: approvedMediaId, status: "pending", batch_size: batchSize, total_sources: queueRows.totalSources, analyzer_version: MYFANS_VISUAL_ANALYZER_VERSION })
     .select("*").single();
   if (jobError) throw jobError;
-  const rows = [...unique.values()].slice(0, 42).map((candidate) => ({
-    job_id: job.id,
-    quote_candidate_id: candidate.id,
-    source_url: candidate.source_url,
-    creator_id: candidate.creator_id,
-    media_type: candidate.media_type || "none",
-    analyzer_version: MYFANS_VISUAL_ANALYZER_VERSION,
-  }));
+  const rows = queueRows.rows.map((row) => ({ ...row, job_id: job.id }));
   if (rows.length) {
     const { error: queueError } = await supabaseAdmin.from("myfans_visual_verification_queue").insert(rows);
     if (queueError) throw queueError;
