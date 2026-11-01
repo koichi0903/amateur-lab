@@ -9,6 +9,7 @@ import {
   findAvailablePort,
   getAmateurApiCatalogCompletionError,
   getAmateurApiCatalogRunAction,
+  getCurrentRunJobOutcome,
   isSuccessfulTaskResponse,
   runTaskSequence,
   writeFileWithRetry,
@@ -361,16 +362,14 @@ async function recoverDisconnectedTask(task, startedAt) {
     const job = await getJobStatus(task.jobName);
     lastStatus = job?.status ?? null;
 
-    const jobUpdatedAt = job?.updated_at ? Date.parse(job.updated_at) : 0;
-    const belongsToCurrentRun = Number.isFinite(jobUpdatedAt) && jobUpdatedAt >= startedAt - 60_000;
-
-    if (job?.status === "completed" && belongsToCurrentRun) {
+    const outcome = getCurrentRunJobOutcome(job, startedAt);
+    if (outcome?.status === "completed") {
       console.warn(`[接続断復旧] ${task.label}はジョブ状態が完了のため成功扱いにします。`);
       return true;
     }
 
-    if (job?.status === "failed" && belongsToCurrentRun) {
-      throw new Error(job.error_message || `${task.label}のジョブが失敗しました。`);
+    if (outcome?.status === "failed") {
+      throw new Error(outcome.message || `${task.label}のジョブが失敗しました。`);
     }
 
     await new Promise((resolveWait) => setTimeout(resolveWait, 30_000));

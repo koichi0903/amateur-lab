@@ -65,6 +65,17 @@ export function getAmateurApiCatalogCompletionError(taskLabel, run, interrupted)
   return null;
 }
 
+export function getCurrentRunJobOutcome(job, startedAt) {
+  if (!job) return null;
+
+  const updatedAt = job.updated_at ? Date.parse(job.updated_at) : 0;
+  const belongsToCurrentRun = Number.isFinite(updatedAt) && updatedAt >= startedAt - 60_000;
+  if (!belongsToCurrentRun) return null;
+  if (job.status === "completed") return { status: "completed" };
+  if (job.status === "failed") return { status: "failed", message: job.error_message };
+  return null;
+}
+
 export async function findAvailablePort() {
   return new Promise((resolvePort, reject) => {
     const probe = createServer();

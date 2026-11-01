@@ -8,6 +8,7 @@ import {
   findAvailablePort,
   getAmateurApiCatalogCompletionError,
   getAmateurApiCatalogRunAction,
+  getCurrentRunJobOutcome,
   isSuccessfulTaskResponse,
   runTaskSequence,
   summarizeResponseBody,
@@ -113,6 +114,37 @@ test("preserves interruption, API-limit, and incomplete catalog run failures", (
     getAmateurApiCatalogCompletionError("catalog", { status: "completed" }, false),
     null,
   );
+});
+
+test("classifies only current-run completed and failed jobs", () => {
+  const startedAt = Date.parse("2026-10-30T00:00:00.000Z");
+  assert.deepEqual(
+    getCurrentRunJobOutcome({
+      status: "completed",
+      updated_at: new Date(startedAt - 60_000).toISOString(),
+    }, startedAt),
+    { status: "completed" },
+  );
+  assert.deepEqual(
+    getCurrentRunJobOutcome({
+      status: "failed",
+      error_message: "job failed",
+      updated_at: new Date(startedAt).toISOString(),
+    }, startedAt),
+    { status: "failed", message: "job failed" },
+  );
+  assert.equal(
+    getCurrentRunJobOutcome({
+      status: "completed",
+      updated_at: new Date(startedAt - 60_001).toISOString(),
+    }, startedAt),
+    null,
+  );
+  assert.equal(
+    getCurrentRunJobOutcome({ status: "running", updated_at: new Date(startedAt).toISOString() }, startedAt),
+    null,
+  );
+  assert.equal(getCurrentRunJobOutcome(null, startedAt), null);
 });
 
 test("writes UTF-8 files through the shared retry helper", async () => {
