@@ -4,6 +4,7 @@ import { unstable_cache } from "next/cache";
 import type { DmmItem } from "@/types/dmm";
 import { HAKKUTSU_SITE_DMM_AFFILIATE_ID } from "@/lib/dmm/siteAffiliateUrl";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { buildFanzaAmateurRelatedWorkQueryArgs } from "@/lib/dmm/fanzaAmateurRelatedWorkQuery";
 import { expandFanzaAmateurPriceSnapshotRows, type FanzaAmateurPriceHistoryRow, type FanzaAmateurPriceSnapshotRow } from "@/lib/dmm/fanzaAmateurPriceHistory";
 
 export const FANZA_AMATEUR_FLOOR = "videoc";
@@ -364,33 +365,21 @@ function campaignIsActive(item: FanzaAmateurCatalogItem, now = Date.now()) {
  * do not have actress metadata, relation is based on series, genre, and maker.
  */
 async function loadFanzaAmateurRelatedWorks(item: FanzaAmateurCatalogItem, limit = 12) {
-  const names = (values: Array<{ name: string }> | undefined) =>
-    [...new Set((values ?? []).map(({ name }) => asText(name)).filter(Boolean))];
-  const genres = names(item.iteminfo?.genre);
-  const makers = names(item.iteminfo?.maker);
-  const series = names(item.iteminfo?.series);
-  const filters = [
-    ...series.slice(0, 3).map((value) => ({ kind: "series" as const, value })),
-    ...genres.slice(0, 6).map((value) => ({ kind: "genre" as const, value })),
-    ...makers.slice(0, 3).map((value) => ({ kind: "maker" as const, value })),
-  ];
-  if (filters.length === 0) return [];
+  const queryArgs = buildFanzaAmateurRelatedWorkQueryArgs(item);
+  const { genres, makers, series } = queryArgs;
+  if (!queryArgs.p_series_names.length && !queryArgs.p_genre_names.length && !queryArgs.p_maker_names.length) return [];
 
-  const queryResults = await Promise.all(filters.map(async ({ kind, value }) => {
-    const { data, error } = await supabaseAdmin
-      .from("fanza_amateur_works")
-      .select("raw_item")
-      .contains("iteminfo", { [kind]: [{ name: value }] })
-      .order("api_date", { ascending: false, nullsFirst: false })
-      .order("content_id", { ascending: true })
-      .limit(24);
-
-    if (error) throw new Error(`素人作品の関連候補を読み込めませんでした: ${error.message}`);
-    return (data ?? []).map((row) => normalizeFanzaAmateurCatalogItem(row.raw_item));
-  }));
+  const { data, error } = await supabaseAdmin.rpc("get_fanza_amateur_related_work_candidates", {
+    p_series_names: queryArgs.p_series_names,
+    p_genre_names: queryArgs.p_genre_names,
+    p_maker_names: queryArgs.p_maker_names,
+    p_per_entity_limit: 24,
+  });
+  if (error) throw new Error(`素人作品の関連候補を読み込めませんでした: ${error.message}`);
 
   const candidates = new Map<string, FanzaAmateurCatalogItem>();
-  for (const candidate of queryResults.flat()) {
+  for (const row of data ?? []) {
+    const candidate = normalizeFanzaAmateurCatalogItem(row.raw_item);
     if (candidate && candidate.content_id !== item.content_id) candidates.set(candidate.content_id, candidate);
   }
 
