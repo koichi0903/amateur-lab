@@ -268,7 +268,7 @@ test("公式動画・投稿/追加/スキップ/除外・重複状態を候補/A
   assert.match(server, /isBijyoReservedRegistrationRecent\(work\.created_at, now\)/);
   assert.match(server, /manualEligible: isBijyoManualCandidate\(work,/);
   assert.match(card, /allowWorkManualAdd=\{work\.manualEligible === true\}/);
-  assert.match(actions, /workId && allowWorkManualAdd && <button[^\n]*run\("manual"\)/);
+  assert.match(actions, /workId && allowWorkManualAdd && <button[^\n]*onRun\("manual"\)/);
   assert.match(upcoming, /<BijyoReservedWorkCard key=\{work\.id\} work=\{work\} \/>/);
   assert.match(queue, /<BijyoReservedWorkCard key=\{work\.id\} work=\{work\} \/>/);
   assert.match(queue, /reservedPage=\$\{page \+ 1\}/);
