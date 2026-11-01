@@ -97,8 +97,8 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   const query = (params.q ?? "").trim();
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
   return pageMetadata({
-    title: `${query ? `「${query}」の素人出演女優検索結果` : "素人出演女優検索・出演作品一覧"}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
-    description: "出演者が確認できたFANZA素人作品を、女優プロフィールや作品数から検索できます。",
+    title: `${query ? `「${query}」の素人出演女優検索結果` : "FANZA素人の出演女優一覧｜出演作数から検索"}${page > 1 ? ` ${page}ページ目` : ""} | 発掘LAB`,
+    description: "作品名だけでは見つけにくい出演女優も、確認済みの出演情報から検索。女優ごとのプロフィールやFANZA素人の出演作品数を見て、作品を辿れます。",
     canonical: query ? "/amateur/actress" : `/amateur/actress${page > 1 ? `?page=${page}` : ""}`,
     robots: query || (params.sort && params.sort !== "count-desc") ? { index: false, follow: true } : undefined,
   });
@@ -117,8 +117,8 @@ export default async function AmateurActressPage({ searchParams }: { searchParam
 
   return <><Header /><main className="min-h-screen bg-[#f8fafc] text-slate-950">
     <CollectionPageJsonLd
-      title={`FANZA素人 女優検索・出演作品一覧${currentPage > 1 ? ` ${currentPage}ページ目` : ""} | 発掘LAB`}
-      description="出演者が確認できたFANZA素人作品を、女優プロフィールや作品数から探せます。作品別の価格情報と価格履歴も確認できます。"
+      title={`FANZA素人の出演女優一覧｜出演作数から検索${currentPage > 1 ? ` ${currentPage}ページ目` : ""} | 発掘LAB`}
+      description="作品名だけでは見つけにくい出演女優も、確認済みの出演情報から検索。女優ごとのプロフィールやFANZA素人の出演作品数を見て、作品を辿れます。作品別の価格情報と価格履歴も確認できます。"
       url={canonicalUrl}
       items={result.items.map((item) => ({
         name: item.name,
@@ -130,7 +130,7 @@ export default async function AmateurActressPage({ searchParams }: { searchParam
       <div className="mx-auto max-w-[1500px] px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
         <WorkCategorySwitch active="amateur" />
         <div className="mt-4"><div className="flex items-center gap-3"><UserRound size={24} /><h1 className="text-2xl font-black sm:text-3xl">FANZA素人 女優検索・出演作品一覧</h1></div>
-          <p className="mt-2 text-sm text-slate-500">素人作品で出演者が確認できた女優を、プロフィールや作品数から探せます。</p></div>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">作品名だけでは見つけにくい出演女優も、確認済みの出演情報から検索できます。女優ごとのプロフィールや素人作品数を見て、作品ページへ辿れます。</p></div>
         <div className="mt-5 flex w-full max-w-xl items-center gap-3">
           <form action="/amateur/actress" className="flex h-12 min-w-0 flex-1 items-center rounded border border-slate-200 bg-slate-50 px-3">
             <input type="search" name="q" defaultValue={query} aria-label="女優名で検索" placeholder="名前で検索（ひらがな可）" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400" />
