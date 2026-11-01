@@ -24,7 +24,7 @@ import {
   normalizeFanzaAmateurCatalogItem as normalizeCatalogItem,
   type FanzaAmateurCatalogItem,
 } from "@/lib/dmm/fanzaAmateurCatalogNormalize";
-import { buildFanzaAmateurRelatedWorkQueryArgs, rankFanzaAmateurRelatedWorks } from "@/lib/dmm/fanzaAmateurRelatedWorks";
+import { buildFanzaAmateurRelatedWorkQueryArgs } from "@/lib/dmm/fanzaAmateurRelatedWorkQuery";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { expandFanzaAmateurPriceSnapshotRows, type FanzaAmateurPriceHistoryRow, type FanzaAmateurPriceSnapshotRow } from "@/lib/dmm/fanzaAmateurPriceHistory";
 
@@ -220,20 +220,55 @@ export async function getFanzaAmateurCatalogWork(contentId: string) {
  */
 async function loadFanzaAmateurRelatedWorks(item: FanzaAmateurCatalogItem, limit = 12) {
   const queryArgs = buildFanzaAmateurRelatedWorkQueryArgs(item);
+  const { genres, makers, series } = queryArgs;
   if (!queryArgs.p_series_names.length && !queryArgs.p_genre_names.length && !queryArgs.p_maker_names.length) return [];
 
   const { data, error } = await supabaseAdmin.rpc("get_fanza_amateur_related_work_candidates", {
-    ...queryArgs,
+    p_series_names: queryArgs.p_series_names,
+    p_genre_names: queryArgs.p_genre_names,
+    p_maker_names: queryArgs.p_maker_names,
     p_per_entity_limit: 24,
   });
   if (error) throw new Error(`素人作品の関連候補を読み込めませんでした: ${error.message}`);
 
-  const candidateRows = (data ?? []) as Array<{ raw_item: unknown }>;
-  return rankFanzaAmateurRelatedWorks(
-    item,
-    candidateRows.map(({ raw_item }) => normalizeFanzaAmateurCatalogItem(raw_item)),
-    limit,
-  );
+  const candidates = new Map<string, FanzaAmateurCatalogItem>();
+  const names = (values: Array<{ name: string }> | undefined) =>
+    [...new Set((values ?? []).map(({ name }) => asText(name)).filter(Boolean))];
+  for (const row of data ?? []) {
+    const candidate = normalizeFanzaAmateurCatalogItem(row.raw_item);
+    if (candidate && candidate.content_id !== item.content_id) candidates.set(candidate.content_id, candidate);
+  }
+
+  const currentGenres = new Set(genres);
+  const currentMakers = new Set(makers);
+  const currentSeries = new Set(series);
+  const now = Date.now();
+  const relevance = (candidate: FanzaAmateurCatalogItem) => {
+    const candidateGenres = names(candidate.iteminfo?.genre);
+    const candidateMakers = names(candidate.iteminfo?.maker);
+    const candidateSeries = names(candidate.iteminfo?.series);
+    const genreMatches = candidateGenres.filter((name) => currentGenres.has(name)).length;
+    const hasMakerMatch = candidateMakers.some((name) => currentMakers.has(name));
+    const hasSeriesMatch = candidateSeries.some((name) => currentSeries.has(name));
+    const reviewCount = candidate.review?.count ?? 0;
+    const reviewBonus = reviewCount > 0 && candidate.reviewAverage != null
+      ? Math.max(0, Math.min(5, candidate.reviewAverage)) * 2
+      : 0;
+
+    return (hasSeriesMatch ? 45 : 0)
+      + Math.min(50, genreMatches * 25)
+      + (hasMakerMatch ? 15 : 0)
+      + reviewBonus
+      + (hasActiveCampaign(candidate, now) ? 6 : 0);
+  };
+  const releaseTime = (candidate: FanzaAmateurCatalogItem) => Date.parse(candidate.date || "") || 0;
+
+  return [...candidates.values()]
+    .sort((a, b) => relevance(b) - relevance(a)
+      || releaseTime(b) - releaseTime(a)
+      || (b.review?.count ?? 0) - (a.review?.count ?? 0)
+      || a.content_id.localeCompare(b.content_id))
+    .slice(0, Math.max(0, limit));
 }
 
 const getCachedFanzaAmateurRelatedWorks = unstable_cache(
