@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { runBijyoReservedAction, type BijyoReservedAction } from "@/lib/bijyoReservedActionHelpers";
 
 type BijyoApiResponse = { error?: string; trim?: { ok?: boolean; error?: string; trimStartSeconds?: number }; [key: string]: unknown };
 
@@ -117,6 +118,80 @@ function ManualTrimEditor({
   </div>;
 }
 
+type BijyoReservedActionViewProps = {
+  jobId?: number;
+  workId?: number;
+  mainText?: string;
+  replyText?: string;
+  status?: string;
+  sampleMovieUrl?: string;
+  manualLabel: string;
+  allowWorkSkip: boolean;
+  allowWorkManualAdd: boolean;
+  busy: boolean;
+  message: string;
+  actionBlocked: boolean;
+  trimOpen: boolean;
+  trimSeconds: number;
+  trimMode: BijyoTrimMode;
+  currentTrimStatus: string;
+  preparedVideoUrl: string | null;
+  videoRef: { current: HTMLVideoElement | null };
+  onRun: (action: BijyoReservedAction) => void;
+  onCopy: (value: string, label: string) => void;
+  onPrepareVideo: () => void;
+  onSavePreparedVideo: () => void;
+  onOpenTrim: () => void;
+  onTrimSecondsChange: (seconds: number) => void;
+  onTrimModeChange: (mode: BijyoTrimMode) => void;
+  onSetCurrentTime: () => void;
+  onResetTrim: () => void;
+  onSaveTrim: () => void;
+};
+
+function BijyoReservedActionView({
+  jobId,
+  workId,
+  mainText,
+  replyText,
+  status,
+  sampleMovieUrl,
+  manualLabel,
+  allowWorkSkip,
+  allowWorkManualAdd,
+  busy,
+  message,
+  actionBlocked,
+  trimOpen,
+  trimSeconds,
+  trimMode,
+  currentTrimStatus,
+  preparedVideoUrl,
+  videoRef,
+  onRun,
+  onCopy,
+  onPrepareVideo,
+  onSavePreparedVideo,
+  onOpenTrim,
+  onTrimSecondsChange,
+  onTrimModeChange,
+  onSetCurrentTime,
+  onResetTrim,
+  onSaveTrim,
+}: BijyoReservedActionViewProps) {
+  return <div className="flex flex-wrap gap-2">
+    {jobId && <>
+      <JobVideoControls busy={busy} currentTrimStatus={currentTrimStatus} sampleMovieUrl={sampleMovieUrl} preparedVideoUrl={preparedVideoUrl} onPrepareVideo={onPrepareVideo} onSavePreparedVideo={onSavePreparedVideo} onOpenTrim={onOpenTrim} />
+      <JobPostControls busy={busy} status={status} mainText={mainText} replyText={replyText} onCopy={onCopy} onMarkPosted={() => onRun("posted")} onSkip={() => onRun("skip")} onExclude={() => onRun("exclude")} />
+      <ManualTrimEditor trimOpen={trimOpen} busy={busy} sampleMovieUrl={sampleMovieUrl} trimSeconds={trimSeconds} trimMode={trimMode} videoRef={videoRef} onTrimSecondsChange={onTrimSecondsChange} onTrimModeChange={onTrimModeChange} onSetCurrentTime={onSetCurrentTime} onResetTrim={onResetTrim} onSaveTrim={onSaveTrim} />
+    </>}
+    {workId && allowWorkManualAdd && <button disabled={busy || actionBlocked} onClick={() => onRun("manual")} className="rounded bg-violet-500 px-3 py-2 text-xs font-black text-white">{actionBlocked ? "追加済み" : manualLabel}</button>}
+    {workId && !allowWorkManualAdd && <span className="self-center text-xs text-zinc-500">手動追加対象外</span>}
+    {allowWorkSkip && workId && <button disabled={busy || actionBlocked} onClick={() => onRun("skip")} className="rounded border border-amber-700 px-3 py-2 text-xs font-bold text-amber-200">スキップ</button>}
+    {message && <p className="w-full whitespace-pre-wrap text-xs text-amber-200">{message}</p>}
+  </div>;
+}
+
 export function BijyoReservedActions({ jobId, workId, mainText, replyText, status, trimStatus = "not_ready", sampleMovieUrl, trimStartSeconds, manualLabel = "手動追加投稿", allowWorkSkip = false, allowWorkManualAdd = true }: { jobId?: number; workId?: number; mainText?: string; replyText?: string; status?: string; trimStatus?: string; sampleMovieUrl?: string; trimStartSeconds?: number; manualLabel?: string; allowWorkSkip?: boolean; allowWorkManualAdd?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -128,20 +203,17 @@ export function BijyoReservedActions({ jobId, workId, mainText, replyText, statu
   const [currentTrimStatus, setCurrentTrimStatus] = useState(trimStatus);
   const videoRef = useRef<HTMLVideoElement>(null);
   useEffect(() => () => { if (preparedVideoUrl) URL.revokeObjectURL(preparedVideoUrl); }, [preparedVideoUrl]);
-  async function run(action: string) {
-    setBusy(true); setMessage("");
-    try {
-      const xPostUrl = action === "posted" ? window.prompt("投稿済みのX投稿URLを貼り付けてください。") : null;
-      if (action === "posted" && !xPostUrl?.trim()) {
-        setMessage("計測に必要なX投稿URLがないため、投稿済み登録を中止しました。");
-        return;
-      }
-      const result = await call({ action, jobId, workId, ...(xPostUrl ? { xPostUrl } : {}) });
-      setMessage(action === "posted" ? "投稿済みにしました。X投稿URLを計測に紐付けました。" : action === "skip" ? "スキップして候補を補充しました。" : action === "exclude" ? "今後の候補から外しました。" : result.trim?.ok === false ? `手動追加は完了しましたが、trim準備に失敗しました。動画ボタンから再生成できます。\n${result.trim.error}` : "手動追加・trim準備が完了しました。画面を更新します。");
-      if (["posted", "skip", "exclude", "manual"].includes(action)) window.location.reload();
-    }
-    catch (error) { if (error instanceof BijyoApiError && error.code === "already_selected") setActionBlocked(true); setMessage(error instanceof Error ? error.message : String(error)); }
-    finally { setBusy(false); }
+  function run(action: BijyoReservedAction) {
+    void runBijyoReservedAction({
+      action,
+      promptXPostUrl: () => window.prompt("投稿済みのX投稿URLを貼り付けてください。"),
+      request: (requestedAction, xPostUrl) => call({ action: requestedAction, jobId, workId, ...(xPostUrl ? { xPostUrl } : {}) }),
+      setBusy,
+      setMessage,
+      setActionBlocked,
+      isAlreadySelected: (error) => error instanceof BijyoApiError && error.code === "already_selected",
+      reload: () => window.location.reload(),
+    });
   }
   async function copy(value: string, label: string) { try { await navigator.clipboard.writeText(value); setMessage(`${label}をコピーしました。`); } catch { setMessage("コピーできませんでした。表示された文面を選択してください。"); } }
   async function saveTrim() {
@@ -189,15 +261,34 @@ export function BijyoReservedActions({ jobId, workId, mainText, replyText, statu
   }
   function setCurrentTime() { setTrimSeconds(Number((videoRef.current?.currentTime ?? 0).toFixed(1))); setTrimMode("manual"); }
   function openTrim() { setTrimMode("manual"); setTrimOpen(true); }
-  return <div className="flex flex-wrap gap-2">
-    {jobId && <>
-      <JobVideoControls busy={busy} currentTrimStatus={currentTrimStatus} sampleMovieUrl={sampleMovieUrl} preparedVideoUrl={preparedVideoUrl} onPrepareVideo={prepareVideo} onSavePreparedVideo={savePreparedVideo} onOpenTrim={openTrim} />
-      <JobPostControls busy={busy} status={status} mainText={mainText} replyText={replyText} onCopy={copy} onMarkPosted={() => run("posted")} onSkip={() => run("skip")} onExclude={() => run("exclude")} />
-      <ManualTrimEditor trimOpen={trimOpen} busy={busy} sampleMovieUrl={sampleMovieUrl} trimSeconds={trimSeconds} trimMode={trimMode} videoRef={videoRef} onTrimSecondsChange={(seconds) => { setTrimSeconds(seconds); setTrimMode("manual"); }} onTrimModeChange={setTrimMode} onSetCurrentTime={setCurrentTime} onResetTrim={() => { setTrimSeconds(0); setTrimMode("manual"); }} onSaveTrim={saveTrim} />
-    </>}
-    {workId && allowWorkManualAdd && <button disabled={busy || actionBlocked} onClick={() => run("manual")} className="rounded bg-violet-500 px-3 py-2 text-xs font-black text-white">{actionBlocked ? "追加済み" : manualLabel}</button>}
-    {workId && !allowWorkManualAdd && <span className="self-center text-xs text-zinc-500">手動追加対象外</span>}
-    {allowWorkSkip && workId && <button disabled={busy || actionBlocked} onClick={() => run("skip")} className="rounded border border-amber-700 px-3 py-2 text-xs font-bold text-amber-200">スキップ</button>}
-    {message && <p className="w-full whitespace-pre-wrap text-xs text-amber-200">{message}</p>}
-  </div>;
+  return <BijyoReservedActionView
+    jobId={jobId}
+    workId={workId}
+    mainText={mainText}
+    replyText={replyText}
+    status={status}
+    sampleMovieUrl={sampleMovieUrl}
+    manualLabel={manualLabel}
+    allowWorkSkip={allowWorkSkip}
+    allowWorkManualAdd={allowWorkManualAdd}
+    busy={busy}
+    message={message}
+    actionBlocked={actionBlocked}
+    trimOpen={trimOpen}
+    trimSeconds={trimSeconds}
+    trimMode={trimMode}
+    currentTrimStatus={currentTrimStatus}
+    preparedVideoUrl={preparedVideoUrl}
+    videoRef={videoRef}
+    onRun={run}
+    onCopy={copy}
+    onPrepareVideo={prepareVideo}
+    onSavePreparedVideo={savePreparedVideo}
+    onOpenTrim={openTrim}
+    onTrimSecondsChange={(seconds) => { setTrimSeconds(seconds); setTrimMode("manual"); }}
+    onTrimModeChange={setTrimMode}
+    onSetCurrentTime={setCurrentTime}
+    onResetTrim={() => { setTrimSeconds(0); setTrimMode("manual"); }}
+    onSaveTrim={saveTrim}
+  />;
 }
