@@ -5,6 +5,7 @@ import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { executeBijyoManualAction } from "@/lib/bijyoManualAction";
 import { resolveBijyoReadPageRequest } from "@/lib/bijyoReadPageRequest";
 import { bijyoManualTrimErrorStatus, bijyoTrimSecondsFromFilename, parseBijyoManualTrimRequest } from "@/lib/bijyoManualTrimRequest";
+import { buildBijyoPostActionPlan, type BijyoPostActionPlan } from "@/lib/bijyoPostActionPlan";
 
 export const dynamic = "force-dynamic";
 
@@ -83,23 +84,34 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-  const action = String(body.action ?? "");
-  const jobId = Number(body.jobId);
-  const workId = Number(body.workId);
-  let result: { ok: boolean; error?: string; code?: string; state?: string; jobId?: number; existing?: boolean };
-  if (!Number.isSafeInteger(jobId) && ["posted", "exclude"].includes(action)) return NextResponse.json({ error: "jobIdが不正です。" }, { status: 400 });
-  if (action === "posted") {
-    const xPostUrl = typeof body.xPostUrl === "string" ? body.xPostUrl.trim() : "";
-    const match = xPostUrl.match(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/[^/]+\/status\/(\d+)(?:[/?#].*)?$/i);
-    if (!match) return NextResponse.json({ error: "X投稿URLを入力してください（例: https://x.com/アカウント/status/投稿ID）。" }, { status: 400 });
-    result = await markBijyoPosted(jobId, match[1]);
-  }
-  else if (action === "skip") result = Number.isSafeInteger(jobId) && jobId > 0 ? await skipBijyoJob(jobId) : Number.isSafeInteger(workId) && workId > 0 ? await skipBijyoFutureWork(workId) : { ok: false, error: "jobIdまたはworkIdが不正です。" };
-  else if (action === "exclude") result = await excludeBijyoJob(jobId);
-  else if (action === "manual") return handleManualAction(workId, jobId);
-  else if (action === "prepareVideo") return handlePrepareVideoAction(workId, jobId);
-  else if (action === "manualTrim") return handleManualTrimAction(body, jobId, workId);
-  else return NextResponse.json({ error: "この画面ではX API自動投稿を利用しません。" }, { status: 400 });
+  const plan = buildBijyoPostActionPlan(body);
+  const result = await executeBijyoPostAction(plan);
+  if (result instanceof NextResponse) return result;
   const safeResult = userSafeResult(result);
   return NextResponse.json(safeResult, { status: safeResult.ok ? 200 : 409 });
+}
+
+type BijyoPostActionResult = { ok: boolean; error?: string; code?: string; state?: string; jobId?: number; existing?: boolean };
+
+async function executeBijyoPostAction(plan: BijyoPostActionPlan): Promise<NextResponse | BijyoPostActionResult> {
+  switch (plan.kind) {
+    case "invalid":
+      return NextResponse.json({ error: plan.error }, { status: 400 });
+    case "posted":
+      return markBijyoPosted(plan.jobId, plan.postId);
+    case "skipJob":
+      return skipBijyoJob(plan.jobId);
+    case "skipWork":
+      return skipBijyoFutureWork(plan.workId);
+    case "skipInvalid":
+      return { ok: false, error: "jobIdまたはworkIdが不正です。" };
+    case "exclude":
+      return excludeBijyoJob(plan.jobId);
+    case "manual":
+      return handleManualAction(plan.workId, plan.jobId);
+    case "prepareVideo":
+      return handlePrepareVideoAction(plan.workId, plan.jobId);
+    case "manualTrim":
+      return handleManualTrimAction(plan.body, plan.jobId, plan.workId);
+  }
 }
