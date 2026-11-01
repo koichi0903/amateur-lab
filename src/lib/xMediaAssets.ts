@@ -264,6 +264,7 @@ export async function getXMediaSupplyStatus() {
     unknown,
     review,
     allowed,
+    officialUrls,
     blocked,
     dead,
     waiting,
@@ -273,11 +274,12 @@ export async function getXMediaSupplyStatus() {
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "unknown"),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "review"),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("fetch_status", "ok").ilike("mime_type", "video/mp4%"),
+    supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("source_kind", "official_sample"),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "blocked"),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).in("fetch_status", ["dead", "forbidden"]),
     supabaseAdmin.from("x_growth_opportunities").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).eq("media_type", "sample_movie").is("recommended_media_asset_id", null),
   ]);
-  const error = [works.error, synced.error, unknown.error, review.error, allowed.error, blocked.error, dead.error, waiting.error].find(Boolean);
+  const error = [works.error, synced.error, unknown.error, review.error, allowed.error, officialUrls.error, blocked.error, dead.error, waiting.error].find(Boolean);
   return {
     error: error?.message ?? null,
     mp4Candidates: works.count ?? 0,
@@ -285,8 +287,10 @@ export async function getXMediaSupplyStatus() {
     unknown: unknown.count ?? 0,
     review: review.count ?? 0,
     allowed: allowed.count ?? 0,
+    officialUrlCandidates: officialUrls.count ?? 0,
     blocked: blocked.count ?? 0,
     dead: dead.count ?? 0,
+    historicalHttpFailures: dead.count ?? 0,
     topPickRightsWaiting: waiting.count ?? 0,
   };
 }

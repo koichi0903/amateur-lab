@@ -386,7 +386,7 @@ export async function buildXGrowthOS({
     { opportunities: [], snapshots: [], migrationError: null },
     null,
     { error: null },
-    { error: null, mp4Candidates: 0, synced: 0, unknown: 0, review: 0, allowed: 0, blocked: 0, dead: 0, topPickRightsWaiting: 0 },
+    { error: null, mp4Candidates: 0, synced: 0, unknown: 0, review: 0, allowed: 0, officialUrlCandidates: 0, blocked: 0, dead: 0, historicalHttpFailures: 0, topPickRightsWaiting: 0 },
     { rows: [], error: null },
   ];
   const systemStatus = getXGrowthSystemStatus(
