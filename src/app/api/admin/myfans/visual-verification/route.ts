@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
+import { buildMyfansAdminErrorContext } from "@/lib/myfans/myfansAdminErrors";
 import { MYFANS_VISUAL_ANALYZER_VERSION } from "@/lib/myfansXExecution";
 import { runMyfansVisualVerificationBatch, selectVisualVerificationBatch } from "@/lib/myfansVisualVerification";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -296,7 +297,7 @@ export async function POST(request: Request) {
     const result = await runMyfansVisualVerificationBatch({ approvedMediaId, limit });
     return NextResponse.json(result);
   } catch (error) {
-    console.error("[MYFANS_VISUAL_QUEUE_ERROR]", error);
+    console.error("[MYFANS_VISUAL_QUEUE_ERROR]", buildMyfansAdminErrorContext("visual_verification_failed", error));
     return NextResponse.json({ error: error instanceof Error ? error.message : "visual候補分析に失敗しました。" }, { status: 500 });
   }
 }

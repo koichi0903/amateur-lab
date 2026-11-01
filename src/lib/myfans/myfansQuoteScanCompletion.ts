@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildMyfansAdminErrorContext } from "@/lib/myfans/myfansAdminErrors";
 import type { MyfansQuoteScanCandidate, MyfansQuoteScore } from "@/lib/myfansQuoteScoring";
 import type { QuoteScanPayload, QuoteScanProduct } from "@/lib/myfans/myfansQuoteScanTypes";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -93,7 +94,7 @@ async function recordCompleteThreadStatuses(input: CollectionCompletionInput) {
     summary: `${input.collectorMethod}: ${statuses.length} parent statuses`,
     metadata: { collectorMethod: input.collectorMethod, statuses, ...input.collectionEvidence },
   });
-  if (error) console.error("complete thread status audit failed", error);
+  if (error) console.error("complete thread status audit failed", buildMyfansAdminErrorContext("complete_thread_audit_failed", error));
 }
 
 function selectedQuoteSummary(best: RankedQuoteCandidate | null) {

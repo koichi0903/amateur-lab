@@ -1,6 +1,7 @@
 import type { MyfansProduct } from "@/lib/myfansAnalytics";
 import { resolveExactMyfansProductByFinalUrl } from "@/lib/myfansProductResolver";
 import { companionPersistenceError, normalizeCompanionError } from "@/lib/myfansCompanionErrors";
+import { buildMyfansAdminErrorContext } from "@/lib/myfans/myfansAdminErrors";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { QuoteScanProduct } from "@/lib/myfans/myfansQuoteScanTypes";
 
@@ -71,6 +72,6 @@ async function reportBatchProductResolutionFailure(input: BatchProductResolverIn
     summary: finalMyfansUrl,
     metadata: { collectorMethod: input.collectorMethod, finalMyfansUrl, error: normalizedError },
   });
-  if (auditError) console.error("batch product resolution audit failed", auditError);
+  if (auditError) console.error("batch product resolution audit failed", buildMyfansAdminErrorContext("batch_product_audit_failed", auditError));
   throw companionPersistenceError(normalizedError, normalizedError.errorStage, "batch_product_resolution_failed");
 }

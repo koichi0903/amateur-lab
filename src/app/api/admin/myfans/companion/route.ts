@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildMyfansAdminErrorContext } from "@/lib/myfans/myfansAdminErrors";
 import { createSaveSingleStatusCollectionHandler } from "@/lib/myfans/myfansSingleStatusCollectionService";
 import { createSaveQuoteScanHandler } from "@/lib/myfans/myfansQuoteScanService";
 import { saveQuoteCandidate, updateGlobalQuoteRanks } from "@/lib/myfans/myfansQuoteCandidateStore";
@@ -339,7 +340,7 @@ async function saveSingleStatusCollection(payload: QuoteScanPayload, approvedMed
         errorStage: normalizedError.errorStage,
       },
     });
-    if (auditError) console.error("single_status_collect audit failed", auditError);
+    if (auditError) console.error("single_status_collect audit failed", buildMyfansAdminErrorContext("single_status_audit_failed", auditError));
     return NextResponse.json({ ok: false, serverAccepted: true, saveReached: false, reason, singleStatusRunId, errorCode: normalizedError.errorCode, errorMessage: normalizedError.errorMessage, errorStage: normalizedError.errorStage, error: normalizedError.errorMessage }, { status: 500 });
   }
 }
@@ -405,7 +406,7 @@ export async function POST(request: Request) {
     if (specializedResponse) return specializedResponse;
     return await saveStandardCompanionImport(payload, approvedMediaId, approvedMediaName);
   } catch (error) {
-    console.error("myfans companion import failed", error);
+    console.error("myfans companion import failed", buildMyfansAdminErrorContext("companion_import_failed", error));
     return NextResponse.json({ error: error instanceof Error ? error.message : "Companion取込に失敗しました。" }, { status: 500 });
   }
 }

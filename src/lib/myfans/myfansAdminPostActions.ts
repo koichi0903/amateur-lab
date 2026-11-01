@@ -1,4 +1,5 @@
 import { audit, nullableId, rowKey, text } from "./myfansAdminShared";
+import { buildMyfansAdminErrorContext } from "./myfansAdminErrors";
 import {
   readMyfansDailyPlanSelectionInput,
   requireMyfansDailyPlanSelectionPlan,
@@ -63,7 +64,7 @@ async function persistMyfansPostRecord(id: number | null, idempotencyKey: string
     p_quote_x_url: record.creative_strategy === "quote_post" ? record.quote_x_url : "",
   });
   if (error || !data?.post_id) {
-    console.error("myfans post save RPC failed", error?.message ?? "invalid response");
+    console.error("myfans post save RPC failed", buildMyfansAdminErrorContext("post_save_rpc_failed", error));
     throw new Error("投稿ログの保存に失敗しました。入力を確認して、時間をおいて再試行してください。");
   }
   const { error: attributionError } = await supabaseAdmin.from("myfans_x_posts").update({

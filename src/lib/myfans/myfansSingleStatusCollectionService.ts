@@ -6,6 +6,7 @@ import { scoreMyfansQuoteCandidate, type MyfansQuoteScanCandidate } from "@/lib/
 import { extractMyfansSourceText } from "@/lib/myfansSourceText";
 import { canonicalMyfansXHandle, resolveExactMyfansCreator } from "@/lib/myfansAuthorMatch";
 import { companionPersistenceError, normalizeCompanionError } from "@/lib/myfansCompanionErrors";
+import { buildMyfansAdminErrorContext } from "@/lib/myfans/myfansAdminErrors";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { QuoteScanPayload } from "@/lib/myfans/myfansQuoteScanTypes";
 import { buildSingleStatusCandidateRecord } from "@/lib/myfans/myfansSingleStatusRecord";
@@ -492,7 +493,7 @@ async function recordSingleStatusSuccessAudit(audit: SingleStatusAudit, metadata
     await audit(metadata, sourceStatusUrl);
     return null;
   } catch (error) {
-    console.error("single_status_collect success audit failed", error);
+    console.error("single_status_collect success audit failed", buildMyfansAdminErrorContext("single_status_audit_failed", error));
     return `success audit: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
