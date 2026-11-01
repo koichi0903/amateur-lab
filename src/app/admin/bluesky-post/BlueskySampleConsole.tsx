@@ -7,6 +7,7 @@ type WorkMedia = {
   title: string | null;
   releaseDate: string | null;
   isListed: boolean;
+  officialWorkImageUrl: string | null;
   sampleImageUrls: string[];
   sampleMovieUrl: string | null;
   sampleMovieReady: boolean;
@@ -35,7 +36,17 @@ function WorkImagePreview({
       </a>
       <div className="mt-3 flex flex-wrap gap-2">{work.sampleImageUrls.map((url, index) => <button key={url} onClick={() => onSelectImage(index)} className={`rounded-lg border px-3 py-2 text-xs font-bold ${selectedImage === index ? "border-sky-400 bg-sky-950 text-sky-100" : "border-zinc-700 text-zinc-300"}`}>画像 {index + 1}</button>)}</div>
       <p className="mt-2 text-xs text-zinc-500">画像を選んで全体を目視確認してください。</p>
-    </> : <p className="mt-4 rounded-lg border border-dashed border-zinc-700 p-5 text-sm text-zinc-400">サンプル画像URLは作品データにありません。</p>}
+    </> : <>
+      <p className="mt-4 rounded-lg border border-dashed border-zinc-700 p-5 text-sm text-zinc-400">この作品データには公式サンプル画像がありません。</p>
+      {work.officialWorkImageUrl && <div className="mt-4">
+        <h4 className="text-sm font-bold text-zinc-200">参考：FANZA公式の作品画像</h4>
+        <a href={work.officialWorkImageUrl} target="_blank" rel="noreferrer" className="mt-2 block overflow-hidden rounded-xl bg-black text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={work.officialWorkImageUrl} alt={`${work.title ?? work.contentId} FANZA公式作品画像`} className="mx-auto max-h-[560px] w-auto max-w-full object-contain" />
+        </a>
+        <p className="mt-2 text-xs text-amber-200">これはサンプル画像ではなく作品画像です。投稿素材として使えるかは別に確認してください。</p>
+      </div>}
+    </>}
     {!work.isListed && <p className="mt-3 text-xs text-amber-200">この作品は現在サイト掲載対象外です。</p>}
   </article>;
 }

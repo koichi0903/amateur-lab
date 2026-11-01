@@ -29,6 +29,16 @@ function sampleImages(...sources: unknown[]) {
   return urls;
 }
 
+function officialWorkImage(value: unknown) {
+  if (typeof value === "string") return isOfficialFanzaDmmSampleUrl(value) ? value : null;
+  if (!isRecord(value)) return null;
+  for (const key of ["large", "list", "small"]) {
+    const url = value[key];
+    if (typeof url === "string" && isOfficialFanzaDmmSampleUrl(url)) return url;
+  }
+  return null;
+}
+
 function normalizeContentId(value: string) {
   const contentId = value.trim().toLowerCase();
   return /^[a-z0-9][a-z0-9_-]{2,79}$/.test(contentId) ? contentId : null;
@@ -38,7 +48,7 @@ export async function getBlueskySampleWorkMedia(rawContentId: string) {
   const contentId = normalizeContentId(rawContentId);
   if (!contentId) throw new Error("品番の形式を確認してください。");
   const result = await supabaseAdmin.from("fanza_amateur_works")
-    .select("content_id,title,api_date,is_listed,mp4_url,mp4_status,sample_image_url,raw_item")
+    .select("content_id,title,api_date,is_listed,mp4_url,mp4_status,image_url,sample_image_url,raw_item")
     .eq("content_id", contentId)
     .maybeSingle();
   if (result.error) throw new Error(`作品データを取得できませんでした: ${result.error.message}`);
@@ -51,6 +61,7 @@ export async function getBlueskySampleWorkMedia(rawContentId: string) {
     title: typeof row.title === "string" ? row.title : null,
     releaseDate: typeof row.api_date === "string" ? row.api_date.slice(0, 10) : null,
     isListed: row.is_listed === true,
+    officialWorkImageUrl: officialWorkImage(row.image_url),
     sampleImageUrls: sampleImages(row.sample_image_url, row.raw_item),
     sampleMovieUrl: movie,
     sampleMovieReady: Boolean(movie && row.mp4_status === "found"),
