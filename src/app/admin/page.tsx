@@ -34,8 +34,8 @@ const menus = [
     href: "/admin/amateur-x-post",
   },
   {
-    title: "🦋 Bluesky素材準備",
-    description: "品番から公式サンプル画像・動画を選択 / 範囲指定で切り抜き",
+      title: "🦋 Bluesky 投稿候補レビュー",
+      description: "候補の根拠確認と公式サンプル素材の準備",
     href: "/admin/bluesky-post",
   },
   {
