@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "node:crypto";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
+import { isValidLocalScheduleToken } from "@/lib/admin/localScheduleToken";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   fetchNextFanzaAmateurApiCatalogPage,
@@ -24,10 +24,7 @@ async function isCatalogAdminRequest(request: NextRequest) {
   if (await isAdminRequest(request)) return true;
   const expected = process.env.SCHEDULE_API_TOKEN;
   const supplied = request.headers.get("x-hakkutsu-schedule-token");
-  if (!expected || !supplied || !["localhost", "127.0.0.1"].includes(request.nextUrl.hostname)) return false;
-  const expectedBytes = Buffer.from(expected);
-  const suppliedBytes = Buffer.from(supplied);
-  return expectedBytes.length === suppliedBytes.length && timingSafeEqual(expectedBytes, suppliedBytes);
+  return isValidLocalScheduleToken(request.nextUrl.hostname, expected, supplied);
 }
 
 export async function GET(request: NextRequest) {
