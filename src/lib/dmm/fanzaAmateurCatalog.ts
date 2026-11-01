@@ -2,6 +2,7 @@ import "server-only";
 
 import { unstable_cache } from "next/cache";
 import { buildFanzaAmateurAffiliateUrl, getFanzaAmateurAffiliateId as getAmateurAffiliateId } from "@/lib/dmm/fanzaAmateurAffiliate";
+import { FANZA_AMATEUR_FLOOR, FANZA_AMATEUR_PAGE_SIZE } from "@/lib/dmm/fanzaAmateurCatalogConstants";
 import {
   buildFanzaAmateurBrowseCriteria,
   hasActiveCampaign,
@@ -26,9 +27,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type { FanzaAmateurCatalogItem };
 export { getAmateurAffiliateId as getFanzaAmateurAffiliateId };
+export { FANZA_AMATEUR_FLOOR, FANZA_AMATEUR_PAGE_SIZE } from "@/lib/dmm/fanzaAmateurCatalogConstants";
 
-export const FANZA_AMATEUR_FLOOR = "videoc";
-export const FANZA_AMATEUR_PAGE_SIZE = 24;
 export type FanzaAmateurSort = "date" | "review" | "price" | "-price";
 export {
   getFanzaAmateurCatalogWork,
