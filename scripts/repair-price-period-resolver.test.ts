@@ -3,9 +3,13 @@ import test from "node:test";
 import {
   buildSnapshotPriceIndex,
   groupCurrentPricePlans,
+  limitPricePeriodRepairTargets,
   normalizePricePlanName,
   resolvePriceHistoryPeriod,
+  selectPricePeriodRepairTargets,
   type CurrentPricePlan,
+  type PricePeriodRepairHistory,
+  type PricePeriodRepairWork,
   type PriceHistoryPeriodRow,
 } from "./repair-price-period-resolver.ts";
 
@@ -26,6 +30,27 @@ function currentPlan(overrides: Partial<CurrentPricePlan> = {}): CurrentPricePla
     display_name: "Basic Plan",
     period: "30 days",
     normal_price: 1_000,
+    ...overrides,
+  };
+}
+
+function repairWork(
+  product_id: string,
+  overrides: Partial<PricePeriodRepairWork> = {},
+): PricePeriodRepairWork {
+  return { product_id, display_name: "Basic Plan", period: "30 days", ...overrides };
+}
+
+function repairHistory(
+  product_id: string,
+  overrides: Partial<PricePeriodRepairHistory> = {},
+): PricePeriodRepairHistory {
+  return {
+    product_id,
+    display_name: "Basic Plan",
+    period: null,
+    normal_price: 1_000,
+    changed_at: timestamp,
     ...overrides,
   };
 }
@@ -83,4 +108,55 @@ test("leaves a period unresolved when snapshot cardinality cannot disambiguate p
     resolvePriceHistoryPeriod(historyRow({ normal_price: 1_000 }), current, snapshots),
     null,
   );
+});
+
+test("selects mismatched periods and ambiguous same-minute history without selecting matching or empty history", () => {
+  const targets = selectPricePeriodRepairTargets({
+    prices: [
+      repairWork("mismatch"),
+      repairWork("matching"),
+      repairWork("empty-history"),
+    ],
+    history: [
+      repairHistory("mismatch"),
+      repairHistory("matching", { period: "30 days" }),
+      repairHistory("ambiguous", { normal_price: 500 }),
+      repairHistory("ambiguous", { normal_price: 1_500 }),
+    ],
+    repairAll: false,
+  });
+
+  assert.deepEqual(targets, ["ambiguous", "mismatch"]);
+});
+
+test("includes null current periods only in all mode and honors a requested product override", () => {
+  const prices = [
+    repairWork("missing-period", { period: null }),
+    repairWork("known-period"),
+  ];
+  assert.deepEqual(selectPricePeriodRepairTargets({
+    prices,
+    history: [],
+    repairAll: false,
+  }), []);
+  assert.deepEqual(selectPricePeriodRepairTargets({
+    prices,
+    history: [],
+    repairAll: true,
+  }), ["missing-period"]);
+  assert.deepEqual(selectPricePeriodRepairTargets({
+    prices,
+    history: [],
+    repairAll: false,
+    requestedProductId: "manual-override",
+  }), ["manual-override"]);
+});
+
+test("limits repair targets only for a positive finite configured value", () => {
+  const targets = ["one", "two", "three"];
+  assert.deepEqual(limitPricePeriodRepairTargets(targets, "2"), ["one", "two"]);
+  assert.deepEqual(limitPricePeriodRepairTargets(targets, "0"), targets);
+  assert.deepEqual(limitPricePeriodRepairTargets(targets, "-1"), targets);
+  assert.deepEqual(limitPricePeriodRepairTargets(targets, "invalid"), targets);
+  assert.deepEqual(limitPricePeriodRepairTargets(targets), targets);
 });

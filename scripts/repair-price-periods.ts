@@ -6,7 +6,9 @@ import { createClient } from "@supabase/supabase-js";
 import {
   buildSnapshotPriceIndex,
   groupCurrentPricePlans,
+  limitPricePeriodRepairTargets,
   resolvePriceHistoryPeriod,
+  selectPricePeriodRepairTargets,
 } from "./repair-price-period-resolver";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -162,75 +164,17 @@ async function main() {
   const repairAll = process.argv.includes("--all");
   const prices = await readAllWorkPrices();
   const history = repairAll ? [] : await readAllPriceHistory();
-  const byProduct = new Map<string, WorkPrice[]>();
-  for (const row of prices) {
-    const rows = byProduct.get(row.product_id) ?? [];
-    rows.push(row);
-    byProduct.set(row.product_id, rows);
-  }
-
-  const historyByProduct = new Map<string, PriceHistoryKey[]>();
-  for (const row of history) {
-    const rows = historyByProduct.get(row.product_id) ?? [];
-    rows.push(row);
-    historyByProduct.set(row.product_id, rows);
-  }
-
-  const periodMismatchTargets = [...byProduct.entries()]
-    .filter(([productId, rows]) => {
-      const historyRows = historyByProduct.get(productId) ?? [];
-      if (historyRows.length === 0) return false;
-
-      const historyPeriods = new Map<string, Set<string>>();
-      for (const row of historyRows) {
-        const periods = historyPeriods.get(row.display_name) ?? new Set<string>();
-        periods.add(row.period ?? "");
-        historyPeriods.set(row.display_name, periods);
-      }
-
-      return rows.some((row) => {
-        const periods = historyPeriods.get(row.display_name);
-        return Boolean(periods?.size && !periods.has(row.period ?? ""));
-      });
-    })
-    .map(([productId]) => productId);
-
-  // Before period became part of the key, two plans with the same display
-  // name (for example HQ 7-day and unlimited) collapsed into one current row.
-  // The history still exposes the collision because one scrape wrote two
-  // different normal prices for the same name within the same minute.
-  const ambiguousHistoryTargets = [...historyByProduct.entries()]
-    .filter(([, rows]) => {
-      const snapshots = new Map<string, Set<number>>();
-      for (const row of rows) {
-        if (row.period != null || row.normal_price == null) continue;
-        const minute = row.changed_at.slice(0, 16);
-        const key = `${row.display_name}\u0000${minute}`;
-        const prices = snapshots.get(key) ?? new Set<number>();
-        prices.add(row.normal_price);
-        snapshots.set(key, prices);
-      }
-      return [...snapshots.values()].some((values) => values.size > 1);
-    })
-    .map(([productId]) => productId);
-
-  const ambiguousTargets = [
-    ...new Set([...periodMismatchTargets, ...ambiguousHistoryTargets]),
-  ];
-  const nullPeriodTargets = [...byProduct.entries()]
-    .filter(([, rows]) => rows.some((row) => row.period == null))
-    .map(([productId]) => productId);
-  const detectedTargets = repairAll
-    ? [...new Set([...ambiguousTargets, ...nullPeriodTargets])]
-    : ambiguousTargets;
-
   const requestedProductId = process.env.REPAIR_PRODUCT_ID?.trim();
-  const targets = (requestedProductId ? [requestedProductId] : detectedTargets).sort();
+  const targets = selectPricePeriodRepairTargets({
+    prices,
+    history,
+    repairAll,
+    requestedProductId,
+  });
 
   // --all processes every detected target. REPAIR_LIMIT is only used when an
   // intentionally bounded run is requested.
-  const limit = Number(process.env.REPAIR_LIMIT ?? targets.length);
-  const selected = targets.slice(0, Number.isFinite(limit) && limit > 0 ? limit : targets.length);
+  const selected = limitPricePeriodRepairTargets(targets, process.env.REPAIR_LIMIT);
   const works = await readWorks(selected);
   console.log(`[repair] 対象 ${targets.length}作品、今回 ${works.length}作品`);
 
