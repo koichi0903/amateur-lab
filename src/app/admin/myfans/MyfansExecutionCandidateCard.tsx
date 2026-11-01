@@ -62,6 +62,16 @@ function CandidateTopicValueReview({ candidate }: { candidate: ExecutionCandidat
   );
 }
 
+function CandidateResolverReview({ candidate }: { candidate: ExecutionCandidate }) {
+  return (
+    <>
+      <p><span className="font-black text-zinc-500">Resolver:</span> {candidate.resolverEvidence ? `${candidate.resolverEvidence.confidence} / ${candidate.resolverEvidence.resolution_method} / ${candidate.resolverEvidence.evidence_source}` : "未解決"}</p>
+      {candidate.resolverEvidence?.confidence === "strong" && <p className="font-bold text-amber-200">strong: myfansリンクは見つかっていますが、人間確認が必要です。</p>}
+      <p><span className="font-black text-zinc-500">解決product:</span> {candidate.resolverEvidence?.product_id ? `product_id ${candidate.resolverEvidence.product_id}` : candidate.product?.id ? `product_id ${candidate.product.id}` : "-"}</p>
+    </>
+  );
+}
+
 function CandidateIdentityReview({ candidate }: { candidate: ExecutionCandidate }) {
   return (
     <>
@@ -76,9 +86,7 @@ function CandidateIdentityReview({ candidate }: { candidate: ExecutionCandidate 
       <p><span className="font-black text-zinc-500">myfansクリエイター:</span> {candidate.myfansCreator?.name || "myfans未紐付け"}</p>
       <p><span className="font-black text-zinc-500">product creator:</span> {candidate.productCreator?.name || "-"}</p>
       <p><span className="font-black text-zinc-500">matching:</span> {candidate.sourceProductMatch.confidence} / {candidate.sourceProductMatch.source}</p>
-      <p><span className="font-black text-zinc-500">Resolver:</span> {candidate.resolverEvidence ? `${candidate.resolverEvidence.confidence} / ${candidate.resolverEvidence.resolution_method} / ${candidate.resolverEvidence.evidence_source}` : "未解決"}</p>
-      {candidate.resolverEvidence?.confidence === "strong" && <p className="font-bold text-amber-200">strong: myfansリンクは見つかっていますが、人間確認が必要です。</p>}
-      <p><span className="font-black text-zinc-500">解決product:</span> {candidate.resolverEvidence?.product_id ? `product_id ${candidate.resolverEvidence.product_id}` : candidate.product?.id ? `product_id ${candidate.product.id}` : "-"}</p>
+      <CandidateResolverReview candidate={candidate} />
       <p><span className="font-black text-zinc-500">source specificity:</span> {candidate.sourceSpecificityScore}/100</p>
     </>
   );
@@ -251,6 +259,56 @@ function CandidateWorkflowSet({ candidate }: { candidate: ExecutionCandidate }) 
   );
 }
 
+function CandidateImageAction({ candidate, onMessage }: { candidate: ExecutionCandidate; onMessage: (message: Message) => void }) {
+  if (!["ranking_card", "comparison_card", "discovery_card"].includes(candidate.creativeStrategy)) return null;
+
+  function saveCardImage() {
+    try {
+      downloadCardPng(candidate);
+      onMessage({ text: "カード画像をPNGで保存しました。", error: false });
+    } catch (error) {
+      onMessage({ text: error instanceof Error ? error.message : "画像生成に失敗しました。text onlyで投稿してください。", error: true });
+    }
+  }
+
+  return <button type="button" disabled={!candidate.product} onClick={saveCardImage} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-white px-3 text-xs font-black text-black disabled:opacity-40"><Download size={15} />画像を保存</button>;
+}
+
+function CandidatePostCopyActions({ candidate, linkRequired, linkReady, selfReply, onCopy }: {
+  candidate: ExecutionCandidate;
+  linkRequired: boolean;
+  linkReady: boolean;
+  selfReply: string;
+  onCopy: CopyHandler;
+}) {
+  return (
+    <>
+      <button type="button" disabled={linkRequired && !linkReady} onClick={() => onCopy(selfReply, "Xに投稿する自己リプ")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"><Copy size={15} />X自己リプをコピー</button>
+      <button type="button" disabled={!candidate.quoteXUrl} onClick={() => onCopy(candidate.quoteXUrl, "引用元X URL")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"><Copy size={15} />引用URLをコピー</button>
+      <button type="button" disabled={!candidate.affiliateUrl || candidate.linkStrategy === "no_link" || candidate.linkStrategy === "profile_cta"} onClick={() => onCopy(candidate.affiliateUrl, "リンク")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"><Copy size={15} />リンクをコピー</button>
+      {candidate.ogpCheckRequired && <span className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-cyan-700 px-3 text-xs font-black text-cyan-200"><ImageIcon size={15} />OGPを確認</span>}
+      {(candidate.quoteXUrl || candidate.sourceXUrl)
+        ? <a href={quoteIntentUrl(candidate)} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white"><ExternalLink size={15} />X投稿画面を開く</a>
+        : <button type="button" disabled className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-zinc-500"><ExternalLink size={15} />X投稿画面を開く</button>}
+    </>
+  );
+}
+
+function CandidateSaveAction({ candidate, pendingId, saved, saveBlockReason, onSave }: {
+  candidate: ExecutionCandidate;
+  pendingId: string | number | null;
+  saved: boolean;
+  saveBlockReason: string | null;
+  onSave: (candidate: ExecutionCandidate) => void;
+}) {
+  return (
+    <>
+      <button type="button" disabled={saved || pendingId === candidate.id || Boolean(saveBlockReason)} onClick={() => onSave(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50">{saved ? <Check size={15} /> : <Save size={15} />}{saved ? "投稿ログに保存済み" : "この候補を投稿ログへ保存"}</button>
+      {saveBlockReason && <p className="mt-2 text-xs font-bold text-amber-200">保存不可: {saveBlockReason}</p>}
+    </>
+  );
+}
+
 function CandidateActionButtons({ candidate, linkRequired, linkReady, selfReply, pendingId, saved, saveBlockReason, onCopy, onMessage, onSave }: {
   candidate: ExecutionCandidate;
   linkRequired: boolean;
@@ -263,30 +321,12 @@ function CandidateActionButtons({ candidate, linkRequired, linkReady, selfReply,
   onMessage: (message: Message) => void;
   onSave: (candidate: ExecutionCandidate) => void;
 }) {
-  function saveCardImage() {
-    try {
-      downloadCardPng(candidate);
-      onMessage({ text: "カード画像をPNGで保存しました。", error: false });
-    } catch (error) {
-      onMessage({ text: error instanceof Error ? error.message : "画像生成に失敗しました。text onlyで投稿してください。", error: true });
-    }
-  }
-
   return (
     <div className="mt-4 grid gap-2">
-      {["ranking_card", "comparison_card", "discovery_card"].includes(candidate.creativeStrategy) && (
-        <button type="button" disabled={!candidate.product} onClick={saveCardImage} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-white px-3 text-xs font-black text-black disabled:opacity-40"><Download size={15} />画像を保存</button>
-      )}
+      <CandidateImageAction candidate={candidate} onMessage={onMessage} />
       <button type="button" onClick={() => onCopy(publishBody(candidate), "Xに投稿する本文")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white"><Copy size={15} />X本文をコピー</button>
-      <button type="button" disabled={linkRequired && !linkReady} onClick={() => onCopy(selfReply, "Xに投稿する自己リプ")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"><Copy size={15} />X自己リプをコピー</button>
-      <button type="button" disabled={!candidate.quoteXUrl} onClick={() => onCopy(candidate.quoteXUrl, "引用元X URL")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"><Copy size={15} />引用URLをコピー</button>
-      <button type="button" disabled={!candidate.affiliateUrl || candidate.linkStrategy === "no_link" || candidate.linkStrategy === "profile_cta"} onClick={() => onCopy(candidate.affiliateUrl, "リンク")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"><Copy size={15} />リンクをコピー</button>
-      {candidate.ogpCheckRequired && <span className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-cyan-700 px-3 text-xs font-black text-cyan-200"><ImageIcon size={15} />OGPを確認</span>}
-      {(candidate.quoteXUrl || candidate.sourceXUrl)
-        ? <a href={quoteIntentUrl(candidate)} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 text-xs font-black text-white"><ExternalLink size={15} />X投稿画面を開く</a>
-        : <button type="button" disabled className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-800 px-3 text-xs font-black text-zinc-500"><ExternalLink size={15} />X投稿画面を開く</button>}
-      <button type="button" disabled={saved || pendingId === candidate.id || Boolean(saveBlockReason)} onClick={() => onSave(candidate)} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white disabled:opacity-50">{saved ? <Check size={15} /> : <Save size={15} />}{saved ? "投稿ログに保存済み" : "この候補を投稿ログへ保存"}</button>
-      {saveBlockReason && <p className="mt-2 text-xs font-bold text-amber-200">保存不可: {saveBlockReason}</p>}
+      <CandidatePostCopyActions candidate={candidate} linkRequired={linkRequired} linkReady={linkReady} selfReply={selfReply} onCopy={onCopy} />
+      <CandidateSaveAction candidate={candidate} pendingId={pendingId} saved={saved} saveBlockReason={saveBlockReason} onSave={onSave} />
     </div>
   );
 }
