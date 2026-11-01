@@ -71,7 +71,11 @@ export async function saveAmateurSubscription(payload: AmateurPayload, request: 
     .select("content_id,raw_item")
     .eq("content_id", contentId)
     .maybeSingle();
-  if (workError || !work) return errorResponse("対象の素人作品が見つかりません", 404);
+  if (workError) {
+    console.error("[push] amateur work lookup failed", workError);
+    return errorResponse("素人作品の通知設定を確認できませんでした", 500);
+  }
+  if (!work) return errorResponse("対象の素人作品が見つかりません", 404);
 
   const availableMakers = amateurMakers(work.raw_item);
   const currentPrice = getFanzaAmateurPriceFromRawItem(work.raw_item);
@@ -115,7 +119,11 @@ export async function saveWorkSubscription(payload: WorkPayload, request: Reques
     .select("id,price,sale_price,actress,maker")
     .eq("id", workId)
     .maybeSingle();
-  if (workError || !work) return errorResponse("対象作品が見つかりません", 404);
+  if (workError) {
+    console.error("[push] regular work lookup failed", workError);
+    return errorResponse("作品の通知設定を確認できませんでした", 500);
+  }
+  if (!work) return errorResponse("対象作品が見つかりません", 404);
 
   const currentPrice = work.sale_price && work.sale_price > 0 ? work.sale_price : work.price;
   if (!(await saveSubscriptionRecord(request, payload, "[push] subscription save failed"))) {

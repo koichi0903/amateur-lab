@@ -55,6 +55,7 @@
     "test:affiliate-analytics-funnels": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/affiliateAnalyticsFunnels.test.ts",
     "test:fanza-amateur-browse-projection": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/dmm/fanzaAmateurBrowseProjection.test.ts",
     "test:push-price-alert-decision": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/pushPriceAlertDecision.test.ts",
+    "test:push-subscribe": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs --test src/app/api/push/subscribe/route.test.ts src/lib/dmm/fanzaAmateurRawItem.test.ts",
     "test:myfans-observed-post-import": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/myfans/myfansObservedPostImport.test.ts",
     "test:admin-review-batch": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/admin/reviewUpdateBatch.test.ts",
     "test:ranking-page-collection": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/admin/rankingPageCollection.test.ts",

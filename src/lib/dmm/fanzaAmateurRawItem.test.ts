@@ -5,6 +5,9 @@ import { getFanzaAmateurPriceFromRawItem } from "./fanzaAmateurRawItem";
 test("reads numeric and string prices from DMM raw items", () => {
   assert.equal(getFanzaAmateurPriceFromRawItem({ prices: { price: 1200 } }), 1200);
   assert.equal(getFanzaAmateurPriceFromRawItem({ prices: { price: "1200円" } }), 1200);
+  assert.equal(getFanzaAmateurPriceFromRawItem({ prices: { price: "1,200円" } }), 1200);
+  assert.equal(getFanzaAmateurPriceFromRawItem({ prices: { price: null, list_price: "1,500円" } }), 1500);
+  assert.equal(getFanzaAmateurPriceFromRawItem({ prices: { price: 0, list_price: 1500 } }), 1500);
 });
 
 test("rejects malformed, non-positive, and unsafe raw item prices", () => {
