@@ -1,15 +1,18 @@
 import { spawn } from "node:child_process";
-import { createHmac, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { config as loadEnv } from "dotenv";
 import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { resolve } from "node:path";
 import {
+  buildRevalidationHeaders,
   describeReadinessFailure,
   findAvailablePort,
   getAmateurApiCatalogCompletionError,
   getAmateurApiCatalogRunAction,
   getCurrentRunJobOutcome,
+  getProductionRevalidationEndpoint,
+  getRevalidationSiteUrls,
   isSuccessfulTaskResponse,
   runTaskSequence,
   writeFileWithRetry,
@@ -58,10 +61,7 @@ const LOCAL_UPDATE_BUILD_SUCCESS_MARKER = ".local-update-build-success";
 async function revalidateProduction(tasks) {
   if (tasks.length === 0) return;
 
-  const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "");
-  const siteUrls = configuredSiteUrl
-    ? [configuredSiteUrl]
-    : ["https://hakkutsu-lab.com", "https://amateur-lab.vercel.app"];
+  const siteUrls = getRevalidationSiteUrls(process.env.NEXT_PUBLIC_SITE_URL);
   const cronSecret = process.env.CRON_SECRET?.trim();
   const signingSecret = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!cronSecret && !signingSecret) {
@@ -72,32 +72,18 @@ async function revalidateProduction(tasks) {
 
   const body = JSON.stringify({ tasks });
   const timestamp = Date.now().toString();
-  const headers = { "content-type": "application/json" };
-  if (cronSecret) {
-    headers.authorization = `Bearer ${cronSecret}`;
-  } else {
-    headers["x-hakkutsu-timestamp"] = timestamp;
-    headers["x-hakkutsu-signature"] = createHmac("sha256", signingSecret)
-      .update(`${timestamp}.${body}`)
-      .digest("hex");
-  }
+  const headers = buildRevalidationHeaders({ cronSecret, signingSecret, timestamp, body });
 
   const failures = [];
   for (const siteUrl of siteUrls) {
-    let endpoint;
-    try {
-      endpoint = new URL("/api/admin/revalidate", siteUrl);
-    } catch {
-      failures.push(`${siteUrl}: URL不正`);
-      continue;
-    }
-    if (["localhost", "127.0.0.1"].includes(endpoint.hostname)) {
-      failures.push(`${siteUrl}: 本番URLではありません`);
+    const endpointResult = getProductionRevalidationEndpoint(siteUrl);
+    if (endpointResult.error) {
+      failures.push(endpointResult.error);
       continue;
     }
 
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch(endpointResult.endpoint, {
         method: "POST",
         headers,
         body,

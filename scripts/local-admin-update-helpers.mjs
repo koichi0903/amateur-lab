@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
+import { createHmac } from "node:crypto";
 
 export function summarizeResponseBody(body, maxLength = 240) {
   const text = String(body ?? "").replace(/\s+/g, " ").trim();
@@ -74,6 +75,39 @@ export function getCurrentRunJobOutcome(job, startedAt) {
   if (job.status === "completed") return { status: "completed" };
   if (job.status === "failed") return { status: "failed", message: job.error_message };
   return null;
+}
+
+export function getRevalidationSiteUrls(configuredSiteUrl) {
+  const normalizedSiteUrl = configuredSiteUrl?.trim().replace(/\/+$/, "");
+  return normalizedSiteUrl
+    ? [normalizedSiteUrl]
+    : ["https://hakkutsu-lab.com", "https://amateur-lab.vercel.app"];
+}
+
+export function buildRevalidationHeaders({ cronSecret, signingSecret, timestamp, body }) {
+  const headers = { "content-type": "application/json" };
+  if (cronSecret) {
+    headers.authorization = `Bearer ${cronSecret}`;
+  } else if (signingSecret) {
+    headers["x-hakkutsu-timestamp"] = timestamp;
+    headers["x-hakkutsu-signature"] = createHmac("sha256", signingSecret)
+      .update(`${timestamp}.${body}`)
+      .digest("hex");
+  }
+  return headers;
+}
+
+export function getProductionRevalidationEndpoint(siteUrl) {
+  let endpoint;
+  try {
+    endpoint = new URL("/api/admin/revalidate", siteUrl);
+  } catch {
+    return { error: `${siteUrl}: URL不正` };
+  }
+  if (["localhost", "127.0.0.1"].includes(endpoint.hostname)) {
+    return { error: `${siteUrl}: 本番URLではありません` };
+  }
+  return { endpoint };
 }
 
 export async function findAvailablePort() {

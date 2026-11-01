@@ -5,10 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   describeReadinessFailure,
+  buildRevalidationHeaders,
   findAvailablePort,
   getAmateurApiCatalogCompletionError,
   getAmateurApiCatalogRunAction,
   getCurrentRunJobOutcome,
+  getProductionRevalidationEndpoint,
+  getRevalidationSiteUrls,
   isSuccessfulTaskResponse,
   runTaskSequence,
   summarizeResponseBody,
@@ -145,6 +148,30 @@ test("classifies only current-run completed and failed jobs", () => {
     null,
   );
   assert.equal(getCurrentRunJobOutcome(null, startedAt), null);
+});
+
+test("builds cache revalidation targets and authentication headers", () => {
+  assert.deepEqual(getRevalidationSiteUrls(" https://site.example/// "), ["https://site.example"]);
+  assert.deepEqual(getRevalidationSiteUrls(" "), [
+    "https://hakkutsu-lab.com",
+    "https://amateur-lab.vercel.app",
+  ]);
+
+  assert.deepEqual(
+    buildRevalidationHeaders({ cronSecret: "cron", signingSecret: "signing", timestamp: "1", body: "{}" }),
+    { "content-type": "application/json", authorization: "Bearer cron" },
+  );
+  const signedHeaders = buildRevalidationHeaders({ signingSecret: "signing", timestamp: "1", body: "{}" });
+  assert.equal(signedHeaders["x-hakkutsu-timestamp"], "1");
+  assert.match(signedHeaders["x-hakkutsu-signature"], /^[0-9a-f]{64}$/);
+  assert.equal(signedHeaders.authorization, undefined);
+});
+
+test("rejects invalid and loopback cache revalidation URLs", () => {
+  assert.equal(getProductionRevalidationEndpoint("not a URL").error, "not a URL: URL不正");
+  assert.equal(getProductionRevalidationEndpoint("http://localhost:3000").error, "http://localhost:3000: 本番URLではありません");
+  assert.equal(getProductionRevalidationEndpoint("http://127.0.0.1:3000").error, "http://127.0.0.1:3000: 本番URLではありません");
+  assert.equal(getProductionRevalidationEndpoint("https://site.example").endpoint.href, "https://site.example/api/admin/revalidate");
 });
 
 test("writes UTF-8 files through the shared retry helper", async () => {
