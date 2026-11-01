@@ -3,6 +3,7 @@ import { createBijyoManualJob, excludeBijyoJob, getBijyoDashboard, getBijyoManua
 import { getBijyoHistoryPage, getBijyoReservedQueueWorks } from "@/lib/bijyoReadPages";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { executeBijyoManualAction } from "@/lib/bijyoManualAction";
+import { resolveBijyoReadPageRequest } from "@/lib/bijyoReadPageRequest";
 
 export const dynamic = "force-dynamic";
 
@@ -60,25 +61,23 @@ async function handleManualTrimAction(body: Record<string, unknown>, jobId: numb
 
 export async function GET(request: NextRequest) {
   if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
-  const historyValue = request.nextUrl.searchParams.get("historyPage");
-  const reservedValue = request.nextUrl.searchParams.get("reservedPage");
-  if (historyValue !== null && reservedValue === null) {
-    const page = Math.max(1, Number(historyValue) || 1);
-    const result = await getBijyoHistoryPage(page);
+  const pageRequest = resolveBijyoReadPageRequest({
+    historyPage: request.nextUrl.searchParams.get("historyPage"),
+    reservedPage: request.nextUrl.searchParams.get("reservedPage"),
+    manualPage: request.nextUrl.searchParams.has("manualPage") ? request.nextUrl.searchParams.get("manualPage") : null,
+  });
+  if (pageRequest.mode === "history") {
+    const result = await getBijyoHistoryPage(pageRequest.page);
     return NextResponse.json({ ...result, historyPage: result.page, historyHasMore: result.hasMore }, { headers: { "Cache-Control": "no-store" } });
   }
-  if (reservedValue !== null && historyValue === null) {
-    const page = Math.max(1, Number(reservedValue) || 1);
-    const result = await getBijyoReservedQueueWorks(page);
+  if (pageRequest.mode === "reserved") {
+    const result = await getBijyoReservedQueueWorks(pageRequest.page);
     return NextResponse.json({ reservedWorks: result.works, reservedHasMore: result.hasMore, error: result.error }, { headers: { "Cache-Control": "no-store" } });
   }
-  if (request.nextUrl.searchParams.has("manualPage")) {
-    const page = Math.max(1, Number(request.nextUrl.searchParams.get("manualPage")) || 1);
-    return NextResponse.json(await getBijyoManualJobsPage(page), { headers: { "Cache-Control": "no-store" } });
+  if (pageRequest.mode === "manual") {
+    return NextResponse.json(await getBijyoManualJobsPage(pageRequest.page), { headers: { "Cache-Control": "no-store" } });
   }
-  const historyPage = Math.max(1, Number(request.nextUrl.searchParams.get("historyPage") ?? "1") || 1);
-  const reservedPageValue = Math.max(1, Number(request.nextUrl.searchParams.get("reservedPage") ?? "1") || 1);
-  return NextResponse.json(await getBijyoDashboard(historyPage, reservedPageValue));
+  return NextResponse.json(await getBijyoDashboard(pageRequest.historyPage, pageRequest.reservedPage));
 }
 
 export async function POST(request: NextRequest) {
