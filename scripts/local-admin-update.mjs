@@ -6,6 +6,7 @@ import { request as httpRequest } from "node:http";
 import { resolve } from "node:path";
 import {
   buildRevalidationHeaders,
+  continueAmateurApiCatalogRun,
   describeReadinessFailure,
   findAvailablePort,
   getAmateurApiCatalogCompletionError,
@@ -558,18 +559,15 @@ async function run(taskName) {
     } else {
       run = await send({ action: "start", runType: "weekly_full" });
     }
-    let pageCount = 0;
-    while (run.status === "running" && !interrupted) {
-      if (pageCount >= 1_000) {
-        throw new Error(task.label + "が1,000ページを超えたため安全停止しました。保存済み進捗から再開できます。");
-      }
-      run = await send({ action: "continue", runId: run.id });
-      pageCount += 1;
-      console.log("[進捗] 素人API " + Number(run.fetched_item_count ?? 0).toLocaleString("ja-JP") + "/" + (run.total_count == null ? "件数未確定" : Number(run.total_count).toLocaleString("ja-JP")) + "件（今回" + pageCount + "ページ）");
-      if (run.status === "running" && !interrupted) {
-        await new Promise((resolveWait) => setTimeout(resolveWait, 350));
-      }
-    }
+    run = await continueAmateurApiCatalogRun({
+      taskLabel: task.label,
+      initialRun: run,
+      send,
+      isInterrupted: () => interrupted,
+      onProgress: (nextRun, pageCount) => {
+        console.log("[進捗] 素人API " + Number(nextRun.fetched_item_count ?? 0).toLocaleString("ja-JP") + "/" + (nextRun.total_count == null ? "件数未確定" : Number(nextRun.total_count).toLocaleString("ja-JP")) + "件（今回" + pageCount + "ページ）");
+      },
+    });
     const completionError = getAmateurApiCatalogCompletionError(task.label, run, interrupted);
     if (completionError) throw new Error(completionError);
     console.log("[完了] " + task.label + " " + Number(run.fetched_item_count ?? 0).toLocaleString("ja-JP") + "件");

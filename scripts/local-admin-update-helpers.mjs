@@ -66,6 +66,30 @@ export function getAmateurApiCatalogCompletionError(taskLabel, run, interrupted)
   return null;
 }
 
+export async function continueAmateurApiCatalogRun({
+  taskLabel,
+  initialRun,
+  send,
+  isInterrupted,
+  onProgress,
+  wait = (milliseconds) => new Promise((resolveWait) => setTimeout(resolveWait, milliseconds)),
+}) {
+  let run = initialRun;
+  let pageCount = 0;
+  while (run.status === "running" && !isInterrupted()) {
+    if (pageCount >= 1_000) {
+      throw new Error(`${taskLabel}が1,000ページを超えたため安全停止しました。保存済み進捗から再開できます。`);
+    }
+    run = await send({ action: "continue", runId: run.id });
+    pageCount += 1;
+    onProgress(run, pageCount);
+    if (run.status === "running" && !isInterrupted()) {
+      await wait(350);
+    }
+  }
+  return run;
+}
+
 export function getCurrentRunJobOutcome(job, startedAt) {
   if (!job) return null;
 

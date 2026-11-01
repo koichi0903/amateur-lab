@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   describeReadinessFailure,
   buildRevalidationHeaders,
+  continueAmateurApiCatalogRun,
   findAvailablePort,
   getAmateurApiCatalogCompletionError,
   getAmateurApiCatalogRunAction,
@@ -117,6 +118,64 @@ test("preserves interruption, API-limit, and incomplete catalog run failures", (
     getAmateurApiCatalogCompletionError("catalog", { status: "completed" }, false),
     null,
   );
+});
+
+test("continues catalog pages, reports progress, and waits only between running pages", async () => {
+  const requests = [];
+  const progress = [];
+  const waits = [];
+  const states = [
+    { id: "run-1", status: "running", fetched_item_count: 50, total_count: 100 },
+    { id: "run-1", status: "completed", fetched_item_count: 100, total_count: 100 },
+  ];
+  const result = await continueAmateurApiCatalogRun({
+    taskLabel: "catalog",
+    initialRun: { id: "run-1", status: "running" },
+    send: async (request) => { requests.push(request); return states.shift(); },
+    isInterrupted: () => false,
+    onProgress: (run, pageCount) => progress.push([run.fetched_item_count, pageCount]),
+    wait: async (milliseconds) => waits.push(milliseconds),
+  });
+
+  assert.deepEqual(requests, [
+    { action: "continue", runId: "run-1" },
+    { action: "continue", runId: "run-1" },
+  ]);
+  assert.deepEqual(progress, [[50, 1], [100, 2]]);
+  assert.deepEqual(waits, [350]);
+  assert.equal(result.status, "completed");
+});
+
+test("stops requesting catalog pages after interruption", async () => {
+  let interrupted = false;
+  let requests = 0;
+  const result = await continueAmateurApiCatalogRun({
+    taskLabel: "catalog",
+    initialRun: { id: "run-1", status: "running" },
+    send: async () => { requests += 1; return { id: "run-1", status: "running" }; },
+    isInterrupted: () => interrupted,
+    onProgress: () => { interrupted = true; },
+    wait: async () => assert.fail("must not wait after interruption"),
+  });
+
+  assert.equal(requests, 1);
+  assert.equal(result.status, "running");
+});
+
+test("stops after the existing 1,000-page safety limit", async () => {
+  let requests = 0;
+  await assert.rejects(
+    continueAmateurApiCatalogRun({
+      taskLabel: "catalog",
+      initialRun: { id: "run-1", status: "running" },
+      send: async () => { requests += 1; return { id: "run-1", status: "running" }; },
+      isInterrupted: () => false,
+      onProgress: () => {},
+      wait: async () => {},
+    }),
+    /1,000ページを超えたため安全停止/,
+  );
+  assert.equal(requests, 1_000);
 });
 
 test("classifies only current-run completed and failed jobs", () => {
