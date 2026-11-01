@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
+import { buildQuoteRefreshItemClaim } from "@/lib/myfans/myfansQuoteRefreshItemClaim";
 import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummary";
 import { auditContinuation } from "@/lib/myfans/myfansQuoteRefreshAudit";
 import { reconcileLegacyActiveJobs, reconcileStaleActiveJobs } from "@/lib/myfans/myfansQuoteRefreshStaleJobs";
@@ -116,6 +117,63 @@ async function getStaleRunningItems(jobId: number) {
     .eq("status", "running")
     .lt("processed_at", new Date(Date.now() - STALE_QUOTE_REFRESH_ITEM_AGE_MS).toISOString());
   return data;
+}
+
+type QuoteRefreshJob = NonNullable<Awaited<ReturnType<typeof getJob>>>;
+
+async function nextItemAvailabilityResponse(activeJob: QuoteRefreshJob) {
+  const stale = await getStaleRunningItems(activeJob.id);
+  if (stale?.length) {
+    return NextResponse.json({ done: true, stale: true, needsUserAction: true, job: activeJob, staleItemIds: stale.map((item) => item.id), message: "staleな実行項目があります。明示的なresume操作が必要です。" });
+  }
+
+  const { data: activeItems, error: activeItemsError } = await supabaseAdmin
+    .from("myfans_quote_refresh_job_items")
+    .select("id")
+    .eq("job_id", activeJob.id)
+    .eq("status", "running")
+    .limit(1);
+  if (activeItemsError) throw activeItemsError;
+  if (activeItems?.length) {
+    return NextResponse.json({ done: false, busy: true, jobId: activeJob.id, job: activeJob, message: "別のitemが処理中のためclaimを保留しました。" });
+  }
+  return null;
+}
+
+async function claimNextPendingItem(activeJob: QuoteRefreshJob) {
+  const { data: item, error } = await supabaseAdmin
+    .from("myfans_quote_refresh_job_items")
+    .select("id,job_id,creator_id,creator_x_url,attempts,myfans_creators(display_name)")
+    .eq("job_id", activeJob.id)
+    .eq("status", "pending")
+    .lt("attempts", MAX_ATTEMPTS)
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!item) {
+    await refreshJobCounts(activeJob.id);
+    return NextResponse.json({ done: true, ...(await progress(activeJob.id)) });
+  }
+
+  const processedAt = new Date().toISOString();
+  const startedAt = new Date().toISOString();
+  const { data: running, error: updateError } = await supabaseAdmin
+    .from("myfans_quote_refresh_job_items")
+    .update(buildQuoteRefreshItemClaim(item.attempts, processedAt, startedAt))
+    .eq("id", item.id)
+    .eq("status", "pending")
+    .select("id,job_id,creator_id,creator_x_url,attempts,myfans_creators(display_name)")
+    .maybeSingle();
+  if (updateError) throw updateError;
+
+  if (!running) {
+    await auditContinuation(activeJob.id, "NEXT_CLAIM_SKIPPED", "競合中のclaimを破棄", { itemId: item.id, reason: "claim_lost" });
+    return NextResponse.json({ done: false, claimed: false, duplicate: true, jobId: activeJob.id, job: activeJob });
+  }
+
+  await auditContinuation(activeJob.id, "NEXT_CLAIMED", "次のbatch itemをclaim", { itemId: running.id, creatorId: running.creator_id, attempts: running.attempts });
+  return NextResponse.json({ done: false, jobId: activeJob.id, batchSize: activeJob.batch_size, item: running });
 }
 
 function quoteRefreshNextItemGateResponse<T extends { status: string }>(gate: QuoteRefreshNextItemGate, job: T) {
@@ -371,50 +429,9 @@ async function nextItem(payload: Record<string, unknown>) {
     .update({ status: "running", started_at: activeJob.started_at ?? new Date().toISOString() })
     .eq("id", activeJob.id);
 
-  const stale = await getStaleRunningItems(activeJob.id);
-  if (stale?.length) return NextResponse.json({ done: true, stale: true, needsUserAction: true, job: activeJob, staleItemIds: stale.map((item) => item.id), message: "staleな実行項目があります。明示的なresume操作が必要です。" });
-
-  const { data: activeItems, error: activeItemsError } = await supabaseAdmin
-    .from("myfans_quote_refresh_job_items")
-    .select("id")
-    .eq("job_id", activeJob.id)
-    .eq("status", "running")
-    .limit(1);
-  if (activeItemsError) throw activeItemsError;
-  if (activeItems?.length) return NextResponse.json({ done: false, busy: true, jobId: activeJob.id, job: activeJob, message: "別のitemが処理中のためclaimを保留しました。" });
-
-  const { data: item, error } = await supabaseAdmin
-    .from("myfans_quote_refresh_job_items")
-    .select("id,job_id,creator_id,creator_x_url,attempts,myfans_creators(display_name)")
-    .eq("job_id", activeJob.id)
-    .eq("status", "pending")
-    .lt("attempts", MAX_ATTEMPTS)
-    .order("id", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  if (!item) {
-    await refreshJobCounts(activeJob.id);
-    return NextResponse.json({ done: true, ...(await progress(activeJob.id)) });
-  }
-
-  const { data: running, error: updateError } = await supabaseAdmin
-    .from("myfans_quote_refresh_job_items")
-    .update({ status: "running", attempts: item.attempts + 1, processed_at: new Date().toISOString(), started_at: new Date().toISOString(), finished_at: null, request_type: "quote_scan", result_code: null, http_status: null, diagnostics: {}, error: null })
-    .eq("id", item.id)
-    .eq("status", "pending")
-    .select("id,job_id,creator_id,creator_x_url,attempts,myfans_creators(display_name)")
-    .maybeSingle();
-  if (updateError) throw updateError;
-
-  if (!running) {
-    await auditContinuation(activeJob.id, "NEXT_CLAIM_SKIPPED", "競合中のclaimを破棄", { itemId: item.id, reason: "claim_lost" });
-    return NextResponse.json({ done: false, claimed: false, duplicate: true, jobId: activeJob.id, job: activeJob });
-  }
-
-  await auditContinuation(activeJob.id, "NEXT_CLAIMED", "次のbatch itemをclaim", { itemId: running.id, creatorId: running.creator_id, attempts: running.attempts });
-
-  return NextResponse.json({ done: false, jobId: activeJob.id, batchSize: activeJob.batch_size, item: running });
+  const availabilityResponse = await nextItemAvailabilityResponse(activeJob);
+  if (availabilityResponse) return availabilityResponse;
+  return claimNextPendingItem(activeJob);
 }
 
 async function auditContinuationAction(payload: Record<string, unknown>) {
