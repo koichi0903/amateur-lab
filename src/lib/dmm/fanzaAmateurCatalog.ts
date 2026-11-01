@@ -378,6 +378,8 @@ async function loadFanzaAmateurRelatedWorks(item: FanzaAmateurCatalogItem, limit
   if (error) throw new Error(`素人作品の関連候補を読み込めませんでした: ${error.message}`);
 
   const candidates = new Map<string, FanzaAmateurCatalogItem>();
+  const names = (values: Array<{ name: string }> | undefined) =>
+    [...new Set((values ?? []).map(({ name }) => asText(name)).filter(Boolean))];
   for (const row of data ?? []) {
     const candidate = normalizeFanzaAmateurCatalogItem(row.raw_item);
     if (candidate && candidate.content_id !== item.content_id) candidates.set(candidate.content_id, candidate);
