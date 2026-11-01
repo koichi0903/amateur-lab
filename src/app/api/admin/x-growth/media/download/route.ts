@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auditXGrowth } from "@/lib/xGrowthOperations";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { canTrimFanzaXGrowthSampleMovie, isFanzaXGrowthTechnicalSampleMovie, sourceDomain, sourceKindFor } from "@/lib/xMediaAssets";
+import { canDownloadFanzaXGrowthSampleMovie, canTrimFanzaXGrowthSampleMovie, sourceDomain, sourceKindFor } from "@/lib/xMediaAssets";
 import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
 import { xGrowthMediaResponseHeaders } from "@/lib/xGrowthMediaPreview";
 import { xGrowthMediaDataCard } from "@/lib/x-growth/xGrowthMediaDataCard";
@@ -56,8 +56,11 @@ async function fetchAllowedUpstream(url: string, mediaType: string, range?: stri
   throw new Error("素材URLのリダイレクト回数が上限を超えました。");
 }
 
-async function resolveSampleMovie(workId: number, mediaType: string, assetId: number | null): Promise<MediaResolution> {
-  let data: Record<string, unknown> | null = null;
+type SampleMovieSource =
+  | { data: Record<string, unknown>; source: "stored_asset" | "work_fallback" }
+  | { error: string; status: 404 };
+
+async function loadSampleMovieSource(workId: number, assetId: number | null): Promise<SampleMovieSource> {
   if (assetId) {
     const result = await supabaseAdmin
       .from("x_media_assets")
@@ -66,16 +69,18 @@ async function resolveSampleMovie(workId: number, mediaType: string, assetId: nu
       .eq("id", assetId)
       .single();
     if (result.error || !result.data) return { error: result.error?.message ?? "動画素材が見つかりません。", status: 404 };
-    data = result.data as Record<string, unknown>;
-  } else {
-    const result = await supabaseAdmin
-      .from("works")
-      .select("id,product_id,sample_movie_url")
-      .eq("id", workId)
-      .single();
-    const work = result.data as { id: number; product_id: string | null; sample_movie_url: string | null } | null;
-    if (result.error || !work?.sample_movie_url) return { error: result.error?.message ?? "動画素材が見つかりません。", status: 404 };
-    data = {
+    return { data: result.data as Record<string, unknown>, source: "stored_asset" };
+  }
+
+  const result = await supabaseAdmin
+    .from("works")
+    .select("id,product_id,sample_movie_url")
+    .eq("id", workId)
+    .single();
+  const work = result.data as { id: number; product_id: string | null; sample_movie_url: string | null } | null;
+  if (result.error || !work?.sample_movie_url) return { error: result.error?.message ?? "動画素材が見つかりません。", status: 404 };
+  return {
+    data: {
       id: undefined,
       work_id: work.id,
       product_id: work.product_id,
@@ -89,14 +94,19 @@ async function resolveSampleMovie(workId: number, mediaType: string, assetId: nu
       can_modify: false,
       trim_start_seconds: 0,
       trim_modify_confirmed: false,
-    };
-  }
+    },
+    source: "work_fallback",
+  };
+}
+
+async function resolveSampleMovie(workId: number, mediaType: string, assetId: number | null): Promise<MediaResolution> {
+  const loaded = await loadSampleMovieSource(workId, assetId);
+  if ("error" in loaded) return loaded;
+  const { data, source } = loaded;
   const asset = data as { id?: number; work_id: number | null; source_url: string; media_type: string };
-  const allowed = (asset.media_type === "sample_movie" || asset.media_type === "video") && asset.work_id === workId && (
-    isFanzaXGrowthTechnicalSampleMovie(data, asset.source_url).usable
-  );
-  if (!allowed) {
-    await auditXGrowth("media_download_blocked", { workId, mediaType, assetId, reasons: isFanzaXGrowthTechnicalSampleMovie(data, asset.source_url).reasons });
+  const verdict = canDownloadFanzaXGrowthSampleMovie(data, workId, source);
+  if (!verdict.usable) {
+    await auditXGrowth("media_download_blocked", { workId, mediaType, assetId, reasons: verdict.reasons });
     return { error: "このmp4はX投稿用に保存できません。", status: 403 };
   }
   return { url: asset.source_url, basename: `hakkutsu-${workId}-sample`, fallbackExt: "mp4", asset: data };

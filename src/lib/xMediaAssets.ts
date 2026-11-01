@@ -153,6 +153,24 @@ export function isFanzaXGrowthTechnicalSampleMovie(asset: Partial<XMediaAsset> |
   return { usable: reasons.length === 0, reasons: [...new Set(reasons)] };
 }
 
+export function canDownloadFanzaXGrowthSampleMovie(
+  asset: Partial<XMediaAsset> | null | undefined,
+  workId: number,
+  source: "stored_asset" | "work_fallback",
+): XFanzaXGrowthTechnicalVerdict {
+  const reasons: string[] = [];
+  if (asset?.media_type !== "sample_movie" && asset?.media_type !== "video") reasons.push("動画素材ではない");
+  if (asset?.work_id !== workId) reasons.push("作品IDが一致しない");
+
+  if (source === "stored_asset") {
+    reasons.push(...isFanzaXGrowthTechnicalSampleMovie(asset, asset?.source_url).reasons);
+  } else {
+    reasons.push(...officialSampleMovieUrlReasons(asset?.source_url));
+  }
+
+  return { usable: reasons.length === 0, reasons: [...new Set(reasons)] };
+}
+
 function xMediaPermissionReasons(asset: Partial<XMediaAsset> | null | undefined) {
   const status = normalizeRightsStatus(asset?.rights_status);
   return [

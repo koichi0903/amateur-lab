@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { canTrimOfficialSampleMovie, isFanzaXGrowthTechnicalSampleMovie, isOfficialFanzaDmmSampleUrl, isPostableOfficialSampleMovie, isUsableXMediaAsset, type XMediaAsset, type XMediaManualTag, validateTrimStartSeconds } from "./xMediaAssets";
+import { canDownloadFanzaXGrowthSampleMovie, canTrimOfficialSampleMovie, isFanzaXGrowthTechnicalSampleMovie, isOfficialFanzaDmmSampleUrl, isPostableOfficialSampleMovie, isUsableXMediaAsset, type XMediaAsset, type XMediaManualTag, validateTrimStartSeconds } from "./xMediaAssets";
 
 const base: Partial<XMediaAsset> = {
   rights_status: "allowed",
@@ -74,6 +74,19 @@ assert.equal(isOfficialFanzaDmmSampleUrl("https://dmm.co.jp.attacker.invalid/exa
 assert.equal(isOfficialFanzaDmmSampleUrl("https://notdmm.co.jp/example.mp4"), false);
 assert.equal(isOfficialFanzaDmmSampleUrl("https://user@cc3001.dmm.co.jp/example.mp4"), false);
 assert.equal(isFanzaXGrowthTechnicalSampleMovie(officialSample).usable, true);
+const unprobedFallback: Partial<XMediaAsset> = {
+  work_id: 123,
+  media_type: "sample_movie",
+  source_url: officialSample.source_url,
+  fetch_status: null,
+  fetch_status_code: null,
+  mime_type: null,
+};
+assert.equal(canDownloadFanzaXGrowthSampleMovie(unprobedFallback, 123, "work_fallback").usable, true);
+assert.equal(canDownloadFanzaXGrowthSampleMovie({ ...unprobedFallback, source_url: "http://cc3001.dmm.co.jp/sample.mp4" }, 123, "work_fallback").usable, false);
+assert.equal(canDownloadFanzaXGrowthSampleMovie({ ...unprobedFallback, source_url: "https://dmm.co.jp.attacker.invalid/sample.mp4" }, 123, "work_fallback").usable, false);
+assert.equal(canDownloadFanzaXGrowthSampleMovie(unprobedFallback, 124, "work_fallback").usable, false);
+assert.equal(canDownloadFanzaXGrowthSampleMovie(unprobedFallback, 123, "stored_asset").usable, false);
 assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, fetch_status: "forbidden", fetch_status_code: 403, mime_type: "text/html", content_length: 0 }).usable, false);
 assert.equal(isFanzaXGrowthTechnicalSampleMovie({ ...officialSample, source_url: "https://example.invalid/sample.mp4" }).usable, false);
 assert.deepEqual(isFanzaXGrowthTechnicalSampleMovie(null, null).reasons, [
