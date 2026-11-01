@@ -47,13 +47,23 @@ function handleQuoteRefreshRequest(init, state) {
   return jsonResponse({ job, items });
 }
 
+function shouldReturnRetryableFixtureResponse(body, item, retryItem) {
+  return Boolean(
+    body.quoteCandidates &&
+      !body.failureReason &&
+      retryItem &&
+      item?.id === retryItem &&
+      item.attempts === 1,
+  );
+}
+
 function handleCompanionRequest(init, state) {
   const { job, items, retryItem, jsonResponse } = state;
   const body = JSON.parse(init.body || "{}");
   const item = items.find((candidate) => candidate.id === Number(body.refreshJobItemId))
     || items.find((candidate) => candidate.status === "running");
 
-  if (body.quoteCandidates && !body.failureReason && retryItem && item?.id === retryItem && item.attempts === 1) {
+  if (shouldReturnRetryableFixtureResponse(body, item, retryItem)) {
     return jsonResponse({ ok: false, retryable: true, errorCode: "THREAD_NOT_FULLY_OBSERVED", error: "fixture retry" }, false, 202);
   }
 
