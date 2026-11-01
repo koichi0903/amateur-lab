@@ -22,6 +22,7 @@ import { getFanzaId990DailyOfficialMetrics } from "@/lib/fanzaId990DailyOfficial
 import RevenueAcquisitionSection from "./RevenueAcquisitionSection";
 import RevenueAnalyticsWarnings from "./RevenueAnalyticsWarnings";
 import RevenueOfficialSection from "./RevenueOfficialSection";
+import { buildRevenueDashboardSummary } from "./revenueDashboardSummary";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -42,23 +43,8 @@ export default async function RevenueDashboardPage({
     getGoogleAcquisitionAnalytics(),
     getFanzaId990DailyOfficialMetrics(30),
   ]);
-  const id990ConfirmedDaily = id990Daily.rows.filter((row) => row.report_status === "confirmed");
-  const id990Confirmed = {
-    dayCount: id990ConfirmedDaily.length,
-    clickCount: id990ConfirmedDaily.reduce((sum, row) => sum + row.click_count, 0),
-    rewardYen: id990ConfirmedDaily.reduce((sum, row) => sum + row.direct_reward_yen + row.category_reward_yen + row.service_reward_yen, 0),
-  };
-  const maxDaily = Math.max(...analytics.daily.map((item) => item.count), 1);
-  const thirtyDayTotal = analytics.totals.thirtyDays;
-  const mobileClicks = analytics.placements.find(
-    (item) => item.key === "mobile-sticky",
-  )?.count ?? 0;
-  const mobileShare = thirtyDayTotal > 0
-    ? Math.round((mobileClicks / thirtyDayTotal) * 100)
-    : 0;
-  const growthNote = analytics.totals.growthRate === null
-    ? "比較データがまだありません"
-    : `前の7日間比 ${analytics.totals.growthRate >= 0 ? "+" : ""}${analytics.totals.growthRate}%`;
+  const { id990Confirmed, maxDaily, thirtyDayTotal, mobileClicks, mobileShare, growthNote } =
+    buildRevenueDashboardSummary(analytics, id990Daily.rows);
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
