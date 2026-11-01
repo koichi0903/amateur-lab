@@ -43,6 +43,11 @@ const menus = [
     description: "複数アカウント共通リスト・新作7日分・人気順TOP500",
     href: "/admin/amateur-x-post",
   },
+  {
+    title: "🦋 Bluesky 投稿候補レビュー",
+    description: "素材の安全性・価格情報・リンク先の価値を確認",
+    href: "/admin/bluesky-post",
+  },
 ];
 
 export default function AdminDashboard() {
