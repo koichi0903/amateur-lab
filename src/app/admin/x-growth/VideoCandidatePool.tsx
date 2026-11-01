@@ -1,44 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-type VideoCandidate = {
-  workId: number;
-  title: string;
-  sampleUrlOfficial: boolean;
-  hardGatePassed: boolean;
-  firstDropReason: string | null;
-  rankingScore: number;
-  freshnessScore: number;
-  discountRate: number;
-  saleEndAt: string | null;
-  creativeQualityScore: number;
-  lastPostedAt: string | null;
-  rankScore: number;
-  rankReasons: string[];
-};
-
-type SavedSelection = {
-  account_handle: string;
-  selected_work_ids: number[];
-  manual_override_work_ids: number[];
-  excluded_work_ids: number[];
-  candidate_snapshot: {
-    computedAt: string;
-    evaluatedWorks: number;
-    hardGatePassedWorks: number;
-    candidates: VideoCandidate[];
-    shortageReason: string | null;
-    failureCounts: Record<string, number>;
-    pipeline: Record<string, number>;
-  };
-  revision: number;
-  updated_at: string;
-};
+import {
+  buildVideoCandidatePoolViewState,
+  CANDIDATES_PER_PAGE,
+  getVideoCandidateRefreshLabel,
+  type SavedSelection,
+  type VideoCandidate,
+} from "./videoCandidatePoolViewModel";
 
 type ApiResponse = { ok: boolean; selection: SavedSelection | null; error?: string; selectedCandidates?: VideoCandidate[] };
-
-const CANDIDATES_PER_PAGE = 20;
 
 function CandidatePager({
   candidateCount,
@@ -193,13 +164,14 @@ export default function VideoCandidatePool() {
     return () => { active = false; };
   }, []);
 
-  const snapshot = selection?.candidate_snapshot ?? null;
-  const selectedIds = selection?.selected_work_ids ?? [];
-  const selectedSet = new Set(selectedIds);
-  const candidates = snapshot?.candidates ?? [];
-  const pageCount = Math.max(1, Math.ceil(candidates.length / CANDIDATES_PER_PAGE));
-  const currentPage = Math.min(candidatePage, pageCount - 1);
-  const visibleCandidates = candidates.slice(currentPage * CANDIDATES_PER_PAGE, (currentPage + 1) * CANDIDATES_PER_PAGE);
+  const {
+    snapshot,
+    selectedIds,
+    selectedSet,
+    pageCount,
+    currentPage,
+    visibleCandidates,
+  } = buildVideoCandidatePoolViewState(selection, candidatePage);
 
   async function save(action: "refresh" | "override" | "reset", selectedWorkIds?: number[]) {
     setLoading(true);
@@ -234,7 +206,7 @@ export default function VideoCandidatePool() {
           <p className="mt-1 text-sm text-zinc-300">動画Creative Quality Hard Gateを通過した作品から、スコア・鮮度・セール・直近投稿を使って上位5作品を選びます。</p>
         </div>
         <button type="button" onClick={() => void save("refresh")} disabled={loading || initialLoading} className="h-10 shrink-0 rounded-lg border border-cyan-700 bg-cyan-950 px-4 text-sm font-black text-cyan-100 disabled:opacity-60">
-          {initialLoading ? "保存済み候補を読み込み中…" : loading ? "読み取り・自動選定・保存中…" : selection ? "候補を更新して自動選定" : "動画候補を自動選定"}
+          {getVideoCandidateRefreshLabel(initialLoading, loading, Boolean(selection))}
         </button>
       </div>
       <p className="mt-2 text-xs text-zinc-400">選定は専用保存先に記録します。Top Picks・投稿・Schedulerには反映しません。公式HTTPSサンプル動画URLはX掲載許可済みとして扱い、独自の許諾審査や追加除外条件は設けません。</p>
