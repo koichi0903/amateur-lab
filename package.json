@@ -53,6 +53,7 @@
     "test:amateur-affiliate-click": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/amateurAffiliateClickPayload.test.ts && node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/trackFanzaAmateurAffiliateClick.test.ts",
     "test:affiliate-analytics-categories": "tsx --test src/lib/affiliateAnalyticsPostCategories.test.ts",
     "test:affiliate-analytics-funnels": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/affiliateAnalyticsFunnels.test.ts",
+    "test:affiliate-sales": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs --test src/app/api/admin/revenue/fanza-id990-daily/validateInput.test.ts src/lib/fanzaReportCsv.test.ts src/lib/affiliateSalesAnalyticsProjection.test.ts",
     "test:fanza-amateur-browse-projection": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/dmm/fanzaAmateurBrowseProjection.test.ts",
     "test:push-price-alert-decision": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs src/lib/pushPriceAlertDecision.test.ts",
     "test:push-subscribe": "node --experimental-strip-types --import ./scripts/register-native-ts-tests.mjs --test src/app/api/push/subscribe/route.test.ts src/lib/dmm/fanzaAmateurRawItem.test.ts",
