@@ -4,6 +4,7 @@ import { getBijyoHistoryPage, getBijyoReservedQueueWorks } from "@/lib/bijyoRead
 import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { executeBijyoManualAction } from "@/lib/bijyoManualAction";
 import { resolveBijyoReadPageRequest } from "@/lib/bijyoReadPageRequest";
+import { bijyoManualTrimErrorStatus, bijyoTrimSecondsFromFilename, parseBijyoManualTrimRequest } from "@/lib/bijyoManualTrimRequest";
 
 export const dynamic = "force-dynamic";
 
@@ -47,14 +48,13 @@ async function handlePrepareVideoAction(workId: number, jobId: number) {
 }
 
 async function handleManualTrimAction(body: Record<string, unknown>, jobId: number, workId: number) {
-  if (!Number.isSafeInteger(jobId) || jobId <= 0) return NextResponse.json({ error: "jobIdが不正です。" }, { status: 400 });
-  if (workId !== 0 && (!Number.isSafeInteger(workId) || workId <= 0)) return NextResponse.json({ error: "workIdが不正です。" }, { status: 400 });
-  const mode = body.mode === "resetAuto" ? "auto" : "manual";
+  const parsed = parseBijyoManualTrimRequest(body, jobId, workId);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
   try {
-    const trim = await prepareBijyoVideo(jobId, workId > 0 ? workId : undefined, { mode, trimStartSeconds: body.trimStartSeconds });
-    return NextResponse.json({ ok: true, jobId, trim: { ok: true, trimStartSeconds: Number(trim.filename.match(/trim-(\d+(?:\.\d+)?)s/)?.[1] ?? 0) } });
+    const trim = await prepareBijyoVideo(parsed.value.jobId, parsed.value.workId, { mode: parsed.value.mode, trimStartSeconds: parsed.value.trimStartSeconds });
+    return NextResponse.json({ ok: true, jobId, trim: { ok: true, trimStartSeconds: bijyoTrimSecondsFromFilename(trim.filename) } });
   } catch (error) {
-    const status = error && typeof error === "object" && "status" in error && Number((error as { status?: unknown }).status) === 400 ? 400 : 500;
+    const status = bijyoManualTrimErrorStatus(error);
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status });
   }
 }
