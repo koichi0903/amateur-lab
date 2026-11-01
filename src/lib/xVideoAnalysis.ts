@@ -9,6 +9,7 @@ import { probeVideoFile } from "@/lib/xVideoTrim";
 import type { XVisualFactKind } from "@/lib/xVisualVideoFacts";
 import { detectBlankIntroEnd, detectBlackIntroEnd, type OpeningBrightnessSample, type OpeningFrameSample } from "@/lib/xVideoOpening";
 import { buildVideoEvidence, summarizeVideoFrames, videoFrameDistance, type PixelStats } from "@/lib/xVideoAnalysisMetrics";
+import { parsePpm } from "@/lib/xVideoPpm";
 
 export const VIDEO_ANALYSIS_VERSION = "video-frame-facts-v2";
 export type VideoAnalysisResult = {
@@ -35,39 +36,6 @@ async function download(url: string, file: string) {
   const response = await fetch(url, { redirect: "follow", cache: "no-store", signal: AbortSignal.timeout(25_000) });
   if (!response.ok || !response.body) throw new Error(`download ${response.status}`);
   await pipeline(response.body as unknown as NodeJS.ReadableStream, createWriteStream(file));
-}
-function isPpmWhitespace(value: number | undefined) {
-  return value === 10 || value === 13 || value === 32 || value === 9;
-}
-
-function parsePpm(buffer: Buffer): PixelStats {
-  if (buffer.subarray(0, 2).toString() !== "P6") throw new Error("ffmpeg did not return PPM");
-  let index = 2;
-  const tokens: string[] = [];
-  while (tokens.length < 3) {
-    while (isPpmWhitespace(buffer[index])) index++;
-    if (buffer[index] === 35) {
-      while (buffer[index] !== 10) index++;
-      continue;
-    }
-    const start = index;
-    while (buffer[index] > 32) index++;
-    tokens.push(buffer.subarray(start, index).toString());
-  }
-  const [width, height, max] = tokens.map(Number); const values = buffer.subarray(index); const pixels = Math.min(width * height, Math.floor(values.length / 3));
-  let r = 0, g = 0, b = 0; const histogram = Array.from({ length: 8 }, () => 0); let brightness = 0; let brightnessSquared = 0; let detail = 0;
-  for (let i = 0; i < pixels; i++) { const rr = values[i * 3] / max, gg = values[i * 3 + 1] / max, bb = values[i * 3 + 2] / max; r += rr; g += gg; b += bb; const y = 0.2126 * rr + 0.7152 * gg + 0.0722 * bb; brightness += y; histogram[Math.min(7, Math.floor(y * 8))]++; }
-  for (let i = 0; i < pixels; i++) {
-    const rr = values[i * 3] / max, gg = values[i * 3 + 1] / max, bb = values[i * 3 + 2] / max;
-    const y = 0.2126 * rr + 0.7152 * gg + 0.0722 * bb;
-    brightnessSquared += y * y;
-    if (i % width !== 0) {
-      const previous = (0.2126 * values[(i - 1) * 3] + 0.7152 * values[(i - 1) * 3 + 1] + 0.0722 * values[(i - 1) * 3 + 2]) / max;
-      detail += Math.abs(y - previous);
-    }
-  }
-  const meanBrightness = brightness / pixels;
-  return { brightness: meanBrightness, red: r / pixels, green: g / pixels, blue: b / pixels, histogram: histogram.map((x) => x / pixels), detail: detail / Math.max(1, pixels - height), colorVariance: Math.max(0, brightnessSquared / pixels - meanBrightness * meanBrightness) };
 }
 async function frame(file: string, seconds: number) {
   const bytes = await run(binary(), ["-hide_banner", "-loglevel", "error", "-ss", seconds.toFixed(3), "-i", file, "-frames:v", "1", "-vf", "scale=64:36", "-f", "image2pipe", "-vcodec", "ppm", "pipe:1"]);
