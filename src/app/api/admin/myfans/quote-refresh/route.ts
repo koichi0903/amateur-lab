@@ -499,24 +499,54 @@ async function updateJobStatus(payload: Record<string, unknown>, status: "paused
   return NextResponse.json(await progress(jobId));
 }
 
+type QuoteRefreshGetContext = {
+  jobId: number;
+  rawSessionId: string | null;
+  requestedSessionId: string;
+  approvedMediaId: number | null;
+  targeted: boolean;
+};
+
+function parseQuoteRefreshGetContext(url: URL): QuoteRefreshGetContext {
+  const rawSessionId = url.searchParams.get("sessionId");
+  return {
+    jobId: numberValue(url.searchParams.get("jobId"), 0),
+    rawSessionId,
+    requestedSessionId: cleanText(rawSessionId),
+    approvedMediaId: numberValue(url.searchParams.get("approvedMediaId"), 0) || null,
+    targeted: url.searchParams.get("targeted") === "1",
+  };
+}
+
+async function findRequestedQuoteRefreshJob(context: QuoteRefreshGetContext) {
+  if (context.jobId) return getJob(context.jobId);
+  if (context.requestedSessionId) return getCurrentSessionJob(context.approvedMediaId, context.requestedSessionId);
+  return null;
+}
+
+async function resolveQuoteRefreshGetJob(context: QuoteRefreshGetContext) {
+  if (!context.jobId && !context.rawSessionId) await reconcileLegacyActiveJobs();
+  const requestedJob = await findRequestedQuoteRefreshJob(context);
+  await reconcileStaleActiveJobs({
+    jobId: context.jobId || null,
+    sessionId: context.requestedSessionId || null,
+    runToken: requestedJob?.collection_run_token ?? null,
+    collectorVersion: requestedJob?.collector_version ?? null,
+  });
+  return requestedJob;
+}
+
+async function quoteRefreshGetResponse(context: QuoteRefreshGetContext, job: Awaited<ReturnType<typeof findRequestedQuoteRefreshJob>>) {
+  if (context.targeted) return NextResponse.json(await targetedCreatorRecommendations(context.approvedMediaId));
+  if (!job) return NextResponse.json({ job: null, items: [] });
+  return NextResponse.json(await progress(job.id));
+}
+
 export async function GET(request: Request) {
   try {
-    const url = new URL(request.url);
-    const jobId = numberValue(url.searchParams.get("jobId"), 0);
-    if (!jobId && !url.searchParams.get("sessionId")) await reconcileLegacyActiveJobs();
-    const requestedSessionId = cleanText(url.searchParams.get("sessionId"));
-    const approvedMediaId = numberValue(url.searchParams.get("approvedMediaId"), 0) || null;
-    const requestedJob = jobId ? await getJob(jobId) : requestedSessionId ? await getCurrentSessionJob(approvedMediaId, requestedSessionId) : null;
-    await reconcileStaleActiveJobs({
-      jobId: jobId || null,
-      sessionId: requestedSessionId || null,
-      runToken: requestedJob?.collection_run_token ?? null,
-      collectorVersion: requestedJob?.collector_version ?? null,
-    });
-    if (url.searchParams.get("targeted") === "1") return NextResponse.json(await targetedCreatorRecommendations(approvedMediaId));
-    const job = requestedJob;
-    if (!job) return NextResponse.json({ job: null, items: [] });
-    return NextResponse.json(await progress(job.id));
+    const context = parseQuoteRefreshGetContext(new URL(request.url));
+    const job = await resolveQuoteRefreshGetJob(context);
+    return await quoteRefreshGetResponse(context, job);
   } catch (error) {
     return NextResponse.json({
       job: null,
