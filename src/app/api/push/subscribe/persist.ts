@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getFanzaAmateurPriceFromRawItem } from "@/lib/dmm/fanzaAmateurRawItem";
 import { type ValidatedPushSubscriptionPayload } from "@/lib/pushSubscriptionPayload";
+import { buildWorkEntityAlertPlans, type WorkEntityAlertPlan } from "@/lib/pushWorkEntityAlertPlan";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type AmateurPayload = Extract<ValidatedPushSubscriptionPayload, { kind: "amateur" }>;
@@ -23,10 +24,6 @@ function amateurMakers(rawItem: unknown) {
   }))];
 }
 
-function splitNames(value: string | null | undefined) {
-  return [...new Set((value ?? "").split(/\s*\/\s*|\s*／\s*|\s*,\s*|\s*、\s*/).map((name) => name.trim()).filter(Boolean))];
-}
-
 async function saveSubscriptionRecord(
   request: Request,
   payload: ValidatedPushSubscriptionPayload,
@@ -42,6 +39,27 @@ async function saveSubscriptionRecord(
   if (error) {
     console.error(logMessage, error);
     return false;
+  }
+  return true;
+}
+
+async function saveWorkEntityAlertPlan(endpoint: string, entity: WorkEntityAlertPlan) {
+  if (!entity.available.length) return true;
+  const { error: deleteError } = await supabaseAdmin.from("push_series_alerts")
+    .delete().eq("endpoint", endpoint).eq("alert_type", entity.type).in("series_name", entity.available);
+  if (deleteError) return false;
+  if (!entity.selected.length) return true;
+
+  const { error } = await supabaseAdmin.from("push_series_alerts").upsert(
+    entity.selected.map((name) => ({ endpoint, alert_type: entity.type, series_name: name })),
+    { onConflict: "endpoint,alert_type,series_name" },
+  );
+  return !error;
+}
+
+async function saveWorkEntityAlerts(endpoint: string, entities: WorkEntityAlertPlan[]) {
+  for (const entity of entities) {
+    if (!(await saveWorkEntityAlertPlan(endpoint, entity))) return false;
   }
   return true;
 }
@@ -112,24 +130,8 @@ export async function saveWorkSubscription(payload: WorkPayload, request: Reques
     : await supabaseAdmin.from("push_price_alerts").delete().eq("endpoint", endpoint).eq("work_id", workId);
   if (priceAlertError) return errorResponse("値下げ通知を保存できませんでした", 500);
 
-  const entityAlerts = [
-    { type: "actress", available: splitNames(work.actress), selected: body.actressAlerts ?? [] },
-    { type: "maker", available: splitNames(work.maker), selected: body.makerAlerts ?? [] },
-  ];
-  for (const entity of entityAlerts) {
-    if (!entity.available.length) continue;
-    const { error: deleteError } = await supabaseAdmin.from("push_series_alerts")
-      .delete().eq("endpoint", endpoint).eq("alert_type", entity.type).in("series_name", entity.available);
-    if (deleteError) return errorResponse("新作通知を保存できませんでした", 500);
-
-    const selected = [...new Set(entity.selected)].filter((name) => entity.available.includes(name));
-    if (!selected.length) continue;
-    const { error: entityError } = await supabaseAdmin.from("push_series_alerts").upsert(
-      selected.map((name) => ({ endpoint, alert_type: entity.type, series_name: name })),
-      { onConflict: "endpoint,alert_type,series_name" },
-    );
-    if (entityError) return errorResponse("新作通知を保存できませんでした", 500);
-  }
+  const entities = buildWorkEntityAlertPlans(work, body);
+  if (!(await saveWorkEntityAlerts(endpoint, entities))) return errorResponse("新作通知を保存できませんでした", 500);
 
   return NextResponse.json({ ok: true });
 }
