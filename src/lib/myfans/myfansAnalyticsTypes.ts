@@ -248,4 +248,3 @@ export type MyfansXGrowthDiagnosis =
   | "フォローは増えるがクリック不足"
   | "クリックあり/CV不足"
   | "成果発生・最適化段階";
-

@@ -77,4 +77,3 @@ export function buildMyfansAggregateCandidate(input: {
   };
   return { aggregateTopic, candidate };
 }
-

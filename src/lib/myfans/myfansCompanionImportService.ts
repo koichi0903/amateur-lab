@@ -395,4 +395,3 @@ export async function ensureExactProductForCreator(finalMyfansUrl: string, creat
 
   return importAndLinkObservedProduct(canonicalUrl, creatorId, approvedMediaId);
 }
-

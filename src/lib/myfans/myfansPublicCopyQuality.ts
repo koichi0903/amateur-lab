@@ -786,4 +786,3 @@ export function evaluateMyfansPublicCopyQuality(input: {
     quote: input.quote,
   });
 }
-

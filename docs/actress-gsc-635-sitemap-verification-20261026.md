@@ -1,7 +1,7 @@
 # 女優635 URLと公開カタログサイトマップの照合
 
-確認日時: 2026-10-26 JST  
-Property: `sc-domain:hakkutsu-lab.com`  
+確認日時: 2026-10-26 JST
+Property: `sc-domain:hakkutsu-lab.com`
 公開対象: `https://hakkutsu-lab.com/sitemaps/catalog.xml`
 
 ## 結果

@@ -421,5 +421,3 @@ export function selectRankedDailyTopPicks(
     },
   };
 }
-
-

@@ -286,5 +286,3 @@ export function XExecutionBoard({ candidates, candidateOptions, selectedOptions,
     </div>
   );
 }
-
-

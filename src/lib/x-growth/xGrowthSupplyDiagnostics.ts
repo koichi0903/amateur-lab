@@ -267,4 +267,3 @@ export function semanticSupplyDiagnostics(opportunities: XGrowthOpportunity[], p
 export function normalizedOpening(text: string) {
   return firstLine(text).replace(/[0-9０-９]+/g, "#").replace(/\s+/g, "").slice(0, 20);
 }
-

@@ -365,4 +365,3 @@ export function scoreOpportunity(candidate: XPostCandidate): XGrowthOpportunity 
     creativeGenome: creativeGenomeFor(candidate, eventType, sourceIntent, mediaType),
   };
 }
-

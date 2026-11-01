@@ -407,4 +407,3 @@ function MetricCard({ label, value, note }: { label: string; value: string; note
     </div>
   );
 }
-

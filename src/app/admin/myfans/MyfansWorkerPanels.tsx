@@ -558,4 +558,3 @@ function QuoteRefreshItemHistory({ recent, failedItems }: { recent: QuoteRefresh
     </>
   );
 }
-

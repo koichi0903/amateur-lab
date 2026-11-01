@@ -15,4 +15,3 @@ export function hoursUntil(value: string | null) {
   const time = new Date(value).getTime();
   return Number.isFinite(time) ? (time - Date.now()) / 3_600_000 : Infinity;
 }
-

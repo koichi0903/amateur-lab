@@ -325,4 +325,3 @@ export function cardPayloadFor(product: MyfansProduct, postType: string, strateg
     footer: "@lumi_reviw / myfans発掘・比較",
   };
 }
-

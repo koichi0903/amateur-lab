@@ -155,4 +155,3 @@ export function buildTrafficInsights(
     })
     .sort((a, b) => b.total - a.total);
 }
-

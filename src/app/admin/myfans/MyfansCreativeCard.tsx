@@ -171,4 +171,3 @@ export function CreativeCardPreview({ candidate }: { candidate: ExecutionCandida
     </div>
   );
 }
-

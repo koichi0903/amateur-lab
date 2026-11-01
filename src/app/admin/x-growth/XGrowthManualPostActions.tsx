@@ -220,4 +220,3 @@ export function XVideoTrimControls({
 export function TrimReviewActions(props: Parameters<typeof XVideoTrimControls>[0]) {
   return <XVideoTrimControls {...props} />;
 }
-

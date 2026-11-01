@@ -130,4 +130,3 @@ export async function fetchHistory(productIds: string[]) {
   }
   return rows;
 }
-

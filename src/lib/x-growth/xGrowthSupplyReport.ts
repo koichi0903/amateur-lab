@@ -510,4 +510,3 @@ function defaultMediaMixFor(picks: XDailyTopPick[]) {
     imageSupplyStages: buildMediaSupplyStageDiagnostics([], "existing_link_image", new Set(), new Set()),
   };
 }
-
