@@ -4,6 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import WorkImage from "@/components/home/WorkImage";
 import { getXPostAccountHandle } from "@/lib/fanzaAmateurXPostHelpers";
+import {
+  buildAmateurXCandidateBrowseView,
+  getAmateurXCandidateRankLabel,
+  getAmateurXCandidateReleaseDate,
+  getAmateurXCandidateStatusLabel,
+  runAmateurXCandidateAction,
+} from "@/lib/amateurXPostCandidateHelpers";
 
 type Lane = "new_release" | "popular";
 type Job = { id: number; account_handle: string; content_id: string; source_lane: Lane; status: "pending" | "posted" | "skipped"; main_text: string; reply_text: string; x_post_url: string | null; posted_at: string | null; created_at: string; work: { content_id: string; title: string | null; api_date: string | null; mp4_url: string | null } | null; image: string | null };
@@ -22,27 +29,14 @@ async function api(payload: Record<string, unknown>) {
 function CandidateCard({ item, lane, refresh }: { item: Candidate; lane: Lane; refresh: Refresh }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  async function add() {
-    setBusy(true); setMessage("");
-    try {
-      await api({ action: "add", contentId: item.content_id, lane });
-      await refresh();
-    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
-    finally { setBusy(false); }
-  }
-  async function skip() {
-    setBusy(true); setMessage("");
-    try {
-      await api({ action: "skip_candidate", contentId: item.content_id, lane });
-      await refresh();
-    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
-    finally { setBusy(false); }
+  function runCandidateAction(action: "add" | "skip_candidate") {
+    void runAmateurXCandidateAction({ action, contentId: item.content_id, lane, request: api, refresh, setBusy, setMessage });
   }
   return <article className="grid gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3 sm:grid-cols-[160px_1fr_auto] sm:items-center">
     <div className="relative aspect-video overflow-hidden rounded-lg bg-zinc-950"><WorkImage src={item.image} alt={item.title ?? item.content_id} sizes="160px" className="object-contain" /></div>
-    <div className="min-w-0"><p className="text-xs font-bold text-violet-300">{item.rank ? `人気順位 ${item.rank}位` : "新作7日間"}</p><p className="mt-1 line-clamp-2 font-bold">{item.title ?? item.content_id}</p><p className="mt-1 text-xs text-zinc-500">{item.content_id} / 発売日: {item.api_date?.slice(0, 10) ?? "未取得"}</p>
-      {item.job && <p className="mt-2 text-xs text-amber-200">{item.job.status === "pending" ? "投稿リストに追加済み（準備中）" : item.job.status === "skipped" ? "スキップ済み" : "投稿済み"}</p>}{message && <p className="mt-2 text-xs text-rose-300">{message}</p>}</div>
-    {!item.job && <div className="flex gap-2"><button disabled={busy} onClick={add} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-black text-white disabled:opacity-40">{busy ? "処理中…" : "投稿準備に追加"}</button><button disabled={busy} onClick={skip} className="rounded-lg border border-zinc-700 px-4 py-2 text-sm font-bold text-zinc-200 hover:bg-zinc-800 disabled:opacity-40">{busy ? "処理中…" : "スキップ"}</button></div>}
+    <div className="min-w-0"><p className="text-xs font-bold text-violet-300">{getAmateurXCandidateRankLabel(item.rank)}</p><p className="mt-1 line-clamp-2 font-bold">{item.title ?? item.content_id}</p><p className="mt-1 text-xs text-zinc-500">{item.content_id} / 発売日: {getAmateurXCandidateReleaseDate(item.api_date)}</p>
+      {item.job && <p className="mt-2 text-xs text-amber-200">{getAmateurXCandidateStatusLabel(item.job.status)}</p>}{message && <p className="mt-2 text-xs text-rose-300">{message}</p>}</div>
+    {!item.job && <div className="flex gap-2"><button disabled={busy} onClick={() => runCandidateAction("add")} className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-black text-white disabled:opacity-40">{busy ? "処理中…" : "投稿準備に追加"}</button><button disabled={busy} onClick={() => runCandidateAction("skip_candidate")} className="rounded-lg border border-zinc-700 px-4 py-2 text-sm font-bold text-zinc-200 hover:bg-zinc-800 disabled:opacity-40">{busy ? "処理中…" : "スキップ"}</button></div>}
   </article>;
 }
 
@@ -176,9 +170,10 @@ function HistorySection({ jobs }: { jobs: Job[] }) {
 }
 
 function CandidateBrowseSection({ data, lane, page, loading, refresh, refreshCurrent }: { data: Dashboard | null; lane: Lane; page: number; loading: boolean; refresh: (nextPage: number, nextLane: Lane) => Promise<void>; refreshCurrent: Refresh }) {
+  const view = buildAmateurXCandidateBrowseView(data, lane, loading);
   return <>
-    <nav className="mt-8 flex flex-wrap gap-2"><button onClick={() => void refresh(1, "new_release")} disabled={loading} className={`rounded-lg px-4 py-2 text-sm font-bold ${lane === "new_release" ? "bg-emerald-500 text-black" : "border border-zinc-700 text-zinc-300"}`}>直近7日分</button><button onClick={() => void refresh(1, "popular")} disabled={loading} className={`rounded-lg px-4 py-2 text-sm font-bold ${lane === "popular" ? "bg-emerald-500 text-black" : "border border-zinc-700 text-zinc-300"}`}>人気動画TOP500</button><span className="self-center text-xs text-zinc-500">{lane === "popular" ? "DMM人気順・MP4確認済み作品を最大500件" : "JST直近7日間（今日を含む）・MP4確認済み作品。全アカウントの投稿済み・スキップ済みは除外"}</span></nav>
-    <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5"><div className="mb-4 flex items-baseline justify-between"><h2 className="text-xl font-black">候補作品</h2><span className="text-xs text-zinc-500">{loading ? "読み込み中…" : `${data?.total ?? 0}件`}</span></div><div className="space-y-3">{data?.candidates.map((item) => <CandidateCard key={item.content_id} item={item} lane={lane} refresh={refreshCurrent} />)}{!loading && !data?.candidates.length && <p className="rounded-lg border border-dashed border-zinc-700 p-6 text-sm text-zinc-500">条件に合う作品はありません。人気順の上位500件でも、MP4未補完の作品は候補に表示しません。</p>}</div>{data?.hasMore && <div className="mt-4 text-center"><button disabled={loading} onClick={() => void refresh(page + 1, lane)} className={button}>次の30件</button></div>}</section>
+    <nav className="mt-8 flex flex-wrap gap-2"><button onClick={() => void refresh(1, "new_release")} disabled={loading} className={view.newReleaseButtonClass}>直近7日分</button><button onClick={() => void refresh(1, "popular")} disabled={loading} className={view.popularButtonClass}>人気動画TOP500</button><span className="self-center text-xs text-zinc-500">{view.laneDescription}</span></nav>
+    <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5"><div className="mb-4 flex items-baseline justify-between"><h2 className="text-xl font-black">候補作品</h2><span className="text-xs text-zinc-500">{view.countLabel}</span></div><div className="space-y-3">{view.candidates.map((item) => <CandidateCard key={item.content_id} item={item} lane={lane} refresh={refreshCurrent} />)}{view.isEmpty && <p className="rounded-lg border border-dashed border-zinc-700 p-6 text-sm text-zinc-500">条件に合う作品はありません。人気順の上位500件でも、MP4未補完の作品は候補に表示しません。</p>}</div>{view.hasMore && <div className="mt-4 text-center"><button disabled={loading} onClick={() => void refresh(page + 1, lane)} className={button}>次の30件</button></div>}</section>
   </>;
 }
 
