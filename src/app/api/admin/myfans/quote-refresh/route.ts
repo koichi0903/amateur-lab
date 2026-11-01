@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { buildQuoteRefreshItemClaim } from "@/lib/myfans/myfansQuoteRefreshItemClaim";
+import { matchesQuoteRefreshJobIdentity } from "@/lib/myfans/myfansQuoteRefreshJobIdentity";
 import { summarizeMyfansQuoteRefreshItems } from "@/lib/myfansQuoteRefreshSummary";
 import { auditContinuation } from "@/lib/myfans/myfansQuoteRefreshAudit";
 import { reconcileLegacyActiveJobs, reconcileStaleActiveJobs } from "@/lib/myfans/myfansQuoteRefreshStaleJobs";
@@ -452,7 +453,7 @@ async function auditContinuationAction(payload: Record<string, unknown>) {
   const runToken = cleanText(payload.runToken);
   const collectorVersion = cleanText(payload.collectorVersion);
   const job = jobId ? await getJob(jobId) : null;
-  if (!job || !sessionId || !runToken || job.collection_session_id !== sessionId || job.collection_run_token !== runToken || job.collector_version !== collectorVersion) {
+  if (!matchesQuoteRefreshJobIdentity(job, { sessionId, runToken, collectorVersion })) {
     return NextResponse.json({ error: "JOB_IDENTITY_MISMATCH: continuation auditのidentityが一致しません。", errorCode: "JOB_IDENTITY_MISMATCH" }, { status: 409 });
   }
   const action = cleanText(payload.continuationAction);
@@ -470,7 +471,7 @@ async function startJob(payload: Record<string, unknown>) {
   const sessionId = cleanText(payload.sessionId);
   const runToken = cleanText(payload.runToken);
   const collectorVersion = cleanText(payload.collectorVersion);
-  if (!sessionId || !runToken || job.collection_session_id !== sessionId || job.collection_run_token !== runToken || job.collector_version !== collectorVersion) return NextResponse.json({ error: "JOB_IDENTITY_MISMATCH: 同一run identityのjobだけ再開できます。", errorCode: "JOB_IDENTITY_MISMATCH", job }, { status: 409 });
+  if (!matchesQuoteRefreshJobIdentity(job, { sessionId, runToken, collectorVersion })) return NextResponse.json({ error: "JOB_IDENTITY_MISMATCH: 同一run identityのjobだけ再開できます。", errorCode: "JOB_IDENTITY_MISMATCH", job }, { status: 409 });
   const { error } = await supabaseAdmin
     .from("myfans_quote_refresh_jobs")
     .update({ status: "running", started_at: job.started_at ?? new Date().toISOString(), last_error: null, launch_mode: job.launch_mode === "new" ? "new" : "resumed", collector_version: cleanText(payload.collectorVersion) || job.collector_version || null })
