@@ -8,6 +8,7 @@ import {
   nextAffiliateClickFallback,
   type AffiliateClickColumnAvailability,
 } from "./affiliateClickQueryFallback";
+import { readPagedRows } from "./readPagedRows";
 
 export type AffiliateClickRow = {
   id: number;
@@ -30,6 +31,22 @@ type AffiliateImpressionRow = {
 type WorkSummary = {
   id: number;
   title: string;
+};
+
+type XPostLogRow = {
+  id: number;
+  post_key: string;
+  work_id: number;
+  category: string;
+  posted_at: string;
+  account_handle: string | null;
+};
+
+type XPostLogSummary = {
+  postKey: string;
+  workId: number;
+  category: XPostCandidate["category"] | "bijyo_reserved";
+  postedAt: string;
 };
 
 const PAGE_SIZE = 1000;
@@ -257,29 +274,30 @@ export async function fetchLatestXPostTimes(keys: string[]) {
   return latest;
 }
 
-export async function fetchXPostLogMap(days: number) {
-  const safeDays = Math.min(Math.max(Math.trunc(days), 1), 365);
-  const cutoff = new Date(Date.now() - safeDays * DAY_MS).toISOString();
-  const { data, error } = await supabaseAdmin
-    .from("x_post_logs")
-    .select("post_key,work_id,category,posted_at,account_handle")
-    .gte("posted_at", cutoff);
-
-  if (error) {
+export async function readXPostLogMap(
+  readPage: (from: number, to: number) => PromiseLike<{
+    data: unknown[] | null;
+    error: { message: string } | null;
+  }>,
+  pageSize = PAGE_SIZE,
+  maxRows = MAX_ROWS,
+) {
+  const result = await readPagedRows<XPostLogRow>(
+    readPage,
+    pageSize,
+    maxRows,
+    `X投稿別ファネルの対象ログが${maxRows.toLocaleString("ja-JP")}件を超えたため、完全な集計を出せません。`,
+  );
+  if (result.error) {
     return {
-      logs: new Map<string, {
-        postKey: string;
-        workId: number;
-        category: XPostCandidate["category"] | "bijyo_reserved";
-        postedAt: string;
-      }>(),
+      logs: new Map<string, XPostLogSummary>(),
       enabled: false,
-      error: error.message,
+      error: result.error,
     };
   }
 
   return {
-    logs: new Map((data ?? []).map((row) => [
+    logs: new Map(result.rows.map((row) => [
       row.post_key,
       {
         postKey: row.post_key,
@@ -291,4 +309,16 @@ export async function fetchXPostLogMap(days: number) {
     enabled: true,
     error: null as string | null,
   };
+}
+
+export async function fetchXPostLogMap(days: number) {
+  const safeDays = Math.min(Math.max(Math.trunc(days), 1), 365);
+  const cutoff = new Date(Date.now() - safeDays * DAY_MS).toISOString();
+  return readXPostLogMap((from, to) => supabaseAdmin
+    .from("x_post_logs")
+    .select("id,post_key,work_id,category,posted_at,account_handle")
+    .gte("posted_at", cutoff)
+    .order("posted_at", { ascending: true })
+    .order("id", { ascending: true })
+    .range(from, to));
 }
