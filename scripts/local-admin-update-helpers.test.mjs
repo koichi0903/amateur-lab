@@ -13,9 +13,17 @@ import {
   getCurrentRunJobOutcome,
   getProductionRevalidationEndpoint,
   getRevalidationSiteUrls,
+  getScheduledTaskCompletionMessages,
+  getScheduledTaskNames,
+  getScheduledTaskResponseError,
   isSuccessfulTaskResponse,
+  parseScheduledTaskResponse,
   requestReadinessAttempt,
+  requestScheduledTaskResult,
+  reportScheduledTaskError,
+  reportScheduledTaskSequence,
   runTaskSequence,
+  shouldContinueScheduledTask,
   summarizeResponseBody,
   writeFileWithRetry,
 } from "./local-admin-update-helpers.mjs";
@@ -82,6 +90,125 @@ test("keeps ranking and score eligible after a non-fatal ended-sale warning", ()
     true,
   );
   assert.equal(isSuccessfulTaskResponse(false, { success: false }), false);
+});
+
+test("parses scheduled task JSON and keeps malformed responses readable", () => {
+  assert.deepEqual(parseScheduledTaskResponse('{"success":true}'), { success: true });
+  assert.deepEqual(parseScheduledTaskResponse("not JSON"), { message: "not JSON" });
+});
+
+test("preserves scheduled task response error messages", () => {
+  assert.equal(getScheduledTaskResponseError({
+    responseOk: true,
+    status: 200,
+    taskLabel: "catalog",
+    result: { success: true },
+  }), null);
+  assert.equal(getScheduledTaskResponseError({
+    responseOk: false,
+    status: 503,
+    taskLabel: "catalog",
+    result: { message: "maintenance" },
+  }), "maintenance");
+  assert.equal(getScheduledTaskResponseError({
+    responseOk: false,
+    status: 503,
+    taskLabel: "catalog",
+    result: {},
+  }), "catalogに失敗しました（HTTP 503）。");
+  assert.equal(getScheduledTaskResponseError({
+    responseOk: false,
+    status: 503,
+    taskLabel: "catalog",
+    result: { error: "server error" },
+  }), "catalogに失敗しました（HTTP 503）。");
+});
+
+test("repeats only successful batch tasks with an explicit incomplete result", () => {
+  assert.equal(shouldContinueScheduledTask({ repeat: true }, { completed: false }), true);
+  assert.equal(shouldContinueScheduledTask({ repeat: true }, { completed: true }), false);
+  assert.equal(shouldContinueScheduledTask({ repeat: false }, { completed: false }), false);
+});
+
+test("formats scheduled task completion, deferred, and progress messages", () => {
+  assert.deepEqual(getScheduledTaskCompletionMessages({
+    name: "ended-sale",
+    taskLabel: "終了セール",
+    result: { deferredCount: 2, processedCount: 4, totalCount: 6 },
+    elapsedSeconds: "1.5",
+  }), [
+    "[情報] 終了セール更新は完了しました。価格を確認できなかった2件は別日で自動再確認します。後続のランキング・スコア更新を継続します。",
+    "[完了] 終了セール 1.5秒",
+    "[進捗] 4/6",
+  ]);
+  assert.deepEqual(getScheduledTaskCompletionMessages({
+    name: "ranking",
+    taskLabel: "ランキング",
+    result: {},
+    elapsedSeconds: "0.3",
+  }), ["[完了] ランキング 0.3秒"]);
+});
+
+test("requests scheduled task results and recovers only recognized connection resets", async () => {
+  const request = async () => ({ ok: true, status: 200, text: '{"success":true}' });
+  assert.deepEqual(await requestScheduledTaskResult({
+    task: { path: "/ranking", label: "ランキング" },
+    baseUrl: "http://localhost:3000",
+    startedAt: 10,
+    postWithoutTimeout: request,
+    isConnectionReset: () => false,
+    recoverDisconnectedTask: async () => false,
+  }), { kind: "completed", result: { success: true } });
+
+  const reset = Object.assign(new Error("reset"), { code: "ECONNRESET" });
+  assert.deepEqual(await requestScheduledTaskResult({
+    task: { path: "/ranking", label: "ランキング" },
+    baseUrl: "http://localhost:3000",
+    startedAt: 10,
+    postWithoutTimeout: async () => { throw reset; },
+    isConnectionReset: (error) => error.code === "ECONNRESET",
+    recoverDisconnectedTask: async () => true,
+  }), { kind: "recovered" });
+});
+
+test("selects scheduled tasks and reports sequence results without changing status", () => {
+  const allTasks = ["ended-sale", "ranking"];
+  const groups = { catalog: ["amateur-api-catalog"] };
+  assert.equal(getScheduledTaskNames("all", allTasks, groups), allTasks);
+  assert.deepEqual(getScheduledTaskNames("catalog", allTasks, groups), ["amateur-api-catalog"]);
+  assert.deepEqual(getScheduledTaskNames("ranking", allTasks, groups), ["ranking"]);
+
+  const logs = [];
+  const errors = [];
+  const exitCode = reportScheduledTaskSequence({
+    succeededTasks: ["ranking"],
+    failedTasks: [{ name: "ended-sale", message: "failed" }],
+    stoppedAfterFailure: true,
+    taskLabels: { "ended-sale": { label: "終了セール" } },
+    interrupted: false,
+    log: (message) => logs.push(message),
+    logError: (message) => errors.push(message),
+  });
+  assert.equal(exitCode, 1);
+  assert.ok(logs.includes("  成功 1件: ranking"));
+  assert.ok(errors.some((message) => message.includes("後続の更新工程は実行しません")));
+
+  assert.equal(reportScheduledTaskSequence({
+    succeededTasks: [],
+    failedTasks: [],
+    stoppedAfterFailure: false,
+    taskLabels: {},
+    interrupted: true,
+    log: () => assert.fail("interrupted runs must not print a result"),
+    logError: () => assert.fail("interrupted runs must not print an error"),
+  }), null);
+});
+
+test("reports scheduled task errors only when the run was not interrupted", () => {
+  const errors = [];
+  assert.equal(reportScheduledTaskError(new Error("failure"), false, (...args) => errors.push(args)), 1);
+  assert.deepEqual(errors, [["\n[失敗]", "failure"]]);
+  assert.equal(reportScheduledTaskError(new Error("failure"), true, () => assert.fail()), null);
 });
 
 test("runs scheduled tasks in order and stops after the first failure", async () => {

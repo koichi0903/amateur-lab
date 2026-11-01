@@ -47,6 +47,111 @@ export function isSuccessfulTaskResponse(responseOk, result) {
   return responseOk && result?.success !== false;
 }
 
+export function parseScheduledTaskResponse(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { message: text };
+  }
+}
+
+export function getScheduledTaskResponseError({ responseOk, status, taskLabel, result }) {
+  if (isSuccessfulTaskResponse(responseOk, result)) return null;
+  return result.message || `${taskLabel}に失敗しました（HTTP ${status}）。`;
+}
+
+export function shouldContinueScheduledTask(task, result) {
+  return Boolean(task.repeat && result?.completed === false);
+}
+
+export async function requestScheduledTaskResult({
+  task,
+  baseUrl,
+  startedAt,
+  postWithoutTimeout,
+  isConnectionReset,
+  recoverDisconnectedTask,
+}) {
+  let response;
+  try {
+    response = await postWithoutTimeout(`${baseUrl}${task.path}`);
+  } catch (error) {
+    if (isConnectionReset(error) && await recoverDisconnectedTask(task, startedAt)) {
+      return { kind: "recovered" };
+    }
+    throw error;
+  }
+
+  const result = parseScheduledTaskResponse(response.text);
+  const responseError = getScheduledTaskResponseError({
+    responseOk: response.ok,
+    status: response.status,
+    taskLabel: task.label,
+    result,
+  });
+  if (responseError) throw new Error(responseError);
+  return { kind: "completed", result };
+}
+
+export function getScheduledTaskCompletionMessages({ name, taskLabel, result, elapsedSeconds }) {
+  const messages = [];
+  if (name === "ended-sale" && Number(result.deferredCount ?? 0) > 0) {
+    messages.push(
+      `[情報] 終了セール更新は完了しました。価格を確認できなかった${result.deferredCount}件は別日で自動再確認します。` +
+        "後続のランキング・スコア更新を継続します。",
+    );
+  }
+  messages.push(`[完了] ${taskLabel} ${elapsedSeconds}秒`);
+  if (result.processedCount != null && result.totalCount != null) {
+    messages.push(`[進捗] ${result.processedCount}/${result.totalCount}`);
+  }
+  return messages;
+}
+
+export function getScheduledTaskNames(taskName, allTasks, taskGroups) {
+  return taskName === "all" ? allTasks : (taskGroups[taskName] ?? [taskName]);
+}
+
+export function reportScheduledTaskSequence({
+  succeededTasks,
+  failedTasks,
+  stoppedAfterFailure,
+  taskLabels,
+  interrupted,
+  log = console.log,
+  logError = console.error,
+}) {
+  for (const failure of failedTasks) {
+    logError(`\n[工程失敗] ${taskLabels[failure.name].label}: ${failure.message}`);
+    logError("[中断] 同時実行とデータ不整合を防ぐため、後続の更新工程は実行しません。");
+  }
+
+  if (interrupted) return null;
+
+  log("\n[実行結果]");
+  log(`  成功 ${succeededTasks.length}件: ${succeededTasks.join(", ") || "なし"}`);
+  log(`  失敗 ${failedTasks.length}件: ${failedTasks.map(({ name }) => name).join(", ") || "なし"}`);
+  for (const failure of failedTasks) logError(`  - ${failure.name}: ${failure.message}`);
+
+  if (failedTasks.length > 0) {
+    logError(
+      stoppedAfterFailure
+        ? "\n[工程中断] 失敗した工程で停止しました。後続工程は未実行です。"
+        : "\n[一部失敗] 失敗した工程があります。",
+    );
+    return 1;
+  }
+
+  log("\n[全工程完了] ローカル更新が終了しました。ローカルサーバーを停止します。");
+  return null;
+}
+
+export function reportScheduledTaskError(error, interrupted, logError = console.error) {
+  if (interrupted) return null;
+  logError("\n[失敗]", error instanceof Error ? error.message : error);
+  return 1;
+}
+
 export async function runTaskSequence(taskNames, executeTask, isInterrupted) {
   const succeededTasks = [];
   const failedTasks = [];

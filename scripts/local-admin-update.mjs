@@ -14,9 +14,15 @@ import {
   getCurrentRunJobOutcome,
   getProductionRevalidationEndpoint,
   getRevalidationSiteUrls,
+  getScheduledTaskCompletionMessages,
+  getScheduledTaskNames,
   isSuccessfulTaskResponse,
+  requestScheduledTaskResult,
   requestReadinessAttempt,
+  reportScheduledTaskError,
+  reportScheduledTaskSequence,
   runTaskSequence,
+  shouldContinueScheduledTask,
   writeFileWithRetry,
 } from "./local-admin-update-helpers.mjs";
 
@@ -572,37 +578,24 @@ async function run(taskName) {
       batch += 1;
       console.log(`\n[開始] ${task.label}${task.repeat ? `（バッチ${batch}）` : ""}`);
       const startedAt = Date.now();
-      let response;
-      try {
-        response = await postWithoutTimeout(`${baseUrl}${task.path}`);
-      } catch (error) {
-        if (isConnectionReset(error) && await recoverDisconnectedTask(task, startedAt)) {
-          break;
-        }
-        throw error;
-      }
-      const text = response.text;
-      let result;
-      try {
-        result = JSON.parse(text);
-      } catch {
-        result = { message: text };
-      }
-      if (!isSuccessfulTaskResponse(response.ok, result)) {
-        throw new Error(result.message || `${task.label}に失敗しました（HTTP ${response.status}）。`);
-      }
-      if (name === "ended-sale" && Number(result.deferredCount ?? 0) > 0) {
-        console.log(
-          `[情報] 終了セール更新は完了しました。価格を確認できなかった${result.deferredCount}件は別日で自動再確認します。` +
-            "後続のランキング・スコア更新を継続します。",
-        );
-      }
-      const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
-      console.log(`[完了] ${task.label} ${seconds}秒`);
-      if (result.processedCount != null && result.totalCount != null) {
-        console.log(`[進捗] ${result.processedCount}/${result.totalCount}`);
-      }
-      if (!task.repeat || result.completed !== false) break;
+      const outcome = await requestScheduledTaskResult({
+        task,
+        baseUrl,
+        startedAt,
+        postWithoutTimeout,
+        isConnectionReset,
+        recoverDisconnectedTask,
+      });
+      if (outcome.kind === "recovered") break;
+      const result = outcome.result;
+      const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      for (const message of getScheduledTaskCompletionMessages({
+        name,
+        taskLabel: task.label,
+        result,
+        elapsedSeconds,
+      })) console.log(message);
+      if (!shouldContinueScheduledTask(task, result)) break;
     } while (!interrupted);
   }
 
@@ -610,53 +603,22 @@ async function run(taskName) {
     console.log(`[local-update] localhost:${port} を使用します。`);
     await waitForHttpReady("/api/admin/server-health", "server", 60_000);
     await waitForHttpReady("/api/admin/browser-health", "browser", 60_000);
-    const taskNames = taskName === "all"
-      ? ALL_TASKS
-      : (TASK_GROUPS[taskName] ?? [taskName]);
+    const taskNames = getScheduledTaskNames(taskName, ALL_TASKS, TASK_GROUPS);
     const { succeededTasks, failedTasks, stoppedAfterFailure } = await runTaskSequence(
       taskNames,
       executeTask,
       () => interrupted,
     );
 
-    for (const failure of failedTasks) {
-      console.error(`\n[工程失敗] ${TASKS[failure.name].label}: ${failure.message}`);
-      console.error(
-        "[中断] 同時実行とデータ不整合を防ぐため、後続の更新工程は実行しません。",
-      );
-    }
-
-    if (!interrupted) {
-      console.log("\n[実行結果]");
-      console.log(
-        `  成功 ${succeededTasks.length}件: ${succeededTasks.join(", ") || "なし"}`,
-      );
-      console.log(
-        `  失敗 ${failedTasks.length}件: ${failedTasks.map(({ name }) => name).join(", ") || "なし"}`,
-      );
-
-      for (const failure of failedTasks) {
-        console.error(`  - ${failure.name}: ${failure.message}`);
-      }
-
-      if (failedTasks.length > 0) {
-        process.exitCode = 1;
-        console.error(
-          stoppedAfterFailure
-            ? "\n[工程中断] 失敗した工程で停止しました。後続工程は未実行です。"
-            : "\n[一部失敗] 失敗した工程があります。",
-        );
-      } else {
-        console.log(
-          "\n[全工程完了] ローカル更新が終了しました。ローカルサーバーを停止します。",
-        );
-      }
-    }
+    process.exitCode = reportScheduledTaskSequence({
+      succeededTasks,
+      failedTasks,
+      stoppedAfterFailure,
+      taskLabels: TASKS,
+      interrupted,
+    }) ?? process.exitCode;
   } catch (error) {
-    if (!interrupted) {
-      console.error("\n[失敗]", error instanceof Error ? error.message : error);
-      process.exitCode = 1;
-    }
+    process.exitCode = reportScheduledTaskError(error, interrupted) ?? process.exitCode;
   } finally {
     await stopServer();
     await writeFileWithRetry(tsconfigPath, originalTsconfig);
