@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { FanzaAmateurCatalogItem } from "./fanzaAmateurCatalogNormalize";
-import { buildFanzaAmateurRelatedWorkFilters, rankFanzaAmateurRelatedWorks } from "./fanzaAmateurRelatedWorks";
+import { buildFanzaAmateurRelatedWorkFilters, buildFanzaAmateurRelatedWorkQueryArgs, rankFanzaAmateurRelatedWorks } from "./fanzaAmateurRelatedWorks";
 
 function makeItem(overrides: Record<string, unknown> = {}) {
   return {
@@ -37,6 +37,12 @@ test("related-work filters deduplicate and cap series, genre, and maker terms", 
       "maker:Maker 1", "maker:Maker 2", "maker:Maker 3",
     ],
   );
+
+  assert.deepEqual(buildFanzaAmateurRelatedWorkQueryArgs(item), {
+    p_series_names: ["Series A", "Series B", "Series C"],
+    p_genre_names: ["Genre 1", "Genre 2", "Genre 3", "Genre 4", "Genre 5", "Genre 6"],
+    p_maker_names: ["Maker 1", "Maker 2", "Maker 3"],
+  });
 });
 
 test("related works exclude the source, keep the latest duplicate, score relevance, and retain tie-breaks", () => {

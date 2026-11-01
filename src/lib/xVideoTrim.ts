@@ -103,8 +103,9 @@ export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds
     if (rawEnd != null) {
       if (!Number.isFinite(rawEnd)) throw new Error("終了秒が不正です。");
       endSeconds = Math.round(rawEnd * 10) / 10;
-      if (endSeconds <= validation.value) throw new Error("終了位置は開始位置より後にしてください。");
-      if (endSeconds > sourceProbe.durationSeconds) throw new Error("終了秒が動画の長さを超えています。");
+      if (endSeconds <= validation.value || endSeconds > sourceProbe.durationSeconds) {
+        throw new Error("終了位置は開始位置より後で、動画の長さ以内にしてください。");
+      }
     }
     const args = [
       "-y",

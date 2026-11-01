@@ -45,8 +45,13 @@ const menus = [
   },
   {
     title: "🦋 Bluesky 投稿候補レビュー",
-    description: "素材の安全性・価格情報・リンク先の価値を確認",
+    description: "候補の根拠・素材の安全性・価格とリンク先を確認し、公式サンプル素材を準備",
     href: "/admin/bluesky-post",
+  },
+  {
+    title: "🎞️ 素人API全作品取得",
+    description: "FANZA素人作品のAPI生データを全件保存",
+    href: "/admin/amateur-api-catalog",
   },
 ];
 

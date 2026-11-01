@@ -22,6 +22,15 @@ export function buildFanzaAmateurRelatedWorkFilters(item: FanzaAmateurCatalogIte
   ];
 }
 
+export function buildFanzaAmateurRelatedWorkQueryArgs(item: FanzaAmateurCatalogItem) {
+  const filters = buildFanzaAmateurRelatedWorkFilters(item);
+  return {
+    p_series_names: filters.filter(({ kind }) => kind === "series").map(({ value }) => value),
+    p_genre_names: filters.filter(({ kind }) => kind === "genre").map(({ value }) => value),
+    p_maker_names: filters.filter(({ kind }) => kind === "maker").map(({ value }) => value),
+  };
+}
+
 export function rankFanzaAmateurRelatedWorks(
   item: FanzaAmateurCatalogItem,
   candidateItems: Array<FanzaAmateurCatalogItem | null>,

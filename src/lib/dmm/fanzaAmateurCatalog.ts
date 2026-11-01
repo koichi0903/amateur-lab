@@ -24,7 +24,7 @@ import {
   normalizeFanzaAmateurCatalogItem as normalizeCatalogItem,
   type FanzaAmateurCatalogItem,
 } from "@/lib/dmm/fanzaAmateurCatalogNormalize";
-import { buildFanzaAmateurRelatedWorkFilters, rankFanzaAmateurRelatedWorks } from "@/lib/dmm/fanzaAmateurRelatedWorks";
+import { buildFanzaAmateurRelatedWorkQueryArgs, rankFanzaAmateurRelatedWorks } from "@/lib/dmm/fanzaAmateurRelatedWorks";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { expandFanzaAmateurPriceSnapshotRows, type FanzaAmateurPriceHistoryRow, type FanzaAmateurPriceSnapshotRow } from "@/lib/dmm/fanzaAmateurPriceHistory";
 
@@ -219,23 +219,21 @@ export async function getFanzaAmateurCatalogWork(contentId: string) {
  * do not have actress metadata, relation is based on series, genre, and maker.
  */
 async function loadFanzaAmateurRelatedWorks(item: FanzaAmateurCatalogItem, limit = 12) {
-  const filters = buildFanzaAmateurRelatedWorkFilters(item);
-  if (filters.length === 0) return [];
+  const queryArgs = buildFanzaAmateurRelatedWorkQueryArgs(item);
+  if (!queryArgs.p_series_names.length && !queryArgs.p_genre_names.length && !queryArgs.p_maker_names.length) return [];
 
-  const queryResults = await Promise.all(filters.map(async ({ kind, value }) => {
-    const { data, error } = await supabaseAdmin
-      .from("fanza_amateur_works")
-      .select("raw_item")
-      .contains("iteminfo", { [kind]: [{ name: value }] })
-      .order("api_date", { ascending: false, nullsFirst: false })
-      .order("content_id", { ascending: true })
-      .limit(24);
+  const { data, error } = await supabaseAdmin.rpc("get_fanza_amateur_related_work_candidates", {
+    ...queryArgs,
+    p_per_entity_limit: 24,
+  });
+  if (error) throw new Error(`素人作品の関連候補を読み込めませんでした: ${error.message}`);
 
-    if (error) throw new Error(`素人作品の関連候補を読み込めませんでした: ${error.message}`);
-    return (data ?? []).map((row) => normalizeFanzaAmateurCatalogItem(row.raw_item));
-  }));
-
-  return rankFanzaAmateurRelatedWorks(item, queryResults.flat(), limit);
+  const candidateRows = (data ?? []) as Array<{ raw_item: unknown }>;
+  return rankFanzaAmateurRelatedWorks(
+    item,
+    candidateRows.map(({ raw_item }) => normalizeFanzaAmateurCatalogItem(raw_item)),
+    limit,
+  );
 }
 
 const getCachedFanzaAmateurRelatedWorks = unstable_cache(
