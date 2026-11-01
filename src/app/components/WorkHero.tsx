@@ -13,6 +13,11 @@ import type { AffiliateSource } from "@/lib/affiliateTracking";
 import { parseDatabaseDate } from "@/lib/dateTime";
 import { getSampleMovieFallbackCopy } from "@/lib/sampleMovieFallback";
 import { isOfficialSampleMovieUrl } from "@/lib/officialSampleMovie";
+import {
+  getAdjacentWorkHeroMediaSelection,
+  isWorkHeroImageViewerOpen,
+  type WorkHeroMediaSelection,
+} from "@/lib/workHeroMediaSelection";
 
 type Props = {
   work: Work;
@@ -21,7 +26,6 @@ type Props = {
   sourcePage?: AffiliateSource;
 };
 
-type MediaSelection = "movie" | number;
 type SampleFallbackCopy = ReturnType<typeof getSampleMovieFallbackCopy>;
 
 function WorkHeroTitle({ title }: { title: string }) {
@@ -81,7 +85,7 @@ function WorkHeroMediaStage({
 }: {
   work: Work;
   sampleImages: Props["sampleImages"];
-  selected: MediaSelection;
+  selected: WorkHeroMediaSelection;
   showImage: boolean;
   playableMovieUrl: string | null;
   officialWorkUrl: string | null;
@@ -108,9 +112,9 @@ function WorkHeroThumbnails({
 }: {
   work: Work;
   sampleImages: Props["sampleImages"];
-  selected: MediaSelection;
+  selected: WorkHeroMediaSelection;
   hasSampleDestination: boolean;
-  onSelect: (selection: MediaSelection) => void;
+  onSelect: (selection: WorkHeroMediaSelection) => void;
 }) {
   return (
     <div className="mt-4 flex min-w-0 gap-3 overflow-x-auto pb-2" aria-label="動画・画像サムネイル">
@@ -133,12 +137,12 @@ function WorkHeroMedia({
 }: {
   work: Work;
   sampleImages: Props["sampleImages"];
-  selected: MediaSelection;
+  selected: WorkHeroMediaSelection;
   playableMovieUrl: string | null;
   officialWorkUrl: string | null;
   sampleFallback: SampleFallbackCopy;
   sourcePage?: AffiliateSource;
-  onSelect: (selection: MediaSelection) => void;
+  onSelect: (selection: WorkHeroMediaSelection) => void;
   onOpenViewer: () => void;
 }) {
   const showImage = selected !== "movie";
@@ -192,14 +196,17 @@ export default function WorkHero({ work, sampleImages, sampleMovieUrl, sourcePag
   const officialWorkUrl = work.affiliate_url ?? work.url;
   const sampleFallback = getSampleMovieFallbackCopy(work);
   const hasValidRanking = typeof work.ranking === "number" && work.ranking > 0 && work.ranking < 9999;
-  const [selected, setSelected] = useState<MediaSelection>("movie");
+  const [selected, setSelected] = useState<WorkHeroMediaSelection>("movie");
   const [viewerOpen, setViewerOpen] = useState(false);
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       if (viewerOpen) return;
-      if (event.key === "ArrowRight") setSelected((current) => current === "movie" ? (sampleImages.length ? 0 : "movie") : current < sampleImages.length - 1 ? current + 1 : "movie");
-      if (event.key === "ArrowLeft") setSelected((current) => current === "movie" ? (sampleImages.length ? sampleImages.length - 1 : "movie") : current > 0 ? current - 1 : "movie");
+      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+      const direction = event.key === "ArrowRight" ? "right" : "left";
+      setSelected((current) =>
+        getAdjacentWorkHeroMediaSelection(current, direction, sampleImages.length),
+      );
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
@@ -222,7 +229,7 @@ export default function WorkHero({ work, sampleImages, sampleMovieUrl, sourcePag
       />
       <WorkHeroFacts work={work} saleActive={saleActive} hasValidRanking={hasValidRanking} />
       <FavoriteButton workId={work.id} className="mt-4 flex h-11 w-full items-center justify-center rounded-full border bg-white text-sm font-semibold shadow-sm transition hover:bg-pink-50" />
-      {viewerOpen && selected !== "movie" && <ImageViewer images={sampleImages} current={selected} onClose={() => setViewerOpen(false)} onPrev={() => setSelected(selected === 0 ? sampleImages.length - 1 : selected - 1)} onNext={() => setSelected((selected + 1) % sampleImages.length)} />}
+      {isWorkHeroImageViewerOpen(viewerOpen, selected) && <ImageViewer images={sampleImages} current={selected} onClose={() => setViewerOpen(false)} onPrev={() => setSelected(selected === 0 ? sampleImages.length - 1 : selected - 1)} onNext={() => setSelected((selected + 1) % sampleImages.length)} />}
     </div>
   );
 }
