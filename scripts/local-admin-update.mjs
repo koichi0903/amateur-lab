@@ -391,10 +391,22 @@ async function run(taskName) {
   const originalTsconfig = await readFile(tsconfigPath, "utf8");
   let interrupted = false;
 
-  if (await shouldBuildProductionServer(distDirPath)) {
-    await runBuild(distDirName);
-  } else {
-    console.log(`[local-update] 既存の ${distDirName} を使用します。`);
+  try {
+    if (await shouldBuildProductionServer(distDirPath)) {
+      await runBuild(distDirName);
+    } else {
+      console.log(`[local-update] 既存の ${distDirName} を使用します。`);
+    }
+  } catch (error) {
+    try {
+      await writeFileWithRetry(tsconfigPath, originalTsconfig);
+    } catch (restoreError) {
+      throw new AggregateError(
+        [error, restoreError],
+        "local update build failed and tsconfig.json could not be restored",
+      );
+    }
+    throw error;
   }
 
   const server = spawn(
