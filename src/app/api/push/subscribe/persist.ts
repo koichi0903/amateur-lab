@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getFanzaAmateurPriceFromRawItem } from "@/lib/dmm/fanzaAmateurRawItem";
 import { type ValidatedPushSubscriptionPayload } from "@/lib/pushSubscriptionPayload";
 import { buildWorkEntityAlertPlans, type WorkEntityAlertPlan } from "@/lib/pushWorkEntityAlertPlan";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -11,16 +10,25 @@ function errorResponse(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
-function amateurMakers(rawItem: unknown) {
-  if (typeof rawItem !== "object" || rawItem === null || Array.isArray(rawItem)) return [];
-  const iteminfo = (rawItem as Record<string, unknown>).iteminfo;
-  if (typeof iteminfo !== "object" || iteminfo === null || Array.isArray(iteminfo)) return [];
-  const makers = (iteminfo as Record<string, unknown>).maker;
+function amateurPriceNumber(value: unknown): number | null {
+  const digits = typeof value === "number"
+    ? String(value)
+    : typeof value === "string"
+      ? value.match(/[0-9][0-9,]*/)?.[0]?.replaceAll(",", "")
+      : null;
+  if (!digits) return null;
+  const parsed = Number(digits);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function amateurMakers(iteminfoValue: unknown) {
+  if (typeof iteminfoValue !== "object" || iteminfoValue === null || Array.isArray(iteminfoValue)) return [];
+  const makers = (iteminfoValue as Record<string, unknown>).maker;
   if (!Array.isArray(makers)) return [];
   return [...new Set(makers.flatMap((maker) => {
     if (typeof maker !== "object" || maker === null || Array.isArray(maker)) return [];
     const name = (maker as Record<string, unknown>).name;
-    return typeof name === "string" && name.trim() ? [name.trim().slice(0, 200)] : [];
+    return typeof name === "string" && name.trim() ? [name.trim()] : [];
   }))];
 }
 
@@ -68,7 +76,7 @@ export async function saveAmateurSubscription(payload: AmateurPayload, request: 
   const { body, endpoint, contentId } = payload;
   const { data: work, error: workError } = await supabaseAdmin
     .from("fanza_amateur_works")
-    .select("content_id,raw_item")
+    .select("content_id,prices,iteminfo")
     .eq("content_id", contentId)
     .maybeSingle();
   if (workError) {
@@ -77,8 +85,11 @@ export async function saveAmateurSubscription(payload: AmateurPayload, request: 
   }
   if (!work) return errorResponse("対象の素人作品が見つかりません", 404);
 
-  const availableMakers = amateurMakers(work.raw_item);
-  const currentPrice = getFanzaAmateurPriceFromRawItem(work.raw_item);
+  const availableMakers = amateurMakers(work.iteminfo);
+  const prices = work.prices && typeof work.prices === "object" && !Array.isArray(work.prices)
+    ? work.prices as { price?: unknown; list_price?: unknown }
+    : {};
+  const currentPrice = amateurPriceNumber(prices.price) ?? amateurPriceNumber(prices.list_price);
   if (!(await saveSubscriptionRecord(request, payload, "[push] amateur subscription save failed"))) {
     return errorResponse("通知先を保存できませんでした", 500);
   }
@@ -89,7 +100,7 @@ export async function saveAmateurSubscription(payload: AmateurPayload, request: 
         { onConflict: "endpoint,content_id", ignoreDuplicates: true },
       )
     : await supabaseAdmin.from("push_amateur_price_alerts").delete().eq("endpoint", endpoint).eq("content_id", contentId);
-  if (priceAlertError) return errorResponse("素人作品の値下げ通知を保存できませんでした", 500);
+  if (priceAlertError) return errorResponse("値下げ通知を保存できませんでした", 500);
 
   if (availableMakers.length) {
     const { error: deleteError } = await supabaseAdmin

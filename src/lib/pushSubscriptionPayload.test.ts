@@ -54,7 +54,25 @@ test("validates amateur content IDs before persistence and keeps the amateur bra
 
   assert.deepEqual(
     validatePushSubscriptionPayload({ subscription: validSubscription, mediaType: "amateur", contentId: " " }),
-    { ok: false, message: "素人作品IDが正しくありません" },
+    { ok: false, message: "通知対象の作品IDが不正です。" },
+  );
+
+  for (const contentId of ["../private", "has space", "a".repeat(161)]) {
+    assert.deepEqual(
+      validatePushSubscriptionPayload({ subscription: validSubscription, mediaType: "amateur", contentId }),
+      { ok: false, message: "通知対象の作品IDが不正です。" },
+    );
+  }
+});
+
+test("rejects an unsupported media type instead of treating it as a regular work", () => {
+  assert.deepEqual(
+    validatePushSubscriptionPayload({
+      subscription: validSubscription,
+      mediaType: "unexpected" as "regular",
+      workId: 42,
+    }),
+    { ok: false, message: "通知対象の種類が不正です。" },
   );
 });
 

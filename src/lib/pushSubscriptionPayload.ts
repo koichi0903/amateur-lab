@@ -1,6 +1,6 @@
 export type PushSubscriptionBody = {
   subscription?: { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
-  mediaType?: "amateur";
+  mediaType?: "regular" | "amateur";
   contentId?: string;
   workId?: number;
   priceAlert?: boolean;
@@ -53,8 +53,8 @@ function validateAmateurPayload(
   shared: Extract<ReturnType<typeof validateSharedPayload>, { ok: true }>["value"],
 ): PushSubscriptionPayloadResult {
   const contentId = body.contentId?.trim() ?? "";
-  if (!contentId || contentId.length > 160) {
-    return { ok: false, message: "素人作品IDが正しくありません" };
+  if (!/^[A-Za-z0-9._-]{1,160}$/.test(contentId)) {
+    return { ok: false, message: "通知対象の作品IDが不正です。" };
   }
   return { ok: true, value: { ...shared, kind: "amateur", contentId } };
 }
@@ -75,7 +75,11 @@ export function validatePushSubscriptionPayload(
 ): PushSubscriptionPayloadResult {
   const shared = validateSharedPayload(body);
   if (!shared.ok) return shared;
-  return body.mediaType === "amateur"
+  const mediaType = body.mediaType ?? "regular";
+  if (mediaType !== "regular" && mediaType !== "amateur") {
+    return { ok: false, message: "通知対象の種類が不正です。" };
+  }
+  return mediaType === "amateur"
     ? validateAmateurPayload(body, shared.value)
     : validateWorkPayload(body, shared.value);
 }

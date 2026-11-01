@@ -45,6 +45,29 @@ async function withLookupResponse(response: Response, callback: () => Promise<Re
   }
 }
 
+async function withCapturedResponses(responses: Response[], callback: (requests: Array<{ url: URL; method: string; body: unknown }>) => Promise<Response>) {
+  const requests: Array<{ url: URL; method: string; body: unknown }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const requestUrl = new URL(input instanceof Request ? input.url : String(input));
+    const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+    const rawBody = init?.body ?? (input instanceof Request ? await input.clone().text() : undefined);
+    requests.push({
+      url: requestUrl,
+      method,
+      body: typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody,
+    });
+    const response = responses.shift();
+    assert.ok(response, `Unexpected request to ${requestUrl.pathname}`);
+    return response;
+  };
+  try {
+    return await callback(requests);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 function databaseError() {
   return new Response(JSON.stringify({ code: "XX000", message: "database lookup failed" }), {
     status: 500,
@@ -86,4 +109,45 @@ test("missing regular works remain not found", async () => {
   );
   assert.equal(response.status, 404);
   assert.deepEqual(await response.json(), { error: "対象作品が見つかりません" });
+});
+
+test("amateur notifications read the legacy price and maker columns", async () => {
+  const responses = [
+    new Response(JSON.stringify([{
+      content_id: "test-content-id",
+      prices: { price: "1,200円", list_price: "2,000円" },
+      iteminfo: { maker: [{ name: "Maker One" }] },
+    }]), { status: 200, headers: { "content-type": "application/json" } }),
+    new Response(null, { status: 201 }),
+    new Response(null, { status: 201 }),
+    new Response(null, { status: 204 }),
+    new Response(null, { status: 201 }),
+  ];
+
+  const response = await withCapturedResponses(responses, async (requests) => {
+    const payloadResult = validatePushSubscriptionPayload({
+      ...sharedBody,
+      mediaType: "amateur",
+      contentId: "test-content-id",
+      priceAlert: true,
+      makerAlerts: ["Maker One"],
+    });
+    assert.ok(payloadResult.ok);
+    if (!payloadResult.ok || payloadResult.value.kind !== "amateur") throw new Error("Expected validated amateur payload");
+    const result = await saveAmateurSubscription(payloadResult.value, new Request("http://localhost"));
+
+    assert.match(requests[0].url.searchParams.get("select") ?? "", /^content_id,prices,iteminfo$/);
+    assert.deepEqual(requests[2].body, {
+      endpoint: "https://push.example.test/subscription/1",
+      content_id: "test-content-id",
+      last_notified_price: 1200,
+    });
+    assert.deepEqual(requests[4].body, [{
+      endpoint: "https://push.example.test/subscription/1",
+      maker_name: "Maker One",
+    }]);
+    return result;
+  });
+
+  assert.equal(response.status, 200);
 });
