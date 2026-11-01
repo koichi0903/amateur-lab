@@ -448,7 +448,7 @@ export function buildMyfansExecutionBoard(sourceAnalytics: MyfansAnalytics, opti
     trackCandidateAttempt(buildMyfansCandidate(candidateBuildContext, item, index, attempt, excludedProducts, forcedQuote));
   const publishableCandidates: Array<ReturnType<typeof buildCandidate>> = [];
 
-const diversityContext: MyfansCandidateDiversityContext = {
+  const diversityContext: MyfansCandidateDiversityContext = {
     acceptedBodies,
     acceptedCreatorCounts,
     acceptedQuoteCreators,
@@ -469,7 +469,7 @@ const diversityContext: MyfansCandidateDiversityContext = {
   const recordAcceptedCandidate = (candidate: ReturnType<typeof evaluateDiversity>) =>
     recordAcceptedMyfansCandidate(candidate, diversityContext, usedProductIds, allowSameProductAcrossDistinctRoles);
 
-const noveltyFor = (candidate: ReturnType<typeof evaluateDiversity>) => evaluateMyfansCandidateNovelty(candidate, {
+  const noveltyFor = (candidate: ReturnType<typeof evaluateDiversity>) => evaluateMyfansCandidateNovelty(candidate, {
     posts: analytics.posts,
     pastUsage,
     planDate,
@@ -576,7 +576,8 @@ const noveltyFor = (candidate: ReturnType<typeof evaluateDiversity>) => evaluate
       finalPublishableCandidates,
       initialAttempts,
       recoveryHistory,
-    }),    outboundTasks: buildOutboundTasks(analytics, quotePool),
+    }),
+    outboundTasks: buildOutboundTasks(analytics, quotePool),
     profileFunnel: buildProfileFunnel(analytics),
     bottleneck: buildBottleneck(analytics),
   };
