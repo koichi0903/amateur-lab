@@ -53,9 +53,3 @@ revoke all on table public.myfans_collection_cursors from anon, authenticated;
 insert into public.myfans_collection_cursors (collector_key)
 values ('myfans_quote_refresh')
 on conflict (collector_key) do nothing;
-
-insert into public.myfans_creator_collection_state (creator_id, rotation_order, collection_enabled, state)
-select id, row_number() over (order by id)::integer, true, 'ELIGIBLE'
-from public.myfans_creators
-where is_active and creator_x_url <> ''
-on conflict (creator_id) do nothing;
