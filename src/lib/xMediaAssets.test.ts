@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { canDownloadFanzaXGrowthSampleMovie, canTrimOfficialSampleMovie, isFanzaXGrowthTechnicalSampleMovie, isOfficialFanzaDmmSampleUrl, isPostableOfficialSampleMovie, isUsableXMediaAsset, type XMediaAsset, type XMediaManualTag, validateTrimStartSeconds } from "./xMediaAssets";
+import { canDownloadFanzaXGrowthSampleMovie, canTrimOfficialSampleMovie, isFanzaXGrowthTechnicalSampleMovie, isOfficialFanzaDmmSampleUrl, isPostableOfficialSampleMovie, isUsableXMediaAsset, projectXMediaSupplyStatus, type XMediaAsset, type XMediaManualTag, validateTrimStartSeconds } from "./xMediaAssets";
 
 const base: Partial<XMediaAsset> = {
   rights_status: "allowed",
@@ -108,3 +108,27 @@ assert.deepEqual(validateTrimStartSeconds(0, 12), { ok: true, value: 0 });
 assert.equal(validateTrimStartSeconds(-0.1, 12).ok, false);
 assert.equal(validateTrimStartSeconds(12, 12).ok, false);
 assert.equal(validateTrimStartSeconds(12.1, 12).ok, false);
+
+assert.deepEqual(projectXMediaSupplyStatus([
+  { count: 1, error: null },
+  { count: 2, error: null },
+  { count: 3, error: { message: "first error" } },
+  { count: 4, error: { message: "second error" } },
+  { count: null, error: null },
+  { count: 6, error: null },
+  { count: 7, error: null },
+  { count: 8, error: null },
+  { count: 9, error: null },
+]), {
+  error: "first error",
+  mp4Candidates: 1,
+  synced: 2,
+  unknown: 3,
+  review: 4,
+  allowed: 0,
+  officialUrlCandidates: 6,
+  blocked: 7,
+  dead: 8,
+  historicalHttpFailures: 8,
+  topPickRightsWaiting: 9,
+});

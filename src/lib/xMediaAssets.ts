@@ -257,18 +257,46 @@ export function canTrimFanzaXGrowthSampleMovie(asset: Partial<XMediaAsset> | nul
   return isFanzaXGrowthTechnicalSampleMovie(asset, sampleMovieUrl);
 }
 
+type XMediaSupplyCount = { count: number | null; error: { message: string } | null };
+type XMediaSupplyCounts = [
+  XMediaSupplyCount,
+  XMediaSupplyCount,
+  XMediaSupplyCount,
+  XMediaSupplyCount,
+  XMediaSupplyCount,
+  XMediaSupplyCount,
+  XMediaSupplyCount,
+  XMediaSupplyCount,
+  XMediaSupplyCount,
+];
+
+function xMediaSupplyError(results: XMediaSupplyCounts) {
+  return results.find((result) => result.error)?.error?.message ?? null;
+}
+
+function xMediaSupplyCount(result: XMediaSupplyCount) {
+  return result.count ?? 0;
+}
+
+export function projectXMediaSupplyStatus(results: XMediaSupplyCounts) {
+  const [works, synced, unknown, review, allowed, officialUrls, blocked, dead, waiting] = results;
+  return {
+    error: xMediaSupplyError(results),
+    mp4Candidates: xMediaSupplyCount(works),
+    synced: xMediaSupplyCount(synced),
+    unknown: xMediaSupplyCount(unknown),
+    review: xMediaSupplyCount(review),
+    allowed: xMediaSupplyCount(allowed),
+    officialUrlCandidates: xMediaSupplyCount(officialUrls),
+    blocked: xMediaSupplyCount(blocked),
+    dead: xMediaSupplyCount(dead),
+    historicalHttpFailures: xMediaSupplyCount(dead),
+    topPickRightsWaiting: xMediaSupplyCount(waiting),
+  };
+}
+
 export async function getXMediaSupplyStatus() {
-  const [
-    works,
-    synced,
-    unknown,
-    review,
-    allowed,
-    officialUrls,
-    blocked,
-    dead,
-    waiting,
-  ] = await Promise.all([
+  const results = await Promise.all([
     supabaseAdmin.from("works").select("id", { count: "exact", head: true }).not("sample_movie_url", "is", null).neq("sample_movie_url", ""),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]),
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).eq("rights_status", "unknown"),
@@ -279,20 +307,7 @@ export async function getXMediaSupplyStatus() {
     supabaseAdmin.from("x_media_assets").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).in("media_type", ["video", "sample_movie"]).in("fetch_status", ["dead", "forbidden"]),
     supabaseAdmin.from("x_growth_opportunities").select("id", { count: "exact", head: true }).eq("account_handle", X_GROWTH_ACCOUNT).eq("media_type", "sample_movie").is("recommended_media_asset_id", null),
   ]);
-  const error = [works.error, synced.error, unknown.error, review.error, allowed.error, officialUrls.error, blocked.error, dead.error, waiting.error].find(Boolean);
-  return {
-    error: error?.message ?? null,
-    mp4Candidates: works.count ?? 0,
-    synced: synced.count ?? 0,
-    unknown: unknown.count ?? 0,
-    review: review.count ?? 0,
-    allowed: allowed.count ?? 0,
-    officialUrlCandidates: officialUrls.count ?? 0,
-    blocked: blocked.count ?? 0,
-    dead: dead.count ?? 0,
-    historicalHttpFailures: dead.count ?? 0,
-    topPickRightsWaiting: waiting.count ?? 0,
-  };
+  return projectXMediaSupplyStatus(results);
 }
 
 export async function getRightsReviewQueue(limit = 12) {

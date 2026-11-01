@@ -72,6 +72,36 @@ async function saveWorkEntityAlerts(endpoint: string, entities: WorkEntityAlertP
   return true;
 }
 
+async function saveAmateurPriceAlert(endpoint: string, contentId: string, enabled: boolean | undefined, currentPrice: number | null) {
+  const { error } = enabled
+    ? await supabaseAdmin.from("push_amateur_price_alerts").upsert(
+        { endpoint, content_id: contentId, last_notified_price: currentPrice },
+        { onConflict: "endpoint,content_id", ignoreDuplicates: true },
+      )
+    : await supabaseAdmin.from("push_amateur_price_alerts").delete().eq("endpoint", endpoint).eq("content_id", contentId);
+  return error ? errorResponse("値下げ通知を保存できませんでした", 500) : null;
+}
+
+async function saveAmateurMakerAlerts(endpoint: string, availableMakers: string[], requestedMakers: string[] | undefined) {
+  if (!availableMakers.length) return null;
+
+  const { error: deleteError } = await supabaseAdmin
+    .from("push_amateur_maker_alerts")
+    .delete()
+    .eq("endpoint", endpoint)
+    .in("maker_name", availableMakers);
+  if (deleteError) return errorResponse("メーカー新作通知を保存できませんでした", 500);
+
+  const selectedMakers = [...new Set(requestedMakers ?? [])].filter((name) => availableMakers.includes(name));
+  if (!selectedMakers.length) return null;
+
+  const { error: makerError } = await supabaseAdmin.from("push_amateur_maker_alerts").upsert(
+    selectedMakers.map((makerName) => ({ endpoint, maker_name: makerName })),
+    { onConflict: "endpoint,maker_name" },
+  );
+  return makerError ? errorResponse("メーカー新作通知を保存できませんでした", 500) : null;
+}
+
 export async function saveAmateurSubscription(payload: AmateurPayload, request: Request) {
   const { body, endpoint, contentId } = payload;
   const { data: work, error: workError } = await supabaseAdmin
@@ -94,31 +124,11 @@ export async function saveAmateurSubscription(payload: AmateurPayload, request: 
     return errorResponse("通知先を保存できませんでした", 500);
   }
 
-  const { error: priceAlertError } = body.priceAlert
-    ? await supabaseAdmin.from("push_amateur_price_alerts").upsert(
-        { endpoint, content_id: contentId, last_notified_price: currentPrice },
-        { onConflict: "endpoint,content_id", ignoreDuplicates: true },
-      )
-    : await supabaseAdmin.from("push_amateur_price_alerts").delete().eq("endpoint", endpoint).eq("content_id", contentId);
-  if (priceAlertError) return errorResponse("値下げ通知を保存できませんでした", 500);
+  const priceAlertResponse = await saveAmateurPriceAlert(endpoint, contentId, body.priceAlert, currentPrice);
+  if (priceAlertResponse) return priceAlertResponse;
 
-  if (availableMakers.length) {
-    const { error: deleteError } = await supabaseAdmin
-      .from("push_amateur_maker_alerts")
-      .delete()
-      .eq("endpoint", endpoint)
-      .in("maker_name", availableMakers);
-    if (deleteError) return errorResponse("メーカー新作通知を保存できませんでした", 500);
-
-    const selectedMakers = [...new Set(body.makerAlerts ?? [])].filter((name) => availableMakers.includes(name));
-    if (selectedMakers.length) {
-      const { error: makerError } = await supabaseAdmin.from("push_amateur_maker_alerts").upsert(
-        selectedMakers.map((makerName) => ({ endpoint, maker_name: makerName })),
-        { onConflict: "endpoint,maker_name" },
-      );
-      if (makerError) return errorResponse("メーカー新作通知を保存できませんでした", 500);
-    }
-  }
+  const makerAlertResponse = await saveAmateurMakerAlerts(endpoint, availableMakers, body.makerAlerts);
+  if (makerAlertResponse) return makerAlertResponse;
 
   return NextResponse.json({ ok: true });
 }
