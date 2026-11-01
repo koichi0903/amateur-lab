@@ -49,15 +49,6 @@ function withoutXPostKey(record: AffiliateClickInsertRecord) {
   return fallback;
 }
 
-function withCoreAndCtaVariant(record: AffiliateClickInsertRecord): AffiliateClickInsertRecord {
-  return {
-    work_id: record.work_id,
-    placement: record.placement,
-    source_page: record.source_page,
-    cta_variant: record.cta_variant,
-  };
-}
-
 function withCoreFields(record: AffiliateClickInsertRecord): AffiliateClickInsertRecord {
   return {
     work_id: record.work_id,
@@ -78,7 +69,7 @@ function getNextFallback(
   }
 
   if (stage !== "without_attribution" && isMissingAttribution(error)) {
-    return { record: withCoreAndCtaVariant(record), stage: "without_attribution" };
+    return { record: withCoreFields(record), stage: "without_attribution" };
   }
 
   if (isMissingCtaVariant(error)) {

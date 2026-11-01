@@ -50,7 +50,6 @@ test("insertAffiliateClickWithSchemaFallback progressively falls back for generi
       work_id: 42,
       placement: "listing-card",
       source_page: "x",
-      cta_variant: "price-focus",
     },
     {
       work_id: 42,
@@ -60,7 +59,7 @@ test("insertAffiliateClickWithSchemaFallback progressively falls back for generi
   ]);
 });
 
-test("insertAffiliateClickWithSchemaFallback skips unrelated fields for a targeted attribution error", async () => {
+test("insertAffiliateClickWithSchemaFallback drops attribution and CTA fields for an attribution error", async () => {
   const records: AffiliateClickInsertRecord[] = [];
   const error = await insertAffiliateClickWithSchemaFallback(fullRecord, async (record) => {
     records.push(record);
@@ -72,12 +71,7 @@ test("insertAffiliateClickWithSchemaFallback skips unrelated fields for a target
   assert.equal(error, null);
   assert.deepEqual(records, [
     fullRecord,
-    {
-      work_id: 42,
-      placement: "listing-card",
-      source_page: "x",
-      cta_variant: "price-focus",
-    },
+    { work_id: 42, placement: "listing-card", source_page: "x" },
   ]);
 });
 
