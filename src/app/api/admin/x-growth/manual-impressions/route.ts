@@ -6,19 +6,7 @@ import {
   validateManualImpressionPayload,
   validateManualPostAge,
 } from "@/lib/x-growth/xGrowthManualImpressions";
-
-type ManualSnapshotInsert = {
-  account_handle: string;
-  x_post_log_id: number;
-  post_key: string;
-  snapshot_age: "24h";
-  captured_at: string;
-  source: "manual";
-  impressions: number;
-  site_visits: number;
-  affiliate_clicks: number;
-  notes: string;
-};
+import { buildManualSnapshotInsert } from "@/lib/x-growth/xGrowthManualSnapshot";
 
 export async function POST(request: NextRequest) {
   if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
@@ -65,19 +53,16 @@ export async function POST(request: NextRequest) {
   const countError = views.error ?? clicks.error;
   if (countError) return NextResponse.json({ error: "サイト側の24時間イベントを確認できませんでした。もう一度お試しください。" }, { status: 500 });
 
-  const rows: ManualSnapshotInsert[] = [];
-  rows.push({
-    account_handle: account,
-    x_post_log_id: post.id,
-    post_key: postKey,
-    snapshot_age: "24h",
-    captured_at: capturedAt.toISOString(),
-    source: "manual",
+  const rows = [buildManualSnapshotInsert({
+    account,
+    postId: post.id,
+    postKey,
+    capturedAt,
     impressions,
-    site_visits: views.count ?? 0,
-    affiliate_clicks: clicks.count ?? 0,
-    notes: `X画面の閲覧数を手入力。投稿から${ageHours.toFixed(2)}時間後に取得。X APIは使用していません。`,
-  });
+    siteVisits: views.count,
+    affiliateClicks: clicks.count,
+    ageHours,
+  })];
   // The generated Supabase type has not yet declared this existing table.
   const saveResult = await supabaseAdmin
     .from("x_metric_snapshots")
