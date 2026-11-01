@@ -29,7 +29,16 @@ assert.match(route, /DIAGNOSTIC_SECRET_KEY/);
 assert.match(route, /cookie\|token\|authorization/);
 assert.match(saveQuoteScan, /duplicate_batch_save_ignored/);
 assert.match(quoteRefresh, /ITEM_TERMINAL/);
-assert.match(quoteRefresh, /action === "preflight"/);
+for (const actionHandler of [
+  /case "preflight":\s+return preflightDatabase\(\)/,
+  /case "create":\s+return createJob\(payload\)/,
+  /case "start":\s+return startJob\(payload\)/,
+  /case "next":\s+return nextItem\(payload\)/,
+  /case "audit":\s+return auditContinuationAction\(payload\)/,
+  /case "pause":\s+return updateJobStatus\(payload, "paused"\)/,
+  /case "resume":\s+return updateJobStatus\(payload, "running"\)/,
+  /case "cancel":\s+return updateJobStatus\(payload, "cancelled"\)/,
+]) assert.match(quoteRefresh, actionHandler);
 assert.match(quoteRefresh, /DB_PREFLIGHT_FAILED/);
 assert.match(quoteRefreshSource, /compatibility_fallback/);
 assert.match(background, /let quoteRefreshStartInFlight = false/);

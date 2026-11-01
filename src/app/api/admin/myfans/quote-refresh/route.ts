@@ -556,19 +556,34 @@ export async function GET(request: Request) {
   }
 }
 
+async function dispatchQuoteRefreshAction(action: string, payload: Record<string, unknown>) {
+  switch (action) {
+    case "preflight":
+      return preflightDatabase();
+    case "create":
+      return createJob(payload);
+    case "start":
+      return startJob(payload);
+    case "next":
+      return nextItem(payload);
+    case "audit":
+      return auditContinuationAction(payload);
+    case "pause":
+      return updateJobStatus(payload, "paused");
+    case "resume":
+      return updateJobStatus(payload, "running");
+    case "cancel":
+      return updateJobStatus(payload, "cancelled");
+    default:
+      return NextResponse.json({ error: "未対応の操作です。" }, { status: 400 });
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const payload = await request.json().catch(() => ({}));
     const action = cleanText(payload.action || "create");
-    if (action === "preflight") return await preflightDatabase();
-    if (action === "create") return await createJob(payload);
-    if (action === "start") return await startJob(payload);
-    if (action === "next") return await nextItem(payload);
-    if (action === "audit") return await auditContinuationAction(payload);
-    if (action === "pause") return await updateJobStatus(payload, "paused");
-    if (action === "resume") return await updateJobStatus(payload, "running");
-    if (action === "cancel") return await updateJobStatus(payload, "cancelled");
-    return NextResponse.json({ error: "未対応の操作です。" }, { status: 400 });
+    return await dispatchQuoteRefreshAction(action, payload);
   } catch (error) {
     const errorCode = errorCodeFor(error);
     return NextResponse.json({ errorCode, error: error instanceof Error ? error.message : "更新キュー操作に失敗しました。" }, { status: errorCode === "DB_PREFLIGHT_FAILED" ? 503 : 500 });
