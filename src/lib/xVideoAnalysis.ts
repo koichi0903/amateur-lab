@@ -36,10 +36,24 @@ async function download(url: string, file: string) {
   if (!response.ok || !response.body) throw new Error(`download ${response.status}`);
   await pipeline(response.body as unknown as NodeJS.ReadableStream, createWriteStream(file));
 }
+function isPpmWhitespace(value: number | undefined) {
+  return value === 10 || value === 13 || value === 32 || value === 9;
+}
+
 function parsePpm(buffer: Buffer): PixelStats {
   if (buffer.subarray(0, 2).toString() !== "P6") throw new Error("ffmpeg did not return PPM");
-  let index = 2; const tokens: string[] = [];
-  while (tokens.length < 3) { while (buffer[index] === 10 || buffer[index] === 13 || buffer[index] === 32 || buffer[index] === 9) index++; if (buffer[index] === 35) { while (buffer[index] !== 10) index++; continue; } const start = index; while (buffer[index] > 32) index++; tokens.push(buffer.subarray(start, index).toString()); }
+  let index = 2;
+  const tokens: string[] = [];
+  while (tokens.length < 3) {
+    while (isPpmWhitespace(buffer[index])) index++;
+    if (buffer[index] === 35) {
+      while (buffer[index] !== 10) index++;
+      continue;
+    }
+    const start = index;
+    while (buffer[index] > 32) index++;
+    tokens.push(buffer.subarray(start, index).toString());
+  }
   const [width, height, max] = tokens.map(Number); const values = buffer.subarray(index); const pixels = Math.min(width * height, Math.floor(values.length / 3));
   let r = 0, g = 0, b = 0; const histogram = Array.from({ length: 8 }, () => 0); let brightness = 0; let brightnessSquared = 0; let detail = 0;
   for (let i = 0; i < pixels; i++) { const rr = values[i * 3] / max, gg = values[i * 3 + 1] / max, bb = values[i * 3 + 2] / max; r += rr; g += gg; b += bb; const y = 0.2126 * rr + 0.7152 * gg + 0.0722 * bb; brightness += y; histogram[Math.min(7, Math.floor(y * 8))]++; }
