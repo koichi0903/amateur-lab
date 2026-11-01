@@ -178,6 +178,54 @@ function SampleThumbnails({
   );
 }
 
+function SampleFallbackNote({
+  selected,
+  playableMovieUrl,
+  officialSampleEmbedUrl,
+  officialWorkUrl,
+  note,
+}: {
+  selected: "movie" | number;
+  playableMovieUrl: string | null;
+  officialSampleEmbedUrl?: string | null;
+  officialWorkUrl: string | null;
+  note: string;
+}) {
+  if (selected !== "movie" || playableMovieUrl || officialSampleEmbedUrl || !officialWorkUrl) return null;
+
+  return (
+    <p className="mt-1 text-center text-[11px] font-medium leading-5 text-zinc-500">
+      {note}
+    </p>
+  );
+}
+
+function SelectedImageViewer({
+  viewerOpen,
+  selected,
+  sampleImages,
+  onClose,
+  onSelect,
+}: {
+  viewerOpen: boolean;
+  selected: "movie" | number;
+  sampleImages: Props["sampleImages"];
+  onClose: () => void;
+  onSelect: (value: number) => void;
+}) {
+  if (!viewerOpen || selected === "movie") return null;
+
+  return (
+    <ImageViewer
+      images={sampleImages}
+      current={selected}
+      onClose={onClose}
+      onPrev={() => onSelect(selected === 0 ? sampleImages.length - 1 : selected - 1)}
+      onNext={() => onSelect((selected + 1) % sampleImages.length)}
+    />
+  );
+}
+
 export default function WorkDetailMediaGallery({
   work,
   sampleImages,
@@ -221,25 +269,20 @@ export default function WorkDetailMediaGallery({
         hasSampleDestination={hasSampleDestination}
         onSelect={setSelected}
       />
-      {selected === "movie" &&
-        !playableMovieUrl &&
-        !officialSampleEmbedUrl &&
-        officialWorkUrl && (
-          <p className="mt-1 text-center text-[11px] font-medium leading-5 text-zinc-500">
-            {sampleFallback.note}
-          </p>
-        )}
-      {viewerOpen && selected !== "movie" && (
-        <ImageViewer
-          images={sampleImages}
-          current={selected}
-          onClose={() => setViewerOpen(false)}
-          onPrev={() =>
-            setSelected(selected === 0 ? sampleImages.length - 1 : selected - 1)
-          }
-          onNext={() => setSelected((selected + 1) % sampleImages.length)}
-        />
-      )}
+      <SampleFallbackNote
+        selected={selected}
+        playableMovieUrl={playableMovieUrl}
+        officialSampleEmbedUrl={officialSampleEmbedUrl}
+        officialWorkUrl={officialWorkUrl}
+        note={sampleFallback.note}
+      />
+      <SelectedImageViewer
+        viewerOpen={viewerOpen}
+        selected={selected}
+        sampleImages={sampleImages}
+        onClose={() => setViewerOpen(false)}
+        onSelect={setSelected}
+      />
     </div>
   );
 }
