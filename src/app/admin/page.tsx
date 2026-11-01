@@ -34,6 +34,11 @@ const menus = [
     href: "/admin/amateur-x-post",
   },
   {
+    title: "🦋 Bluesky素材準備",
+    description: "品番から公式サンプル画像・動画を選択 / 範囲指定で切り抜き",
+    href: "/admin/bluesky-post",
+  },
+  {
     title: "📈 FANZA送客分析",
     description: "クリック流入元・上位作品を確認",
     href: "/admin/revenue",
@@ -101,3 +106,4 @@ Admin Control Panel
     </main>
   );
 }
+

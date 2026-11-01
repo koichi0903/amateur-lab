@@ -21,6 +21,7 @@ export type TrimVideoForXResult = {
   codec: string | null;
   audioCodec: string | null;
   trimStartSeconds: number;
+  trimEndSeconds?: number;
 };
 
 function runBinary(command: string, args: string[]) {
@@ -71,7 +72,7 @@ export async function probeVideoFile(file: string) {
   };
 }
 
-export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds: number }) {
+export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds: number; trimEndSeconds?: number }) {
   const dir = await mkdtemp(join(tmpdir(), "x-growth-trim-"));
   const sourceFile = join(dir, "source.mp4");
   const outputFile = join(dir, "x-post-trimmed.mp4");
@@ -80,10 +81,17 @@ export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds
     const sourceProbe = await probeVideoFile(sourceFile);
     const validation = validateTrimStartSeconds(input.trimStartSeconds, sourceProbe.durationSeconds);
     if (!validation.ok) throw new Error(validation.error);
-    await runBinary(bundledBinary("ffmpeg"), [
+    const trimEndSeconds = input.trimEndSeconds == null ? sourceProbe.durationSeconds : Math.round(input.trimEndSeconds * 10) / 10;
+    if (!Number.isFinite(trimEndSeconds) || trimEndSeconds <= validation.value || trimEndSeconds > sourceProbe.durationSeconds) {
+      throw new Error("終了位置は開始位置より後で、動画の長さ以内にしてください。");
+    }
+    const trimArgs = [
       "-y",
       "-ss", validation.value.toFixed(1),
       "-i", sourceFile,
+    ];
+    if (input.trimEndSeconds != null) trimArgs.push("-t", (trimEndSeconds - validation.value).toFixed(1));
+    trimArgs.push(
       "-map", "0:v:0",
       "-map", "0:a?",
       "-c:v", "libx264",
@@ -95,7 +103,8 @@ export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds
       "-movflags", "+faststart",
       "-avoid_negative_ts", "make_zero",
       outputFile,
-    ]);
+    );
+    await runBinary(bundledBinary("ffmpeg"), trimArgs);
     const outputProbe = await probeVideoFile(outputFile);
     const outputStat = await stat(outputFile);
     if (outputStat.size <= 0) throw new Error("トリム後動画が空です。");
@@ -109,6 +118,7 @@ export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds
       codec: outputProbe.codec,
       audioCodec: outputProbe.audioCodec,
       trimStartSeconds: validation.value,
+      trimEndSeconds,
     } satisfies TrimVideoForXResult;
   } catch (error) {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
@@ -123,3 +133,4 @@ export async function readAndCleanupTrimmedVideo(result: TrimVideoForXResult) {
     await rm(result.dir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
+
