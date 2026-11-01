@@ -227,20 +227,13 @@ async function getCurrentSessionJob(approvedMediaId: number | null, sessionId: s
   return data;
 }
 
-async function prepareQuoteRefreshSelection(targetedCreatorIds: number[], queueLimit: number) {
-  const { data: creators, error } = await supabaseAdmin
-    .from("myfans_creators")
-    .select("id,display_name,creator_x_url,is_active")
-    .eq("is_active", true)
-    .not("creator_x_url", "is", null)
-    .neq("creator_x_url", "")
-    .limit(1000);
-  if (error) throw error;
+type QuoteRefreshCreator = ReturnType<typeof buildQuoteRefreshCollectionSelection>["prioritized"][number];
 
-  const orderedCreators = orderQuoteRefreshCreators(creators ?? [], targetedCreatorIds);
-  if (targetedCreatorIds.length && !orderedCreators.length) {
-    return { response: NextResponse.json({ error: "指定されたtarget creatorに有効なXプロフィールがありません。" }, { status: 400 }) };
-  }
+async function prepareQuoteRefreshCollectionSelection(
+  orderedCreators: QuoteRefreshCreator[],
+  targetedCreatorCount: number,
+  queueLimit: number,
+) {
   const { data: existingStates, error: stateError } = await supabaseAdmin
     .from("myfans_creator_collection_state")
     .select("creator_id,rotation_order,collection_enabled")
@@ -262,13 +255,32 @@ async function prepareQuoteRefreshSelection(targetedCreatorIds: number[], queueL
     creators: orderedCreators,
     stateByCreator,
     cursor,
-    targetedCreatorCount: targetedCreatorIds.length,
+    targetedCreatorCount,
     queueLimit,
   });
+
+  return { cursor, ...selection };
+}
+
+async function prepareQuoteRefreshSelection(targetedCreatorIds: number[], queueLimit: number) {
+  const { data: creators, error } = await supabaseAdmin
+    .from("myfans_creators")
+    .select("id,display_name,creator_x_url,is_active")
+    .eq("is_active", true)
+    .not("creator_x_url", "is", null)
+    .neq("creator_x_url", "")
+    .limit(1000);
+  if (error) throw error;
+
+  const orderedCreators = orderQuoteRefreshCreators(creators ?? [], targetedCreatorIds);
+  if (targetedCreatorIds.length && !orderedCreators.length) {
+    return { response: NextResponse.json({ error: "指定されたtarget creatorに有効なXプロフィールがありません。" }, { status: 400 }) };
+  }
+  const selection = await prepareQuoteRefreshCollectionSelection(orderedCreators, targetedCreatorIds.length, queueLimit);
   if (targetedCreatorIds.length && !selection.prioritized.length) {
     return { response: NextResponse.json({ error: "指定されたtarget creatorは収集対象外です。" }, { status: 400 }) };
   }
-  return { selection: { cursor, ...selection } };
+  return { selection };
 }
 
 type QuoteRefreshSelection = ReturnType<typeof buildQuoteRefreshCollectionSelection>;
