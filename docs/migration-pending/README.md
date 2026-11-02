@@ -34,3 +34,12 @@ No database writes or migration applications were performed during this reconcil
 - `20260918_add_bijyo_reserved_auto_post.sql` vs DB `20260918140945`: status constraints describe different workflows (the active file includes manual-post, skip, and trim-failure states; the DB record includes posting and reply states).
 - `20260919_switch_bijyo_to_manual_workflow.sql` vs DB `20260919041639`: the DB statement also creates `bijyo_reserved_settings`; the active file only disables the legacy account setting.
 - Keep these active sources unchanged and treat them as unresolved migration history. Do not rename them as DB-equivalent or remove them until their intended new-database behavior and provenance are reviewed. No database writes or migration applications were performed during this comparison.
+
+## Follow-up source inventory (2026-11-03)
+
+- A read-only recheck of the connected project found the same 112 database migration records and 132 active SQL files. The 101 exact version-and-name matches, six same-name files under another active version, and five database names without an active same-name file remain unchanged.
+- Four applied database migration records have no matching SQL source in the canonical checkout, any of the 33 registered worktrees, `docs/migration-superseded`, or reachable Git object paths: `20260907075401_add_myfans_quote_media_permalink_validation_status`, `20260909104438_add_myfans_quote_visual_render_status`, `20260912020215_add_x_media_asset_trim_modify_confirmed`, and `20260923135903_add_myfans_quote_refresh_item_diagnostics`.
+- Do not reconstruct or restore these SQL files from the database record. The user chose to preserve these as database-only migration history. Record their applied versions and names here; new-database replay remains unverified for these changes.
+- The fifth database name without an active same-name file is `20260926062909_add_actress_works_by_release_date`; its preserved source is available only as `docs/migration-superseded/20260926_add_actress_works_by_release_date.sql` and remains audit-only.
+- Related-work migration `20261101135306_optimize_fanza_amateur_related_work_lookup` is recorded as applied in the connected database and is present in the `origin/main` base history. The separate local-only commit `6ce613fb` is not contained in `origin/main` or PR #37, consistent with the decision to keep that additional implementation local.
+- This was a read-only inventory. No migration was applied, edited in the database, or deployed.
