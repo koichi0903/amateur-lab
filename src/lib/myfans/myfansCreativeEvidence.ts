@@ -74,6 +74,29 @@ function visualAnalysisFrameCount(raw: Record<string, unknown>, quote: MyfansQuo
   return quote.media_count ?? (mediaType === "text_only" ? 0 : 1);
 }
 
+type QuoteVisualAnalysisStatus = QuoteVisualAnalysis["status"];
+
+function visualAnalysisStatus(value: string | null | undefined): QuoteVisualAnalysisStatus {
+  return value === "verified" || value === "partial" ? value : "unavailable";
+}
+
+function isVerifiedVisualAnalysisReady(
+  quote: MyfansQuoteCandidate,
+  status: QuoteVisualAnalysisStatus,
+  concreteObservation: string,
+  evidenceSource: string,
+) {
+  return status === "verified"
+    && concreteObservation.length >= 5
+    && evidenceSource.length > 0
+    && hasBrowserVisibleVisual(quote);
+}
+
+function resolvedVisualAnalysisStatus(status: QuoteVisualAnalysisStatus, verifiedEnough: boolean): QuoteVisualAnalysisStatus {
+  if (verifiedEnough) return "verified";
+  return status === "partial" ? "partial" : "unavailable";
+}
+
 function normalizeVisualEvidence(text: string) {
   return text.replace(/\s+/g, " ").replace(/[「」『』]/g, "").trim();
 }
@@ -246,14 +269,14 @@ export function attentionValueForText(text: string, moment = ""): AttentionValue
 export function visualAnalysisForQuote(quote: MyfansQuoteCandidate | null): QuoteVisualAnalysis | null {
   if (!quote) return null;
   const raw = quote.visual_analysis_json && typeof quote.visual_analysis_json === "object" ? quote.visual_analysis_json : {};
-  const status = quote.visual_analysis_status === "verified" || quote.visual_analysis_status === "partial" ? quote.visual_analysis_status : "unavailable";
+  const status = visualAnalysisStatus(quote.visual_analysis_status);
   const concreteObservation = firstStringField(raw.concrete_observation, raw.concreteObservation, raw.attention_worthy_moment, raw.standout_moment, raw.standoutMoment);
   const evidenceSource = firstStringField(raw.evidence_source, raw.evidenceSource, quote.media_permalink, quote.x_post_url);
   const confidence = visualAnalysisConfidence(raw, status);
   const mediaType = visualAnalysisMediaType(quote);
-  const verifiedEnough = status === "verified" && concreteObservation.length >= 5 && evidenceSource.length > 0 && hasBrowserVisibleVisual(quote);
+  const verifiedEnough = isVerifiedVisualAnalysisReady(quote, status, concreteObservation, evidenceSource);
   return {
-    status: verifiedEnough ? "verified" : status === "partial" ? "partial" : "unavailable",
+    status: resolvedVisualAnalysisStatus(status, verifiedEnough),
     mediaType,
     frameOrImageCount: visualAnalysisFrameCount(raw, quote, mediaType),
     sceneSummary: firstStringField(raw.scene_summary, raw.sceneSummary),

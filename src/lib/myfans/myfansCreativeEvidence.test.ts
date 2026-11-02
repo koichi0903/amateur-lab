@@ -35,6 +35,10 @@ assert.equal(analysis.concreteObservation, "白い部屋で動画の冒頭に表
 assert.equal(analysis.evidenceSource, "frame:0");
 assert.equal(analysis.frameOrImageCount, 3);
 assert.equal(analysis.analyzerVersion, "fixture-v1");
+assert.equal(visualAnalysisForQuote(null), null);
+assert.equal(visualAnalysisForQuote({ ...quote, visual_analysis_status: "partial" } as MyfansQuoteCandidate)?.status, "partial");
+assert.equal(visualAnalysisForQuote({ ...quote, visual_analysis_status: "other" } as unknown as MyfansQuoteCandidate)?.status, "unavailable");
+assert.equal(visualAnalysisForQuote({ ...quote, quote_visual_ready: false } as MyfansQuoteCandidate)?.status, "unavailable");
 assert.equal(humanObservationFromEvidence(analysis, "video", 0), "白っぽい部屋で動き出すところが先に目に入る");
 assert.equal(humanObservationFromEvidence(analysis, "video", 1), "部屋の明るさと動き出しで、最初の数秒が軽く見える");
 assert.equal(humanObservationFromEvidence(null, "video"), "");
