@@ -186,8 +186,6 @@ function quoteRefreshNextItemGateResponse<T extends { status: string }>(gate: Qu
     case "cancelled":
     case "inactive":
       return NextResponse.json({ done: true, job });
-    case "session_mismatch":
-      return NextResponse.json({ done: true, job, reason: "session_mismatch" });
     default:
       return null;
   }

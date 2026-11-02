@@ -13,7 +13,6 @@ export type QuoteRefreshNextItemGate =
   | "paused"
   | "cancelled"
   | "inactive"
-  | "session_mismatch"
   | null;
 
 function hasMatchingQuoteRefreshJobIdentity(
@@ -47,6 +46,5 @@ export function classifyQuoteRefreshNextItemGate({
   if (job.status === "paused") return "paused";
   if (job.status === "cancelled") return "cancelled";
   if (!isActiveQuoteRefreshStatus(job.status)) return "inactive";
-  if (sessionId && job.collection_session_id !== sessionId) return "session_mismatch";
   return null;
 }
