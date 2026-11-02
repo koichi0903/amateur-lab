@@ -46,13 +46,14 @@ export function compareByStrategy(posts: MyfansXPost[], conversions: MyfansAnaly
 }
 
 function directAxisLabel(axis: Exclude<MyfansCreativeLearningAxis, "creator" | "product">, post: MyfansXPost) {
-  switch (axis) {
-    case "post_type": return post.post_type || "未設定";
-    case "link_strategy": return post.link_strategy || "未設定";
-    case "creative_strategy": return post.creative_strategy || "未設定";
-    case "objective": return post.objective || "未設定";
-    case "growth_stage": return post.growth_stage || "未設定";
-  }
+  const labels: Record<Exclude<MyfansCreativeLearningAxis, "creator" | "product">, string | null | undefined> = {
+    post_type: post.post_type,
+    link_strategy: post.link_strategy,
+    creative_strategy: post.creative_strategy,
+    objective: post.objective,
+    growth_stage: post.growth_stage,
+  };
+  return labels[axis] || "未設定";
 }
 
 function linkedEntityAxisLabel(axis: "creator" | "product", post: MyfansXPost, analytics: MyfansAnalytics) {
