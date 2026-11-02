@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { MyfansAnalytics, MyfansProduct, MyfansQuoteCandidate } from "../myfansAnalytics";
 import type { MyfansPostProductLinkageEvidence } from "../myfansProductResolver";
-import { resolveMyfansCandidateProduct } from "./myfansCandidateResolution";
+import { quoteMatchesProduct, resolveMyfansCandidateProduct } from "./myfansCandidateResolution";
 
 function product(overrides: Partial<MyfansProduct> = {}): MyfansProduct {
   return {
@@ -87,6 +87,34 @@ test("does not attach another creator's affiliate URL to an unrelated quote", ()
   assert.equal(result.myfansTarget.affiliateUrl, "");
   assert.equal(result.monetizableStatus, "unlinked");
   assert.equal(result.candidateTitle, "@source_creator の動画");
+});
+
+test("matches a quote to a product when normalized creator handles agree", () => {
+  assert.equal(
+    quoteMatchesProduct(
+      quote({ product_id: null, source_x_handle: "@SOURCE_CREATOR" }),
+      product({ creator_x_url: "https://twitter.com/source_creator/status/123" }),
+    ),
+    true,
+  );
+});
+
+test("uses the product and affiliate URLs when a candidate has no quote", () => {
+  const linkedProduct = product();
+  const result = resolveMyfansCandidateProduct({
+    analytics: analytics([linkedProduct]),
+    product: linkedProduct,
+    productionLinkageEvidence: [],
+    quote: null,
+    dailyRole: "DISCOVERY",
+  });
+
+  assert.deepEqual(result.myfansTarget, {
+    type: "product",
+    url: linkedProduct.product_url,
+    affiliateUrl: linkedProduct.affiliate_url,
+    canConnectAffiliate: true,
+  });
 });
 
 test("connects the product when an exact stored quote linkage identifies it", () => {

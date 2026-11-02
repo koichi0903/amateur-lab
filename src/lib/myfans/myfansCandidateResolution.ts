@@ -10,12 +10,33 @@ export function creatorMyfansUrl(product: MyfansProduct | MyfansDailyFunnelProdu
   return stringField(relation?.myfans_url);
 }
 
+function quoteSourceHandle(quote: MyfansQuoteCandidate) {
+  return (quote.source_x_handle || quote.creator_x_url || "").replace(/^@/, "").toLowerCase();
+}
+
+function productCreatorHandle(product: MyfansProduct) {
+  return (product.creator_x_url || "")
+    .replace(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\//i, "")
+    .split(/[/?#]/)[0]
+    ?.replace(/^@/, "")
+    .toLowerCase();
+}
+
 export function quoteMatchesProduct(quote: MyfansQuoteCandidate | null | undefined, product: MyfansProduct | null | undefined) {
   if (!quote || !product) return false;
   if (quote.product_id && quote.product_id === product.id) return true;
-  const quoteHandle = (quote.source_x_handle || quote.creator_x_url || "").replace(/^@/, "").toLowerCase();
-  const productHandle = (product.creator_x_url || "").replace(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\//i, "").split(/[/?#]/)[0]?.replace(/^@/, "").toLowerCase();
+  const quoteHandle = quoteSourceHandle(quote);
+  const productHandle = productCreatorHandle(product);
   return Boolean(quoteHandle && productHandle && quoteHandle === productHandle);
+}
+
+function targetTypeFor(product: MyfansProduct, url: string) {
+  if (!url) return "none" as const;
+  return product.product_url ? "product" as const : "creator" as const;
+}
+
+function targetAffiliateUrlFor(product: MyfansProduct, canConnectAffiliate: boolean) {
+  return canConnectAffiliate ? product.affiliate_url || "" : "";
 }
 
 function resolvedMyfansTarget(product: MyfansProduct | null | undefined, quote: MyfansQuoteCandidate | null | undefined) {
@@ -23,9 +44,9 @@ function resolvedMyfansTarget(product: MyfansProduct | null | undefined, quote: 
   const canConnectAffiliate = !quote || quoteMatchesProduct(quote, product);
   const url = canConnectAffiliate ? product.product_url || creatorMyfansUrl(product) : "";
   return {
-    type: url ? (product.product_url ? "product" : "creator") : "none",
+    type: targetTypeFor(product, url),
     url,
-    affiliateUrl: canConnectAffiliate ? product.affiliate_url || "" : "",
+    affiliateUrl: targetAffiliateUrlFor(product, canConnectAffiliate),
     canConnectAffiliate,
   } as const;
 }
@@ -91,6 +112,10 @@ function resolverEvidenceFor(input: CandidateResolutionInput) {
   ]);
 }
 
+function resolverHasExactProduct(evidence: ReturnType<typeof resolverEvidenceFor>) {
+  return Boolean(evidence?.confidence === "exact" && evidence.product_id);
+}
+
 function resolvedProductFor(input: CandidateResolutionInput, resolverEvidence: ReturnType<typeof resolverEvidenceFor>) {
   if (resolverEvidence?.confidence !== "exact" || !resolverEvidence.product_id) return input.product;
   return input.analytics.products.find((item) => item.id === resolverEvidence.product_id) ?? input.product;
@@ -114,7 +139,7 @@ export function resolveMyfansCandidateProduct(input: CandidateResolutionInput) {
   const resolverEvidence = resolverEvidenceFor(input);
   const resolvedProduct = resolvedProductFor(input, resolverEvidence);
   const myfansTarget = resolvedMyfansTarget(resolvedProduct, quote);
-  const resolverCanConnectProduct = Boolean(resolverEvidence?.confidence === "exact" && resolverEvidence.product_id);
+  const resolverCanConnectProduct = resolverHasExactProduct(resolverEvidence);
   const canConnectProduct = myfansTarget.canConnectAffiliate || resolverCanConnectProduct;
   const monetizableStatus = monetizableStatusFor(resolvedProduct, canConnectProduct);
   const candidateProduct = canConnectProduct ? resolvedProduct : null;
