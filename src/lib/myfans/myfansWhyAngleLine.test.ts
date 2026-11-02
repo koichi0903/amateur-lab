@@ -49,6 +49,11 @@ test("concrete-cue reaction lines preserve their established wording", () => {
   ];
 
   for (const [reaction, line] of expected) assert.equal(whyAngleLine(reaction, visual, facts(), 1), line);
+  assert.equal(whyAngleLine("contrast", understanding({ visibleChangeOrContrast: "" }), facts(), 1), "そのズレで見返したくなる。");
+  assert.equal(whyAngleLine("immediacy", understanding({ mediaType: "image" }), facts(), 0), "1枚目でこれを置かれると強い。");
+  assert.equal(whyAngleLine("surprise", visual, facts(100_000), 0), "そりゃ10万表示いくよな、ってなる。");
+  assert.equal(whyAngleLine("surprise", visual, facts(100_000), 1), "だから反応が集まるのも分かる。");
+  assert.equal(whyAngleLine("toString" as HumanReactionType, visual, facts(), 1), "だから反応が集まるのも分かる。");
 });
 
 test("cue fallback, media-specific copy, and social proof keep their existing precedence", () => {

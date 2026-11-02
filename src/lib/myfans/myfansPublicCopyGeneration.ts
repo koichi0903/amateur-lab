@@ -53,6 +53,22 @@ function concreteCueForWhyAngle(understanding: VisualUnderstanding) {
     : understanding.attentionMoment || understanding.humanObservation;
 }
 
+function whyAngleForConcreteCueReactionLine(
+  reactionType: HumanReactionType,
+  understanding: VisualUnderstanding,
+  cue: string,
+): string | null {
+  const lines: Partial<Record<HumanReactionType, string>> = {
+    curiosity: "ここからどうなるのか気になってしまう。",
+    agreement: `${cue}で一気に持っていく。`,
+    contrast: understanding.visibleChangeOrContrast || "そのズレで見返したくなる。",
+    specific_appeal: "合う人には早い段階で刺さる。",
+    visual_clarity: "説明より先に好みが分かる。",
+    immediacy: understanding.mediaType === "video" ? "冒頭にこれを置かれると強い。" : "1枚目でこれを置かれると強い。",
+  };
+  return Object.prototype.hasOwnProperty.call(lines, reactionType) ? lines[reactionType] ?? null : null;
+}
+
 function whyAngleForConcreteCue(
   reactionType: HumanReactionType,
   understanding: VisualUnderstanding,
@@ -60,12 +76,8 @@ function whyAngleForConcreteCue(
   proof: string,
   variant: number,
 ) {
-  if (reactionType === "curiosity") return "ここからどうなるのか気になってしまう。";
-  if (reactionType === "agreement") return `${cue}で一気に持っていく。`;
-  if (reactionType === "contrast") return understanding.visibleChangeOrContrast || "そのズレで見返したくなる。";
-  if (reactionType === "specific_appeal") return "合う人には早い段階で刺さる。";
-  if (reactionType === "visual_clarity") return "説明より先に好みが分かる。";
-  if (reactionType === "immediacy") return understanding.mediaType === "video" ? "冒頭にこれを置かれると強い。" : "1枚目でこれを置かれると強い。";
+  const reactionLine = whyAngleForConcreteCueReactionLine(reactionType, understanding, cue);
+  if (reactionLine) return reactionLine;
   if (proof && variant % 4 === 0) return proof;
   return "だから反応が集まるのも分かる。";
 }
