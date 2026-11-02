@@ -44,3 +44,13 @@ test("accepts affiliate-only text and reports missing input or URLs clearly", ()
   assert.throws(() => parseMyfansAffiliateText("  \n "), /テキストを貼り付けてください/);
   assert.throws(() => parseMyfansAffiliateText("名前だけです"), /商品URLまたはアフィリンク/);
 });
+
+test("uses the nearest title before an affiliate URL when the product URL is absent", () => {
+  const parsed = parseMyfansAffiliateText([
+    "creator_name",
+    "春の新作コレクション紹介",
+    "https://mfco.link/affiliate-token",
+  ].join("\n"));
+
+  assert.equal(parsed.product.title, "春の新作コレクション紹介");
+});

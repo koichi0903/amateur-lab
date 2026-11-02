@@ -55,14 +55,26 @@ function urlsFromLines(lines: string[]): ParsedUrls {
   };
 }
 
-function creatorFromText(normalized: string, lines: string[], creatorUrl: string): CreatorInfo {
+function creatorHandleFromText(normalized: string, creatorUrl: string) {
   const handleMatch = normalized.match(/@([A-Za-z0-9_]+)/) ?? creatorUrl.match(/myfans\.jp\/([A-Za-z0-9_]+)/);
-  const handle = handleMatch?.[1] ?? "";
-  const handleLineIndex = handle ? lines.findIndex((line) => line.includes(`@${handle}`) || line.includes(`/notify/${handle}`)) : -1;
+  return handleMatch?.[1] ?? "";
+}
+
+function creatorHandleLineIndex(lines: string[], handle: string) {
+  return handle ? lines.findIndex((line) => line.includes(`@${handle}`) || line.includes(`/notify/${handle}`)) : -1;
+}
+
+function fallbackCreatorName(lines: string[], handle: string) {
+  return lines.find((line) => line && !line.startsWith("http") && !line.startsWith("@") && !/myfans|ログイン|dashboard/i.test(line)) ?? handle;
+}
+
+function creatorFromText(normalized: string, lines: string[], creatorUrl: string): CreatorInfo {
+  const handle = creatorHandleFromText(normalized, creatorUrl);
+  const handleLineIndex = creatorHandleLineIndex(lines, handle);
   const previousLine = handleLineIndex > 0 ? lines[handleLineIndex - 1] : "";
   const creatorName = previousLine && !previousLine.startsWith("http")
     ? previousLine
-    : lines.find((line) => line && !line.startsWith("http") && !line.startsWith("@") && !/myfans|ログイン|dashboard/i.test(line)) ?? handle;
+    : fallbackCreatorName(lines, handle);
   return { creatorName, handle, myfansUrl: creatorUrl || (handle ? `https://myfans.jp/${handle}` : "") };
 }
 
@@ -84,19 +96,27 @@ function looksLikeTitle(line: string, creatorName: string) {
   return line.length >= 6;
 }
 
+function titleAfterProductUrl(lines: string[], creatorName: string, productUrl: string) {
+  if (!productUrl) return "";
+  const urlIndex = lines.findIndex((line) => line.includes(productUrl));
+  return urlIndex >= 0
+    ? lines.slice(urlIndex + 1, urlIndex + 6).find((line) => looksLikeTitle(line, creatorName)) ?? ""
+    : "";
+}
+
+function titleBeforeAffiliateUrl(lines: string[], creatorName: string, affiliateUrl: string) {
+  if (!affiliateUrl) return "";
+  const affiliateIndex = lines.findIndex((line) => line.includes(affiliateUrl));
+  return affiliateIndex > 0
+    ? [...lines.slice(Math.max(0, affiliateIndex - 5), affiliateIndex)].reverse().find((line) => looksLikeTitle(line, creatorName)) ?? ""
+    : "";
+}
+
 function inferTitle(lines: string[], creatorName: string, productUrl: string, affiliateUrl: string) {
-  const urlIndex = productUrl ? lines.findIndex((line) => line.includes(productUrl)) : -1;
-  if (urlIndex >= 0) {
-    const nearby = lines.slice(urlIndex + 1, urlIndex + 6).find((line) => looksLikeTitle(line, creatorName));
-    if (nearby) return nearby;
-  }
-
-  const affiliateIndex = affiliateUrl ? lines.findIndex((line) => line.includes(affiliateUrl)) : -1;
-  if (affiliateIndex > 0) {
-    const nearby = [...lines.slice(Math.max(0, affiliateIndex - 5), affiliateIndex)].reverse().find((line) => looksLikeTitle(line, creatorName));
-    if (nearby) return nearby;
-  }
-
+  const productTitle = titleAfterProductUrl(lines, creatorName, productUrl);
+  if (productTitle) return productTitle;
+  const affiliateTitle = titleBeforeAffiliateUrl(lines, creatorName, affiliateUrl);
+  if (affiliateTitle) return affiliateTitle;
   return lines.find((line) => looksLikeTitle(line, creatorName)) ?? `${creatorName || "myfans"}の投稿`;
 }
 
