@@ -40,13 +40,17 @@ type QualityRoleScoreContext = {
   topicInsight: ReturnType<typeof discoveryInsightFromTopic>;
 };
 
+function hasDiscoveryEngagementSignal(product: MyfansPublicCopyQualityInput["product"], topicInsight: QualityRoleScoreContext["topicInsight"]) {
+  return product.likes_count >= 100 || product.saves_count >= 20 || Boolean(topicInsight);
+}
+
 function discoveryRoleScore(input: MyfansPublicCopyQualityInput, context: QualityRoleScoreContext) {
   const product = input.product;
   return (
     (context.discoveryConcrete ? 42 : 8) +
     (product.popularity_rank ? 14 : 0) +
     (product.is_new ? 12 : 0) +
-    (product.likes_count >= 100 || product.saves_count >= 20 || context.topicInsight ? 16 : 0) +
+    (hasDiscoveryEngagementSignal(product, context.topicInsight) ? 16 : 0) +
     (context.naturalness >= 20 ? 12 : 7) +
     (context.genericPhraseCount === 0 ? 12 : 2)
   );
@@ -64,13 +68,21 @@ function authorityRoleScore(input: MyfansPublicCopyQualityInput, context: Qualit
   );
 }
 
+function hasRevenueEvidence(product: MyfansPublicCopyQualityInput["product"]) {
+  return product.estimated_reward > 0 || product.reward_rate > 0;
+}
+
+function hasRevenuePopularitySignal(product: MyfansPublicCopyQualityInput["product"]) {
+  return Boolean(product.popularity_rank || product.likes_count > 0);
+}
+
 function revenueRoleScore(input: MyfansPublicCopyQualityInput, context: QualityRoleScoreContext) {
   const product = input.product;
   const hasPrDisclosure = /#PR/.test(input.body + "\n" + replyFor(product, input.linkStrategy));
   return (
     (context.revenueValid ? 32 : 0) +
-    (product.estimated_reward > 0 || product.reward_rate > 0 ? 18 : 0) +
-    (product.popularity_rank || product.likes_count > 0 ? 14 : 8) +
+    (hasRevenueEvidence(product) ? 18 : 0) +
+    (hasRevenuePopularitySignal(product) ? 14 : 8) +
     (hasPrDisclosure ? 12 : 0) +
     (context.naturalness >= 20 ? 14 : 8) +
     (context.genericPhraseCount <= 1 ? 10 : 2)
@@ -233,12 +245,20 @@ function qualityReactionScoresFor(input: MyfansPublicCopyQualityInput, context: 
   };
 }
 
+function hasCuriosityEnding(firstLine: string) {
+  return /[。？?]$/.test(firstLine) && !/です。$|ます。$/.test(firstLine);
+}
+
+function hasCuriosityCue(firstLine: string, context: QualityCopyScoreContext) {
+  const observationFirstLine = context.isQuote && context.understanding.humanObservation && firstLine.includes(context.understanding.humanObservation);
+  return context.reactionWords.test(firstLine) || observationFirstLine;
+}
+
 function readerCuriosityScoreFor(context: QualityCopyScoreContext) {
-  const { isQuote, firstLine, understanding, reactionWords } = context;
-  const observationFirstLine = isQuote && understanding.humanObservation && firstLine.includes(understanding.humanObservation);
-  const hasCuriosityEnding = /[。？?]$/.test(firstLine) && !/です。$|ます。$/.test(firstLine);
-  const hasCuriosityCue = reactionWords.test(firstLine) || observationFirstLine;
-  if (firstLine.length >= 10 && firstLine.length <= 46 && hasCuriosityEnding && hasCuriosityCue) return 30;
+  const { firstLine } = context;
+  const curiosityCue = hasCuriosityCue(firstLine, context);
+  const curiosityEnding = hasCuriosityEnding(firstLine);
+  if (firstLine.length >= 10 && firstLine.length <= 46 && curiosityEnding && curiosityCue) return 30;
   return firstLine.length >= 10 ? 18 : 8;
 }
 
@@ -256,13 +276,39 @@ function originalityScoreFor(body: string) {
   return /(そりゃ|ずるい|普通に|一回|残る|持っていかれる|盛らなくても|知らなくても)/.test(body) ? 10 : 6;
 }
 
+function visualFitScoreFor(input: MyfansPublicCopyQualityInput, context: QualityCopyScoreContext) {
+  if (context.visualWords.test(input.body)) return 25;
+  const hasQuoteVisualReaction = context.isQuote
+    && hasBrowserVisibleVisual(input.quote)
+    && context.reactionWords.test(input.body);
+  if (hasQuoteVisualReaction) return 25;
+  return context.isQuote ? 6 : 14;
+}
+
+function visualTextFitScoreFor(input: MyfansPublicCopyQualityInput, context: QualityCopyScoreContext) {
+  if (!context.isQuote) return 0;
+  if (hasBrowserVisibleVisual(input.quote) && context.cueInBody) return 20;
+  return context.cueInBody ? 14 : 4;
+}
+
 function qualityVisualScoresFor(input: MyfansPublicCopyQualityInput, context: QualityCopyScoreContext) {
-  const { isQuote, cueInBody, visualWords } = context;
-  const visualFit = visualWords.test(input.body) || (isQuote && hasBrowserVisibleVisual(input.quote) && context.reactionWords.test(input.body)) ? 25 : isQuote ? 6 : 14;
   return {
-    visualFit,
-    visualTextFitV8: isQuote ? (hasBrowserVisibleVisual(input.quote) && cueInBody ? 20 : cueInBody ? 14 : 4) : 0,
+    visualFit: visualFitScoreFor(input, context),
+    visualTextFitV8: visualTextFitScoreFor(input, context),
   };
+}
+
+function legacyVisualTextFitFor(input: MyfansPublicCopyQualityInput) {
+  if (input.creativeStrategy === "quote_post") return hasBrowserVisibleVisual(input.quote) ? 25 : 0;
+  if (["ranking_card", "comparison_card", "discovery_card"].includes(input.creativeStrategy)) return 12;
+  return 10;
+}
+
+function roleDifferentiationFor(input: MyfansPublicCopyQualityInput) {
+  if (input.linkStrategy !== "reply_link") return 0;
+  if (!/^https:\/\/mfco\.link\/r\//.test(input.product.affiliate_url)) return 0;
+  const hasPrDisclosure = /#PR/.test(input.body + "\n" + replyFor(input.product, input.linkStrategy));
+  return hasPrDisclosure ? 10 : 0;
 }
 
 function qualityLegacyScoresFor(
@@ -271,22 +317,14 @@ function qualityLegacyScoresFor(
   scores: { visualFit: number; originality: number; naturalness: number },
 ) {
   const { hardFail } = context;
-  const visualTextFit = input.creativeStrategy === "quote_post"
-    ? (hasBrowserVisibleVisual(input.quote) ? 25 : 0)
-    : ["ranking_card", "comparison_card", "discovery_card"].includes(input.creativeStrategy)
-      ? 12
-      : 10;
-  const roleDifferentiation = input.linkStrategy === "reply_link"
-    ? (/^https:\/\/mfco\.link\/r\//.test(input.product.affiliate_url) && /#PR/.test(input.body + "\n" + replyFor(input.product, input.linkStrategy)) ? 10 : 0)
-    : 0;
   return {
     concreteFact: scores.visualFit,
-    visualTextFit,
+    visualTextFit: legacyVisualTextFitFor(input),
     readerRelevance: context.reactionWords.test(input.body) ? 15 : 8,
     originalAngle: scores.originality,
     naturalLanguage: scores.naturalness,
     salesAdminSmell: hardFail.length ? 0 : 5,
-    roleDifferentiation,
+    roleDifferentiation: roleDifferentiationFor(input),
   };
 }
 
