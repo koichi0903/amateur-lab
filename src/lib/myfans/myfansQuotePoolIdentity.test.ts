@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { MyfansProduct, MyfansQuoteCandidate } from "@/lib/myfansAnalytics";
-import { topicIdentityFor } from "./myfansQuotePool";
+import { topicIdentityFor, topicSemanticKeyFor, type MyfansTopicValue } from "./myfansQuotePool";
 
 const product = {
   id: 7,
@@ -9,6 +9,8 @@ const product = {
   creator_x_url: "https://x.com/creator",
   popularity_rank: 12,
   price: 2_500,
+  genre: "genre",
+  likes_count: 12_345,
 } as MyfansProduct;
 
 test("quote identity takes precedence and normalizes source URLs", () => {
@@ -24,4 +26,19 @@ test("product identities preserve reason-specific keys and fallback values", () 
   assert.equal(topicIdentityFor(product, null, "price_anomaly"), "product:7:price_anomaly:mid");
   assert.equal(topicIdentityFor(product, null, "visual_gap"), "product:7:visual_gap");
   assert.equal(topicIdentityFor(product, null, null), "product:7:topic");
+});
+
+test("quote semantic keys normalize URLs and keep metric bands", () => {
+  assert.equal(topicSemanticKeyFor(product, { id: 4, x_post_url: "https://X.com/Creator/status/4?ref=share", views: 54_234, likes: 9_856 } as MyfansQuoteCandidate, null), "quote-event:/creator/status/4:views:54千:likes:9900");
+  assert.equal(topicSemanticKeyFor(product, { id: 5, x_post_url: "not a url", views: 0, likes: 0 } as MyfansQuoteCandidate, null), "quote-event:not a url");
+  assert.equal(topicSemanticKeyFor(product, { id: 6, x_post_url: "", views: null, likes: null } as MyfansQuoteCandidate, null), "quote-event:quote-6");
+});
+
+test("product semantic keys preserve reason-specific comparisons and fallbacks", () => {
+  assert.equal(topicSemanticKeyFor(product, null, { reasonToCare: "creator_outlier" } as MyfansTopicValue), "creator:5:creator-outlier");
+  assert.equal(topicSemanticKeyFor(product, null, { reasonToCare: "ranking_anomaly" } as MyfansTopicValue), "ranking:12:genre");
+  assert.equal(topicSemanticKeyFor(product, null, { reasonToCare: "clear_comparison" } as MyfansTopicValue), "comparison:mid:12千");
+  assert.equal(topicSemanticKeyFor(product, null, { reasonToCare: "price_anomaly" } as MyfansTopicValue), "comparison:mid:12千");
+  assert.equal(topicSemanticKeyFor(product, null, { reasonToCare: "visual_gap" } as MyfansTopicValue), "product:7:visual_gap");
+  assert.equal(topicSemanticKeyFor(product, null, null), "product:7:unknown");
 });

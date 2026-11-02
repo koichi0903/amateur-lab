@@ -98,24 +98,38 @@ export function topicIdentityFor(product: MyfansProduct, quote: MyfansQuoteCandi
   return topicIdentityForProduct(product, reasonToCare);
 }
 
-export function topicSemanticKeyFor(product: MyfansProduct, quote: MyfansQuoteCandidate | null, topicValue: MyfansTopicValue | null | undefined) {
-  const reason = topicValue?.reasonToCare ?? "unknown";
-  if (quote) {
-    const views = metricBand(quote.views);
-    const likes = metricBand(quote.likes);
-    const source = (() => {
-      try {
-        return quote.x_post_url ? new URL(quote.x_post_url).pathname.toLowerCase() : `quote-${quote.id}`;
-      } catch {
-        return quote.x_post_url?.toLowerCase() || `quote-${quote.id}`;
-      }
-    })();
-    return [`quote-event`, source, views ? `views:${views}` : "", likes ? `likes:${likes}` : ""].filter(Boolean).join(":");
+function quoteTopicSemanticSource(quote: MyfansQuoteCandidate) {
+  try {
+    return quote.x_post_url ? new URL(quote.x_post_url).pathname.toLowerCase() : `quote-${quote.id}`;
+  } catch {
+    return quote.x_post_url?.toLowerCase() || `quote-${quote.id}`;
   }
-  if (reason === "creator_outlier") return `${creatorKeyFromProduct(product)}:creator-outlier`;
-  if (reason === "ranking_anomaly") return `ranking:${product.popularity_rank ?? "none"}:${product.genre}`;
-  if (reason === "clear_comparison" || reason === "price_anomaly") return `comparison:${priceBucket(product.price)}:${metricBand(product.likes_count)}`;
-  return `product:${product.id}:${reason}`;
+}
+
+function quoteTopicSemanticKey(quote: MyfansQuoteCandidate) {
+  const views = metricBand(quote.views);
+  const likes = metricBand(quote.likes);
+  const source = quoteTopicSemanticSource(quote);
+  return [`quote-event`, source, views ? `views:${views}` : "", likes ? `likes:${likes}` : ""].filter(Boolean).join(":");
+}
+
+function productTopicSemanticKey(product: MyfansProduct, reason: MyfansReasonToCare | "unknown") {
+  switch (reason) {
+    case "creator_outlier":
+      return `${creatorKeyFromProduct(product)}:creator-outlier`;
+    case "ranking_anomaly":
+      return `ranking:${product.popularity_rank ?? "none"}:${product.genre}`;
+    case "clear_comparison":
+    case "price_anomaly":
+      return `comparison:${priceBucket(product.price)}:${metricBand(product.likes_count)}`;
+    default:
+      return `product:${product.id}:${reason}`;
+  }
+}
+
+export function topicSemanticKeyFor(product: MyfansProduct, quote: MyfansQuoteCandidate | null, topicValue: MyfansTopicValue | null | undefined) {
+  if (quote) return quoteTopicSemanticKey(quote);
+  return productTopicSemanticKey(product, topicValue?.reasonToCare ?? "unknown");
 }
 
 export function semanticTopicSimilarity(left: string, right: string) {
