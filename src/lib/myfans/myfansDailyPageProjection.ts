@@ -13,6 +13,10 @@ export function parseMyfansDailyPageParams(params: { media?: string; date?: stri
   return { selectedMediaId, planDate };
 }
 
+function planTimestamp(plan: MyfansDailyPlanProjectionInput) {
+  return plan.evaluated_at ?? plan.updated_at ?? "";
+}
+
 export function selectCurrentMyfansDailyPlan<T extends MyfansDailyPlanProjectionInput>(
   plans: readonly T[],
   planDate: string,
@@ -21,7 +25,7 @@ export function selectCurrentMyfansDailyPlan<T extends MyfansDailyPlanProjection
   return plans
     .filter((plan) => plan.plan_date === planDate && plan.approved_media_id === approvedMediaId)
     .sort((a, b) => (b.revision ?? 0) - (a.revision ?? 0)
-      || String(b.evaluated_at ?? b.updated_at ?? "").localeCompare(String(a.evaluated_at ?? a.updated_at ?? ""))
+      || String(planTimestamp(b)).localeCompare(String(planTimestamp(a)))
       || b.id - a.id)[0]
     ?? null;
 }
