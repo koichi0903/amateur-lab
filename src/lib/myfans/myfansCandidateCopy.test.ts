@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { attentionScoreFor, audienceIntentFor, bodyFor, hookIntelligence, sourceSpecificityScore } from "./myfansCandidateCopy.ts";
+import { publicCopyFactsFor } from "./myfansPublicCopyFacts.ts";
+import { buildPublicCopyV8 } from "./myfansPublicCopyGeneration.ts";
 import type { MyfansAnalytics, MyfansProduct, MyfansQuoteCandidate } from "../myfansAnalytics.ts";
 import type { MyfansTopicValue } from "./myfansQuotePool.ts";
 import type { VisualUnderstanding } from "../myfansXExecution.ts";
@@ -193,6 +195,44 @@ test("discovery copy keeps quote grounding and deterministic fallback lines", ()
   assert.equal(
     grounded,
     "「作品の表情が変わる瞬間に、思ったより距離感の違いが見える。」の出し方が気になってしまう。\n\nこの人、他の投稿も少し気になる。",
+  );
+});
+
+test("body generation dispatch keeps authority, revenue, and attention role behavior", () => {
+  const item = product();
+  const authorityTopic = {
+    ...topicValue(),
+    reasonToCare: "clear_comparison" as const,
+    evidence: ["条件A", "差分B"],
+  };
+  assert.equal(
+    bodyFor(item, "profile_cta", "no_link", "text_only", quote(), authorityTopic, 0),
+    "今日残すなら、条件A\n\n差分B。ここまで揃うと、先に見る理由になる。",
+  );
+  const growthAuthorityTopic = {
+    ...topicValue(),
+    reasonToCare: "rapid_growth" as const,
+    evidence: ["伸びが速い"],
+  };
+  assert.equal(
+    bodyFor(item, "profile_cta", "no_link", "text_only", quote(), growthAuthorityTopic, 0),
+    "今日残すなら、伸びが速い\n\n数字だけではなく、引用元の見せ方まで一緒に残っている。ここまで揃うと、先に見る理由になる。",
+  );
+  assert.equal(
+    bodyFor(item, "profile_cta", "no_link", "text_only", quote(), null, 0),
+    "束ねて語れる差が弱いので今日は出さない。",
+  );
+
+  assert.equal(
+    bodyFor(item, "reply_link_sales", "no_link", "text_only", quote(), topicValue(), 0),
+    "新作の表情が気になる\n\n気になる人だけ自己リプへ。 #PR",
+  );
+
+  const sourceQuote = quote({ text_excerpt: "元投稿の具体的な一文" });
+  const facts = publicCopyFactsFor(item, sourceQuote);
+  assert.equal(
+    bodyFor(item, "other", "no_link", "quote_post", sourceQuote, topicValue(), 0),
+    buildPublicCopyV8(facts, "other", "no_link", 0).join("\n\n"),
   );
 });
 

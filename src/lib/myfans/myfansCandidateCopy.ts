@@ -10,6 +10,7 @@ import { getXWeightedLength } from "@/lib/xText";
 import type { MyfansAnalytics, MyfansProduct, MyfansQuoteCandidate } from "@/lib/myfansAnalytics";
 import type { MyfansTopicValue } from "@/lib/myfans/myfansQuotePool";
 import type { MyfansCreativeStrategy, MyfansLinkStrategy } from "./myfansGrowthStrategy";
+import type { DailyRole } from "@/lib/myfans/myfansTopicValue";
 import type { AudienceIntent, HookType, VisualUnderstanding } from "../myfansXExecution";
 
 function isPurchaseIntentPostType(postType: string) {
@@ -327,15 +328,19 @@ function buildDiscoveryCopy(product: MyfansProduct, quote: MyfansQuoteCandidate 
   return [firstLine, second === firstLine ? closers[(variant + 1) % closers.length] : second];
 }
 
-function buildAuthorityCopy(product: MyfansProduct, quote: MyfansQuoteCandidate | null, topicValue: MyfansTopicValue | null, variant = 0) {
-  const insight = topicValue?.verdict === "PASS" ? discoveryInsightFromTopic(topicValue) : null;
-  const passedTopic = topicValue?.verdict === "PASS" ? topicValue : null;
-  if (!insight || !passedTopic) return ["束ねて語れる差が弱いので今日は出さない。"];
-  const secondEvidence = passedTopic.evidence[1] ?? (
-    passedTopic.reasonToCare === "rapid_growth" || passedTopic.reasonToCare === "unexpected_popularity"
+function secondAuthorityEvidence(topicValue: MyfansTopicValue) {
+  return topicValue.evidence[1] ?? (
+    topicValue.reasonToCare === "rapid_growth" || topicValue.reasonToCare === "unexpected_popularity"
       ? "数字だけではなく、引用元の見せ方まで一緒に残っている"
       : ""
   );
+}
+
+function buildAuthorityCopy(product: MyfansProduct, quote: MyfansQuoteCandidate | null, topicValue: MyfansTopicValue | null, variant = 0) {
+  if (topicValue?.verdict !== "PASS") return ["束ねて語れる差が弱いので今日は出さない。"];
+  const insight = discoveryInsightFromTopic(topicValue);
+  if (!insight) return ["束ねて語れる差が弱いので今日は出さない。"];
+  const secondEvidence = secondAuthorityEvidence(topicValue);
   if (!secondEvidence) return ["束ねて語れる差が弱いので今日は出さない。"];
   const openers = [
     `今日残すなら、${insight.line}`,
@@ -365,18 +370,43 @@ export function stopReasonFor(postType: string, product: MyfansProduct) {
   return `「${angle}」という好みの分かれ目を最初に見せる。`;
 }
 
+function copyLinesForRole(input: {
+  facts: ReturnType<typeof publicCopyFactsFor>;
+  linkStrategy: MyfansLinkStrategy;
+  postType: string;
+  product: MyfansProduct;
+  quote: MyfansQuoteCandidate | null;
+  role: DailyRole;
+  topicValue: MyfansTopicValue | null;
+  variant: number;
+}) {
+  switch (input.role) {
+    case "DISCOVERY":
+      return buildDiscoveryCopy(input.product, input.quote, input.topicValue, input.variant);
+    case "AUTHORITY":
+      return buildAuthorityCopy(input.product, input.quote, input.topicValue, input.variant);
+    case "REVENUE":
+      return buildRevenueCopy(input.product, input.quote, input.topicValue, input.variant);
+    default:
+      return input.facts.quoteVisualAnalysis?.status === "verified"
+        ? buildPublicCopyV10(input.facts, input.postType, input.linkStrategy, input.variant)
+        : buildPublicCopyV8(input.facts, input.postType, input.linkStrategy, input.variant);
+  }
+}
+
 export function bodyFor(product: MyfansProduct, postType: string, linkStrategy: MyfansLinkStrategy, creativeStrategy: MyfansCreativeStrategy, quote: MyfansQuoteCandidate | null, topicValue: MyfansTopicValue | null, variant = 0) {
   const facts = publicCopyFactsFor(product, quote);
   const role = roleFor(postType, linkStrategy, creativeStrategy);
-  const lines = role === "DISCOVERY"
-    ? buildDiscoveryCopy(product, quote, topicValue, variant)
-    : role === "AUTHORITY"
-      ? buildAuthorityCopy(product, quote, topicValue, variant)
-      : role === "REVENUE"
-        ? buildRevenueCopy(product, quote, topicValue, variant)
-        : facts.quoteVisualAnalysis?.status === "verified"
-          ? buildPublicCopyV10(facts, postType, linkStrategy, variant)
-          : buildPublicCopyV8(facts, postType, linkStrategy, variant);
+  const lines = copyLinesForRole({
+    facts,
+    linkStrategy,
+    postType,
+    product,
+    quote,
+    role,
+    topicValue,
+    variant,
+  });
   const link = linkStrategy === "body_link" && product.affiliate_url ? product.affiliate_url : "";
   return fitXBody([...lines, link].filter(Boolean), link ? 235 : 210);
 }
