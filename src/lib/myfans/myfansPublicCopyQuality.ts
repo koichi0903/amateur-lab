@@ -538,37 +538,62 @@ function authorityValueFor(input: MyfansPublicCopyQualityInput, isAuthority: boo
   return isAuthority && hasConcreteValue && !profilePromise.test(input.body.trim());
 }
 
-function qualityRoleEvidenceFor(input: MyfansPublicCopyQualityInput, context: {
+type QualityRoleEvidenceContext = {
   readerCuriosity: number;
   sourceTextGrounded: boolean;
   naturalness: number;
-}) {
+};
+
+function qualityRoleTopicInsightFor(input: MyfansPublicCopyQualityInput) {
+  return input.topicValue?.verdict === "PASS" ? discoveryInsightFromTopic(input.topicValue) : null;
+}
+
+function qualityRoleFirstLineGateFailedFor(role: DailyRole, isDiscovery: boolean, context: QualityRoleEvidenceContext) {
+  const attentionOrDiscovery = role === "ATTENTION" || isDiscovery;
+  return attentionOrDiscovery && !isDiscovery && context.readerCuriosity < 25 && !context.sourceTextGrounded;
+}
+
+function qualityRoleDiscoveryFactsFor(
+  input: MyfansPublicCopyQualityInput,
+  isDiscovery: boolean,
+  sourceTextGrounded: boolean,
+  discoveryInsight: ReturnType<typeof discoveryInsightFor>,
+  topicInsight: ReturnType<typeof discoveryInsightFromTopic>,
+) {
+  return {
+    discoveryFactMissing: discoveryFactMissingFor(input, topicInsight),
+    discoveryConcrete: discoveryConcreteFor(input, isDiscovery, sourceTextGrounded, discoveryInsight, topicInsight),
+    discoveryMethodTalk: isDiscovery && /(比較して見る|見て残す|反応と価格を見て|分析|判断材料|候補|条件を確認)/.test(input.body),
+  };
+}
+
+function qualityRoleRevenueValidFor(input: MyfansPublicCopyQualityInput, isRevenue: boolean) {
+  return isRevenue && isValidRevenueProduct(input.product) && /^https:\/\/mfco\.link\/r\//.test(input.product.affiliate_url);
+}
+
+function qualityRoleGenericPhraseCountFor(input: MyfansPublicCopyQualityInput) {
+  return input.body.match(/(目立つ|気になる|見て残す|判断材料|刺さるポイント|入口がある)/g)?.length ?? 0;
+}
+
+function qualityRoleEvidenceFor(input: MyfansPublicCopyQualityInput, context: QualityRoleEvidenceContext) {
   const role = roleFor(input.postType, input.linkStrategy, input.creativeStrategy);
   const isDiscovery = role === "DISCOVERY";
   const isAuthority = role === "AUTHORITY";
   const isRevenue = role === "REVENUE";
-  const attentionOrDiscovery = role === "ATTENTION" || isDiscovery;
-  const firstLineGateFailed = attentionOrDiscovery && !isDiscovery && context.readerCuriosity < 25 && !context.sourceTextGrounded;
   const discoveryInsight = discoveryInsightFor(input.product, input.quote, 0);
-  const topicInsight = input.topicValue?.verdict === "PASS" ? discoveryInsightFromTopic(input.topicValue) : null;
-  const discoveryFactMissing = discoveryFactMissingFor(input, topicInsight);
-  const discoveryConcrete = discoveryConcreteFor(input, isDiscovery, context.sourceTextGrounded, discoveryInsight, topicInsight);
-  const discoveryMethodTalk = isDiscovery && /(比較して見る|見て残す|反応と価格を見て|分析|判断材料|候補|条件を確認)/.test(input.body);
+  const topicInsight = qualityRoleTopicInsightFor(input);
+  const discoveryFacts = qualityRoleDiscoveryFactsFor(input, isDiscovery, context.sourceTextGrounded, discoveryInsight, topicInsight);
   const authorityValue = authorityValueFor(input, isAuthority, topicInsight);
-  const revenueValid = isRevenue && isValidRevenueProduct(input.product) && /^https:\/\/mfco\.link\/r\//.test(input.product.affiliate_url);
-  const genericPhraseCount = input.body.match(/(目立つ|気になる|見て残す|判断材料|刺さるポイント|入口がある)/g)?.length ?? 0;
   return {
     role,
     isDiscovery,
     isAuthority,
     isRevenue,
-    firstLineGateFailed,
-    discoveryFactMissing,
-    discoveryConcrete,
-    discoveryMethodTalk,
+    firstLineGateFailed: qualityRoleFirstLineGateFailedFor(role, isDiscovery, context),
+    ...discoveryFacts,
     authorityValue,
-    revenueValid,
-    genericPhraseCount,
+    revenueValid: qualityRoleRevenueValidFor(input, isRevenue),
+    genericPhraseCount: qualityRoleGenericPhraseCountFor(input),
     discoveryInsight,
     topicInsight,
   };
