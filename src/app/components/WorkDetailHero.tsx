@@ -384,10 +384,10 @@ function WorkPriceHistory({ priceHistory, activePriceSeriesKey, selectedPriceSum
   </div>;
 }
 
-function WorkPurchaseActions({ work, currentLabel, displayPrice }: Pick<Props, "work" | "displayPrice"> & { currentLabel: string }) {
+function WorkPurchaseActions({ work }: Pick<Props, "work">) {
   return <>
     <div className="flex items-stretch gap-2">
-      {work.affiliate_url ? <AffiliateLink href={work.affiliate_url} workId={work.id} placement="detail-sidebar" sourcePage="direct" className="flex h-14 min-w-0 flex-1 items-center justify-center rounded-lg bg-pink-600 px-3 text-base font-bold text-white shadow-sm hover:bg-pink-700">FANZAで見る{displayPrice ? `（${currentLabel}）` : ""}</AffiliateLink> : <span className="flex h-14 min-w-0 flex-1 items-center justify-center rounded-lg bg-slate-100 px-3 text-base font-bold text-slate-400">FANZAリンク準備中</span>}
+      {work.affiliate_url ? <AffiliateLink href={work.affiliate_url} workId={work.id} placement="detail-sidebar" sourcePage="direct" className="flex h-14 min-w-0 flex-1 items-center justify-center rounded-lg bg-pink-600 px-3 text-base font-bold text-white shadow-sm hover:bg-pink-700">FANZAで販売条件を見る</AffiliateLink> : <span className="flex h-14 min-w-0 flex-1 items-center justify-center rounded-lg bg-slate-100 px-3 text-base font-bold text-slate-400">FANZAリンク準備中</span>}
       <FavoriteButton workId={work.id} iconOnly className="flex h-14 w-[72px] shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-2xl leading-none text-slate-600 transition hover:border-pink-200 hover:bg-pink-50" />
     </div>
     <PriceAlertButton workId={work.id} workTitle={work.title} actress={work.actress} maker={work.maker} />
@@ -400,7 +400,7 @@ function WorkEntityTags({ work, genres }: Pick<Props, "work"> & { genres: string
 
 type WorkDetailsSidebarProps = Pick<
   Props,
-  "work" | "priceHistory" | "displayPrice" | "regularPrice" | "discountRate"
+  "work" | "priceHistory" | "regularPrice" | "discountRate"
 > & {
   currentLabel: string;
   hasDiscount: boolean;
@@ -415,7 +415,6 @@ type WorkDetailsSidebarProps = Pick<
 function WorkDetailsSidebar({
   work,
   priceHistory,
-  displayPrice,
   regularPrice,
   discountRate,
   currentLabel,
@@ -444,7 +443,7 @@ function WorkDetailsSidebar({
       selectedPriceSummary={selectedPriceSummary}
       onSelectedSeriesChange={setSelectedPriceSeriesKey}
     />
-    <WorkPurchaseActions work={work} currentLabel={currentLabel} displayPrice={displayPrice} />
+    <WorkPurchaseActions work={work} />
     <WorkEntityTags work={work} genres={genres} />
   </div>;
 }
@@ -479,7 +478,6 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
     <WorkDetailsSidebar
       work={work}
       priceHistory={priceHistory}
-      displayPrice={displayPrice}
       regularPrice={regularPrice}
       discountRate={discountRate}
       currentLabel={currentLabel}
