@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { extname, resolve as resolvePath } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
@@ -21,6 +21,10 @@ async function resolveCandidateFile(candidate) {
     const file = await existingFile(`${candidate}${suffix}`);
     if (file) return file;
   }
+  for (const suffix of [".ts", ".tsx", ".js", ".mjs"]) {
+    const file = await existingFile(`${candidate}/index${suffix}`);
+    if (file) return file;
+  }
   return null;
 }
 
@@ -30,8 +34,7 @@ function isExtensionlessBareSpecifier(specifier) {
 
 async function existingFile(path) {
   try {
-    await access(path);
-    return path;
+    return (await stat(path)).isFile() ? path : null;
   } catch {
     return null;
   }
