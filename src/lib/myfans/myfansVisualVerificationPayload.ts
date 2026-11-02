@@ -114,26 +114,64 @@ type ProgressInput = {
   reason: string;
 };
 
-function getProgressState({ job, count, reason }: ProgressInput) {
-  const gateFailures = GATE_REASONS.test(reason)
+function gateFailureCountFor(job: VisualVerificationJobSnapshot | null | undefined, reason: string) {
+  return GATE_REASONS.test(reason)
     ? (job?.consecutive_gate_failures ?? 0) + 1
     : 0;
+}
+
+function batchSizeFor(job: VisualVerificationJobSnapshot | null | undefined) {
+  return Math.max(1, Number(job?.batch_size ?? 5));
+}
+
+function batchCompleteFor(queuePaused: boolean, count: number | null | undefined, batchSize: number) {
+  return !queuePaused && (count ?? 0) > 0 && (count ?? 0) % batchSize === 0;
+}
+
+function getProgressState({ job, count, reason }: ProgressInput) {
+  const gateFailures = gateFailureCountFor(job, reason);
   const queuePaused = gateFailures >= 2;
-  const batchSize = Math.max(1, Number(job?.batch_size ?? 5));
-  const batchComplete = !queuePaused && (count ?? 0) > 0 && (count ?? 0) % batchSize === 0;
+  const batchSize = batchSizeFor(job);
+  const batchComplete = batchCompleteFor(queuePaused, count, batchSize);
   const isPaused = queuePaused || batchComplete;
   const isComplete = count === job?.total_sources;
   return { gateFailures, queuePaused, batchSize, batchComplete, isPaused, isComplete };
 }
 
+type ProgressCounterField = "verified_count" | "partial_count" | "unavailable_count";
+type ProgressCountUpdate = Partial<Record<ProgressCounterField, number>>;
+type ProgressCounterUpdater = (job: VisualVerificationJobSnapshot | null | undefined) => ProgressCountUpdate;
+
+const PROGRESS_COUNTER_FIELDS: Record<VisualVerificationStatus, ProgressCounterField> = {
+  verified: "verified_count",
+  partial: "partial_count",
+  unavailable: "unavailable_count",
+};
+
+const PROGRESS_COUNTER_UPDATERS: Record<ProgressCounterField, ProgressCounterUpdater> = {
+  verified_count: (job) => ({ verified_count: (job?.verified_count ?? 0) + 1 }),
+  partial_count: (job) => ({ partial_count: (job?.partial_count ?? 0) + 1 }),
+  unavailable_count: (job) => ({ unavailable_count: (job?.unavailable_count ?? 0) + 1 }),
+};
+
+function progressCounterFieldFor(status: VisualVerificationStatus): ProgressCounterField | null {
+  return PROGRESS_COUNTER_FIELDS[status] ?? null;
+}
+
+function progressCounterUpdateFor(
+  job: VisualVerificationJobSnapshot | null | undefined,
+  counterField: ProgressCounterField,
+): ProgressCountUpdate {
+  return PROGRESS_COUNTER_UPDATERS[counterField](job);
+}
+
 function getProgressCountUpdate(
   job: VisualVerificationJobSnapshot | null | undefined,
   status: VisualVerificationStatus,
-) {
-  if (status === "verified") return { verified_count: (job?.verified_count ?? 0) + 1 };
-  if (status === "partial") return { partial_count: (job?.partial_count ?? 0) + 1 };
-  if (status === "unavailable") return { unavailable_count: (job?.unavailable_count ?? 0) + 1 };
-  return {};
+): ProgressCountUpdate {
+  const counterField = progressCounterFieldFor(status);
+  if (!counterField) return {};
+  return progressCounterUpdateFor(job, counterField);
 }
 
 function getPauseUpdate(
