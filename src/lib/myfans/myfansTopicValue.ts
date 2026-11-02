@@ -352,18 +352,38 @@ function quoteViewDiscoveryInsight(reason: MyfansReasonToCare, evidence: string)
   return { line, value: "桁だけで押さず、元投稿の場面まで確認できる時だけ使いたい。" };
 }
 
+type TopicReasonInsight = {
+  value: string;
+  lineFromEvidence?: (evidence: string) => string;
+};
+
+const comparisonTopicInsight: TopicReasonInsight = { value: "価格だけではなく、同じ条件の中で反応が違う。" };
+const popularityTopicInsight: TopicReasonInsight = { value: "数字だけでなく、元投稿の見せ場まで見えてから出したい。" };
+const visualTopicInsight: TopicReasonInsight = {
+  value: "数字より先に、見た瞬間の違いがある。",
+  lineFromEvidence: (evidence) => evidence.replace(/^verified visual: /, ""),
+};
+
+const topicReasonInsights: Partial<Record<MyfansReasonToCare, TopicReasonInsight>> = {
+  creator_outlier: {
+    value: "普段との差が見えるから、ただの新着より先に引っかかる。",
+    lineFromEvidence: (evidence) => evidence.replace(/^creator/, "creator"),
+  },
+  clear_comparison: comparisonTopicInsight,
+  price_anomaly: comparisonTopicInsight,
+  ranking_anomaly: { value: "順位だけでなく、反応まで一緒に上がっている。" },
+  rapid_growth: popularityTopicInsight,
+  unexpected_popularity: popularityTopicInsight,
+  visual_gap: visualTopicInsight,
+  rare_visual_moment: visualTopicInsight,
+};
+
 function insightForTopicReason(reason: MyfansReasonToCare, evidence: string) {
-  switch (reason) {
-    case "creator_outlier": return { line: evidence.replace(/^creator/, "creator"), value: "普段との差が見えるから、ただの新着より先に引っかかる。" };
-    case "clear_comparison":
-    case "price_anomaly": return { line: evidence, value: "価格だけではなく、同じ条件の中で反応が違う。" };
-    case "ranking_anomaly": return { line: evidence, value: "順位だけでなく、反応まで一緒に上がっている。" };
-    case "rapid_growth":
-    case "unexpected_popularity": return { line: evidence, value: "数字だけでなく、元投稿の見せ場まで見えてから出したい。" };
-    case "visual_gap":
-    case "rare_visual_moment": return { line: evidence.replace(/^verified visual: /, ""), value: "数字より先に、見た瞬間の違いがある。" };
-    default: return { line: evidence, value: "単なる条件ではなく、見た人が話せる差がある。" };
-  }
+  const insight = topicReasonInsights[reason];
+  return {
+    line: insight?.lineFromEvidence?.(evidence) ?? evidence,
+    value: insight?.value ?? "単なる条件ではなく、見た人が話せる差がある。",
+  };
 }
 
 export function discoveryInsightFromTopic(topicValue: MyfansTopicValue) {
