@@ -23,14 +23,24 @@ type MyfansPostedHistorySummary = {
 };
 
 function inspectPostedPost(candidate: MyfansNoveltyCandidate, post: MyfansAnalytics["posts"][number]) {
-  const postSource = post.quote_x_url || post.source_x_url || "";
-  const postTopic = `${post.product_id ?? ""}:${post.post_type ?? ""}:${post.creative_strategy ?? ""}`;
-  const candidateTopic = `${candidate.product?.id ?? ""}:${candidate.postType}:${candidate.creativeStrategy}`;
   return {
     similarity: myfansBodySimilarity(candidate.body, post.body),
-    sameSource: Boolean(postSource && candidate.quoteXUrl && postSource === candidate.quoteXUrl),
-    sameTopic: postTopic === candidateTopic,
+    sameSource: sameQuotedSource(candidate, post),
+    sameTopic: postedTopicKey(post) === candidateTopicKey(candidate),
   };
+}
+
+function sameQuotedSource(candidate: MyfansNoveltyCandidate, post: MyfansAnalytics["posts"][number]) {
+  const postSource = post.quote_x_url || post.source_x_url || "";
+  return Boolean(postSource && candidate.quoteXUrl && postSource === candidate.quoteXUrl);
+}
+
+function postedTopicKey(post: MyfansAnalytics["posts"][number]) {
+  return `${post.product_id ?? ""}:${post.post_type ?? ""}:${post.creative_strategy ?? ""}`;
+}
+
+function candidateTopicKey(candidate: MyfansNoveltyCandidate) {
+  return `${candidate.product?.id ?? ""}:${candidate.postType}:${candidate.creativeStrategy}`;
 }
 
 export type MyfansCandidateNoveltyInput = {
