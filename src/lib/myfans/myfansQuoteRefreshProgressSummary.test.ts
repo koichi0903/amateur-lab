@@ -50,3 +50,17 @@ test("progress summary defaults missing job values to zero", () => {
     status_counts: { navigationAttempted: 0, threadsObserved: 0 },
   });
 });
+
+test("progress summary treats null outcome counters as zero", () => {
+  const summary = buildMyfansQuoteRefreshProgressSummary({
+    no_match: null,
+    retryable_errors: null,
+    excluded_no_posts: null,
+    excluded_private: 2,
+  }, {}, {
+    status: { navigationAttempted: 0, threadsObserved: 0 },
+    profile: { scanOk: 0, articles: 0, ownPosts: 0, mediaPosts: 0 },
+  });
+
+  assert.deepEqual([summary.no_match, summary.retryable, summary.excluded], [0, 0, 2]);
+});

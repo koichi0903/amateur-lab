@@ -36,11 +36,16 @@ function jobExecutionFields(job: QuoteRefreshJobProgress) {
 }
 
 function jobOutcomeFields(job: QuoteRefreshJobProgress) {
+  const counts = job ?? {};
   return {
-    no_match: job?.no_match ?? 0,
-    retryable: job?.retryable_errors ?? 0,
-    excluded: (job?.excluded_no_posts ?? 0) + (job?.excluded_private ?? 0),
+    no_match: countOrZero(counts.no_match),
+    retryable: countOrZero(counts.retryable_errors),
+    excluded: countOrZero(counts.excluded_no_posts) + countOrZero(counts.excluded_private),
   };
+}
+
+function countOrZero(value: number | null | undefined) {
+  return value ?? 0;
 }
 
 function evidenceProgressFields(evidenceCounts: QuoteRefreshProgressEvidenceCounts) {
