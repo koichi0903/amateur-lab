@@ -1,3 +1,19 @@
+const SAFE_MYFANS_ADMIN_MESSAGES = new Set([
+  "投稿本文を入力してください。",
+  "期限日時の形式を確認してください。",
+  "商品が見つかりません。",
+  "投稿IDがありません。",
+  "未対応の更新です。",
+  "投稿URLを入力してください。",
+  "対象日が不正です",
+  "対象日が不正です。",
+  "投稿枠が不正です。",
+  "候補はA/B/Cから選んでください。",
+  "今日のDaily Planが見つかりません。先に候補を生成してください。",
+]);
+
+const SAFE_SELECTED_LIMIT_MESSAGE = /^selectedは\d+件までです。4枠目を選ぶには、既存のselectedを見直してください。$/;
+
 export function buildMyfansAdminErrorContext(action: string, error: unknown) {
   const errorRecord = typeof error === "object" && error !== null
     ? error as { code?: unknown }
@@ -15,7 +31,7 @@ export function buildMyfansAdminErrorContext(action: string, error: unknown) {
 
 export function getSafeMyfansAdminErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "";
-  return /^(投稿本文を入力してください|正規myfansアフィリンク|期限日時|商品が見つかりません|投稿IDがありません|未対応の更新|投稿URLを入力|対象日が不正|投稿枠が不正|候補はA\/B\/C|今日のDaily Planが見つかりません|selectedは)/.test(message)
+  return SAFE_MYFANS_ADMIN_MESSAGES.has(message) || SAFE_SELECTED_LIMIT_MESSAGE.test(message)
     ? message
     : "myfans操作に失敗しました。入力を確認して、時間をおいて再試行してください。";
 }
