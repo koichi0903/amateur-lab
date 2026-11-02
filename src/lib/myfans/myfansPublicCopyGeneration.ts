@@ -70,18 +70,29 @@ function whyAngleForConcreteCue(
   return "だから反応が集まるのも分かる。";
 }
 
+function whyAngleWithoutCueForReaction(
+  reactionType: HumanReactionType,
+  understanding: VisualUnderstanding,
+): string | null {
+  if (reactionType === "curiosity") return understanding.mediaType === "video" ? "冒頭だけで一回開いてしまう。" : "この切り取りだけで気になってしまう。";
+  if (reactionType === "contrast") return understanding.motionCue || "ぱっと見と残り方に差がある。";
+  const lines: Partial<Record<HumanReactionType, string>> = {
+    agreement: "見せ方が分かりやすいから、知らなくても入りやすい。",
+    specific_appeal: "刺さるポイントが一瞬で伝わる。",
+    visual_clarity: "説明より先に雰囲気が入ってくる。",
+    immediacy: "冒頭だけで続きを見たくなる。",
+  };
+  return Object.prototype.hasOwnProperty.call(lines, reactionType) ? lines[reactionType] ?? null : null;
+}
+
 function whyAngleWithoutConcreteCue(
   reactionType: HumanReactionType,
   understanding: VisualUnderstanding,
   proof: string,
   variant: number,
 ) {
-  if (reactionType === "curiosity") return understanding.mediaType === "video" ? "冒頭だけで一回開いてしまう。" : "この切り取りだけで気になってしまう。";
-  if (reactionType === "agreement") return "見せ方が分かりやすいから、知らなくても入りやすい。";
-  if (reactionType === "contrast") return understanding.motionCue || "ぱっと見と残り方に差がある。";
-  if (reactionType === "specific_appeal") return "刺さるポイントが一瞬で伝わる。";
-  if (reactionType === "visual_clarity") return "説明より先に雰囲気が入ってくる。";
-  if (reactionType === "immediacy") return "冒頭だけで続きを見たくなる。";
+  const reactionLine = whyAngleWithoutCueForReaction(reactionType, understanding);
+  if (reactionLine) return reactionLine;
   if (proof && variant % 4 === 0) return proof;
   return "こういう分かりやすい引きは強い。";
 }

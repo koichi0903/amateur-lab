@@ -55,6 +55,12 @@ test("cue fallback, media-specific copy, and social proof keep their existing pr
   const noCue = understanding({ concreteVisualCue: "", attentionMoment: "", humanObservation: "" });
   assert.equal(whyAngleLine("curiosity", noCue, facts(), 1), "冒頭だけで一回開いてしまう。");
   assert.equal(whyAngleLine("contrast", noCue, facts(), 1), "途中で動きが変わる");
+  assert.equal(whyAngleLine("contrast", understanding({ concreteVisualCue: "", attentionMoment: "", humanObservation: "", motionCue: "" }), facts(), 1), "ぱっと見と残り方に差がある。");
+  assert.equal(whyAngleLine("agreement", noCue, facts(100_000), 0), "見せ方が分かりやすいから、知らなくても入りやすい。");
+  assert.equal(whyAngleLine("specific_appeal", noCue, facts(), 1), "刺さるポイントが一瞬で伝わる。");
+  assert.equal(whyAngleLine("visual_clarity", noCue, facts(), 1), "説明より先に雰囲気が入ってくる。");
+  assert.equal(whyAngleLine("immediacy", noCue, facts(), 1), "冒頭だけで続きを見たくなる。");
+  assert.equal(whyAngleLine("toString" as HumanReactionType, noCue, facts(), 1), "こういう分かりやすい引きは強い。");
   assert.equal(whyAngleLine("surprise", noCue, facts(), 1), "こういう分かりやすい引きは強い。");
   assert.equal(whyAngleLine("surprise", noCue, facts(100_000), 0), "そりゃ10万表示いくよな、ってなる。");
   assert.equal(whyAngleLine("unexpected", understanding(), facts(100_000), 0), "そりゃ10万表示いくよな、ってなる。");
