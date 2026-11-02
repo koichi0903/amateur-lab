@@ -21,7 +21,9 @@ function job(overrides: Partial<QuoteRefreshNextItemJobIdentity> = {}): QuoteRef
 test("quote refresh next-item gate preserves missing job and identity checks", () => {
   assert.equal(classifyQuoteRefreshNextItemGate({ ...input, job: null }), "no_job");
   assert.equal(classifyQuoteRefreshNextItemGate({ ...input, job: job(), sessionId: "" }), "identity_mismatch");
+  assert.equal(classifyQuoteRefreshNextItemGate({ ...input, job: job({ collection_session_id: "other" }) }), "identity_mismatch");
   assert.equal(classifyQuoteRefreshNextItemGate({ ...input, job: job({ collection_run_token: "other" }) }), "identity_mismatch");
+  assert.equal(classifyQuoteRefreshNextItemGate({ ...input, job: job({ collector_version: "other" }) }), "identity_mismatch");
 });
 
 test("quote refresh next-item gate preserves paused, cancelled, and inactive status order", () => {

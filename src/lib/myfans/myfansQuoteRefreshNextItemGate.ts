@@ -16,6 +16,21 @@ export type QuoteRefreshNextItemGate =
   | "session_mismatch"
   | null;
 
+function hasMatchingQuoteRefreshJobIdentity(
+  job: QuoteRefreshNextItemJobIdentity,
+  sessionId: string,
+  runToken: string,
+  collectorVersion: string,
+) {
+  return Boolean(
+    sessionId
+    && runToken
+    && job.collection_session_id === sessionId
+    && job.collection_run_token === runToken
+    && job.collector_version === collectorVersion,
+  );
+}
+
 export function classifyQuoteRefreshNextItemGate({
   job,
   sessionId,
@@ -28,7 +43,7 @@ export function classifyQuoteRefreshNextItemGate({
   collectorVersion: string;
 }): QuoteRefreshNextItemGate {
   if (!job) return "no_job";
-  if (!sessionId || !runToken || job.collection_session_id !== sessionId || job.collection_run_token !== runToken || job.collector_version !== collectorVersion) return "identity_mismatch";
+  if (!hasMatchingQuoteRefreshJobIdentity(job, sessionId, runToken, collectorVersion)) return "identity_mismatch";
   if (job.status === "paused") return "paused";
   if (job.status === "cancelled") return "cancelled";
   if (!isActiveQuoteRefreshStatus(job.status)) return "inactive";
