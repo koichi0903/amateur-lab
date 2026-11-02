@@ -35,15 +35,27 @@ function pickPostTypePreferredProduct<T extends CandidateRow>(input: CandidateSe
 }
 
 function pickFallbackProduct<T extends CandidateRow>(input: CandidateSelectionInput<T>): T | null {
-  const { pool, products, index, postType, exclude, topicPassProductIds } = input;
+  const { pool, products, index, exclude } = input;
   const isAvailable = (row: T) => !exclude.has(row.product.id);
-  const shouldUseQuoteCandidate = postType === "discovery_interest" || postType === "profile_cta";
-  const unusedQuote = shouldUseQuoteCandidate
+  const unusedPoolProduct = firstUnusedPoolProduct(input, isAvailable);
+  if (unusedPoolProduct) return unusedPoolProduct;
+
+  const indexedPoolProduct = pool[index] ?? pool[0];
+  if (indexedPoolProduct) return indexedPoolProduct;
+
+  return products.find(isAvailable) ?? products[index] ?? products[0] ?? null;
+}
+
+function firstUnusedPoolProduct<T extends CandidateRow>(
+  input: CandidateSelectionInput<T>,
+  isAvailable: (row: T) => boolean,
+): T | null {
+  const { pool, postType, topicPassProductIds } = input;
+  const quoteProduct = postType === "discovery_interest" || postType === "profile_cta"
     ? pool.find((row) => row.product.quote_candidate_x_url && isAvailable(row))
     : null;
-  const unusedTopicProduct = pool.find((row) => topicPassProductIds.includes(row.product.id) && isAvailable(row));
-  const unused = unusedQuote ?? unusedTopicProduct ?? pool.find(isAvailable);
-  return unused ?? pool[index] ?? pool[0] ?? products.find(isAvailable) ?? products[index] ?? products[0] ?? null;
+  const topicProduct = pool.find((row) => topicPassProductIds.includes(row.product.id) && isAvailable(row));
+  return quoteProduct ?? topicProduct ?? pool.find(isAvailable) ?? null;
 }
 
 export function pickMyfansCandidateProduct<T extends CandidateRow>(input: CandidateSelectionInput<T>): T | null {

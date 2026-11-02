@@ -80,6 +80,17 @@ test("discovery-interest posts prefer an available quote-backed product", () => 
   }), quoteProduct);
 });
 
+test("fallback prefers a topic-pass product before the first generic product", () => {
+  const quoteProduct = row(1, "https://x.com/example/status/1");
+  const topicProduct = row(2);
+  const genericProduct = row(3);
+  assert.equal(pick({
+    pool: [quoteProduct, topicProduct, genericProduct],
+    postType: "other",
+    topicPassProductIds: [2],
+  }), topicProduct);
+});
+
 test("product selection preserves index and global fallback order when the pool is exhausted", () => {
   const first = row(1);
   const indexed = row(2);
