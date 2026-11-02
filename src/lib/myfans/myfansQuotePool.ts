@@ -78,13 +78,24 @@ function metricBand(value: number | null | undefined) {
   return `${Math.round(value / 100) * 100}`;
 }
 
+function topicIdentityForProduct(product: MyfansProduct, reasonToCare: MyfansReasonToCare | null | undefined) {
+  switch (reasonToCare) {
+    case "creator_outlier":
+      return `${creatorKeyFromProduct(product)}:creator-outlier`;
+    case "ranking_anomaly":
+      return `product:${product.id}:ranking-anomaly:${product.popularity_rank ?? "none"}`;
+    case "clear_comparison":
+    case "price_anomaly":
+      return `product:${product.id}:${reasonToCare}:${priceBucket(product.price)}`;
+    default:
+      return `product:${product.id}:${reasonToCare ?? "topic"}`;
+  }
+}
+
 export function topicIdentityFor(product: MyfansProduct, quote: MyfansQuoteCandidate | null, reasonToCare: MyfansReasonToCare | null | undefined) {
   if (quote?.id) return `quote:${quote.id}`;
   if (quote?.x_post_url) return `source:${quote.x_post_url.toLowerCase()}`;
-  if (reasonToCare === "creator_outlier") return `${creatorKeyFromProduct(product)}:creator-outlier`;
-  if (reasonToCare === "ranking_anomaly") return `product:${product.id}:ranking-anomaly:${product.popularity_rank ?? "none"}`;
-  if (reasonToCare === "clear_comparison" || reasonToCare === "price_anomaly") return `product:${product.id}:${reasonToCare}:${priceBucket(product.price)}`;
-  return `product:${product.id}:${reasonToCare ?? "topic"}`;
+  return topicIdentityForProduct(product, reasonToCare);
 }
 
 export function topicSemanticKeyFor(product: MyfansProduct, quote: MyfansQuoteCandidate | null, topicValue: MyfansTopicValue | null | undefined) {
