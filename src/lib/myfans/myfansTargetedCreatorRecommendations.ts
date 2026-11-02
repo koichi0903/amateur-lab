@@ -62,10 +62,8 @@ function countProductsByCreator(products: ProductRow[]) {
   return counts;
 }
 
-function hasFreshPassSource(quote: QuoteRow) {
-  const ageSource = quote.posted_at ?? quote.collected_at;
-  const age = ageSource ? (Date.now() - new Date(ageSource).getTime()) / 86_400_000 : null;
-  const source = evaluateMyfansSourceValue({
+function sourceValueForQuote(quote: QuoteRow) {
+  return evaluateMyfansSourceValue({
     text: quote.text_excerpt ?? "",
     postedAt: quote.posted_at,
     collectedAt: quote.collected_at,
@@ -81,6 +79,12 @@ function hasFreshPassSource(quote: QuoteRow) {
     isReply: quote.is_reply,
     isQuote: quote.is_quote,
   });
+}
+
+function hasFreshPassSource(quote: QuoteRow) {
+  const ageSource = quote.posted_at ?? quote.collected_at;
+  const age = ageSource ? (Date.now() - new Date(ageSource).getTime()) / 86_400_000 : null;
+  const source = sourceValueForQuote(quote);
   return !quote.is_repost && !quote.last_used_at && !quote.cooldown_until && age !== null && age <= 14 && source.verdict === "PASS";
 }
 
