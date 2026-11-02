@@ -16,20 +16,30 @@ function skipPpmWhitespaceAndComments(buffer: Buffer, startIndex: number) {
   }
 }
 
-function readPpmHeader(buffer: Buffer) {
-  const tokens: string[] = [];
-  let index = 2;
-  while (tokens.length < 3) {
-    index = skipPpmWhitespaceAndComments(buffer, index);
-    const tokenStart = index;
-    while (buffer[index] > 32) index++;
-    if (tokenStart === index) throw new Error("ffmpeg did not return PPM");
-    tokens.push(buffer.subarray(tokenStart, index).toString());
-  }
-  if (!isPpmWhitespace(buffer[index])) throw new Error("ffmpeg did not return PPM");
-  const separator = buffer[index++];
+function readPpmHeaderToken(buffer: Buffer, startIndex: number) {
+  const tokenStart = skipPpmWhitespaceAndComments(buffer, startIndex);
+  let tokenEnd = tokenStart;
+  while (buffer[tokenEnd] > 32) tokenEnd++;
+  if (tokenStart === tokenEnd) throw new Error("ffmpeg did not return PPM");
+  return { value: buffer.subarray(tokenStart, tokenEnd).toString(), nextIndex: tokenEnd };
+}
+
+function ppmPixelStartIndex(buffer: Buffer, separatorIndex: number) {
+  const separator = buffer[separatorIndex];
+  if (!isPpmWhitespace(separator)) throw new Error("ffmpeg did not return PPM");
+  let index = separatorIndex + 1;
   if (separator === 13 && buffer[index] === 10) index++;
-  const [width, height, max] = tokens.map(Number);
+  return index;
+}
+
+function readPpmHeader(buffer: Buffer) {
+  const widthToken = readPpmHeaderToken(buffer, 2);
+  const heightToken = readPpmHeaderToken(buffer, widthToken.nextIndex);
+  const maxToken = readPpmHeaderToken(buffer, heightToken.nextIndex);
+  const index = ppmPixelStartIndex(buffer, maxToken.nextIndex);
+  const width = Number(widthToken.value);
+  const height = Number(heightToken.value);
+  const max = Number(maxToken.value);
   if (![width, height, max].every(Number.isInteger) || width <= 0 || height <= 0 || max <= 0 || max > 255) {
     throw new Error("ffmpeg did not return PPM");
   }
