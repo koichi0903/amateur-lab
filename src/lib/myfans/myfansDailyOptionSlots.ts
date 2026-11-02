@@ -64,6 +64,16 @@ function appendDailyOption(
   });
 }
 
+function preservableExistingOptionSource(
+  input: MyfansDailyOptionGenerationInput,
+  candidate: MyfansDailyOptionCandidate,
+  usedSources: Set<string>,
+) {
+  if (candidate.quality.verdict !== "PASS") return "";
+  const source = input.normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl);
+  return hasUniqueOptionSource(source, usedSources) ? source : "";
+}
+
 function fillDailyOptionsFrom(
   input: MyfansDailyOptionGenerationInput,
   sourceItem: RotationItem,
@@ -96,9 +106,8 @@ function preserveExistingDailyOption(
   // source and the day-level uniqueness guard leaves later slots empty.
   for (const candidate of [...(existing?.candidates ?? [])]) {
     if (options.length >= 1) break;
-    const source = input.normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl);
-    if (candidate.quality.verdict !== "PASS") continue;
-    if (!source || usedSources.has(source)) continue;
+    const source = preservableExistingOptionSource(input, candidate, usedSources);
+    if (!source) continue;
     usedSources.add(source);
     options.push(candidate);
   }

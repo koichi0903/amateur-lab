@@ -125,3 +125,27 @@ test("ranked quote rows backfill an under-filled daily option board", () => {
   assert.ok(slots.flatMap((slot) => slot.candidates).every((candidate) => candidate.quality.verdict === "PASS" && candidate.quality.total >= 80));
   assert.equal(new Set(slots.flatMap((slot) => slot.candidates.map((candidate) => candidate.quoteXUrl))).size, 12);
 });
+
+test("preserve at most one eligible saved option before filling alternatives", () => {
+  const saved = buildMyfansDailyOptionSlots(generationInput())[0].candidates;
+  const lowQuality = {
+    ...saved[0],
+    quality: { ...saved[0].quality, verdict: "HOLD" as const },
+  };
+  const firstEligible = {
+    ...saved[1],
+    novelty: { ...saved[1].novelty, lastSameSourceDate: "2026-11-01" },
+  };
+  const laterEligible = {
+    ...saved[2],
+    novelty: { ...saved[2].novelty, lastSameSourceDate: "2026-11-02" },
+  };
+
+  const slots = buildMyfansDailyOptionSlots(generationInput({
+    slotOptions: [{ postOrder: 1, candidates: [lowQuality, firstEligible, laterEligible] }],
+  }));
+
+  assert.equal(slots[0].candidates[0].body, firstEligible.body);
+  assert.equal(slots[0].candidates[0].novelty.lastSameSourceDate, "2026-11-01");
+  assert.ok(slots[0].candidates.every((candidate) => candidate.novelty.lastSameSourceDate !== "2026-11-02"));
+});
