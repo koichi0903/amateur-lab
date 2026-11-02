@@ -18,7 +18,7 @@ No database writes or migration applications were performed during this reconcil
 
 ## Same-name, version-different SQL still unresolved
 
-- A fresh read-only comparison of the connected DB ledger (111 rows) and active migration directory (131 files) found six DB migrations whose name matches an active SQL file but whose version differs. After removing SQL comments, normalizing whitespace, and normalizing unquoted SQL case, all six active files still differ from the DB-recorded statement. Per the user's rule, only execution-SQL matches may be aligned to the DB version; these files were not renamed or overwritten.
+- In the comparison snapshot before `20261102064340` was applied, the connected DB ledger had 111 rows and the active migration directory had 131 files. It found six DB migrations whose name matches an active SQL file but whose version differs. After removing SQL comments, normalizing whitespace, and normalizing unquoted SQL case, all six active files still differed from the DB-recorded statement. Per the user's rule, only execution-SQL matches may be aligned to the DB version; these files were not renamed or overwritten.
 - `20260907_add_myfans_quote_visual_media.sql` vs DB `20260907073232`: active SQL adds media-permalink validation fields; the DB statement has a visual-score constraint instead.
 - `20260912_add_x_media_asset_trim_start.sql` vs DB `20260912020039`: active SQL adds `trim_modify_confirmed`; the DB statement does not.
 - `20260914_add_x_post_attribution.sql` vs DB `20260914075622`: active SQL adds attribution indexes beyond the recorded column addition.
