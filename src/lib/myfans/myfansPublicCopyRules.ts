@@ -100,12 +100,22 @@ function repeatedMetricTemplate(body: string, previous: string) {
 function issueAgainstPrevious(body: string, previous: string, first: string, ending: string, lines: string[]) {
   const previousFirst = normalizedTemplateLine(previous);
   const previousLines = previous.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  if (first && first === previousFirst) return "同じ1行目構文が続いています";
-  if (lines.some((line) => line.length >= 12 && previousLines.includes(line))) return "同じ文が別投稿にも出ています";
-  const phrase = repeatedReactionPhrase(body, previous);
-  if (phrase) return `同じreaction phraseが別投稿にも出ています: ${phrase}`;
-  if (ending && ending === endingTone(previous) && first.slice(0, 8) === previousFirst.slice(0, 8)) return "同じ語尾が続いています";
-  if (repeatedMetricTemplate(body, previous) && first.slice(0, 6) === previousFirst.slice(0, 6)) return "数字テンプレの見え方が近すぎます";
+
+  const checks: Array<() => string> = [
+    () => first && first === previousFirst ? "同じ1行目構文が続いています" : "",
+    () => lines.some((line) => line.length >= 12 && previousLines.includes(line)) ? "同じ文が別投稿にも出ています" : "",
+    () => {
+      const phrase = repeatedReactionPhrase(body, previous);
+      return phrase ? `同じreaction phraseが別投稿にも出ています: ${phrase}` : "";
+    },
+    () => ending && ending === endingTone(previous) && first.slice(0, 8) === previousFirst.slice(0, 8) ? "同じ語尾が続いています" : "",
+    () => repeatedMetricTemplate(body, previous) && first.slice(0, 6) === previousFirst.slice(0, 6) ? "数字テンプレの見え方が近すぎます" : "",
+  ];
+
+  for (const check of checks) {
+    const issue = check();
+    if (issue) return issue;
+  }
   return "";
 }
 

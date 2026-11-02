@@ -6,6 +6,7 @@ test("diversity checks keep first-line, repeated-line, and repeated-phrase prece
   assert.equal(hasPublicCopyDiversityIssue("冒頭は同じです。\n別本文", ["冒頭は同じです。\n別の本文"]), "同じ1行目構文が続いています");
   assert.equal(hasPublicCopyDiversityIssue("別の冒頭です\nこの具体的な文章は同じです\n最後", ["違う導入です\nこの具体的な文章は同じです\n別の最後"]), "同じ文が別投稿にも出ています");
   assert.equal(hasPublicCopyDiversityIssue("今日は別の話です\n地味に強い部分がある", ["昨日の話でした\n地味に強い見せ方"]), "同じreaction phraseが別投稿にも出ています: 地味に強い");
+  assert.equal(hasPublicCopyDiversityIssue("別の導入です\n地味に強い具体的な説明行です", ["異なる導入です\n地味に強い具体的な説明行です"]), "同じ文が別投稿にも出ています");
 });
 
 test("diversity checks keep ending and metric-template comparisons", () => {
