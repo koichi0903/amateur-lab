@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { MyfansLinkStrategy, PublicCopyFacts, QuoteVisualAnalysis } from "../myfansXExecution.ts";
-import { buildPublicCopyV10 } from "./myfansPublicCopyGeneration.ts";
+import { buildPublicCopyV8, buildPublicCopyV10 } from "./myfansPublicCopyGeneration.ts";
 
 const verifiedAnalysis: QuoteVisualAnalysis = {
   status: "verified",
@@ -59,4 +59,10 @@ test("V10 keeps verified visual variants and revenue disclosures", () => {
     "ベッド越しの距離が近いと、それだけで場面が伝わる。 #PR",
     "気になる人だけ詳細へ。",
   ]);
+
+  const withoutVerifiedAnalysis = { ...input, quoteVisualAnalysis: null };
+  assert.deepEqual(
+    buildPublicCopyV10(withoutVerifiedAnalysis, "discovery", "no_link", 0),
+    buildPublicCopyV8(withoutVerifiedAnalysis, "discovery", "no_link", 0),
+  );
 });

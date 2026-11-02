@@ -225,9 +225,15 @@ export function buildPublicCopyV8(facts: PublicCopyFacts, postType: string, link
   return reactionDrivenCopyLines(facts, understanding, reactionType, postType, linkStrategy, variant);
 }
 
+function hasStrongVerifiedAttention(understanding: VisualUnderstanding) {
+  return understanding.visualAnalysisStatus === "verified"
+    && Boolean(understanding.attentionMoment)
+    && understanding.attentionValue.score >= MYFANS_ATTENTION_VALUE_MINIMUM;
+}
+
 export function buildPublicCopyV10(facts: PublicCopyFacts, postType: string, linkStrategy: MyfansLinkStrategy, variant = 0) {
   const understanding = visualUnderstandingFor(facts);
-  if (understanding.visualAnalysisStatus !== "verified" || !understanding.attentionMoment || understanding.attentionValue.score < MYFANS_ATTENTION_VALUE_MINIMUM) return buildPublicCopyV8(facts, postType, linkStrategy, variant);
+  if (!hasStrongVerifiedAttention(understanding)) return buildPublicCopyV8(facts, postType, linkStrategy, variant);
   const isRevenue = postType === "reply_link_sales" || postType === "body_link_sales";
   const variants = humanObservationVariants(understanding, facts, variant);
   const selectedIndex = (variant + stableHash(understanding.rawVisualEvidence || understanding.humanObservation)) % Math.max(1, variants.length);
@@ -235,5 +241,5 @@ export function buildPublicCopyV10(facts: PublicCopyFacts, postType: string, lin
   // The gate above guarantees a verified, strong attention moment; keep V8 as a safe fallback if that invariant changes.
   if (!selected) return buildPublicCopyV8(facts, postType, linkStrategy, variant);
   if (!isRevenue) return selected;
-  return [`${selected[0]}${postType === "body_link_sales" ? " #PR" : ""}`, postType === "body_link_sales" ? "気になる人だけ詳細へ。" : "気になる人だけ自己リプへ。"];
+  return revenueCopyLines(selected[0], postType);
 }
