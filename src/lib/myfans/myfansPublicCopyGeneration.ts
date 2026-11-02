@@ -118,9 +118,19 @@ export function whyAngleLine(reactionType: HumanReactionType, understanding: Vis
   return whyAngleWithoutConcreteCue(reactionType, understanding, proof, variant);
 }
 
+function translatedHumanObservation(understanding: VisualUnderstanding, facts: PublicCopyFacts, variant: number) {
+  return understanding.attentionMoment || understanding.humanObservation || humanObservationFromEvidence(facts.quoteVisualAnalysis, facts.visualContext, variant);
+}
+
+function isUsableHumanObservation(understanding: VisualUnderstanding, translated: string) {
+  return Boolean(translated)
+    && understanding.visualAnalysisStatus === "verified"
+    && !weakAttentionCue(translated);
+}
+
 function humanObservationVariants(understanding: VisualUnderstanding, facts: PublicCopyFacts, variant = 0) {
-  const translated = understanding.attentionMoment || understanding.humanObservation || humanObservationFromEvidence(facts.quoteVisualAnalysis, facts.visualContext, variant);
-  if (!translated || understanding.visualAnalysisStatus !== "verified" || weakAttentionCue(translated)) return [];
+  const translated = translatedHumanObservation(understanding, facts, variant);
+  if (!isUsableHumanObservation(understanding, translated)) return [];
   const momentFamilies: Array<[RegExp, string[][]]> = [
     [/制服っぽい写真から入る/, [
       ["制服っぽい写真から始まると、そこで一気に雰囲気が決まる。", "ただの紹介より、先に人の感じが出るのがいい。"],
