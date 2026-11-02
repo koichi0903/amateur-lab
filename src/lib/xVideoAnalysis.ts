@@ -11,7 +11,7 @@ import { detectBlankIntroEnd, detectBlackIntroEnd, type OpeningBrightnessSample,
 import { buildVideoEvidence, summarizeVideoFrames, videoFrameDistance, type PixelStats } from "@/lib/xVideoAnalysisMetrics";
 import { parsePpm } from "@/lib/xVideoPpm";
 
-export const VIDEO_ANALYSIS_VERSION = "video-frame-facts-v2";
+export const VIDEO_ANALYSIS_VERSION = "video-frame-facts-v3";
 export type VideoAnalysisResult = {
   version: string;
   sourceFingerprint: string;

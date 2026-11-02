@@ -30,6 +30,15 @@ test("reads CRLF header separators without treating them as pixel bytes", () => 
   assert.equal(result.blue, 56 / 255);
 });
 
+test("consumes the LF header delimiter but preserves whitespace-valued first pixel bytes", () => {
+  const header = Buffer.from("P6\n1 1\n255\n", "ascii");
+  const result = parsePpm(Buffer.concat([header, Buffer.from([10, 20, 30])]));
+
+  assert.equal(result.red, 10 / 255);
+  assert.equal(result.green, 20 / 255);
+  assert.equal(result.blue, 30 / 255);
+});
+
 test("rejects incomplete headers and pixel data", () => {
   assert.throws(() => parsePpm(Buffer.from("P6\n# no line ending", "ascii")), /ffmpeg did not return PPM/);
   assert.throws(() => parsePpm(Buffer.from("P6\n2 1\n255\n\x01\x02\x03", "binary")), /ffmpeg did not return PPM/);
