@@ -59,6 +59,10 @@ function requiresAffiliateUrl(linkStrategy: MyfansLinkStrategy) {
   return linkStrategy === "body_link" || linkStrategy === "reply_link";
 }
 
+function canUseDirectGrowthQuote(needsAffiliateUrl: boolean, requestedPostType: string) {
+  return !needsAffiliateUrl && requestedPostType === "discovery_interest";
+}
+
 function directGrowthQuoteFor(
   context: AttemptRequestContext,
   input: {
@@ -70,13 +74,17 @@ function directGrowthQuoteFor(
   },
 ) {
   const { forcedQuote, index, attempt, needsAffiliateUrl, requestedPostType } = input;
-  if (needsAffiliateUrl || requestedPostType !== "discovery_interest") return null;
+  if (!canUseDirectGrowthQuote(needsAffiliateUrl, requestedPostType)) return null;
+  if (forcedQuote !== null) return forcedQuote;
 
-  return forcedQuote
-    ?? (attempt === 0 ? context.resolverExactQuotes[index % Math.max(1, context.resolverExactQuotes.length)] : null)
-    ?? (attempt === 0 ? context.quoteBySlot.get(`${requestedPostType}:${index}`) : null)
-    ?? context.growthQuotePool[(index + attempt) % Math.max(1, context.growthQuotePool.length)]?.candidate
-    ?? null;
+  if (attempt === 0) {
+    const resolverQuote = context.resolverExactQuotes[index % Math.max(1, context.resolverExactQuotes.length)];
+    if (resolverQuote) return resolverQuote;
+    const slotQuote = context.quoteBySlot.get(`${requestedPostType}:${index}`);
+    if (slotQuote) return slotQuote;
+  }
+
+  return context.growthQuotePool[(index + attempt) % Math.max(1, context.growthQuotePool.length)]?.candidate ?? null;
 }
 
 type PostingRouteInput = {

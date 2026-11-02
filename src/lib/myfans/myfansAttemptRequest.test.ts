@@ -58,6 +58,7 @@ test("discovery quote priority stays forced, resolver, slot, then rotating pool"
   assert.equal(resolveMyfansAttemptRequest(requestContext({ slotQuotes: [["discovery_interest:0", slot]], poolQuotes: pool }), item, 0, 0, null).directGrowthQuote, slot);
   assert.equal(resolveMyfansAttemptRequest(requestContext({ poolQuotes: pool }), item, 1, 4, null).directGrowthQuote, pool[2]);
   assert.equal(resolveMyfansAttemptRequest(context, item, 0, 1, null).directGrowthQuote, null);
+  assert.equal(resolveMyfansAttemptRequest(context, rotationItem({ postType: "profile_cta" }), 0, 0, forced).directGrowthQuote, null);
 });
 
 test("revenue link attempts require a revenue target and fall back without a direct growth quote", () => {
