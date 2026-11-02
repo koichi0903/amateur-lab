@@ -24,6 +24,8 @@ test("admin post record retains defaults, form values, and resolved attribution"
   assert.equal(record.link_strategy, "no_link");
   assert.equal(record.creative_strategy, "text_only");
   assert.equal(record.objective, "impression");
+  assert.equal(record.media_permission_status, "unknown");
+  assert.equal(record.global_content_fingerprint, null);
   assert.equal(record.product_id, 30);
   assert.equal(record.approved_media_id, 5);
   assert.equal(record.approved_media_name, "承認済み媒体");
