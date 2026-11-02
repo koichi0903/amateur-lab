@@ -574,42 +574,58 @@ function qualityRoleEvidenceFor(input: MyfansPublicCopyQualityInput, context: {
   };
 }
 
-function qualityBreakdownFor(
-  input: MyfansPublicCopyQualityInput,
-  context: {
-    isQuote: boolean;
-    emotionalStopPower: number;
-    readerCuriosity: number;
-    verifiedVisualNotGrounded: boolean;
-    visualTextFitV8: number;
-    visualTextFit: number;
-    concreteVisualSpecificity: number;
-    concreteFact: number;
-    curiosityV8: number;
-    originalAngle: number;
-    naturalnessV8: number;
-    readerRelevance: number;
-    naturalness: number;
-    attentionValue: ReturnType<typeof attentionValueForText>;
-    reactionReview: ReturnType<typeof reviewPublicCopyReaction>;
-    roleDifferentiation: number;
-    salesAdminSmell: number;
-    naturalLanguage: number;
-    hardFail: string[];
-  },
-) {
-  const { isQuote } = context;
-  const hasVerifiedQuoteVisual = isQuote && hasVerifiedVisualAnalysis(input.quote);
+type QualityBreakdownContext = {
+  isQuote: boolean;
+  emotionalStopPower: number;
+  readerCuriosity: number;
+  verifiedVisualNotGrounded: boolean;
+  visualTextFitV8: number;
+  visualTextFit: number;
+  concreteVisualSpecificity: number;
+  concreteFact: number;
+  curiosityV8: number;
+  originalAngle: number;
+  naturalnessV8: number;
+  readerRelevance: number;
+  naturalness: number;
+  attentionValue: ReturnType<typeof attentionValueForText>;
+  reactionReview: ReturnType<typeof reviewPublicCopyReaction>;
+  roleDifferentiation: number;
+  salesAdminSmell: number;
+  naturalLanguage: number;
+  hardFail: string[];
+};
+
+function qualityOpeningBreakdownFor(context: QualityBreakdownContext) {
   return {
-    stopPower: isQuote ? context.emotionalStopPower : context.readerCuriosity,
+    stopPower: context.isQuote ? context.emotionalStopPower : context.readerCuriosity,
     firstLineStop: context.readerCuriosity,
-    visualLeverage: hasVerifiedQuoteVisual ? (context.verifiedVisualNotGrounded ? 0 : 30) : isQuote ? context.visualTextFitV8 : context.visualTextFit,
-    visual: isQuote ? context.visualTextFitV8 : context.visualTextFit,
-    specificity: isQuote ? context.concreteVisualSpecificity : context.concreteFact,
+  };
+}
+
+function qualityVisualBreakdownFor(input: MyfansPublicCopyQualityInput, context: QualityBreakdownContext) {
+  const hasVerifiedQuoteVisual = context.isQuote && hasVerifiedVisualAnalysis(input.quote);
+  return {
+    visualLeverage: hasVerifiedQuoteVisual ? (context.verifiedVisualNotGrounded ? 0 : 30) : context.isQuote ? context.visualTextFitV8 : context.visualTextFit,
+    visual: context.isQuote ? context.visualTextFitV8 : context.visualTextFit,
+    specificity: context.isQuote ? context.concreteVisualSpecificity : context.concreteFact,
     proof: context.concreteFact,
-    broadCuriosity: isQuote ? context.curiosityV8 : context.originalAngle,
-    audience: isQuote ? context.naturalnessV8 : context.readerRelevance,
-    followReason: isQuote ? context.naturalness : context.readerRelevance,
+  };
+}
+
+function qualityReactionBreakdownFor(context: QualityBreakdownContext) {
+  return {
+    broadCuriosity: context.isQuote ? context.curiosityV8 : context.originalAngle,
+    audience: context.isQuote ? context.naturalnessV8 : context.readerRelevance,
+    followReason: context.isQuote ? context.naturalness : context.readerRelevance,
+  };
+}
+
+function qualityBreakdownFor(input: MyfansPublicCopyQualityInput, context: QualityBreakdownContext) {
+  return {
+    ...qualityOpeningBreakdownFor(context),
+    ...qualityVisualBreakdownFor(input, context),
+    ...qualityReactionBreakdownFor(context),
     attentionValue: context.attentionValue.score,
     naturalUserReaction: context.reactionReview.naturalUserReaction,
     analystCommentaryRisk: context.reactionReview.analystCommentaryRisk,
