@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { attentionScoreFor, bodyFor, hookIntelligence, sourceSpecificityScore } from "./myfansCandidateCopy.ts";
+import { attentionScoreFor, audienceIntentFor, bodyFor, hookIntelligence, sourceSpecificityScore } from "./myfansCandidateCopy.ts";
 import type { MyfansAnalytics, MyfansProduct, MyfansQuoteCandidate } from "../myfansAnalytics.ts";
 import type { MyfansTopicValue } from "./myfansQuotePool.ts";
 import type { VisualUnderstanding } from "../myfansXExecution.ts";
@@ -150,6 +150,19 @@ test("product hook precedence stays newcomer, ranking, anomaly, scarcity, price,
   assert.equal(hookIntelligence(product({ title: "明日まで限定", price: 800, estimated_reward: 100 }), null).hook, "SCARCITY_DEADLINE");
   assert.equal(hookIntelligence(product({ price: 800, estimated_reward: 100 }), null).hook, "PRICE_ANOMALY");
   assert.equal(hookIntelligence(product(), null).hook, "COMPARISON");
+});
+
+test("audience intent keeps post-type priority before creator and category signals", () => {
+  const creatorProduct = product({ creator_x_url: "https://x.com/creator", genre: "ジャンル" });
+  assert.equal(audienceIntentFor("reply_link_sales", creatorProduct), "purchase_intent");
+  assert.equal(audienceIntentFor("body_link_sales", creatorProduct), "purchase_intent");
+  assert.equal(audienceIntentFor("profile_cta", creatorProduct), "returning_follower");
+  assert.equal(audienceIntentFor("winner_reuse", creatorProduct), "returning_follower");
+  assert.equal(audienceIntentFor("ranking_note", creatorProduct), "comparison_shopper");
+  assert.equal(audienceIntentFor("comparison_review", creatorProduct), "comparison_shopper");
+  assert.equal(audienceIntentFor("other", creatorProduct), "creator_interest");
+  assert.equal(audienceIntentFor("other", product({ genre: "ジャンル" })), "category_interest");
+  assert.equal(audienceIntentFor("other", product()), "broad_curiosity");
 });
 
 test("discovery copy keeps quote grounding and deterministic fallback lines", () => {

@@ -12,11 +12,27 @@ import type { MyfansTopicValue } from "@/lib/myfans/myfansQuotePool";
 import type { MyfansCreativeStrategy, MyfansLinkStrategy } from "./myfansGrowthStrategy";
 import type { AudienceIntent, HookType, VisualUnderstanding } from "../myfansXExecution";
 
+function isPurchaseIntentPostType(postType: string) {
+  return postType === "reply_link_sales" || postType === "body_link_sales";
+}
+
+function isReturningFollowerPostType(postType: string) {
+  return postType === "profile_cta" || postType === "winner_reuse";
+}
+
+function isComparisonShopperPostType(postType: string) {
+  return postType === "ranking_note" || postType === "comparison_review";
+}
+
+function hasCreatorIdentity(product: MyfansProduct) {
+  return Boolean(product.myfans_creators?.display_name || product.creator_x_url);
+}
+
 export function audienceIntentFor(postType: string, product: MyfansProduct): AudienceIntent {
-  if (postType === "reply_link_sales" || postType === "body_link_sales") return "purchase_intent";
-  if (postType === "profile_cta" || postType === "winner_reuse") return "returning_follower";
-  if (postType === "ranking_note" || postType === "comparison_review") return "comparison_shopper";
-  if (product.myfans_creators?.display_name || product.creator_x_url) return "creator_interest";
+  if (isPurchaseIntentPostType(postType)) return "purchase_intent";
+  if (isReturningFollowerPostType(postType)) return "returning_follower";
+  if (isComparisonShopperPostType(postType)) return "comparison_shopper";
+  if (hasCreatorIdentity(product)) return "creator_interest";
   return product.genre ? "category_interest" : "broad_curiosity";
 }
 
