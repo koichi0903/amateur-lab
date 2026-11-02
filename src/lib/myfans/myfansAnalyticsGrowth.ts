@@ -14,6 +14,40 @@ type GrowthAccountMetric = Pick<
   "metric_date" | "followers_count" | "posts_count" | "total_impressions" | "profile_visits" | "affiliate_clicks" | "conversions" | "reward_amount"
 >;
 
+function followersDeltaBetween(first: GrowthAccountMetric | null, latest: GrowthAccountMetric | null) {
+  return first && latest ? latest.followers_count - first.followers_count : 0;
+}
+
+function growthPostCount(accountPosts30d: number, postedPostCount: number) {
+  return accountPosts30d || postedPostCount;
+}
+
+function growthDailyRows(metrics: GrowthAccountMetric[]) {
+  return metrics.map((row) => ({
+    metric_date: row.metric_date,
+    followers_count: row.followers_count,
+    posts_count: row.posts_count,
+    impressions: row.total_impressions,
+    profile_visits: row.profile_visits,
+    affiliate_clicks: row.affiliate_clicks,
+    conversions: row.conversions,
+    reward_amount: row.reward_amount,
+    epc: row.affiliate_clicks > 0 ? Math.round(row.reward_amount / row.affiliate_clicks) : null,
+  }));
+}
+
+function averageImpressionsPerPost(impressions: number, posts: number) {
+  return posts > 0 ? Math.round(impressions / posts) : null;
+}
+
+function rateOrNull(numerator: number, denominator: number) {
+  return denominator > 0 ? numerator / denominator : null;
+}
+
+function rewardPerClickOrNull(reward: number, clicks: number) {
+  return clicks > 0 ? Math.round(reward / clicks) : null;
+}
+
 function buildXAccountGrowth<TPost extends Pick<MyfansXPost, "created_at" | "posted_at" | "impressions" | "clicks">>({
   xAccountMetrics,
   postedPosts30d,
@@ -37,21 +71,9 @@ function buildXAccountGrowth<TPost extends Pick<MyfansXPost, "created_at" | "pos
 }) {
   const firstAccountMetric = xAccountMetrics[0] ?? null;
   const latestAccountMetric = xAccountMetrics[xAccountMetrics.length - 1] ?? null;
-  const followersDelta30d = latestAccountMetric && firstAccountMetric
-    ? latestAccountMetric.followers_count - firstAccountMetric.followers_count
-    : 0;
-  const posts30d = accountPosts30d || postedPosts30d.length;
-  const dailyRows = xAccountMetrics.map((row) => ({
-    metric_date: row.metric_date,
-    followers_count: row.followers_count,
-    posts_count: row.posts_count,
-    impressions: row.total_impressions,
-    profile_visits: row.profile_visits,
-    affiliate_clicks: row.affiliate_clicks,
-    conversions: row.conversions,
-    reward_amount: row.reward_amount,
-    epc: row.affiliate_clicks > 0 ? Math.round(row.reward_amount / row.affiliate_clicks) : null,
-  }));
+  const followersDelta30d = followersDeltaBetween(firstAccountMetric, latestAccountMetric);
+  const posts30d = growthPostCount(accountPosts30d, postedPosts30d.length);
+  const dailyRows = growthDailyRows(xAccountMetrics);
 
   return {
     diagnosis: diagnoseXGrowth(accountImpressions30d, profileVisits30d, followersDelta30d, accountClicks30d, accountConversions30d),
@@ -61,14 +83,14 @@ function buildXAccountGrowth<TPost extends Pick<MyfansXPost, "created_at" | "pos
     profileVisits30d,
     impressions30d: accountImpressions30d,
     posts30d,
-    avgImpressionsPerPost: posts30d > 0 ? Math.round(accountImpressions30d / posts30d) : null,
+    avgImpressionsPerPost: averageImpressionsPerPost(accountImpressions30d, posts30d),
     highestPost,
     clicks30d: accountClicks30d,
     conversions30d: accountConversions30d,
     reward30d: accountReward30d,
-    ctr30d: accountImpressions30d > 0 ? accountClicks30d / accountImpressions30d : null,
-    cvr30d: accountClicks30d > 0 ? accountConversions30d / accountClicks30d : null,
-    epc30d: accountClicks30d > 0 ? Math.round(accountReward30d / accountClicks30d) : null,
+    ctr30d: rateOrNull(accountClicks30d, accountImpressions30d),
+    cvr30d: rateOrNull(accountConversions30d, accountClicks30d),
+    epc30d: rewardPerClickOrNull(accountReward30d, accountClicks30d),
     dailyRows,
   };
 }

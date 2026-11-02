@@ -32,3 +32,25 @@ test("combines recent post and daily totals while using the strongest click and 
   assert.equal(result.xAccountGrowth.diagnosis, "成果発生・最適化段階");
   assert.deepEqual(result.xAccountGrowth.dailyRows.map((row) => row.epc), [10, 13]);
 });
+
+test("keeps undefined rates null when there are no account metrics or clicks", () => {
+  const result = buildMyfansXAccountGrowthSummary({
+    cutoff: "2026-10-01T00:00:00.000Z",
+    clicks30d: 0,
+    conversions30d: 0,
+    reward30d: 0,
+    posts: [],
+    daily: [],
+    xAccountMetrics: [],
+  });
+
+  assert.equal(result.impressions30d, 0);
+  assert.equal(result.xAccountGrowth.currentFollowers, 0);
+  assert.equal(result.xAccountGrowth.followersDelta30d, 0);
+  assert.equal(result.xAccountGrowth.posts30d, 0);
+  assert.equal(result.xAccountGrowth.avgImpressionsPerPost, null);
+  assert.equal(result.xAccountGrowth.ctr30d, null);
+  assert.equal(result.xAccountGrowth.cvr30d, null);
+  assert.equal(result.xAccountGrowth.epc30d, null);
+  assert.deepEqual(result.xAccountGrowth.dailyRows, []);
+});
