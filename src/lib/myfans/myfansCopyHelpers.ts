@@ -2,11 +2,28 @@ import type { MyfansProduct, MyfansQuoteCandidate } from "@/lib/myfansAnalytics"
 import { stableHash } from "@/lib/myfans/myfansHash";
 import type { DailyRole } from "@/lib/myfans/myfansTopicValue";
 import type { MyfansCreativeStrategy, MyfansLinkStrategy } from "@/lib/myfansXExecution";
+
+function isAttentionRole(creativeStrategy: MyfansCreativeStrategy) {
+  return creativeStrategy === "quote_post";
+}
+
+function isRevenueRole(postType: string, linkStrategy: MyfansLinkStrategy) {
+  return linkStrategy === "reply_link" || linkStrategy === "body_link" || postType === "reply_link_sales" || postType === "body_link_sales";
+}
+
+function isDiscoveryRole(postType: string, creativeStrategy: MyfansCreativeStrategy) {
+  return postType === "ranking_note" || creativeStrategy === "ranking_card" || creativeStrategy === "discovery_card";
+}
+
+function isAuthorityRole(postType: string, creativeStrategy: MyfansCreativeStrategy) {
+  return postType === "profile_cta" || postType === "comparison_review" || creativeStrategy === "comparison_card";
+}
+
 export function roleFor(postType: string, linkStrategy: MyfansLinkStrategy, creativeStrategy: MyfansCreativeStrategy): DailyRole {
-  if (creativeStrategy === "quote_post") return "ATTENTION";
-  if (linkStrategy === "reply_link" || linkStrategy === "body_link" || postType === "reply_link_sales" || postType === "body_link_sales") return "REVENUE";
-  if (postType === "ranking_note" || creativeStrategy === "ranking_card" || creativeStrategy === "discovery_card") return "DISCOVERY";
-  if (postType === "profile_cta" || postType === "comparison_review" || creativeStrategy === "comparison_card") return "AUTHORITY";
+  if (isAttentionRole(creativeStrategy)) return "ATTENTION";
+  if (isRevenueRole(postType, linkStrategy)) return "REVENUE";
+  if (isDiscoveryRole(postType, creativeStrategy)) return "DISCOVERY";
+  if (isAuthorityRole(postType, creativeStrategy)) return "AUTHORITY";
   return "DISCOVERY";
 }
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { MyfansProduct, MyfansQuoteCandidate } from "../myfansAnalytics";
-import { discoveryInsightFor } from "./myfansCopyHelpers";
+import { discoveryInsightFor, roleFor } from "./myfansCopyHelpers";
 
 function product(overrides: Partial<MyfansProduct> = {}) {
   return {
@@ -35,4 +35,26 @@ test("external reaction insight preserves the view and like thresholds and wordi
     value: "myfans外でも引きが確認できる。",
   });
   assert.equal(discoveryInsightFor(product({ is_new: false, likes_count: 0 }), { ...quote, views: 49_999 }), null);
+});
+
+test("role selection preserves branch priority and each role mapping", () => {
+  const cases = [
+    ["quote post has first priority", "body_link_sales", "body_link", "quote_post", "ATTENTION"],
+    ["reply link selects revenue", "other", "reply_link", "text_only", "REVENUE"],
+    ["body link selects revenue", "other", "body_link", "text_only", "REVENUE"],
+    ["reply-link sales post selects revenue", "reply_link_sales", "no_link", "text_only", "REVENUE"],
+    ["body-link sales post selects revenue", "body_link_sales", "no_link", "text_only", "REVENUE"],
+    ["ranking note selects discovery", "ranking_note", "no_link", "text_only", "DISCOVERY"],
+    ["ranking card selects discovery", "other", "no_link", "ranking_card", "DISCOVERY"],
+    ["discovery card selects discovery", "other", "no_link", "discovery_card", "DISCOVERY"],
+    ["discovery precedes authority", "profile_cta", "no_link", "discovery_card", "DISCOVERY"],
+    ["profile CTA selects authority", "profile_cta", "no_link", "text_only", "AUTHORITY"],
+    ["comparison review selects authority", "comparison_review", "no_link", "text_only", "AUTHORITY"],
+    ["comparison card selects authority", "other", "no_link", "comparison_card", "AUTHORITY"],
+    ["unmatched inputs default to discovery", "other", "no_link", "myfans_ogp", "DISCOVERY"],
+  ] as const;
+
+  for (const [name, postType, linkStrategy, creativeStrategy, expected] of cases) {
+    assert.equal(roleFor(postType, linkStrategy, creativeStrategy), expected, name);
+  }
 });
