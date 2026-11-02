@@ -10,3 +10,8 @@ No database writes or migration applications were performed during this reconcil
 - No baseline schema dump or bootstrap step was found in the repository, reachable Git history, or `origin/main`. The user has no known external source for it, so the required initial schema remains unresolved.
 - Keep the 14 active migrations that share exact 8-digit version prefixes across four duplicate groups in place until a valid initial schema and an independent migration-order test are available. Their ordering and new-database reproducibility are not verified.
 - Do not apply migrations to the production database as part of this cleanup.
+
+## Source reconciliation pending
+
+- Applied migration `20261014081448_dedupe_myfans_stale_job_finalized_audit`: the read-only database record contains the duplicate-key guard and archive idempotency, but not the source file's `removed_rows > archived_rows` guard. Keep the source unchanged until deciding whether the extra guard is intentional for fresh databases or whether the file should match the executed SQL exactly. No database write or reapplication was performed.
+- Unapplied migration `20260924120000_add_myfans_quote_refresh_item_terminal_contract`: the active SQL declares `request_type text not null default 'quote_scan'`; the observed database column is nullable with no default. Application writes currently provide `request_type` explicitly. Decide whether the stronger new-database contract is intentional or whether the migration should align with the observed database schema. Do not apply the migration without separate approval.
