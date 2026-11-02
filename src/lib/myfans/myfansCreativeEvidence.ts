@@ -9,8 +9,16 @@ export function visualRenderStatus(candidate: MyfansQuoteCandidate | null | unde
   if (!candidate) return "unknown" as const;
   if (candidate.visual_render_status) return candidate.visual_render_status;
   const status = candidate.media_permalink_validation_status ?? "";
+  return browserVisibleRenderStatus(candidate, status) ?? fallbackRenderStatus(status);
+}
+
+function browserVisibleRenderStatus(candidate: MyfansQuoteCandidate, status: string) {
   if (candidate.media_type === "video" && /verified_video_permalink/.test(status)) return "browser_visible" as const;
   if (candidate.media_type === "image" && candidate.quote_visual_ready && candidate.media_permalink) return "browser_visible" as const;
+  return null;
+}
+
+function fallbackRenderStatus(status: string) {
   if (/not_rendered/i.test(status)) return "app_only" as const;
   if (/blocked|sensitive|timeout|no_result/i.test(status)) return "blocked" as const;
   return "unknown" as const;

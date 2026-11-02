@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { humanObservationFromEvidence, visualAnalysisForQuote, visualUnderstandingFor } from "./myfansCreativeEvidence";
+import { humanObservationFromEvidence, visualAnalysisForQuote, visualRenderStatus, visualUnderstandingFor } from "./myfansCreativeEvidence";
 import type { MyfansQuoteCandidate } from "../myfansAnalytics";
 import type { PublicCopyFacts } from "../myfansXExecution";
 
@@ -39,6 +39,13 @@ assert.equal(visualAnalysisForQuote(null), null);
 assert.equal(visualAnalysisForQuote({ ...quote, visual_analysis_status: "partial" } as MyfansQuoteCandidate)?.status, "partial");
 assert.equal(visualAnalysisForQuote({ ...quote, visual_analysis_status: "other" } as unknown as MyfansQuoteCandidate)?.status, "unavailable");
 assert.equal(visualAnalysisForQuote({ ...quote, quote_visual_ready: false } as MyfansQuoteCandidate)?.status, "unavailable");
+assert.equal(visualRenderStatus(null), "unknown");
+assert.equal(visualRenderStatus({ ...quote, visual_render_status: "blocked" } as MyfansQuoteCandidate), "blocked");
+assert.equal(visualRenderStatus({ ...quote, visual_render_status: null, media_permalink_validation_status: "verified_video_permalink" } as MyfansQuoteCandidate), "browser_visible");
+assert.equal(visualRenderStatus({ ...quote, media_type: "image", visual_render_status: null } as MyfansQuoteCandidate), "browser_visible");
+assert.equal(visualRenderStatus({ ...quote, visual_render_status: null, media_permalink_validation_status: "not_rendered" } as MyfansQuoteCandidate), "app_only");
+assert.equal(visualRenderStatus({ ...quote, visual_render_status: null, media_permalink_validation_status: "sensitive_blocked" } as MyfansQuoteCandidate), "blocked");
+assert.equal(visualRenderStatus({ ...quote, media_type: "none", visual_render_status: null, media_permalink_validation_status: "verified" } as MyfansQuoteCandidate), "unknown");
 assert.equal(humanObservationFromEvidence(analysis, "video", 0), "白っぽい部屋で動き出すところが先に目に入る");
 assert.equal(humanObservationFromEvidence(analysis, "video", 1), "部屋の明るさと動き出しで、最初の数秒が軽く見える");
 assert.equal(humanObservationFromEvidence(null, "video"), "");
