@@ -89,14 +89,18 @@ function hasLegacySourceTextEvidence(text: string) {
   return hasTopic && (hasChange || hasSentenceEnding);
 }
 
+function hasConcreteSourceEvidence(quote: MyfansQuoteCandidate | null, text: string, sourceValue: ReturnType<typeof sourceValueForQuote> | null) {
+  return isUsableQuoteMedia(quote)
+    || hasStrongSourceValueEvidence(sourceValue)
+    || hasLegacySourceTextEvidence(text);
+}
+
 export function hasConcreteSourceContext(quote: MyfansQuoteCandidate | null) {
   const text = quote?.text_excerpt?.replace(/\s+/g, " ").trim() ?? "";
   if (!text) return false;
   if (isMetricOnlySourceText(text)) return false;
   const sourceValue = quote ? sourceValueForQuote(quote) : null;
-  return isUsableQuoteMedia(quote)
-    || hasStrongSourceValueEvidence(sourceValue)
-    || hasLegacySourceTextEvidence(text);
+  return hasConcreteSourceEvidence(quote, text, sourceValue);
 }
 
 export function hasGroundedSourceText(quote: MyfansQuoteCandidate | null) {
@@ -130,12 +134,21 @@ function addCreatorTopicSignals(product: MyfansProduct, creatorMedianLikes: numb
   }
 }
 
+function hasRankingPopularitySignal(product: MyfansProduct, productLikePercentile: number | null) {
+  return Boolean(product.popularity_rank && product.popularity_rank <= 10 && product.likes_count >= 100
+    && productLikePercentile !== null && productLikePercentile >= 50);
+}
+
+function hasNewProductPopularitySignal(product: MyfansProduct, productLikePercentile: number | null) {
+  return Boolean(product.is_new && productLikePercentile !== null && productLikePercentile >= 75);
+}
+
 function addProductPopularitySignals(product: MyfansProduct, productLikePercentile: number | null, target: TopicEvidenceAccumulator) {
-  if (product.popularity_rank && product.popularity_rank <= 10 && product.likes_count >= 100 && productLikePercentile !== null && productLikePercentile >= 50) {
+  if (hasRankingPopularitySignal(product, productLikePercentile)) {
     target.reasons.push("ranking_anomaly");
     target.evidence.push(`人気${product.popularity_rank}位で、いいねも全体上位${productLikePercentile}%`);
   }
-  if (product.is_new && productLikePercentile !== null && productLikePercentile >= 75) {
+  if (hasNewProductPopularitySignal(product, productLikePercentile)) {
     target.reasons.push("unexpected_popularity");
     target.evidence.push(`新着で、いいねが全体上位${productLikePercentile}%`);
   }
@@ -174,16 +187,32 @@ function addPriceTopicSignal(product: MyfansProduct, bucketMedianLikes: number |
   }
 }
 
+function genreMedianLikesFor(product: MyfansProduct, baselines: MyfansTopicBaselines) {
+  return product.genre ? baselines.genreMedianLikes.get(product.genre) ?? null : null;
+}
+
+function quoteViewsPercentileFor(quote: MyfansQuoteCandidate | null, baselines: MyfansTopicBaselines) {
+  return quote ? percentileRank(quote.views ?? 0, baselines.allQuoteViews) : null;
+}
+
+function quoteLikesPercentileFor(quote: MyfansQuoteCandidate | null, baselines: MyfansTopicBaselines) {
+  return quote ? percentileRank(quote.likes ?? 0, baselines.allQuoteLikes) : null;
+}
+
+function visualUnderstandingForQuote(product: MyfansProduct, quote: MyfansQuoteCandidate | null) {
+  return quote ? visualUnderstandingFor(publicCopyFactsFor(product, quote)) : null;
+}
+
 function collectMyfansTopicEvidence(product: MyfansProduct, quote: MyfansQuoteCandidate | null, baselines: MyfansTopicBaselines) {
   const creatorKey = creatorKeyFromProduct(product);
   const creatorMedianLikes = baselines.creatorMedianLikes.get(creatorKey) ?? null;
   const creatorMedianSaves = baselines.creatorMedianSaves.get(creatorKey) ?? null;
   const bucketMedianLikes = baselines.priceBucketMedianLikes.get(priceBucket(product.price)) ?? null;
-  const genreMedianLikes = product.genre ? baselines.genreMedianLikes.get(product.genre) ?? null : null;
+  const genreMedianLikes = genreMedianLikesFor(product, baselines);
   const productLikePercentile = percentileRank(product.likes_count, baselines.allLikes);
-  const quoteViewPercentile = quote ? percentileRank(quote.views ?? 0, baselines.allQuoteViews) : null;
-  const quoteLikePercentile = quote ? percentileRank(quote.likes ?? 0, baselines.allQuoteLikes) : null;
-  const visual = quote ? visualUnderstandingFor(publicCopyFactsFor(product, quote)) : null;
+  const quoteViewPercentile = quoteViewsPercentileFor(quote, baselines);
+  const quoteLikePercentile = quoteLikesPercentileFor(quote, baselines);
+  const visual = visualUnderstandingForQuote(product, quote);
   const target: TopicEvidenceAccumulator = { evidence: [], reasons: [] };
   const baseline = topicBaselineLines(product, creatorMedianLikes, creatorMedianSaves, bucketMedianLikes, genreMedianLikes, quoteViewPercentile);
   addCreatorTopicSignals(product, creatorMedianLikes, bucketMedianLikes, target);
@@ -229,12 +258,20 @@ function topicValueBreakdown(product: MyfansProduct, quote: MyfansQuoteCandidate
   };
 }
 
-function applyTopicScoreFloors(score: number, reasons: MyfansReasonToCare[], role: DailyRole, evidence: string[]) {
+function applyReasonTopicScoreFloors(score: number, reasons: MyfansReasonToCare[]) {
   if (reasons.includes("ranking_anomaly")) score = Math.max(score, 82);
   if (reasons.includes("creator_outlier") || reasons.includes("clear_comparison")) score = Math.max(score, 84);
   if (reasons.includes("rapid_growth") || reasons.includes("visual_gap") || reasons.includes("rare_visual_moment")) score = Math.max(score, 86);
-  if (role === "AUTHORITY" && evidence.length >= 2) score = Math.min(100, score + 8);
   return score;
+}
+
+function applyAuthorityTopicScoreFloor(score: number, role: DailyRole, evidence: string[]) {
+  if (role === "AUTHORITY" && evidence.length >= 2) return Math.min(100, score + 8);
+  return score;
+}
+
+function applyTopicScoreFloors(score: number, reasons: MyfansReasonToCare[], role: DailyRole, evidence: string[]) {
+  return applyAuthorityTopicScoreFloor(applyReasonTopicScoreFloors(score, reasons), role, evidence);
 }
 
 function joinedVisualEvidence(visual: ReturnType<typeof visualUnderstandingFor> | null) {
@@ -247,16 +284,30 @@ function hasWeakBackgroundOnlyEvidence(visual: ReturnType<typeof visualUnderstan
     && !/くま|踊|青|赤|黒|ランジェリー|向かい合|近さ|近め|全身|制服|階段|表情|切り替わ|変わる/.test(joined));
 }
 
+function hasPriceOnlyRejection(product: MyfansProduct, hasComparison: boolean, hasVisualEvidence: boolean) {
+  return product.price > 0 && !hasComparison && !hasVisualEvidence;
+}
+
+function hasMetricsOnlyRejection(product: MyfansProduct, hasComparison: boolean, hasVisualEvidence: boolean) {
+  return !hasComparison && !hasVisualEvidence
+    && Boolean(product.likes_count > 0 || product.saves_count > 0 || product.popularity_rank);
+}
+
+function hasWeakBackgroundOnlyRejection(
+  visual: ReturnType<typeof visualUnderstandingFor> | null,
+  hasComparison: boolean,
+) {
+  return hasWeakBackgroundOnlyEvidence(visual, joinedVisualEvidence(visual)) && !hasComparison;
+}
+
 function topicValueRejectionReasons(product: MyfansProduct, hasComparison: boolean, hasVisualEvidence: boolean, reasons: MyfansReasonToCare[], visual: ReturnType<typeof visualUnderstandingFor> | null) {
-  const priceOnly = product.price > 0 && !hasComparison && !hasVisualEvidence;
-  const metricsOnly = !hasComparison && !hasVisualEvidence && (product.likes_count > 0 || product.saves_count > 0 || product.popularity_rank);
-  const weakBackgroundOnly = hasWeakBackgroundOnlyEvidence(visual, joinedVisualEvidence(visual));
-  return [
-    priceOnly ? "価格単独で比較根拠なし" : "",
-    metricsOnly ? "数字単独でbaseline差なし" : "",
-    weakBackgroundOnly && !hasComparison ? "背景/プロフィール/距離感だけで話す価値が弱い" : "",
-    !reasons.length ? "reason_to_careを根拠付きで選べません" : "",
-  ].filter(Boolean);
+  const rejectionCandidates = [
+    { rejected: hasPriceOnlyRejection(product, hasComparison, hasVisualEvidence), reason: "価格単独で比較根拠なし" },
+    { rejected: hasMetricsOnlyRejection(product, hasComparison, hasVisualEvidence), reason: "数字単独でbaseline差なし" },
+    { rejected: hasWeakBackgroundOnlyRejection(visual, hasComparison), reason: "背景/プロフィール/距離感だけで話す価値が弱い" },
+    { rejected: !reasons.length, reason: "reason_to_careを根拠付きで選べません" },
+  ];
+  return rejectionCandidates.filter((candidate) => candidate.rejected).map((candidate) => candidate.reason);
 }
 
 function topicValueVerdict(score: number, threshold: number, reasons: MyfansReasonToCare[], evidence: string[], whyRejected: string[]) {
