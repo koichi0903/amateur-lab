@@ -27,12 +27,12 @@ No database writes or migration applications were performed during this reconcil
 ## Same-name, version-different SQL still unresolved
 
 - In the comparison snapshot before `20261102064340` was applied, the connected DB ledger had 111 rows and the active migration directory had 131 files. It found six DB migrations whose name matches an active SQL file but whose version differs. After removing SQL comments, normalizing whitespace, and normalizing unquoted SQL case, all six active files still differed from the DB-recorded statement. Per the user's rule, only execution-SQL matches may be aligned to the DB version; these files were not renamed or overwritten.
-- `20260907_add_myfans_quote_visual_media.sql` vs DB `20260907073232`: active SQL adds media-permalink validation fields; the DB statement has a visual-score constraint instead.
+- `20260907_add_myfans_quote_visual_media.sql` vs DB `20260907073232`: both define the visual fields, but active SQL also adds `media_permalink_verified_at` and `media_permalink_validation_status`. Those columns are recorded under the later DB-only version `20260907075401`; the user chose not to restore its SQL source.
 - `20260912_add_x_media_asset_trim_start.sql` vs DB `20260912020039`: active SQL adds `trim_modify_confirmed`; the DB statement does not.
 - `20260914_add_x_post_attribution.sql` vs DB `20260914075622`: active SQL adds attribution indexes beyond the recorded column addition.
 - `20260915_add_myfans_post_product_linkage_evidence.sql` vs DB `20260915094054`: the `metadata` column appears in a different position in the table definition.
 - `20260918_add_bijyo_reserved_auto_post.sql` vs DB `20260918140945`: status constraints describe different workflows (the active file includes manual-post, skip, and trim-failure states; the DB record includes posting and reply states).
-- `20260919_switch_bijyo_to_manual_workflow.sql` vs DB `20260919041639`: the DB statement also creates `bijyo_reserved_settings`; the active file only disables the legacy account setting.
+- `20260919_switch_bijyo_to_manual_workflow.sql` vs DB `20260919041639`: active SQL adds the manual-state columns, converts legacy statuses, recreates the manual-state constraint, and disables the account setting. The DB-recorded SQL additionally creates and initializes `bijyo_reserved_settings`; the active `20260918` source already creates that table.
 - Keep these active sources unchanged and treat them as unresolved migration history. Do not rename them as DB-equivalent or remove them until their intended new-database behavior and provenance are reviewed. No database writes or migration applications were performed during this comparison.
 
 ## Follow-up source inventory (2026-11-03)
@@ -43,3 +43,12 @@ No database writes or migration applications were performed during this reconcil
 - The fifth database name without an active same-name file is `20260926062909_add_actress_works_by_release_date`; its preserved source is available only as `docs/migration-superseded/20260926_add_actress_works_by_release_date.sql` and remains audit-only.
 - Related-work migration `20261101135306_optimize_fanza_amateur_related_work_lookup` is recorded as applied in the connected database and is present in the `origin/main` base history. The separate local-only commit `6ce613fb` is not contained in `origin/main` or PR #37, consistent with the decision to keep that additional implementation local.
 - This was a read-only inventory. No migration was applied, edited in the database, or deployed.
+
+## Current schema cross-check for the six mismatches (2026-11-03)
+
+- Re-read the six DB statements and same-name active files. Their SQL token sequences still differ after SQL comments and whitespace are ignored; none qualifies for DB-version renaming under the user's execution-SQL-match rule.
+- The connected schema contains both quote permalink validation columns and `x_media_assets.trim_modify_confirmed`; these later DB-only changes are folded into the active 8-digit source files. The database migration ledger still records separate versions whose source files are intentionally not restored.
+- The database has `affiliate_clicks_x_post_key_clicked_at_idx`, but no `affiliate_cta_impressions_x_post_key_viewed_at_idx` or `work_page_views_x_post_key_viewed_at_idx`; those two additional indexes appear only in active `20260914_add_x_post_attribution.sql`. Their live-schema absence is recorded; no index was created.
+- The database's `metadata` column position in `myfans_post_product_linkage_evidence` is 15 (after `updated_at`), while the active `20260915` source places it before `created_at`. The SQL difference is retained rather than rewritten as an exact history match.
+- The live `bijyo_reserved_post_jobs` constraint uses the manual states (`pending`, `posted`, `manual_posted`, `skipped`, `excluded`, `trim_failed`) and the corresponding trim columns exist. The active `20260918` file starts with that manual-state schema; the database ledger instead has the original auto workflow followed by the `20260919` transition.
+- This was a read-only schema and migration-ledger inspection. It does not prove a clean-database replay because the initial `public.works` schema is still missing; no DB DDL or migration execution was performed.
