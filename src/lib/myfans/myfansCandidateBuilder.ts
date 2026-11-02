@@ -187,10 +187,11 @@ function candidateBodyForTopic(input: {
   angleVariant: number;
 }) {
   const { product, postType, linkStrategy, creativeStrategy, evidenceQuote, quoteForSlot, topicValue, topicCopyFitFailed, angleVariant } = input;
-  if (product && topicValue?.verdict === "PASS" && !topicCopyFitFailed) {
+  const topicPasses = topicValue?.verdict === "PASS";
+  if (product && topicPasses && !topicCopyFitFailed) {
     return bodyFor(product, postType, linkStrategy, creativeStrategy, evidenceQuote, topicValue, angleVariant);
   }
-  if (!product && quoteForSlot && topicValue?.verdict === "PASS") {
+  if (!product && quoteForSlot && topicPasses) {
     return quoteOpportunityBody(quoteForSlot, angleVariant);
   }
   return "";
