@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { buildMyfansAdminErrorContext } from "@/lib/myfans/myfansAdminErrors";
+import {
+  buildMyfansAdminErrorContext,
+  getSafeMyfansAdminErrorMessage,
+} from "@/lib/myfans/myfansAdminErrors";
 import { createSaveSingleStatusCollectionHandler } from "@/lib/myfans/myfansSingleStatusCollectionService";
 import { createSaveQuoteScanHandler } from "@/lib/myfans/myfansQuoteScanService";
 import { saveQuoteCandidate, updateGlobalQuoteRanks } from "@/lib/myfans/myfansQuoteCandidateStore";
@@ -407,6 +410,6 @@ export async function POST(request: Request) {
     return await saveStandardCompanionImport(payload, approvedMediaId, approvedMediaName);
   } catch (error) {
     console.error("myfans companion import failed", buildMyfansAdminErrorContext("companion_import_failed", error));
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Companion取込に失敗しました。" }, { status: 500 });
+    return NextResponse.json({ error: getSafeMyfansAdminErrorMessage(error) }, { status: 500 });
   }
 }
