@@ -155,6 +155,31 @@ export function weakAttentionCue(text: string) {
   return /白いプロフィール|プロフィール画面|白っぽい部屋で動き出す|白い画面|単なる背景|背景色|室内の縦動画|縦動画だけ|室内で動く|部屋で動き出す|目に入るだけ|目に残るだけ|手が止まるだけ/.test(text);
 }
 
+function curiosityScoreFor(text: string) {
+  if (/何それ|見たい|気になる|どうなる|変わる|ギャップ|ゆるさ|近い|ぱっと浮く/.test(text)) return 27;
+  if (/強い|残る|止まる/.test(text)) return 18;
+  return 10;
+}
+
+function emotionalPullScoreFor(text: string) {
+  if (/ずるい|好き|そりゃ|刺さる|軽く見えない|見ちゃう|戻る|ゆるさ|近い|近め|距離|変わる|ギャップ/.test(text)) return 22;
+  if (/気になる|強い|納得/.test(text)) return 17;
+  return 8;
+}
+
+function visualSpecificityScoreFor(text: string) {
+  return /制服|階段|赤|黒|砂浜|海辺|ベッド|距離|くま|踊|引き|近め|全身|表情|目線|衣装|服装|色|ポーズ|切り替わ|途中/.test(text) ? 20 : 8;
+}
+
+function broadComprehensibilityScoreFor(text: string) {
+  return /visual|cue|構図|画角|プロフィール画面|白っぽい部屋/.test(text) ? 7 : 14;
+}
+
+function naturalReactionScoreFor(text: string) {
+  if (machineLikeCopyIssue(text)) return 3;
+  return /です。|ます。/.test(text) ? 7 : 10;
+}
+
 function addAttentionSceneOptions(raw: string, options: string[]) {
   if (/制服/.test(raw) && /階段/.test(raw)) options.push("制服っぽい写真から入る");
   if (/赤|黒/.test(raw) && /砂浜|海|夏/.test(raw)) options.push("海辺で赤と黒だけぱっと浮く");
@@ -195,11 +220,11 @@ function attentionWorthyMomentFromEvidence(analysis: QuoteVisualAnalysis | null,
 export function attentionValueForText(text: string, moment = ""): AttentionValue {
   const joined = `${text} ${moment}`;
   const weakCue = weakAttentionCue(joined);
-  const curiosity = /何それ|見たい|気になる|どうなる|変わる|ギャップ|ゆるさ|近い|ぱっと浮く/.test(joined) ? 27 : /強い|残る|止まる/.test(joined) ? 18 : 10;
-  const emotionalPull = /ずるい|好き|そりゃ|刺さる|見ちゃう|軽く見えない|戻る|ゆるさ|近い|近め|距離|変わる|ギャップ/.test(joined) ? 22 : /気になる|強い|納得/.test(joined) ? 17 : 8;
-  const visualSpecificity = /制服|階段|赤|黒|砂浜|海辺|ベッド|距離|くま|踊|引き|近め|全身|表情|目線|衣装|服装|色|ポーズ|切り替わ|途中/.test(joined) ? 20 : 8;
-  const broadComprehensibility = /visual|cue|構図|画角|プロフィール画面|白っぽい部屋/.test(joined) ? 7 : 14;
-  const naturalReaction = machineLikeCopyIssue(text) ? 3 : /です。|ます。/.test(text) ? 7 : 10;
+  const curiosity = curiosityScoreFor(joined);
+  const emotionalPull = emotionalPullScoreFor(joined);
+  const visualSpecificity = visualSpecificityScoreFor(joined);
+  const broadComprehensibility = broadComprehensibilityScoreFor(joined);
+  const naturalReaction = naturalReactionScoreFor(text);
   const score = Math.max(0, Math.min(100, curiosity + emotionalPull + visualSpecificity + broadComprehensibility + naturalReaction - (weakCue ? 24 : 0)));
   return {
     score,
