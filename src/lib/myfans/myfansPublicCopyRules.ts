@@ -57,12 +57,15 @@ export function publicCopyHardFail(text: string) {
 }
 
 export function machineLikeCopyIssue(text: string) {
-  if ((text.match(/です。|ます。/g) ?? []).length >= 2) return "ですます調の反復";
-  if ((text.match(/人なら/g) ?? []).length >= 1) return "読者ラベルの直書き";
-  if ((text.match(/数字|反応|比較|発見|条件/g) ?? []).length >= 5) return "抽象語の連打";
-  if (/理由がある|違いが残る|方向性が分かる|方向性がはっきり/.test(text)) return "具体差のない抽象結論";
-  if (/数字[\s\S]*解説[\s\S]*(プロフィール|自己リプ|詳細)/.test(text)) return "数字＋解説＋CTAテンプレ";
-  return "";
+  const checks = [
+    [(text.match(/です。|ます。/g) ?? []).length >= 2, "ですます調の反復"],
+    [(text.match(/人なら/g) ?? []).length >= 1, "読者ラベルの直書き"],
+    [(text.match(/数字|反応|比較|発見|条件/g) ?? []).length >= 5, "抽象語の連打"],
+    [/理由がある|違いが残る|方向性が分かる|方向性がはっきり/.test(text), "具体差のない抽象結論"],
+    [/数字[\s\S]*解説[\s\S]*(プロフィール|自己リプ|詳細)/.test(text), "数字＋解説＋CTAテンプレ"],
+  ] as const;
+
+  return checks.find(([matches]) => matches)?.[1] ?? "";
 }
 
 function normalizedTemplateLine(text: string) {

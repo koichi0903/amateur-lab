@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasPublicCopyDiversityIssue } from "./myfansPublicCopyRules";
+import { hasPublicCopyDiversityIssue, machineLikeCopyIssue } from "./myfansPublicCopyRules";
 
 test("diversity checks keep first-line, repeated-line, and repeated-phrase precedence", () => {
   assert.equal(hasPublicCopyDiversityIssue("冒頭は同じです。\n別本文", ["冒頭は同じです。\n別の本文"]), "同じ1行目構文が続いています");
@@ -17,4 +17,13 @@ test("daily copy limits and no-issue results stay unchanged", () => {
   assert.equal(hasPublicCopyDiversityIssue("この動画三", ["この動画一", "この動画二"]), "「この動画」始まりは同日2回までです");
   assert.equal(hasPublicCopyDiversityIssue("投稿します。確認します。", []), "宣言文の連発が残っています");
   assert.equal(hasPublicCopyDiversityIssue("今日は晴れです。", []), "");
+});
+
+test("machine-like copy checks preserve their ordered reasons", () => {
+  assert.equal(machineLikeCopyIssue("です。ます。人なら数字、反応、比較、発見、条件"), "ですます調の反復");
+  assert.equal(machineLikeCopyIssue("人なら気になるところ"), "読者ラベルの直書き");
+  assert.equal(machineLikeCopyIssue("数字、反応、比較、発見、条件"), "抽象語の連打");
+  assert.equal(machineLikeCopyIssue("理由がある"), "具体差のない抽象結論");
+  assert.equal(machineLikeCopyIssue("数字を解説してプロフィールを見る"), "数字＋解説＋CTAテンプレ");
+  assert.equal(machineLikeCopyIssue("具体的な話を一つだけ紹介"), "");
 });
