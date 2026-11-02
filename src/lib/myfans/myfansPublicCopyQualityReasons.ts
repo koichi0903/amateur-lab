@@ -55,27 +55,51 @@ function qualityVisualReasons(context: QualityHoldReasonContext) {
   ];
 }
 
-function qualityRoleReasons(context: QualityHoldReasonContext) {
+function qualityDiscoveryRoleReasons(context: QualityHoldReasonContext) {
   return [
     context.firstLineGateFailed ? "First-line curiosity gate未達" : "",
     context.discoveryFactMissing ? "discovery差なし" : "",
     context.isDiscovery && !context.discoveryConcrete ? "DISCOVERYに実データ由来の一発見がありません" : "",
     context.discoveryMethodTalk ? "DISCOVERYが分析行為の説明になっています" : "",
+  ];
+}
+
+function qualityCommercialRoleReasons(context: QualityHoldReasonContext) {
+  return [
     context.isAuthority && !context.authorityValue ? "AUTHORITYに編集者として何を選別したかがありません" : "",
     context.isRevenue && !context.revenueValid ? "Revenue枠の正規mfco.linkまたは報酬根拠がありません" : "",
   ];
 }
 
-function qualityCopySafetyReasons(context: QualityHoldReasonContext) {
+function qualityRoleReasons(context: QualityHoldReasonContext) {
+  return [
+    ...qualityDiscoveryRoleReasons(context),
+    ...qualityCommercialRoleReasons(context),
+  ];
+}
+
+function qualityCopyStyleReasons(context: QualityHoldReasonContext) {
   return [
     context.genericPhraseCount >= 2 ? "汎用句が多く機械的です" : "",
     context.quoteVisualMissing ? "quote本文に照合可能な具体visual cueがありません" : "",
     context.vagueReactionOnly ? "抽象リアクションだけで終わっています" : "",
     context.reportTone ? "quote本文が数字レポート口調です" : "",
+  ];
+}
+
+function qualityCopySourceReasons(context: QualityHoldReasonContext) {
+  return [
     context.analystCommentary ? `Natural reaction判定NG: analyst risk ${context.reactionReview.analystCommentaryRisk}/100` : "",
     context.unnaturalReaction ? `Natural reaction ${context.reactionReview.naturalUserReaction}/100: 普通のXユーザーの一言として弱い` : "",
     context.sourceSimilarity >= 0.72 && !context.sourceTextGrounded ? "元投稿本文に近すぎます" : "",
     context.repeatedLine ? "本文内で同じ内容を繰り返しています" : "",
+  ];
+}
+
+function qualityCopySafetyReasons(context: QualityHoldReasonContext) {
+  return [
+    ...qualityCopyStyleReasons(context),
+    ...qualityCopySourceReasons(context),
   ];
 }
 

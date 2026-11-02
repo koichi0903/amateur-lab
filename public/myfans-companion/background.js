@@ -2403,7 +2403,7 @@ async function runBulkQuoteRefresh(settings) {
     while (true) {
     await recordContinuationAudit(persistedSettings, "CONTINUE_DIRECT", { mode: persistedSettings.launchMode || "new" });
     const next = await quoteRefreshRequest(persistedSettings, { action: "next", jobId: persistedSettings.jobId || undefined, sessionId, runToken: persistedSettings.runToken, collectorVersion: persistedSettings.collectorVersion || WORKER_VERSION });
-    if (next.stale || next.needsUserAction || next.reason === "session_mismatch" || next.errorCode === "JOB_IDENTITY_MISMATCH") {
+    if (next.stale || next.needsUserAction || next.errorCode === "JOB_IDENTITY_MISMATCH") {
       await clearQuoteContinuation();
       await setQuoteState({ running: false, status: "needs_user_action", job: next.job || null, sessionId, launchMode: "resumed", collectorVersion: WORKER_VERSION, message: next.message || "自動再開せず停止しました。明示的な操作が必要です。" });
       return;
