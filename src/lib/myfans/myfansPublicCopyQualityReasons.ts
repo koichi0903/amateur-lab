@@ -1,4 +1,4 @@
-import type { MyfansPublicCopyQualityInput } from "./myfansPublicCopyQuality";
+import type { MyfansPublicCopyQualityInput } from "./myfansPublicCopyQualityTypes";
 import { isValidRevenueProduct } from "./myfansCopyHelpers";
 import { weakAttentionCue } from "./myfansCreativeEvidence";
 import type { PublicCopyReactionReview } from "./myfansPublicCopyReaction";
