@@ -1,8 +1,64 @@
 import assert from "node:assert/strict";
-import { evaluateMyfansCandidateDiversity, recordAcceptedMyfansCandidate } from "@/lib/myfans/myfansCandidateDiversity";
+import { evaluateMyfansCandidateDiversity, isMyfansDailyOptionDiverseEnough, recordAcceptedMyfansCandidate, type MyfansDailyOptionDiversityCandidate } from "@/lib/myfans/myfansCandidateDiversity";
 import type { MyfansCandidateDiversityContext, MyfansCandidateForDiversity } from "@/lib/myfansXExecution";
 
 const passingReason = "公開可能な具体性と根拠があります";
+
+function makeDailyOption(overrides: Partial<MyfansDailyOptionDiversityCandidate> = {}): MyfansDailyOptionDiversityCandidate {
+  return {
+    id: "daily-option-1",
+    body: "休日の過ごし方をゆっくり見てみたい",
+    topicIdentity: "product:1:discovery",
+    topicSemanticKey: "product:1:discovery",
+    quoteXUrl: "https://x.com/creator/status/10",
+    sourceXUrl: "https://x.com/creator/status/10",
+    product: null,
+    ...overrides,
+  } as MyfansDailyOptionDiversityCandidate;
+}
+
+const dailyOption = makeDailyOption();
+assert.equal(isMyfansDailyOptionDiverseEnough(makeDailyOption({
+  id: "daily-option-2",
+  body: "今日は別の話題を短くまとめます",
+  topicIdentity: "product:2:discovery",
+  topicSemanticKey: "quote:event:999",
+  quoteXUrl: "https://x.com/creator/status/20",
+  sourceXUrl: "https://x.com/creator/status/20",
+}), [dailyOption]), true);
+assert.equal(isMyfansDailyOptionDiverseEnough(makeDailyOption(), [dailyOption]), false);
+assert.equal(isMyfansDailyOptionDiverseEnough(makeDailyOption({
+  id: "daily-option-2",
+  body: dailyOption.body,
+}), [dailyOption]), false);
+assert.equal(isMyfansDailyOptionDiverseEnough(makeDailyOption({
+  id: "daily-option-2",
+  body: "休日の過ごし方をゆっくり見てみたいです",
+  topicIdentity: "product:2:discovery",
+  topicSemanticKey: "quote:event:999",
+  quoteXUrl: "https://x.com/creator/status/20",
+}), [dailyOption]), false);
+assert.equal(isMyfansDailyOptionDiverseEnough(makeDailyOption({
+  id: "daily-option-2",
+  body: "別の本文で、同じ商品を別の切り口から紹介します",
+  topicIdentity: dailyOption.topicIdentity,
+  topicSemanticKey: "product:2:discovery",
+  quoteXUrl: "https://x.com/creator/status/20",
+}), [dailyOption]), false);
+assert.equal(isMyfansDailyOptionDiverseEnough(makeDailyOption({
+  id: "daily-option-2",
+  body: "別の本文で、同じ商品を別の切り口から紹介します",
+  topicIdentity: "product:2:discovery",
+  topicSemanticKey: dailyOption.topicSemanticKey,
+  quoteXUrl: "https://x.com/creator/status/20",
+}), [dailyOption]), false);
+assert.equal(isMyfansDailyOptionDiverseEnough(makeDailyOption({
+  id: "daily-option-2",
+  body: "別の本文で、同じ商品を別の切り口から紹介します",
+  topicIdentity: "product:2:discovery",
+  topicSemanticKey: "product:2:discovery",
+  quoteXUrl: "https://x.com/creator/status/10?utm_source=other",
+}), [dailyOption]), false);
 
 function makeCandidate(overrides: Partial<MyfansCandidateForDiversity> = {}): MyfansCandidateForDiversity {
   return {

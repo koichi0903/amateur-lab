@@ -232,14 +232,44 @@ export type MyfansDailyOptionDiversityCandidate = Pick<
   ReturnType<typeof evaluateMyfansCandidateDiversity>,
   "id" | "body" | "topicIdentity" | "topicSemanticKey" | "quoteXUrl" | "sourceXUrl" | "product"
 >;
+
+function hasDuplicateOptionIdentity(
+  candidate: MyfansDailyOptionDiversityCandidate,
+  options: readonly MyfansDailyOptionDiversityCandidate[],
+) {
+  return options.some((option) => option.id === candidate.id || option.body === candidate.body);
+}
+
+function hasSimilarOptionBody(
+  candidate: MyfansDailyOptionDiversityCandidate,
+  options: readonly MyfansDailyOptionDiversityCandidate[],
+) {
+  return options.some((option) => myfansBodySimilarity(option.body, candidate.body) >= 0.9);
+}
+
+function hasDuplicateOptionTopic(
+  candidate: MyfansDailyOptionDiversityCandidate,
+  options: readonly MyfansDailyOptionDiversityCandidate[],
+) {
+  return Boolean(candidate.topicIdentity && options.some((option) => option.topicIdentity === candidate.topicIdentity))
+    || Boolean(candidate.topicSemanticKey && options.some((option) => semanticTopicSimilarity(option.topicSemanticKey, candidate.topicSemanticKey) >= 0.75));
+}
+
+function hasDuplicateOptionSource(
+  candidate: MyfansDailyOptionDiversityCandidate,
+  options: readonly MyfansDailyOptionDiversityCandidate[],
+) {
+  return Boolean(candidate.quoteXUrl && options.some((option) =>
+    normalizeSourceUrl(option.quoteXUrl || option.sourceXUrl) === normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl)
+  ));
+}
+
 export function isMyfansDailyOptionDiverseEnough(
   candidate: MyfansDailyOptionDiversityCandidate,
   options: readonly MyfansDailyOptionDiversityCandidate[],
 ) {
-  if (options.some((option) => option.id === candidate.id || option.body === candidate.body)) return false;
-  if (options.some((option) => myfansBodySimilarity(option.body, candidate.body) >= 0.9)) return false;
-  if (candidate.topicIdentity && options.some((option) => option.topicIdentity === candidate.topicIdentity)) return false;
-  if (candidate.topicSemanticKey && options.some((option) => semanticTopicSimilarity(option.topicSemanticKey, candidate.topicSemanticKey) >= 0.75)) return false;
-  if (candidate.quoteXUrl && options.some((option) => normalizeSourceUrl(option.quoteXUrl || option.sourceXUrl) === normalizeSourceUrl(candidate.quoteXUrl || candidate.sourceXUrl))) return false;
-  return true;
+  return !hasDuplicateOptionIdentity(candidate, options)
+    && !hasSimilarOptionBody(candidate, options)
+    && !hasDuplicateOptionTopic(candidate, options)
+    && !hasDuplicateOptionSource(candidate, options);
 }
