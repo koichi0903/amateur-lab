@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
       const from = (page - 1) * pageSize;
       const { data, count, error } = await supabaseAdmin
         .from("fanza_amateur_works")
-        .select("content_id,title,api_date,rank,raw_item,fetched_at,is_listed,missing_since,mp4_url,mp4_status,mp4_attempt_count,mp4_checked_at", { count: "exact" })
+        .select("content_id,title,api_date,rank,rank_observed_at,raw_item,fetched_at,is_listed,missing_since,mp4_url,mp4_status,mp4_attempt_count,mp4_checked_at", { count: "exact" })
         .order("api_date", { ascending: false, nullsFirst: false })
         .order("content_id", { ascending: true })
         .range(from, from + pageSize - 1);
