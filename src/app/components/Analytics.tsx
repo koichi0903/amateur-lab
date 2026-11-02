@@ -37,6 +37,8 @@ const socialHosts = [
   "facebook.com",
   "instagram.com",
   "threads.net",
+  "bsky.app",
+  "bsky.social",
   "t.co",
   "youtube.com",
   "youtu.be",
@@ -102,6 +104,17 @@ function storeFirstPartyAttribution(isInitialPageLoad: boolean) {
     }
 
     const referrer = classifyReferrer(document.referrer);
+    // Bluesky's in-app browser may omit the HTTP referrer. The share marker
+    // is already embedded in the published site URL, so use it as a fallback
+    // while preserving the full marker in landingPath for post-level review.
+    const shareSource = new URLSearchParams(window.location.search).get("share");
+    if (
+      referrer.channel === "direct" &&
+      shareSource?.toLowerCase().startsWith("bluesky")
+    ) {
+      referrer.channel = "social";
+      referrer.source = "bluesky";
+    }
     const urlXPostKey = currentXPostKey();
     if (urlXPostKey) {
       window.sessionStorage.setItem(SESSION_X_POST_KEY, urlXPostKey);
