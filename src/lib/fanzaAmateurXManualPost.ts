@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getDmmFanzaAmateurPopularWorks, getFanzaAmateurAffiliateId, normalizeFanzaAmateurCatalogItem } from "@/lib/dmm/fanzaAmateurCatalog";
-import { AMATEUR_X_POSTED_COOLDOWN_DAYS, AMATEUR_X_SHARED_QUEUE_ACCOUNT, amateurXPostJobTextColumns, buildAmateurXReplyText, getLegacyAmateurXReplyTrackingKey, getRecentlyPostedContentIds, mergeAmateurXCandidateJobs, projectAmateurXJobStatusUpdate, withoutSkippedAmateurXCandidates, type AmateurXCandidateJobState } from "@/lib/fanzaAmateurXPostHelpers";
+import { AMATEUR_X_POSTED_COOLDOWN_DAYS, AMATEUR_X_SHARED_QUEUE_ACCOUNT, amateurXPostJobTextColumns, buildAmateurXReplyText, getLegacyAmateurXReplyTrackingKey, getPopularCandidateSelectionError, getRecentlyPostedContentIds, mergeAmateurXCandidateJobs, projectAmateurXJobStatusUpdate, withoutSkippedAmateurXCandidates, type AmateurXCandidateJobState } from "@/lib/fanzaAmateurXPostHelpers";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { trimVideoForX } from "@/lib/xVideoTrim";
 import { priceNumber } from "@/lib/dmm/fanzaAmateurCatalogNormalize";
@@ -240,10 +240,17 @@ async function loadEligibleCandidateWork(contentId: string, lane: "new_release" 
     if (date < tokyoDateOffset(-6) || date >= tokyoDateOffset(1)) throw new Error("直近7日間の新作候補ではありません。");
     if ((await getTerminalCandidateIds([contentId])).has(contentId)) throw new Error("この作品はすでに投稿済みまたはスキップ済みです。");
   } else {
-    const top500 = await getDmmFanzaAmateurPopularWorks(500);
-    if (!top500.some((item) => item.content_id === contentId)) throw new Error("人気動画TOP500の候補ではありません。");
-    const recentlyPostedIds = await getRecentlyPostedPopularIds([contentId]);
-    if (recentlyPostedIds.has(contentId)) throw new Error("投稿から30日以内の作品は人気動画候補に追加できません。");
+    const [top500, recentlyPostedIds, skippedIds] = await Promise.all([
+      getDmmFanzaAmateurPopularWorks(500),
+      getRecentlyPostedPopularIds([contentId]),
+      getSkippedCandidateIds([contentId], lane),
+    ]);
+    const selectionError = getPopularCandidateSelectionError({
+      isInTop500: top500.some((item) => item.content_id === contentId),
+      isRecentlyPosted: recentlyPostedIds.has(contentId),
+      isSkipped: skippedIds.has(contentId),
+    });
+    if (selectionError) throw new Error(selectionError);
   }
   return work;
 }

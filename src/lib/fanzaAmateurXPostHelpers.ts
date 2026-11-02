@@ -1,6 +1,17 @@
 export const AMATEUR_X_SHARED_QUEUE_ACCOUNT = "unassigned" as const;
 export const AMATEUR_X_POSTED_COOLDOWN_DAYS = 30;
 
+export function getPopularCandidateSelectionError(input: {
+  isInTop500: boolean;
+  isRecentlyPosted: boolean;
+  isSkipped: boolean;
+}) {
+  if (!input.isInTop500) return "人気動画TOP500の候補ではありません。";
+  if (input.isRecentlyPosted) return "投稿から30日以内の作品は人気動画候補に追加できません。";
+  if (input.isSkipped) return "この作品は人気動画候補でスキップ済みです。";
+  return null;
+}
+
 export function amateurXPostJobTextColumns(texts: { mainText: string; replyText: string }) {
   return { main_text: texts.mainText, reply_text: texts.replyText };
 }

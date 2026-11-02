@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AMATEUR_X_POSTED_COOLDOWN_DAYS, AMATEUR_X_SHARED_QUEUE_ACCOUNT, amateurXPostJobStatusColumns, amateurXPostJobTextColumns, buildAmateurXReplyText, getLegacyAmateurXReplyTrackingKey, getRecentlyPostedContentIds, getXPostAccountHandle, mergeAmateurXCandidateJobs, projectAmateurXJobStatusUpdate, withoutSkippedAmateurXCandidates } from "./fanzaAmateurXPostHelpers.ts";
+import { AMATEUR_X_POSTED_COOLDOWN_DAYS, AMATEUR_X_SHARED_QUEUE_ACCOUNT, amateurXPostJobStatusColumns, amateurXPostJobTextColumns, buildAmateurXReplyText, getLegacyAmateurXReplyTrackingKey, getPopularCandidateSelectionError, getRecentlyPostedContentIds, getXPostAccountHandle, mergeAmateurXCandidateJobs, projectAmateurXJobStatusUpdate, withoutSkippedAmateurXCandidates } from "./fanzaAmateurXPostHelpers.ts";
 
 test("new amateur X post jobs use the shared unassigned queue", () => {
   assert.equal(AMATEUR_X_SHARED_QUEUE_ACCOUNT, "unassigned");
@@ -166,6 +166,13 @@ test("popular candidates are cooled down for 30 days after posting and return at
   assert.equal(getRecentlyPostedContentIds([
     { content_id: "expired-at-boundary", posted_at: new Date(now - cooldownMs).toISOString() },
   ], now).has("expired-at-boundary"), false);
+});
+
+test("popular candidate actions reject recent posts and prior skips, but allow eligible candidates", () => {
+  assert.equal(getPopularCandidateSelectionError({ isInTop500: false, isRecentlyPosted: false, isSkipped: false }), "人気動画TOP500の候補ではありません。");
+  assert.equal(getPopularCandidateSelectionError({ isInTop500: true, isRecentlyPosted: true, isSkipped: false }), "投稿から30日以内の作品は人気動画候補に追加できません。");
+  assert.equal(getPopularCandidateSelectionError({ isInTop500: true, isRecentlyPosted: false, isSkipped: true }), "この作品は人気動画候補でスキップ済みです。");
+  assert.equal(getPopularCandidateSelectionError({ isInTop500: true, isRecentlyPosted: false, isSkipped: false }), null);
 });
 
 test("extracts the actual account from an X post URL", () => {
