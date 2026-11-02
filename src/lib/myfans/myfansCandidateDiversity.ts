@@ -23,6 +23,10 @@ type CreatorUsage = ReturnType<PastUsage["latestCreator"]> | null | undefined;
 type TopicUsage = ReturnType<PastUsage["latestTopic"]> | null | undefined;
 type BodyUsage = ReturnType<PastUsage["latestBody"]> | null | undefined;
 
+function ageOfUsage<T extends { date: string }>(usage: T | null | undefined, planDate: string) {
+  return usage ? daysBetweenDates(planDate, usage.date) : null;
+}
+
 function exclusionHoldReasons(candidate: Candidate, context: Context, leak: ReturnType<typeof detectPublicCopyLeak>) {
   const reasons: string[] = [];
   if (isPermanentlyExcluded({
@@ -160,14 +164,14 @@ export function evaluateMyfansCandidateDiversity(candidate: MyfansCandidateForDi
   let quality = candidate.quality;
   const publicText = [candidate.body, candidate.selfReply].filter(Boolean).join("\n");
   const sourceUsage = context.pastUsage.latestSource(candidate.quoteXUrl || candidate.sourceXUrl);
-  const sourceAge = sourceUsage ? daysBetweenDates(context.planDate, sourceUsage.date) : null;
+  const sourceAge = ageOfUsage(sourceUsage, context.planDate);
   const candidateCreatorKey = context.creatorKeyForCandidateSource(candidate);
   const creatorUsage = candidateCreatorKey ? context.pastUsage.latestCreator(candidateCreatorKey) : null;
-  const creatorAge = creatorUsage ? daysBetweenDates(context.planDate, creatorUsage.date) : null;
+  const creatorAge = ageOfUsage(creatorUsage, context.planDate);
   const topicUsage = context.pastUsage.latestTopic(candidate.topicIdentity, candidate.topicSemanticKey);
-  const topicAge = topicUsage ? daysBetweenDates(context.planDate, topicUsage.date) : null;
+  const topicAge = ageOfUsage(topicUsage, context.planDate);
   const bodyUsage = context.pastUsage.latestBody(candidate.body);
-  const bodyAge = bodyUsage ? daysBetweenDates(context.planDate, bodyUsage.date) : null;
+  const bodyAge = ageOfUsage(bodyUsage, context.planDate);
   const leak = detectPublicCopyLeak(publicText);
   const holdReasons = [
     ...exclusionHoldReasons(candidate, context, leak),
