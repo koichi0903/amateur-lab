@@ -122,22 +122,28 @@ type QualityTotalContext = {
   roleScore: number;
 };
 
+function verifiedVisualQuoteScoreFor(context: QualityTotalContext) {
+  const verifiedOpeningBonus = context.cueEarly && context.understanding.visualAnalysisStatus === "verified" ? 30 : 0;
+  const visualSpecificityBonus = context.concreteVisualSpecificity >= 22 ? 15 : 6;
+  return verifiedOpeningBonus
+    + context.emotionalStopPower
+    + visualSpecificityBonus
+    + context.naturalnessV8
+    + context.curiosityV8
+    + context.originality;
+}
+
+function ungatedQualityScoreFor(input: MyfansPublicCopyQualityInput, context: QualityTotalContext) {
+  if (context.sourceTextGrounded) return Math.max(88, context.v8QuoteScore);
+  if (context.isQuote && hasVerifiedVisualAnalysis(input.quote)) return verifiedVisualQuoteScoreFor(context);
+  if (context.isQuote) return context.v8QuoteScore;
+  if (context.role === "ATTENTION") return context.legacyScore;
+  return context.roleScore;
+}
+
 function qualityTotalFor(input: MyfansPublicCopyQualityInput, context: QualityTotalContext) {
-  const { leak, hardFail, sourceTextGrounded, isQuote, v8QuoteScore, cueEarly, understanding, concreteVisualSpecificity, emotionalStopPower, naturalnessV8, curiosityV8, originality, legacyScore, role, roleScore } = context;
-  return leak.hasLeak || hardFail.length
-    ? 0
-    : Math.max(0, Math.min(100, sourceTextGrounded
-      ? Math.max(88, v8QuoteScore)
-      : isQuote && hasVerifiedVisualAnalysis(input.quote)
-      ? (
-        (cueEarly && understanding.visualAnalysisStatus === "verified" ? 30 : 0)
-        + emotionalStopPower
-        + (concreteVisualSpecificity >= 22 ? 15 : 6)
-        + naturalnessV8
-        + curiosityV8
-        + originality
-      )
-      : isQuote ? v8QuoteScore : role === "ATTENTION" ? legacyScore : roleScore));
+  if (context.leak.hasLeak || context.hardFail.length) return 0;
+  return Math.max(0, Math.min(100, ungatedQualityScoreFor(input, context)));
 }
 
 type QualityHoldReasonContext = {
