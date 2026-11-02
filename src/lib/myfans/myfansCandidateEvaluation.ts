@@ -48,12 +48,27 @@ function guardTopicValue(rawTopicValue: ReturnType<typeof evaluateMyfansTopicVal
     : rawTopicValue;
 }
 
+function visualPromotionEvidence(input: TopicValueInput, visualStatus: string) {
+  if (visualStatus !== "verified") return "";
+  return input.visualUnderstanding?.humanObservation || input.visualUnderstanding?.rawVisualEvidence || "";
+}
+
+function quoteTextPromotionEvidence(evidenceQuote: MyfansQuoteCandidate | null) {
+  if (!evidenceQuote?.text_excerpt) return "";
+  return compactSourceText(evidenceQuote.text_excerpt, 28);
+}
+
+function quoteContextPromotionEvidence(evidenceQuote: MyfansQuoteCandidate | null) {
+  if (!hasConcreteSourceContext(evidenceQuote)) return "";
+  return quoteInsight(evidenceQuote);
+}
+
 function promotionEvidence(input: TopicValueInput, visualStatus: string) {
-  const { evidenceQuote, visualUnderstanding } = input;
+  const { evidenceQuote } = input;
   return [
-    visualStatus === "verified" ? (visualUnderstanding?.humanObservation || visualUnderstanding?.rawVisualEvidence || "") : "",
-    evidenceQuote?.text_excerpt ? compactSourceText(evidenceQuote.text_excerpt, 28) : "",
-    hasConcreteSourceContext(evidenceQuote) ? quoteInsight(evidenceQuote) : "",
+    visualPromotionEvidence(input, visualStatus),
+    quoteTextPromotionEvidence(evidenceQuote),
+    quoteContextPromotionEvidence(evidenceQuote),
   ].filter(Boolean);
 }
 
