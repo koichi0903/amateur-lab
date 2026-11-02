@@ -3,12 +3,16 @@ import type { MyfansProduct, MyfansQuoteCandidate } from "@/lib/myfansAnalytics"
 import type { PublicCopyFacts } from "@/lib/myfansXExecution";
 import { hasBrowserVisibleVisual, visualAnalysisForQuote } from "@/lib/myfans/myfansCreativeEvidence";
 
+function nullableQuoteMetric(value: number | null | undefined) {
+  return value ?? null;
+}
+
 function publicMetricsFor(product: MyfansProduct, quote: MyfansQuoteCandidate | null) {
   return {
-    views: quote?.views ?? null,
-    likes: quote?.likes ?? null,
-    reposts: quote?.reposts ?? null,
-    replies: quote?.replies ?? null,
+    views: nullableQuoteMetric(quote?.views),
+    likes: nullableQuoteMetric(quote?.likes),
+    reposts: nullableQuoteMetric(quote?.reposts),
+    replies: nullableQuoteMetric(quote?.replies),
     popularityRank: product.popularity_rank,
     productLikes: product.likes_count,
     productSaves: product.saves_count,
