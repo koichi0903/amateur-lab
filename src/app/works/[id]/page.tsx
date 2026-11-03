@@ -9,6 +9,7 @@ import ProductJsonLd from "@/app/components/ProductJsonLd";
 import WorkPageViewTracker from "@/app/components/WorkPageViewTracker";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 import { isOfficialSampleMovieUrl } from "@/lib/officialSampleMovie";
+import { HAKKUTSU_SITE_DMM_AFFILIATE_ID } from "@/lib/dmm/siteAffiliateUrl";
 import {
   getSeoPilotDefaultPriceSeries,
   isWorkIndexable,
@@ -41,10 +42,7 @@ function getOfficialSampleEmbedUrl(work: WorkDetail): string | null {
   if (!work.product_id || !isOfficialSampleMovieUrl(work.sample_movie_url)) return null;
 
   const base = `https://www.dmm.co.jp/service/digitalapi/-/html5_player/=/cid=${encodeURIComponent(work.product_id)}/mtype=AhRVShI_/service=litevideo/mode=part/width=260/height=167`;
-  const affiliateId = process.env.DMM_AFFILIATE_ID?.trim();
-  return affiliateId
-    ? `${base}/affi_id=${encodeURIComponent(affiliateId)}/`
-    : `${base}/`;
+  return `${base}/affi_id=${encodeURIComponent(HAKKUTSU_SITE_DMM_AFFILIATE_ID)}/`;
 }
 
 const WORK_DETAIL_COLUMNS = [
