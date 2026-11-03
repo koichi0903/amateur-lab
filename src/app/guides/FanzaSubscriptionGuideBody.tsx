@@ -116,6 +116,6 @@ export default function FanzaSubscriptionGuideBody() {
       </div>
       <p className="mt-2 text-[11px] leading-5 text-slate-500">広告経由の登録・購入が所定の条件を満たすと、運営者に報酬が発生する場合があります。</p>
     </aside>
-    <Script id="dmm-fanza-tv-banner-1277" src="https://widget-view.dmm.co.jp/js/banner_placement.js?affiliate_id=koichi1928-026&banner_id=1277_300_250" strategy="afterInteractive" />
+    <Script id="dmm-fanza-tv-banner-1277" className="widget-banner-script" src="https://widget-view.dmm.co.jp/js/banner_placement.js?affiliate_id=koichi1928-026&banner_id=1277_300_250" strategy="afterInteractive" />
   </div>;
 }
