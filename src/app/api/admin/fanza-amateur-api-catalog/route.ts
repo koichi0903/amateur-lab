@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "node:crypto";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
+import { isValidLocalScheduleToken } from "@/lib/admin/localScheduleToken";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   fetchNextFanzaAmateurApiCatalogPage,
   getActiveFanzaAmateurApiCatalogRun,
   getLatestFanzaAmateurApiCatalogRun,
   startFanzaAmateurApiCatalogRun,
-  type FanzaAmateurRunType,
 } from "@/lib/dmm/fanzaAmateurApiCatalogScan";
 
 export const dynamic = "force-dynamic";
@@ -25,10 +24,7 @@ async function isCatalogAdminRequest(request: NextRequest) {
   if (await isAdminRequest(request)) return true;
   const expected = process.env.SCHEDULE_API_TOKEN;
   const supplied = request.headers.get("x-hakkutsu-schedule-token");
-  if (!expected || !supplied || !["localhost", "127.0.0.1"].includes(request.nextUrl.hostname)) return false;
-  const expectedBytes = Buffer.from(expected);
-  const suppliedBytes = Buffer.from(supplied);
-  return expectedBytes.length === suppliedBytes.length && timingSafeEqual(expectedBytes, suppliedBytes);
+  return isValidLocalScheduleToken(request.nextUrl.hostname, expected, supplied);
 }
 
 export async function GET(request: NextRequest) {
@@ -40,7 +36,7 @@ export async function GET(request: NextRequest) {
       const from = (page - 1) * pageSize;
       const { data, count, error } = await supabaseAdmin
         .from("fanza_amateur_works")
-        .select("content_id,title,api_date,rank,raw_item,fetched_at,is_listed,missing_since,mp4_url,mp4_status,mp4_attempt_count,mp4_checked_at", { count: "exact" })
+        .select("content_id,title,api_date,rank,rank_observed_at,raw_item,fetched_at,is_listed,missing_since,mp4_url,mp4_status,mp4_attempt_count,mp4_checked_at", { count: "exact" })
         .order("api_date", { ascending: false, nullsFirst: false })
         .order("content_id", { ascending: true })
         .range(from, from + pageSize - 1);
@@ -74,10 +70,13 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({})) as { action?: unknown; runId?: unknown; runType?: unknown };
   try {
     if (body.action === "start") {
-      if (body.runType !== "daily_incremental" && body.runType !== "weekly_full") {
-        return NextResponse.json({ error: "runTypeはdaily_incrementalまたはweekly_fullを指定してください。" }, { status: 400 });
+      if (body.runType !== "weekly_full") {
+        return NextResponse.json({ error: "新規取得はweekly_full（全作品再照合）のみ実行できます。" }, {
+          status: 400,
+          headers: { "Cache-Control": "no-store" },
+        });
       }
-      const run = await startFanzaAmateurApiCatalogRun(body.runType as FanzaAmateurRunType);
+      const run = await startFanzaAmateurApiCatalogRun("weekly_full");
       return NextResponse.json(withProgress(run), { headers: { "Cache-Control": "no-store" } });
     }
 

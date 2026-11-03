@@ -65,43 +65,84 @@ export function calculateXGrowthSalesSignal(currentMonthSalesCount: number, prio
   return { currentMonthSalesCount: current, prior90DaySalesCount: prior, scoreBonus, reason };
 }
 
-export function buildXGrowthSalesEvaluation(rows: readonly XGrowthSaleHistoryRow[], now = new Date()) {
-  const currentMonth = tokyoMonth(now);
-  const prior90DayFromMonth = shiftMonth(currentMonth, -3);
-  const prior90DayThroughMonth = shiftMonth(currentMonth, -1);
-  const byWork = new Map<number, { currentMonthSalesCount: number; prior90DaySalesCount: number }>();
-  const workMonthSales = new Map<string, number>();
-  let currentMonthRows = 0;
-  let prior90DayRows = 0;
-  let unscopedCurrentMonthRows = 0;
-  let unscopedPrior90DayRows = 0;
-  let futureRowsExcluded = 0;
+type SalesReportPeriod = "invalid" | "future" | "current" | "prior" | "outside";
+type SalesRowCounts = Pick<XGrowthSalesEvaluation,
+  "currentMonthRows" | "prior90DayRows" | "unscopedCurrentMonthRows" | "unscopedPrior90DayRows" | "futureRowsExcluded">;
+type WorkMonthSales = Map<string, number>;
+type WorkSales = Map<number, { currentMonthSalesCount: number; prior90DaySalesCount: number }>;
 
-  for (const row of rows) {
-    const month = row.report_month.slice(0, 7);
-    if (!/^\d{4}-\d{2}$/.test(month)) continue;
-    if (month > currentMonth) {
-      futureRowsExcluded++;
-      continue;
-    }
-    const isCurrent = month === currentMonth;
-    const isPrior90Day = month >= prior90DayFromMonth && month <= prior90DayThroughMonth;
-    if (!isCurrent && !isPrior90Day) continue;
-    const scoped = is990(row);
-    if (isCurrent) {
-      if (!scoped) unscopedCurrentMonthRows++;
-      else currentMonthRows++;
-    } else if (isPrior90Day) {
-      if (!scoped) unscopedPrior90DayRows++;
-      else prior90DayRows++;
-    }
-    if (!scoped || row.work_id === null || !Number.isSafeInteger(row.work_id) || row.work_id <= 0) continue;
-    const key = `${month}:${row.work_id}`;
-    // Product aliases and duplicate imports must not multiply a work's score.
-    // Keep the largest row count per work and report month as a conservative cap.
-    workMonthSales.set(key, Math.max(workMonthSales.get(key) ?? 0, Math.max(0, row.sales_count)));
+function classifySalesReportMonth(month: string, currentMonth: string, priorFromMonth: string, priorThroughMonth: string): SalesReportPeriod {
+  if (!/^\d{4}-\d{2}$/.test(month)) return "invalid";
+  if (month > currentMonth) return "future";
+  if (month === currentMonth) return "current";
+  if (month >= priorFromMonth && month <= priorThroughMonth) return "prior";
+  return "outside";
+}
+
+function countSalesReportRow(counts: SalesRowCounts, period: SalesReportPeriod, scoped: boolean) {
+  if (period === "current") {
+    if (scoped) counts.currentMonthRows++;
+    else counts.unscopedCurrentMonthRows++;
+    return;
+  }
+  if (period === "prior") {
+    if (scoped) counts.prior90DayRows++;
+    else counts.unscopedPrior90DayRows++;
+  }
+}
+
+function hasValidScopedWorkId(row: XGrowthSaleHistoryRow, scoped: boolean) {
+  return scoped && row.work_id !== null && Number.isSafeInteger(row.work_id) && row.work_id > 0;
+}
+
+function collectSalesHistoryRow(
+  row: XGrowthSaleHistoryRow,
+  currentMonth: string,
+  priorFromMonth: string,
+  priorThroughMonth: string,
+  counts: SalesRowCounts,
+  workMonthSales: WorkMonthSales,
+) {
+  const month = row.report_month.slice(0, 7);
+  const period = classifySalesReportMonth(month, currentMonth, priorFromMonth, priorThroughMonth);
+  if (period === "invalid" || period === "outside") return;
+  if (period === "future") {
+    counts.futureRowsExcluded++;
+    return;
   }
 
+  const scoped = is990(row);
+  countSalesReportRow(counts, period, scoped);
+  if (!hasValidScopedWorkId(row, scoped)) return;
+
+  const key = `${month}:${row.work_id}`;
+  // Product aliases and duplicate imports must not multiply a work's score.
+  // Keep the largest row count per work and report month as a conservative cap.
+  workMonthSales.set(key, Math.max(workMonthSales.get(key) ?? 0, Math.max(0, row.sales_count)));
+}
+
+function collectWorkMonthSales(
+  rows: readonly XGrowthSaleHistoryRow[],
+  currentMonth: string,
+  priorFromMonth: string,
+  priorThroughMonth: string,
+) {
+  const counts: SalesRowCounts = {
+    currentMonthRows: 0,
+    prior90DayRows: 0,
+    unscopedCurrentMonthRows: 0,
+    unscopedPrior90DayRows: 0,
+    futureRowsExcluded: 0,
+  };
+  const workMonthSales: WorkMonthSales = new Map();
+  for (const row of rows) {
+    collectSalesHistoryRow(row, currentMonth, priorFromMonth, priorThroughMonth, counts, workMonthSales);
+  }
+  return { counts, workMonthSales };
+}
+
+function aggregateWorkSales(workMonthSales: WorkMonthSales, currentMonth: string): WorkSales {
+  const byWork: WorkSales = new Map();
   for (const [key, salesCount] of workMonthSales) {
     const separator = key.indexOf(":");
     const month = key.slice(0, separator);
@@ -111,24 +152,56 @@ export function buildXGrowthSalesEvaluation(rows: readonly XGrowthSaleHistoryRow
     else value.prior90DaySalesCount += salesCount;
     byWork.set(workId, value);
   }
+  return byWork;
+}
 
-  const currentMonthSalesCount = [...workMonthSales.entries()].filter(([key]) => key.startsWith(`${currentMonth}:`)).reduce((sum, [, count]) => sum + count, 0);
-  const prior90DaySalesCount = [...workMonthSales.entries()].filter(([key]) => key.slice(0, 7) !== currentMonth).reduce((sum, [, count]) => sum + count, 0);
-  const evaluation: XGrowthSalesEvaluation = {
+function sumSalesForMonthPeriod(workMonthSales: WorkMonthSales, currentMonth: string, current: boolean) {
+  return [...workMonthSales.entries()]
+    .filter(([key]) => current ? key.startsWith(`${currentMonth}:`) : key.slice(0, 7) !== currentMonth)
+    .reduce((sum, [, count]) => sum + count, 0);
+}
+
+function buildSalesEvaluation(
+  currentMonth: string,
+  prior90DayFromMonth: string,
+  prior90DayThroughMonth: string,
+  counts: SalesRowCounts,
+  workMonthSales: WorkMonthSales,
+  byWork: WorkSales,
+): XGrowthSalesEvaluation {
+  const workValues = [...byWork.values()];
+  return {
     currentMonth,
     prior90DayFromMonth,
     prior90DayThroughMonth,
-    currentMonthRows,
-    prior90DayRows,
-    unscopedCurrentMonthRows,
-    unscopedPrior90DayRows,
-    futureRowsExcluded,
-    currentMonthSalesCount,
-    prior90DaySalesCount,
-    currentMonthWorks: [...byWork.values()].filter((value) => value.currentMonthSalesCount > 0).length,
-    prior90DayWorks: [...byWork.values()].filter((value) => value.prior90DaySalesCount > 0).length,
+    ...counts,
+    currentMonthSalesCount: sumSalesForMonthPeriod(workMonthSales, currentMonth, true),
+    prior90DaySalesCount: sumSalesForMonthPeriod(workMonthSales, currentMonth, false),
+    currentMonthWorks: workValues.filter((value) => value.currentMonthSalesCount > 0).length,
+    prior90DayWorks: workValues.filter((value) => value.prior90DaySalesCount > 0).length,
     dedupedWorkMonthEntries: workMonthSales.size,
-    signalsAppliedWorks: [...byWork.values()].filter((value) => calculateXGrowthSalesSignal(value.currentMonthSalesCount, value.prior90DaySalesCount).scoreBonus > 0).length,
+    signalsAppliedWorks: workValues.filter((value) => calculateXGrowthSalesSignal(value.currentMonthSalesCount, value.prior90DaySalesCount).scoreBonus > 0).length,
   };
+}
+
+export function buildXGrowthSalesEvaluation(rows: readonly XGrowthSaleHistoryRow[], now = new Date()) {
+  const currentMonth = tokyoMonth(now);
+  const prior90DayFromMonth = shiftMonth(currentMonth, -3);
+  const prior90DayThroughMonth = shiftMonth(currentMonth, -1);
+  const { counts, workMonthSales } = collectWorkMonthSales(
+    rows,
+    currentMonth,
+    prior90DayFromMonth,
+    prior90DayThroughMonth,
+  );
+  const byWork = aggregateWorkSales(workMonthSales, currentMonth);
+  const evaluation = buildSalesEvaluation(
+    currentMonth,
+    prior90DayFromMonth,
+    prior90DayThroughMonth,
+    counts,
+    workMonthSales,
+    byWork,
+  );
   return { byWork, evaluation };
 }

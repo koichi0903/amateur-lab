@@ -7,15 +7,22 @@ export function parseDatabaseDate(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+const JAPAN_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("ja-JP", {
+  month: "numeric",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "Asia/Tokyo",
+});
+
+/** Formats an ISO timestamp using the same Date parsing semantics as the UI call sites. */
+export function formatJstDateTime(value: string) {
+  return JAPAN_DATE_TIME_FORMATTER.format(new Date(value));
+}
+
 export function formatJapanDateTime(value: string | null | undefined) {
   const date = parseDatabaseDate(value);
   if (!date) return null;
 
-  return new Intl.DateTimeFormat("ja-JP", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Tokyo",
-  }).format(date);
+  return JAPAN_DATE_TIME_FORMATTER.format(date);
 }

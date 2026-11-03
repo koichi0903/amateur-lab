@@ -1,30 +1,78 @@
+import type { Page } from "playwright-core";
 import { createBrowser } from "@/lib/playwright/browserManager";
 import { openFanzaContentListPage } from "@/lib/playwright/fanzaAgeGate";
 import { assessRankingCoverage } from "./rankingCoverage";
+import { buildRankingProduct, parseRankingProductId, type RankingProduct } from "./rankingProductParsing";
 
-export interface RankingProduct {
-  productId: string;
-  ranking: number;
-  listPrice: number | null;
-  salePrice: number | null;
-}
+export type { RankingProduct } from "./rankingProductParsing";
 
 const FULL_CRAWL_ATTEMPTS = 2;
 
-function parseCardPrices(priceText: string) {
-  const numbers =
-    priceText.match(/\d[\d,]*/g)?.map((value) =>
-      Number(value.replace(/,/g, "")),
-    ) ?? [];
+async function collectRankingPage(
+  page: Page,
+  pageUrl: string,
+  currentPage: number,
+  itemsPerPage: number,
+  products: Map<string, RankingProduct>,
+) {
+  const count = await openFanzaContentListPage(page, pageUrl);
+  const cards = page.locator('[data-e2eid="content-card"]');
+  let duplicateCount = 0;
 
-  if (numbers.length >= 2) {
-    return { listPrice: numbers[0], salePrice: numbers[1] };
+  console.log(`page ${currentPage}: cards=${count}`);
+
+  for (let index = 0; index < count; index += 1) {
+    const card = cards.nth(index);
+    const href = await card
+      .locator('a[href*="/content/?id="]')
+      .first()
+      .getAttribute("href");
+    const productId = parseRankingProductId(href);
+    if (!productId) continue;
+    if (products.has(productId)) {
+      duplicateCount += 1;
+      continue;
+    }
+
+    const priceLocator = card.locator('[data-e2eid="content-price"]');
+    const priceText =
+      (await priceLocator.count()) > 0
+        ? (await priceLocator.first().textContent()) ?? ""
+        : "";
+    const product = buildRankingProduct(
+      productId,
+      (currentPage - 1) * itemsPerPage + index + 1,
+      priceText,
+    );
+
+    products.set(productId, product);
   }
 
-  return {
-    listPrice: numbers[0] ?? null,
-    salePrice: null,
-  };
+  return duplicateCount;
+}
+
+async function collectFullRankingPages(
+  page: Page,
+  baseUrl: string,
+  itemsPerPage: number,
+  maxPages: number,
+) {
+  const products = new Map<string, RankingProduct>();
+  let duplicateCount = 0;
+
+  for (let currentPage = 1; currentPage <= maxPages; currentPage += 1) {
+    const pageUrl =
+      currentPage === 1 ? baseUrl : `${baseUrl}&page=${currentPage}`;
+    duplicateCount += await collectRankingPage(
+      page,
+      pageUrl,
+      currentPage,
+      itemsPerPage,
+      products,
+    );
+  }
+
+  return { result: [...products.values()], duplicateCount };
 }
 
 export async function getRankingProducts(
@@ -42,48 +90,12 @@ export async function getRankingProducts(
     const page = await browser.newPage();
 
     try {
-      const products = new Map<string, RankingProduct>();
-      let duplicateCount = 0;
-
-      for (let currentPage = 1; currentPage <= maxPages; currentPage += 1) {
-        const pageUrl =
-          currentPage === 1 ? baseUrl : `${baseUrl}&page=${currentPage}`;
-        const count = await openFanzaContentListPage(page, pageUrl);
-        const cards = page.locator('[data-e2eid="content-card"]');
-
-        console.log(`page ${currentPage}: cards=${count}`);
-
-        for (let index = 0; index < count; index += 1) {
-          const card = cards.nth(index);
-          const href = await card
-            .locator('a[href*="/content/?id="]')
-            .first()
-            .getAttribute("href");
-          const productId = href?.match(/id=([^&]+)/)?.[1];
-          if (!productId) continue;
-
-          if (products.has(productId)) {
-            duplicateCount += 1;
-            continue;
-          }
-
-          const priceLocator = card.locator('[data-e2eid="content-price"]');
-          const priceText =
-            (await priceLocator.count()) > 0
-              ? (await priceLocator.first().textContent()) ?? ""
-              : "";
-          const { listPrice, salePrice } = parseCardPrices(priceText);
-
-          products.set(productId, {
-            productId,
-            ranking: (currentPage - 1) * itemsPerPage + index + 1,
-            listPrice,
-            salePrice,
-          });
-        }
-      }
-
-      const result = [...products.values()];
+      const { result, duplicateCount } = await collectFullRankingPages(
+        page,
+        baseUrl,
+        itemsPerPage,
+        maxPages,
+      );
       if (result.length > bestResult.length) bestResult = result;
 
       const coverage = assessRankingCoverage(result.length, minimumCount);

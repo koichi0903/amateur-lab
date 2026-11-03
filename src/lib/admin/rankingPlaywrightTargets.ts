@@ -63,6 +63,45 @@ function hasRequiredDataMissing(work: RankingWorkSnapshot): boolean {
   );
 }
 
+function rankingStatusReasons(work: RankingWorkSnapshot): RankingPlaywrightReason[] {
+  const reasons: RankingPlaywrightReason[] = [];
+  if (work.playwright_status === "PENDING") reasons.push("PENDING");
+  if (work.playwright_status?.startsWith("UNAVAILABLE_")) {
+    reasons.push("UNAVAILABLE");
+  }
+  if (hasRequiredDataMissing(work)) reasons.push("MISSING_DATA");
+  return reasons;
+}
+
+function rankingRefreshReasons(
+  work: RankingWorkSnapshot,
+  listing: RankingProduct | undefined,
+  now: number,
+): RankingPlaywrightReason[] {
+  const reasons: RankingPlaywrightReason[] = [];
+  if (isPriceChanged(work, listing)) reasons.push("PRICE_CHANGED");
+  if (isRefreshDue(work.updated_at, now)) reasons.push("WEEKLY_REFRESH");
+  if (
+    (work.stage === "NEW" || work.stage === "SEMI_NEW") &&
+    !work.sample_movie_url &&
+    !work.sample_movie_checked_at
+  ) {
+    reasons.push("SAMPLE_MOVIE_UNCHECKED");
+  }
+  return reasons;
+}
+
+function rankingPlaywrightReasons(
+  work: RankingWorkSnapshot,
+  listing: RankingProduct | undefined,
+  now: number,
+): RankingPlaywrightReason[] {
+  return [
+    ...rankingStatusReasons(work),
+    ...rankingRefreshReasons(work, listing, now),
+  ];
+}
+
 export function selectRankingPlaywrightTargets(
   rankingItems: DmmItem[],
   worksByProductId: ReadonlyMap<string, RankingWorkSnapshot>,
@@ -86,21 +125,7 @@ export function selectRankingPlaywrightTargets(
       continue;
     }
 
-    const reasons: RankingPlaywrightReason[] = [];
-    if (work.playwright_status === "PENDING") reasons.push("PENDING");
-    if (work.playwright_status?.startsWith("UNAVAILABLE_")) {
-      reasons.push("UNAVAILABLE");
-    }
-    if (hasRequiredDataMissing(work)) reasons.push("MISSING_DATA");
-    if (isPriceChanged(work, listing)) reasons.push("PRICE_CHANGED");
-    if (isRefreshDue(work.updated_at, now)) reasons.push("WEEKLY_REFRESH");
-    if (
-      (work.stage === "NEW" || work.stage === "SEMI_NEW") &&
-      !work.sample_movie_url &&
-      !work.sample_movie_checked_at
-    ) {
-      reasons.push("SAMPLE_MOVIE_UNCHECKED");
-    }
+    const reasons = rankingPlaywrightReasons(work, listing, now);
 
     if (reasons.length > 0) {
       targets.push({

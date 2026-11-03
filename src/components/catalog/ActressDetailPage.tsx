@@ -1,10 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft, CalendarDays, Ruler, Shapes } from "lucide-react";
-import Header from "@/components/layout/Header";
-import WorkImage from "@/components/home/WorkImage";
-import FanzaStyleWorkCard from "@/components/catalog/FanzaStyleWorkCard";
+import ActressDetailPageView from "@/components/catalog/ActressDetailPageView";
 import type { Work } from "@/types/work";
 import { pageMetadata } from "@/lib/seo";
 import { getEntityIndexSummary, isEntityIndexable } from "@/lib/catalog/entityIndexSummaries";
@@ -78,18 +74,23 @@ export async function ActressDetailPage({ actressName, currentPage }: { actressN
     );
     return observedDates.size >= 2;
   }).length;
-  const profileImage = profile?.image_url_large || profile?.image_url_small || null;
   const pageHref = (targetPage: number) => targetPage > 1 ? `/actress/${encodeURIComponent(actressName)}/page/${targetPage}` : `/actress/${encodeURIComponent(actressName)}`;
-  const topWorkGridClass = "grid max-w-[1500px] grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6";
-  const latestWorkGridClass = "grid max-w-[1500px] grid-cols-2 gap-3 lg:grid-cols-4";
-
-  return <><Header /><main className="min-h-screen bg-[#f8fafc] text-slate-950"><div className="mx-auto max-w-[1500px] px-4 py-7 sm:px-6 lg:px-8">
-    <Link href="/actress" className="inline-flex items-center gap-1 text-sm font-bold text-slate-500 hover:text-pink-600"><ArrowLeft size={15} /> 女優一覧に戻る</Link>
-    <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm sm:p-7"><div className="flex flex-col gap-6 sm:flex-row sm:items-center"><div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-full border-4 border-pink-600 bg-slate-100 sm:h-32 sm:w-32"><WorkImage src={profileImage || topWork?.image_url} fallbackSrc={profileImage ? topWork?.image_url : null} alt={`${actressName}のプロフィール写真`} sizes="128px" unoptimized className="object-cover" /></div><div className="grid min-w-0 flex-1 gap-5 sm:grid-cols-3 sm:items-center"><div><h1 className="text-3xl font-black sm:text-4xl">{actressName}の出演作品・プロフィール</h1>{profile?.ruby && <p className="mt-1 text-sm text-slate-500">{profile.ruby}</p>}</div><div className="space-y-2 text-sm"><p className="flex items-center gap-2 text-slate-500"><CalendarDays size={15} /> 生年月日 <strong className="text-slate-800">{profile?.birthday ?? "未取得"}</strong></p><p className="flex items-center gap-2 text-slate-500"><Ruler size={15} /> 身長 <strong className="text-slate-800">{profile?.height_cm ? `${profile.height_cm} cm` : "未取得"}</strong></p></div><p className="flex items-center gap-2 text-sm text-slate-500"><Shapes size={15} /> スリーサイズ <strong className="text-slate-800">{profile?.bust_cm || profile?.waist_cm || profile?.hip_cm ? `B${profile.bust_cm ?? "-"} / W${profile.waist_cm ?? "-"} / H${profile.hip_cm ?? "-"}` : "未取得"}</strong></p></div></div><p className="mt-5 border-t border-slate-100 pt-4 text-sm leading-6 text-slate-600">出演作品は全{totalCount.toLocaleString("ja-JP")}作品。新着作品や価格・レビュー情報を見ながら、作品を比較できます。</p>{worksWithMultiDayPriceHistory > 0 && <p className="mt-3 rounded-lg bg-pink-50 px-4 py-3 text-sm leading-6 text-slate-700">高コスパ作品とこのページの作品一覧（最大{insightCandidates.length}作品）のうち、各作品の初期表示の販売形式・配信期間で90日以内に異なる2日以上の価格記録を比べられる作品は<strong className="text-pink-700"> {worksWithMultiDayPriceHistory}作品</strong>です。記録のない期間の価格は分かりません。</p>}</section>
-    {highCostWorks.length > 0 && <section className="mt-8"><SectionTitle title="高コスパ作品" count={highCostWorks.length} color="amber" /><div className={topWorkGridClass}>{highCostWorks.map((work) => <FanzaStyleWorkCard key={`cost-${work.id}`} work={work} sourcePage="actress" insight={priceInsightsByWorkId.get(work.id)} />)}</div></section>}
-    {newestWorks.length > 0 && <section className="mt-10"><SectionTitle title="最新作" count={newestWorks.length} color="pink" /><div className={latestWorkGridClass}>{newestWorks.map((work) => <FanzaStyleWorkCard key={`new-${work.id}`} work={work} sourcePage="actress" showChart={false} />)}</div></section>}
-    {pageResult.error ? <div className="mt-10 rounded-lg border border-red-200 bg-white p-10 text-center font-black">作品を読み込めませんでした</div> : works.length > 0 && <section className="mt-10"><SectionTitle title="出演作品一覧" count={totalCount} color="pink" /><div className={topWorkGridClass}>{works.map((work) => <FanzaStyleWorkCard key={work.id} work={work} sourcePage="actress" insight={priceInsightsByWorkId.get(work.id)} />)}</div>{totalPages > 1 && <nav aria-label={`${actressName}の出演作品一覧のページ送り`} className="mt-8 flex items-center justify-center gap-3"><span className="text-xs font-bold text-slate-400">{currentPage} / {totalPages}</span>{currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className="rounded bg-slate-950 px-5 py-3 text-sm font-black text-white hover:bg-pink-600">次のページ →</Link>}</nav>}</section>}
-  </div></main></>;
+  return (
+    <ActressDetailPageView
+      actressName={actressName}
+      currentPage={currentPage}
+      hasPageError={Boolean(pageResult.error)}
+      works={works}
+      profile={profile}
+      totalCount={totalCount}
+      totalPages={totalPages}
+      topWork={topWork}
+      highCostWorks={highCostWorks}
+      newestWorks={newestWorks}
+      insightCandidatesCount={insightCandidates.length}
+      priceInsightsByWorkId={priceInsightsByWorkId}
+      worksWithMultiDayPriceHistory={worksWithMultiDayPriceHistory}
+      pageHref={pageHref}
+    />
+  );
 }
-
-function SectionTitle({ title, count, color }: { title: string; count?: number; color: "amber" | "pink" }) { return <div className="mb-4 flex items-center gap-3"><span className={`h-7 w-1 rounded-full ${color === "amber" ? "bg-amber-400" : "bg-pink-500"}`} /><h2 className="text-xl font-black">{title}</h2>{count != null && <span className="text-xs font-bold text-zinc-500">({count}件)</span>}</div>; }

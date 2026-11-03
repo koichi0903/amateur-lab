@@ -1,16 +1,47 @@
 import { createBrowser } from "@/lib/playwright/browserManager";
 import { openFanzaContentListPage } from "@/lib/playwright/fanzaAgeGate";
 import { loadFanzaListPageWithRetry } from "@/lib/playwright/fanzaListRetry";
+import type { Locator, Page } from "playwright-core";
+import {
+  parseFanzaPrices,
+  parseFanzaProductId,
+  parseFanzaTotalPages,
+  type ProductSummary,
+} from "./getProductIdsParsing";
 
-export interface ProductSummary {
-  productId: string;
-  url: string;
+export type { ProductSummary } from "./getProductIdsParsing";
 
-  // 通常価格
-  listPrice: number | null;
+async function readProductFromCard(card: Locator): Promise<ProductSummary | null> {
+  const link = card.locator('a[href*="/content/?id="]').first();
+  const href = await link.getAttribute("href");
+  if (!href) return null;
 
-  // セール価格（通常時は null）
-  salePrice: number | null;
+  const productId = parseFanzaProductId(href);
+  if (!productId) return null;
+
+  const priceLocator = card.locator('[data-e2eid="content-price"]');
+  const priceText =
+    (await priceLocator.count()) > 0
+      ? (await priceLocator.first().textContent()) ?? ""
+      : "";
+  const prices = parseFanzaPrices(priceText);
+
+  return { productId, url: href, ...prices };
+}
+
+async function collectProductCards(
+  page: Page,
+  currentPage: number,
+  products: Map<string, ProductSummary>,
+) {
+  const cards = page.locator('[data-e2eid="content-card"]');
+  const count = await cards.count();
+  console.log(`page ${currentPage}: cards=${count}`);
+
+  for (let index = 0; index < count; index++) {
+    const product = await readProductFromCard(cards.nth(index));
+    if (product) products.set(product.productId, product);
+  }
 }
 
 export async function getProductIds(
@@ -65,9 +96,7 @@ export async function getProductIds(
         .first()
         .textContent()) ?? "";
 
-    const totalPages = Number(
-      pageText.match(/全(\d+)ページ中/)?.[1] ?? 1
-    );
+    const totalPages = parseFanzaTotalPages(pageText);
 
     const products = new Map<
   string,
@@ -91,67 +120,7 @@ export async function getProductIds(
         await loadPage(`${baseUrl}&page=${currentPage}`, currentPage);
       }
 
-const cards = page.locator(
-  '[data-e2eid="content-card"]'
-);
-
-const count = await cards.count();
-
-console.log(
-  `page ${currentPage}: cards=${count}`
-);
-
-      for (let i = 0; i < count; i++) {
-  const card = cards.nth(i);
-
-
-  const link = card.locator(
-  'a[href*="/content/?id="]'
-).first();
-
-const href =
-  await link.getAttribute("href");
-
-  if (!href) continue;
-
-  const productId =
-  href.match(/id=([^&]+)/)?.[1];
-
-if (!productId) continue;
-
-const priceLocator = card.locator(
-  '[data-e2eid="content-price"]'
-);
-
-const priceText =
-  (await priceLocator.count()) > 0
-    ? (await priceLocator.first().textContent()) ?? ""
-    : "";
-
-const numbers =
-  priceText.match(/\d[\d,]*/g)?.map((v) =>
-    Number(v.replace(/,/g, ""))
-  ) ?? [];
-
-let listPrice: number | null = null;
-let salePrice: number | null = null;
-
-if (numbers.length === 1) {
-  // 通常販売
-  listPrice = numbers[0];
-} else if (numbers.length >= 2) {
-  // セール中
-  listPrice = numbers[0];
-  salePrice = numbers[1];
-}
-
-products.set(productId, {
-  productId,
-  url: href,
-  listPrice,
-  salePrice,
-});
-}
+      await collectProductCards(page, currentPage, products);
     }
 
     console.log(

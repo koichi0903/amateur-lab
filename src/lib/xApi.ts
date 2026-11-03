@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { waitForXMediaProcessing, type XMediaProcessingInfo } from "./xMediaProcessing";
 
 export type XPostCreateResult = {
   id: string;
@@ -90,18 +91,18 @@ async function uploadVideoFile(path: string, contentType = "video/mp4") {
   }
 
   const finalized = await xFetch(`/2/media/upload/${mediaId}/finalize`, { method: "POST" }) as {
-    data?: { processing_info?: { state?: string; check_after_secs?: number } };
+    data?: { processing_info?: XMediaProcessingInfo };
   };
-  let processing = finalized.data?.processing_info;
-  for (let attempt = 0; processing?.state && processing.state !== "succeeded"; attempt += 1) {
-    if (processing.state === "failed") throw new Error("X media processing failed.");
-    if (attempt >= 12) throw new Error("X media processing did not finish in time.");
-    await new Promise((resolve) => setTimeout(resolve, Math.max(processing?.check_after_secs ?? 2, 1) * 1000));
-    const status = await xFetch(`/2/media/upload?command=STATUS&media_id=${encodeURIComponent(mediaId)}`, { method: "GET" }) as {
-      data?: { processing_info?: { state?: string; check_after_secs?: number } };
-    };
-    processing = status.data?.processing_info;
-  }
+  await waitForXMediaProcessing(
+    finalized.data?.processing_info,
+    async () => {
+      const status = await xFetch(`/2/media/upload?command=STATUS&media_id=${encodeURIComponent(mediaId)}`, { method: "GET" }) as {
+        data?: { processing_info?: XMediaProcessingInfo };
+      };
+      return status.data?.processing_info;
+    },
+    (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  );
   return mediaId;
 }
 

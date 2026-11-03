@@ -29,6 +29,9 @@ test("persisted plan wins over a zero-result live calculation", () => {
   assert.deepEqual(view.selectedOptions, { "1": "A", "3": "B" });
   assert.deepEqual(view.slots.map((slot) => slot.postOrder), [1, 2, 3, 4]);
   assert.equal(view.slots[3]?.candidates.length, 0);
+  assert.equal(view.slots[0]?.candidates[0]?.optionName, "保存済み候補");
+  assert.equal(view.slots[0]?.candidates[0]?.affiliateStatus, "missing");
+  assert.equal(view.slots[0]?.candidates[0]?.visualStatus, "unavailable");
 });
 
 test("reload restores the same plan, revision, slots, and selection", () => {

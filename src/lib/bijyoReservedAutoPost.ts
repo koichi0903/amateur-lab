@@ -3,15 +3,20 @@ import { getBijyoManualJobsPage as getBijyoManualJobsPageLight } from "@/lib/bij
 import { analyzeSampleMovie } from "@/lib/xVideoAnalysis";
 import { sourceKindFor } from "@/lib/xMediaAssets";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { BIJYO_RESERVED_REGISTRATION_WINDOW_MS, bijyoManualIdempotencyKey, bijyoPostTrackingKey, buildBijyoMainText, buildBijyoReplyText, evaluateBijyoFutureOperation, filterRecentReleaseWorks, isBijyoManualCandidate, isBijyoReservedQueueEligible, isBijyoReservedRegistrationRecent, recentReleaseDateRange, tokyoDate, type RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
+import { bijyoManualIdempotencyKey, bijyoPostTrackingKey, buildBijyoMainText, buildBijyoReplyText, filterRecentReleaseWorks, isBijyoFutureWorkSkipEligible, isBijyoManualCandidate, isBijyoManualWorkEligible, recentReleaseDateRange, resolveBijyoFutureSkipInsertRace, resolveBijyoManualJobInsertRace, resolveExistingBijyoFutureSkip, resolveExistingBijyoManualJob, tokyoDate, type RecentReleaseWork } from "@/lib/bijyoReservedWorkflow";
 import { calculateBijyoTrimStart } from "@/lib/bijyoTrim";
 import { validateTrimStartSeconds } from "@/lib/xMediaAssets";
 import { saveXPostLog } from "@/lib/xPostLogs";
 import { runBijyoPreparationOnce } from "@/lib/bijyoPreparationGate";
 import { cachePreparedBijyoVideo, canUseLocalBijyoVideoStore, readCachedBijyoVideo } from "@/lib/bijyoTrimmedVideoStore";
+import { getBijyoHistoryPage, getBijyoReservedQueueWorks, HISTORY_PAGE_SIZE } from "@/lib/bijyoReadPages";
+import { BIJYO_ACCOUNT } from "@/lib/bijyoConfig";
+import { resolveBijyoTrimPlan } from "@/lib/bijyoVideoPreparation";
+import { collectBijyoActiveWorkIds, hydrateBijyoActiveJobs, isPositiveSafeWorkId } from "@/lib/bijyoActiveJobProjection";
 
 export { buildBijyoMainText, buildBijyoReplyText, tokyoDate } from "@/lib/bijyoReservedWorkflow";
-export const BIJYO_ACCOUNT = "bijyo1010" as const;
+export { BIJYO_ACCOUNT };
+export { getBijyoHistoryPage, getBijyoReservedQueueWorks };
 
 type Work = { id: number; title: string; stage: string; created_at: string; release_date: string; image_url: string | null; sample_movie_url: string; product_id: string | null };
 export type BijyoRecentReleasedWork = RecentReleaseWork;
@@ -36,28 +41,30 @@ function conflictResult(state: string): BijyoActionResult {
 }
 
 const JOB_SELECT = "id,work_id,kind,slot_date,slot_index,scheduled_at,status,trim_start_seconds,trim_status,trim_reason,trim_failure_reason,main_text,reply_text,x_post_id,posted_at,failure_reason,skip_reason";
-const HISTORY_PAGE_SIZE = 20;
-const BIJYO_RESERVED_PAGE_SIZE = 24;
 
-async function activeJobs(select = JOB_SELECT, options: { ascending?: boolean; limit?: number; offset?: number; kind?: "auto" | "manual"; statuses?: string[]; count?: boolean } = {}) {
+type ActiveJobsOptions = { ascending?: boolean; limit?: number; offset?: number; kind?: "auto" | "manual"; statuses?: string[]; count?: boolean };
+
+function buildActiveJobsQuery(select: string, options: ActiveJobsOptions) {
   let query = supabaseAdmin.from("bijyo_reserved_post_jobs").select(select, options.count ? { count: "exact" } : undefined).eq("account_handle", BIJYO_ACCOUNT).order("posted_at", { ascending: options.ascending ?? false, nullsFirst: false }).order("scheduled_at", { ascending: false });
   if (options.kind === "manual") query = query.order("id", { ascending: false });
   if (options.kind) query = query.eq("kind", options.kind);
   if (options.statuses?.length) query = query.in("status", options.statuses);
   if (options.limit !== undefined) query = query.range(options.offset ?? 0, (options.offset ?? 0) + options.limit - 1);
+  return query;
+}
+
+async function activeJobs(select = JOB_SELECT, options: ActiveJobsOptions = {}) {
+  const query = buildActiveJobsQuery(select, options);
   const result = await query;
   if (result.error) return { jobs: [] as BijyoJob[], total: 0, error: result.error.message };
-  const rows = (result.data ?? []) as unknown as Array<Record<string, unknown>>;
-  const workIds = [...new Set(rows.map((row) => Number(row.work_id)).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  const rows = (result.data ?? []) as unknown as Array<Record<string, unknown> & { work_id: unknown }>;
+  const workIds = collectBijyoActiveWorkIds(rows);
   const worksResult = workIds.length
     ? await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").in("id", workIds)
     : { data: [], error: null };
   if (worksResult.error) return { jobs: [] as BijyoJob[], total: 0, error: worksResult.error.message };
-  const worksById = new Map((worksResult.data as Work[]).map((work) => [work.id, work]));
-  return { jobs: rows.map((row) => {
-    const workId = Number(row.work_id);
-    return { ...row, reply_text: buildBijyoReplyText(workId), work: worksById.get(workId) ?? null } as unknown as BijyoJob;
-  }), total: result.count ?? rows.length, error: null };
+  const jobs = hydrateBijyoActiveJobs(rows, worksResult.data as Work[], buildBijyoReplyText);
+  return { jobs: jobs as unknown as BijyoJob[], total: result.count ?? rows.length, error: null };
 }
 
 async function jobRefs(workIds: number[]) {
@@ -74,12 +81,6 @@ export async function getBijyoManualJobsPage(page = 1) {
   return getBijyoManualJobsPageLight(page);
 }
 
-export async function getBijyoHistoryPage(page = 1) {
-  const safePage = Number.isSafeInteger(page) && page > 0 ? Math.min(page, 100_000) : 1;
-  const offset = (safePage - 1) * HISTORY_PAGE_SIZE;
-  const result = await activeJobs(JOB_SELECT, { limit: HISTORY_PAGE_SIZE, offset });
-  return { jobs: result.jobs, page: safePage, pageSize: HISTORY_PAGE_SIZE, hasMore: result.jobs.length === HISTORY_PAGE_SIZE, error: result.error };
-}
 export async function getBijyoRecentReleasedWorks(now = new Date()) {
   const dateRange = recentReleaseDateRange(now);
   const result = await supabaseAdmin.from("works")
@@ -101,48 +102,6 @@ export async function getBijyoRecentReleasedWorks(now = new Date()) {
     manualEligible: isBijyoManualCandidate(work, { officialSample: sourceKindFor(work.sample_movie_url) === "official_sample", hasExistingJob: false }),
   }));
   return { recentReleased, dateRange, error: null };
-}
-
-export async function getBijyoReservedQueueWorks(page = 1, now = new Date()) {
-  const todayDate = tokyoDate(now);
-  const offset = Math.max(0, page - 1) * BIJYO_RESERVED_PAGE_SIZE;
-  const targetCount = offset + BIJYO_RESERVED_PAGE_SIZE + 1;
-  const eligible: RecentReleaseWork[] = [];
-  const batchSize = 500;
-  let batchOffset = 0;
-  while (eligible.length < targetCount) {
-    const result = await supabaseAdmin.from("works")
-      .select("id,title,stage,created_at,release_date,image_url,sample_movie_url,product_id")
-      .eq("stage", "RESERVED")
-      .gt("release_date", todayDate)
-      .gte("created_at", new Date(now.getTime() - BIJYO_RESERVED_REGISTRATION_WINDOW_MS).toISOString())
-      .lte("created_at", now.toISOString())
-      .not("sample_movie_url", "is", null)
-      .neq("sample_movie_url", "")
-      .order("release_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: true })
-      .range(batchOffset, batchOffset + batchSize - 1);
-    if (result.error) return { works: [] as RecentReleaseWork[], page, hasMore: false, error: result.error.message };
-    const batch = (result.data ?? []) as Work[];
-    if (!batch.length) break;
-    const jobs = await jobRefs(batch.map((work) => work.id));
-    if (jobs.error) return { works: [] as RecentReleaseWork[], page, hasMore: false, error: jobs.error };
-    const usedWorkIds = new Set(jobs.jobs.map((job) => job.work_id));
-    eligible.push(...batch.filter((work) =>
-      sourceKindFor(work.sample_movie_url) === "official_sample"
-      && !usedWorkIds.has(work.id)
-      && isBijyoReservedQueueEligible(work.stage, work.release_date, todayDate)
-      && isBijyoReservedRegistrationRecent(work.created_at, now),
-    ));
-    batchOffset += batch.length;
-    if (batch.length < batchSize) break;
-  }
-  const pageWorks = eligible.slice(offset, offset + BIJYO_RESERVED_PAGE_SIZE).map((work) => ({
-    ...work,
-    manualEligible: isBijyoManualCandidate(work, { officialSample: true, hasExistingJob: false }),
-  }));
-  return { works: pageWorks, page, hasMore: eligible.length > offset + BIJYO_RESERVED_PAGE_SIZE, error: null };
 }
 
 export async function getBijyoDashboard(historyPage = 1, reservedPage = 1) {
@@ -171,16 +130,21 @@ class BijyoTrimValidationError extends Error {
 async function loadJob(jobId: number, workId?: number) {
   let jobResult = await supabaseAdmin.from("bijyo_reserved_post_jobs").select(JOB_SELECT).eq("account_handle", BIJYO_ACCOUNT).eq("id", jobId).maybeSingle();
   if (jobResult.error) return { job: null, error: jobResult.error.message };
-  if (!jobResult.data && Number.isSafeInteger(workId) && (workId ?? 0) > 0) {
+  if (!jobResult.data && isPositiveSafeWorkId(workId)) {
     jobResult = await supabaseAdmin.from("bijyo_reserved_post_jobs").select(JOB_SELECT).eq("account_handle", BIJYO_ACCOUNT).eq("work_id", workId).maybeSingle();
     if (jobResult.error) return { job: null, error: jobResult.error.message };
   }
   if (!jobResult.data) return { job: null, error: null };
   const job = jobResult.data as unknown as BijyoJob;
-  if (Number.isSafeInteger(workId) && (workId ?? 0) > 0 && job.work_id !== workId) return { job: null, error: "jobIdとworkIdの組み合わせが不正です。" };
+  if (isPositiveSafeWorkId(workId) && job.work_id !== workId) return { job: null, error: "jobIdとworkIdの組み合わせが不正です。" };
   const workResult = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("id", job.work_id).maybeSingle();
   if (workResult.error) return { job: null, error: workResult.error.message };
   return { job: { ...job, reply_text: buildBijyoReplyText(job.work_id), work: (workResult.data as Work | null) ?? null }, error: null };
+}
+
+function requireBijyoPreparationJob(loaded: Awaited<ReturnType<typeof loadJob>>) {
+  if (loaded.error || !loaded.job || !loaded.job.work) throw new BijyoVideoNotFoundError(loaded.error ?? "投稿候補が見つかりません。");
+  return { job: loaded.job, work: loaded.job.work as Work };
 }
 
 export async function getPreparedBijyoVideo(jobId: number, workId: number) {
@@ -204,9 +168,9 @@ export async function markBijyoPosted(jobId: number, xPostId: string) {
     postText: loaded.job.main_text,
     postDate: tokyoDate(),
     accountHandle: BIJYO_ACCOUNT,
-    xPostId,
     postIntent: "work_link",
     linkStrategy: "reply_link",
+    xPostId,
   });
   if (postLog.error) return { ok: false, error: postLog.error.message };
   const result = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ status: "manual_posted", posted_at: new Date().toISOString(), failure_reason: null }).eq("account_handle", BIJYO_ACCOUNT).eq("id", jobId).in("status", ["pending", "trim_failed"]).select("id").maybeSingle();
@@ -226,15 +190,18 @@ export async function skipBijyoFutureWork(workId: number, reason = "発売予定
   const workResult = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("id", workId).maybeSingle();
   const work = workResult.data as Work | null;
   const dateRange = recentReleaseDateRange();
-  if (workResult.error || !work || !(evaluateBijyoFutureOperation(work.stage, work.release_date, dateRange).eligible || isBijyoReservedQueueEligible(work.stage, work.release_date, dateRange.todayDate)) || !work.sample_movie_url || sourceKindFor(work.sample_movie_url) !== "official_sample") return { ok: false, error: "発売予定一覧の対象作品ではありません。" };
+  const officialSample = work?.sample_movie_url
+    ? sourceKindFor(work.sample_movie_url) === "official_sample"
+    : false;
+  if (workResult.error || !isBijyoFutureWorkSkipEligible(work, dateRange, officialSample)) return { ok: false, error: "発売予定一覧の対象作品ではありません。" };
   const existing = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id,status").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
   if (existing.error) return { ok: false, error: existing.error.message };
-  if (existing.data) return existing.data.status === "skipped" ? { ok: true, existing: true } : conflictResult(String(existing.data.status));
+  if (existing.data) return resolveExistingBijyoFutureSkip(String(existing.data.status), conflictResult);
   const inserted = await supabaseAdmin.from("bijyo_reserved_post_jobs").insert({ account_handle: BIJYO_ACCOUNT, work_id: work.id, kind: "auto", slot_date: work.release_date.slice(0, 10), slot_index: null, scheduled_at: new Date().toISOString(), idempotency_key: `bijyo1010:skip:${work.id}`, status: "skipped", main_text: buildBijyoMainText(work), reply_text: buildBijyoReplyText(work.id), skip_reason: reason }).select("id").single();
   if (!inserted.error) return { ok: true, existing: false };
   if (inserted.error.code !== "23505") return { ok: false, error: inserted.error.message };
   const raced = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id,status").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
-  return raced.data?.status === "skipped" ? { ok: true, existing: true } : raced.data ? conflictResult(String(raced.data.status)) : { ok: false, error: "同時更新を確認できませんでした。もう一度画面を更新してください。", code: "retry_required" };
+  return resolveBijyoFutureSkipInsertRace(raced.data, conflictResult);
 }
 
 export async function excludeBijyoJob(jobId: number) {
@@ -245,22 +212,18 @@ export async function excludeBijyoJob(jobId: number) {
 export async function createBijyoManualJob(workId: number): Promise<BijyoActionResult> {
   const workResult = await supabaseAdmin.from("works").select("id,title,stage,created_at,release_date,sample_movie_url,product_id").eq("id", workId).single();
   const work = workResult.data as Work | null;
-  if (workResult.error || !work || !isBijyoManualCandidate(work, { officialSample: Boolean(work.sample_movie_url) && sourceKindFor(work.sample_movie_url) === "official_sample", hasExistingJob: false })) return { ok: false, error: "この候補は手動追加できません。画面を更新してください。", code: "candidate_unavailable" };
+  const officialSample = work?.sample_movie_url
+    ? sourceKindFor(work.sample_movie_url) === "official_sample"
+    : false;
+  if (workResult.error || !isBijyoManualWorkEligible(work, officialSample)) return { ok: false, error: "この候補は手動追加できません。画面を更新してください。", code: "candidate_unavailable" };
   const existing = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id,status").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
   if (existing.error) return { ok: false, error: existing.error.message };
-  if (existing.data) {
-    const status = String(existing.data.status ?? "");
-    if (["pending", "trim_failed"].includes(status)) return { ok: true, jobId: Number(existing.data.id), existing: true };
-    return { ...conflictResult(status), jobId: Number(existing.data.id) };
-  }
+  if (existing.data) return resolveExistingBijyoManualJob(existing.data, conflictResult);
   const inserted = await supabaseAdmin.from("bijyo_reserved_post_jobs").insert({ account_handle: BIJYO_ACCOUNT, work_id: work.id, kind: "manual", slot_date: tokyoDate(), scheduled_at: new Date().toISOString(), idempotency_key: bijyoManualIdempotencyKey(work.id), status: "pending", main_text: buildBijyoMainText(work), reply_text: buildBijyoReplyText(work.id) }).select("id").single();
   if (!inserted.error) return { ok: true, jobId: Number(inserted.data.id), existing: false };
   if (inserted.error.code !== "23505") return { ok: false, error: inserted.error.message };
   const raced = await supabaseAdmin.from("bijyo_reserved_post_jobs").select("id,status").eq("account_handle", BIJYO_ACCOUNT).eq("work_id", work.id).maybeSingle();
-  if (raced.error || !raced.data) return { ok: false, error: "同時更新を確認できませんでした。もう一度画面を更新してください。", code: "retry_required" };
-  const status = String(raced.data.status ?? "");
-  if (!["pending", "trim_failed"].includes(status)) return { ...conflictResult(status), jobId: Number(raced.data.id) };
-  return { ok: true, jobId: Number(raced.data.id), existing: true };
+  return resolveBijyoManualJobInsertRace(raced.data, Boolean(raced.error), conflictResult);
 }
 
 // Scheduler compatibility entry point. The Bijyo admin page no longer creates daily candidates.
@@ -268,17 +231,18 @@ export async function runBijyoReservedSlot(...args: number[]) { void args; retur
 
 type PrepareBijyoVideoOptions = { mode?: "auto" | "manual"; trimStartSeconds?: unknown };
 
-async function performBijyoVideoPreparation(jobId: number, workId?: number, options: PrepareBijyoVideoOptions = {}) {
+async function loadBijyoPreparationJob(jobId: number, workId?: number) {
   let loaded = await loadJob(jobId, workId);
-  const resolvedWorkId = Number.isSafeInteger(workId) && (workId ?? 0) > 0 ? workId : undefined;
+  const resolvedWorkId = isPositiveSafeWorkId(workId) ? workId : undefined;
   if (!loaded.job && !loaded.error && resolvedWorkId !== undefined) {
     const ensured = await createBijyoManualJob(resolvedWorkId);
     if (!ensured.ok || !ensured.jobId) throw new BijyoVideoNotFoundError(ensured.error ?? "投稿候補が見つかりません。");
     loaded = await loadJob(ensured.jobId, workId);
   }
-  if (loaded.error || !loaded.job || !loaded.job.work) throw new BijyoVideoNotFoundError(loaded.error ?? "投稿候補が見つかりません。");
-  const job = loaded.job;
-  const work = job.work as Work;
+  return requireBijyoPreparationJob(loaded);
+}
+
+async function claimBijyoVideoPreparation(job: BijyoJob) {
   const previousTrimStatus = job.trim_status;
   const preparing = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_status: "preparing", trim_failure_reason: null })
     .eq("account_handle", BIJYO_ACCOUNT).eq("id", job.id).in("trim_status", ["not_ready", "trim_failed", "ready"]).select("id").maybeSingle();
@@ -288,37 +252,49 @@ async function performBijyoVideoPreparation(jobId: number, workId?: number, opti
     if (latest.data?.trim_status === "preparing") throw new Error("動画準備はすでに実行中です。完了後に画面を更新してください。");
     throw new BijyoVideoNotFoundError("動画準備の対象ジョブが見つかりません。画面を更新してください。");
   }
+  return previousTrimStatus;
+}
+
+async function buildPreparedBijyoVideo(job: BijyoJob, work: Work, options: PrepareBijyoVideoOptions) {
+  const trimPlan = await resolveBijyoTrimPlan({
+    mode: options.mode,
+    trimStartSeconds: job.trim_start_seconds,
+    requestedTrimStartSeconds: options.trimStartSeconds,
+    trimReason: job.trim_reason,
+    sourceUrl: work.sample_movie_url,
+  }, {
+    validate: validateTrimStartSeconds,
+    analyze: analyzeSampleMovie,
+    calculate: calculateBijyoTrimStart,
+  });
+  const { trimStartSeconds, reason } = trimPlan;
+  const trimmed = await trimVideoForX({ sourceUrl: work.sample_movie_url, trimStartSeconds });
+  if (trimmed.trimStartSeconds !== trimStartSeconds) throw new Error("トリム開始位置の検証に失敗しました。");
+  const bytes = await readAndCleanupTrimmedVideo(trimmed);
+  await cachePreparedBijyoVideo(work.id, bytes);
+  const saved = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_start_seconds: trimStartSeconds, trim_reason: reason, trim_status: "ready", trim_failure_reason: null }).eq("account_handle", BIJYO_ACCOUNT).eq("id", job.id);
+  if (saved.error) throw new Error(saved.error.message);
+  return { bytes, filename: `bijyo1010-${work.id}-trim-${trimStartSeconds.toFixed(1)}s.mp4` };
+}
+
+async function recordBijyoPreparationFailure(job: BijyoJob, previousTrimStatus: string, error: unknown): Promise<never> {
+  const reason = error instanceof Error ? error.message : String(error);
+  await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_status: previousTrimStatus === "ready" ? "ready" : "trim_failed", trim_failure_reason: reason }).eq("id", job.id);
+  if (reason.includes("開始秒")) throw new BijyoTrimValidationError(reason);
+  throw new Error(reason);
+}
+
+async function performBijyoVideoPreparation(jobId: number, workId?: number, options: PrepareBijyoVideoOptions = {}) {
+  const { job, work } = await loadBijyoPreparationJob(jobId, workId);
+  const previousTrimStatus = await claimBijyoVideoPreparation(job);
   try {
-    let trimStartSeconds: number;
-    let reason: string;
-    if (options.mode === "manual") {
-      const validation = validateTrimStartSeconds(options.trimStartSeconds);
-      if (!validation.ok) throw new BijyoTrimValidationError(validation.error);
-      trimStartSeconds = validation.value;
-      reason = "manual_override";
-    } else if (options.mode !== "auto" && job.trim_reason === "manual_override") {
-      trimStartSeconds = Number(job.trim_start_seconds);
-      reason = "manual_override";
-    } else {
-      const analysis = await analyzeSampleMovie({ sourceUrl: work.sample_movie_url, jacketUrl: null });
-      const calculated = calculateBijyoTrimStart(analysis, options.mode === "auto" ? 0 : job.trim_start_seconds);
-      trimStartSeconds = calculated.trimStartSeconds;
-      reason = calculated.reason;
-    }
-    const trimmed = await trimVideoForX({ sourceUrl: work.sample_movie_url, trimStartSeconds });
-    if (trimmed.trimStartSeconds !== trimStartSeconds) throw new Error("トリム開始位置の検証に失敗しました。");
-    const bytes = await readAndCleanupTrimmedVideo(trimmed);
-    await cachePreparedBijyoVideo(work.id, bytes);
-    const saved = await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_start_seconds: trimStartSeconds, trim_reason: reason, trim_status: "ready", trim_failure_reason: null }).eq("account_handle", BIJYO_ACCOUNT).eq("id", job.id);
-    if (saved.error) throw new Error(saved.error.message);
-    return { bytes, filename: `bijyo1010-${work.id}-trim-${trimStartSeconds.toFixed(1)}s.mp4` };
+    return await buildPreparedBijyoVideo(job, work, options);
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    await supabaseAdmin.from("bijyo_reserved_post_jobs").update({ trim_status: previousTrimStatus === "ready" ? "ready" : "trim_failed", trim_failure_reason: reason }).eq("id", job.id);
-    if (reason.includes("開始秒")) throw new BijyoTrimValidationError(reason);
-    throw new Error(reason);
+    return recordBijyoPreparationFailure(job, previousTrimStatus, error);
   }
 }
+
+
 
 export function prepareBijyoVideo(jobId: number, workId?: number, options: PrepareBijyoVideoOptions = {}) {
   return runBijyoPreparationOnce(jobId, () => performBijyoVideoPreparation(jobId, workId, options));

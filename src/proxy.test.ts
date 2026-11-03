@@ -7,8 +7,12 @@ import { proxy } from "./proxy.ts";
 
 const mutableEnv = process.env as Record<string, string | undefined>;
 
-function request(pathname: string, host = "127.0.0.1") {
-  return new NextRequest(`http://${host}${pathname}`);
+function request(
+  pathname: string,
+  host = "127.0.0.1",
+  method = "GET",
+) {
+  return new NextRequest(`http://${host}${pathname}`, { method });
 }
 
 test("allows the local production update runner health checks", async () => {
@@ -81,5 +85,37 @@ test("does not allow the local update runner from a non-loopback host", async ()
   } finally {
     if (originalNodeEnv === undefined) delete mutableEnv.NODE_ENV;
     else mutableEnv.NODE_ENV = originalNodeEnv;
+  }
+});
+
+test("allows only loopback POSTs for scheduled catalog updates", async () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalAdminUsername = process.env.ADMIN_USERNAME;
+  const originalAdminPassword = process.env.ADMIN_PASSWORD;
+  delete mutableEnv.ADMIN_USERNAME;
+  delete mutableEnv.ADMIN_PASSWORD;
+  mutableEnv.NODE_ENV = "production";
+
+  try {
+    const localPost = await proxy(
+      request("/api/admin/fanza-amateur-api-catalog", "127.0.0.1", "POST"),
+    );
+    const localGet = await proxy(
+      request("/api/admin/fanza-amateur-api-catalog", "127.0.0.1", "GET"),
+    );
+    const remotePost = await proxy(
+      request("/api/admin/fanza-amateur-api-catalog", "example.com", "POST"),
+    );
+
+    assert.equal(localPost.headers.get("x-middleware-next"), "1");
+    assert.equal(localGet.status, 503);
+    assert.equal(remotePost.status, 503);
+  } finally {
+    if (originalNodeEnv === undefined) delete mutableEnv.NODE_ENV;
+    else mutableEnv.NODE_ENV = originalNodeEnv;
+    if (originalAdminUsername === undefined) delete mutableEnv.ADMIN_USERNAME;
+    else mutableEnv.ADMIN_USERNAME = originalAdminUsername;
+    if (originalAdminPassword === undefined) delete mutableEnv.ADMIN_PASSWORD;
+    else mutableEnv.ADMIN_PASSWORD = originalAdminPassword;
   }
 });

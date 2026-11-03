@@ -20,12 +20,13 @@ function findLocalBrowserExecutable(): string {
     "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
     "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
     "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    chromium.executablePath(),
   ].filter((path): path is string => Boolean(path));
 
   const executablePath = candidates.find((path) => existsSync(path));
   if (!executablePath) {
     throw new Error(
-      "Chrome または Edge が見つかりません。PLAYWRIGHT_EXECUTABLE_PATH にブラウザの実行ファイルを設定してください。"
+      "Chrome、Edge、または Playwright Chromium が見つかりません。PLAYWRIGHT_BROWSERS_PATH または PLAYWRIGHT_EXECUTABLE_PATH を確認してください。"
     );
   }
 

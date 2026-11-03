@@ -1,24 +1,7 @@
 import { spawn } from "node:child_process";
-import { readFile, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
+import { readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
-
-async function findAvailablePort() {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.unref();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : null;
-      probe.close((error) => {
-        if (error) reject(error);
-        else if (port) resolve(port);
-        else reject(new Error("空きポートを取得できませんでした。"));
-      });
-    });
-  });
-}
+import { findAvailablePort, writeFileWithRetry } from "./local-admin-update-helpers.mjs";
 
 const port = await findAvailablePort();
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -41,21 +24,6 @@ const distDirPath = resolve(process.cwd(), distDirName);
 const tsconfigPath = resolve(process.cwd(), "tsconfig.json");
 const originalTsconfig = await readFile(tsconfigPath, "utf8");
 let interrupted = false;
-
-async function writeFileWithRetry(path, contents) {
-  let lastError;
-  for (let attempt = 1; attempt <= 20; attempt += 1) {
-    try {
-      await writeFile(path, contents, "utf8");
-      return;
-    } catch (error) {
-      lastError = error;
-      if (error?.code !== "EPERM" && error?.code !== "EBUSY") throw error;
-      await new Promise((resolveWait) => setTimeout(resolveWait, 250));
-    }
-  }
-  throw lastError;
-}
 
 const server = spawn(
   process.execPath,

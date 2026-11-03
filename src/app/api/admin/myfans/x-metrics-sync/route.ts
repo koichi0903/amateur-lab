@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildMyfansAdminErrorContext } from "@/lib/myfans/myfansAdminErrors";
 import { syncMyfansXPostMetrics } from "@/lib/myfansXMetricsSync";
 
 export const runtime = "nodejs";
@@ -9,7 +10,7 @@ export async function POST() {
     const result = await syncMyfansXPostMetrics();
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    console.error("myfans X metrics sync failed", error);
+    console.error("myfans X metrics sync failed", buildMyfansAdminErrorContext("x_metrics_sync_failed", error));
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "X投稿成績の同期に失敗しました。" },
       { status: 500 },

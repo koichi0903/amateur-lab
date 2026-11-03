@@ -10,13 +10,14 @@ import {
   failJob,
   JOBS,
 } from "@/lib/jobs";
-
-type PriceTarget = {
-  id: number;
-  product_id: string;
-  price: number | null;
-  list_price: number | null;
-};
+import {
+  recordExistingWorkPricePlans,
+  selectMissingPriceTargets,
+} from "./missingPriceTargetSelection";
+import type {
+  MissingPriceTarget as PriceTarget,
+  MissingPriceTargetCriteria,
+} from "./missingPriceTargetSelection";
 
 const PAGE_SIZE = 1000;
 
@@ -31,8 +32,10 @@ function resolveRunLimit(totalCount: number): number {
 
 async function loadPriceTargets(): Promise<PriceTarget[]> {
   const works: PriceTarget[] = [];
-  const productsWithPricePlans = new Set<string>();
-  const productsWithMissingPeriods = new Set<string>();
+  const criteria: MissingPriceTargetCriteria = {
+    productsWithPricePlans: new Set<string>(),
+    productsWithMissingPeriods: new Set<string>(),
+  };
 
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabase
@@ -42,10 +45,7 @@ async function loadPriceTargets(): Promise<PriceTarget[]> {
       .range(from, from + PAGE_SIZE - 1);
 
     if (error) throw error;
-    for (const row of data ?? []) {
-      productsWithPricePlans.add(row.product_id);
-      if (!row.period) productsWithMissingPeriods.add(row.product_id);
-    }
+    recordExistingWorkPricePlans(data ?? [], criteria);
     if (!data || data.length < PAGE_SIZE) break;
   }
 
@@ -59,18 +59,7 @@ async function loadPriceTargets(): Promise<PriceTarget[]> {
 
     if (error) throw error;
 
-    for (const work of data ?? []) {
-      if (
-        work.price == null ||
-        work.price <= 0 ||
-        work.list_price == null ||
-        work.list_price <= 0 ||
-        !productsWithPricePlans.has(work.product_id) ||
-        productsWithMissingPeriods.has(work.product_id)
-      ) {
-        works.push(work);
-      }
-    }
+    works.push(...selectMissingPriceTargets(data ?? [], criteria));
 
     if (!data || data.length < PAGE_SIZE) break;
   }

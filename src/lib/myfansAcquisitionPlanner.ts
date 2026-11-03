@@ -155,6 +155,19 @@ function isRecent(product: MyfansProduct) {
   return product.is_new || (Date.now() - new Date(product.created_at).getTime()) / 86_400_000 <= 14;
 }
 
+function isGrowthPoolCandidate(product: MyfansProduct, growthScore: number) {
+  return growthScore >= 55 || isRecent(product) || product.likes_count >= 100 || product.saves_count >= 30;
+}
+
+function isRevenuePoolCandidate(product: MyfansProduct, revenueScore: number) {
+  return isRegularMfcoAffiliateUrl(product.affiliate_url)
+    && (revenueScore >= 45 || product.reward_rate >= 30 || product.estimated_reward >= 1000);
+}
+
+function isLtvPoolCandidate(product: MyfansProduct, creatorProductCount: number, creatorLtvScore: number) {
+  return creatorLtvScore >= 45 || product.plan_signup_reward > 0 || product.recurring_reward_rate >= 15 || creatorProductCount >= 5;
+}
+
 function classifyPools(product: MyfansProduct, analytics: MyfansAnalytics) {
   const creatorProductCount = product.creator_id
     ? analytics.products.filter((item) => item.creator_id === product.creator_id).length
@@ -177,9 +190,9 @@ function classifyPools(product: MyfansProduct, analytics: MyfansAnalytics) {
   });
   return {
     scores,
-    growth: scores.growthScore >= 55 || isRecent(product) || product.likes_count >= 100 || product.saves_count >= 30,
-    revenue: isRegularMfcoAffiliateUrl(product.affiliate_url) && (scores.revenueScore >= 45 || product.reward_rate >= 30 || product.estimated_reward >= 1000),
-    ltv: scores.creatorLtvScore >= 45 || product.plan_signup_reward > 0 || product.recurring_reward_rate >= 15 || creatorProductCount >= 5,
+    growth: isGrowthPoolCandidate(product, scores.growthScore),
+    revenue: isRevenuePoolCandidate(product, scores.revenueScore),
+    ltv: isLtvPoolCandidate(product, creatorProductCount, scores.creatorLtvScore),
   };
 }
 

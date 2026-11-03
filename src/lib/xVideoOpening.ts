@@ -29,6 +29,24 @@ function isBlankIntroStart(sample: OpeningFrameSample) {
   return isBlackOrWhite && isLowInformationBlank(sample);
 }
 
+function hasStableBrightReturn(samples: OpeningBrightnessSample[], startIndex: number) {
+  const startSec = samples[startIndex].timeSec;
+  const stableUntil = startSec + BLACK_INTRO_STABLE_BRIGHT_SECONDS;
+  return samples
+    .filter((sample) => sample.timeSec >= startSec && sample.timeSec <= stableUntil)
+    .every((sample) => sample.brightness >= BLACK_INTRO_BRIGHT_THRESHOLD);
+}
+
+function stableBrightReturnAfterDarkIntro(samples: OpeningBrightnessSample[], darkEndIndex: number) {
+  for (let start = darkEndIndex + 1; start < samples.length; start += 1) {
+    if (samples[start].brightness < BLACK_INTRO_BRIGHT_THRESHOLD) continue;
+    if (hasStableBrightReturn(samples, start) && samples[start].timeSec <= BLACK_INTRO_MAX_TRIM_SECONDS) {
+      return Number(samples[start].timeSec.toFixed(1));
+    }
+  }
+  return 0;
+}
+
 /** Detects a dark, bright, or nearly single-colour low-information opening. */
 export function detectBlankIntroEnd(samples: OpeningFrameSample[], durationSec: number) {
   const ordered = [...samples]
@@ -57,12 +75,5 @@ export function detectBlackIntroEnd(samples: OpeningBrightnessSample[], duration
   while (darkEndIndex + 1 < ordered.length && ordered[darkEndIndex + 1].brightness < BLACK_INTRO_DARK_THRESHOLD) darkEndIndex += 1;
   const darkDuration = ordered[darkEndIndex].timeSec - ordered[0].timeSec;
   if (darkDuration < BLACK_INTRO_MIN_DARK_SECONDS) return 0;
-
-  for (let start = darkEndIndex + 1; start < ordered.length; start += 1) {
-    if (ordered[start].brightness < BLACK_INTRO_BRIGHT_THRESHOLD) continue;
-    const stableUntil = ordered[start].timeSec + BLACK_INTRO_STABLE_BRIGHT_SECONDS;
-    const stable = ordered.filter((sample) => sample.timeSec >= ordered[start].timeSec && sample.timeSec <= stableUntil).every((sample) => sample.brightness >= BLACK_INTRO_BRIGHT_THRESHOLD);
-    if (stable && ordered[start].timeSec <= BLACK_INTRO_MAX_TRIM_SECONDS) return Number(ordered[start].timeSec.toFixed(1));
-  }
-  return 0;
+  return stableBrightReturnAfterDarkIntro(ordered, darkEndIndex);
 }

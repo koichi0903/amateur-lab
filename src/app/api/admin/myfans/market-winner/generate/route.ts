@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { buildMyfansAdminErrorContext } from "@/lib/myfans/myfansAdminErrors";
 import { getMyfansAnalytics } from "@/lib/myfansAnalytics";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { buildMarketWinnerOpportunities } from "@/lib/myfansMarketWinnerServer";
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
     const result = await buildMarketWinnerOpportunities(analytics, approvedMediaId);
     return NextResponse.json({ ok: true, ...result }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    console.error("myfans market winner generation failed", error);
+    console.error("myfans market winner generation failed", buildMyfansAdminErrorContext("market_winner_generate_failed", error));
     return NextResponse.json({ error: "Winner候補の生成・更新に失敗しました。既存候補は変更されていない可能性があります。" }, { status: 500 });
   }
 }

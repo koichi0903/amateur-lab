@@ -1,12 +1,7 @@
 import { supabase } from "../../../lib/supabase";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import WorkDetailHero from "../../components/WorkDetailHero";
-import RelatedWorks from "../../components/RelatedWorks";
-import Breadcrumb from "@/app/components/Breadcrumb";
-import BreadcrumbJsonLd from "@/app/components/BreadcrumbJsonLd";
-import ProductJsonLd from "@/app/components/ProductJsonLd";
-import WorkPageViewTracker from "@/app/components/WorkPageViewTracker";
+import WorkDetailPageView from "./WorkDetailPageView";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 import { isOfficialSampleMovieUrl } from "@/lib/officialSampleMovie";
 import {
@@ -18,15 +13,14 @@ import { buildWorkMetaDescription } from "@/lib/workMetadata";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import type { Work } from "@/types/work";
-import Header from "@/components/layout/Header";
-import MobilePurchaseBar from "@/app/components/MobilePurchaseBar";
-import FanzaStyleWorkCard from "@/components/catalog/FanzaStyleWorkCard";
-import { parseDatabaseDate } from "@/lib/dateTime";
+import {
+  getPrimaryWorkEntity,
+  resolveWorkDetailPricePresentation,
+  selectCurrentPriceOffers,
+  selectPurchaseAlternatives,
+  splitWorkEntities,
+} from "@/lib/workDetailViewModel";
 
-
-function currentTimeMs() {
-  return Date.now();
-}
 
 type WorkDetail = Work & {
   sample_movie_url: string | null;
@@ -317,52 +311,20 @@ export default async function WorkDetailPage(
   const defaultPriceSeries = getSeoPilotDefaultPriceSeries(work.id);
   const { sampleImages, priceHistory, workPrices } =
     await getWorkDetailData(work.product_id, defaultPriceSeries);
-  const latestOffers = new Map<string, (typeof priceHistory)[number]>();
-  for (const offer of priceHistory ?? []) {
-    const key = `${offer.display_name ?? offer.type ?? ""}\u0000${offer.period ?? ""}`;
-    if (!latestOffers.has(key)) latestOffers.set(key, offer);
-  }
-  // Current offers are authoritative. History can contain plans that ended,
-  // so deriving the purchase list from it can resurrect stale price options.
-  const currentOffers = workPrices?.length
-    ? workPrices
-    : [...latestOffers.values()];
-
-  const splitEntities = (value: string | null) => value?.split(/\s*\/\s*|\s*／\s*|\s*,\s*|\s*、\s*/).filter(Boolean) ?? [];
-  const actresses = splitEntities(work.actress);
-  const genres = splitEntities(work.genre);
-  const makers = splitEntities(work.maker);
-  const series = splitEntities(work.series);
-  const saleActive = !work.sale_end_at || Date.parse(work.sale_end_at) > currentTimeMs();
-  const hasSaleEvidence =
-    saleActive &&
-    (work.is_on_sale || (work.sale_price != null && work.sale_price > 0) || (work.discount_rate != null && work.discount_rate > 0));
-  const representativePrice = hasSaleEvidence && work.sale_price > 0 ? work.sale_price : work.price;
-  const currentPrice = currentOffers.find((offer) =>
-    (offer.sale_price ?? offer.normal_price ?? 0) === representativePrice
-  ) ?? {
-    display_name: "代表価格",
-    type: null,
-    period: null,
-    normal_price: work.price,
-    sale_price: hasSaleEvidence ? work.sale_price || null : null,
-  };
-  const mobileDisplayPrice =
-    hasSaleEvidence && currentPrice.sale_price && currentPrice.sale_price > 0
-      ? currentPrice.sale_price
-      : currentPrice.normal_price;
-  const mobileDisplayDiscountRate =
-    hasSaleEvidence &&
-    currentPrice.sale_price &&
-    currentPrice.normal_price &&
-    mobileDisplayPrice &&
-    currentPrice.normal_price > mobileDisplayPrice
-      ? Math.round((1 - mobileDisplayPrice / currentPrice.normal_price) * 100)
-      : hasSaleEvidence ? work.discount_rate : 0;
-  const mainActress = actresses[0] ?? "";
-  const mainGenre = genres[0] ?? "";
-  const mainMaker = makers[0] ?? "";
-  const mainSeries = series[0] ?? "";
+  const currentOffers = selectCurrentPriceOffers(priceHistory, workPrices);
+  const actresses = splitWorkEntities(work.actress);
+  const genres = splitWorkEntities(work.genre);
+  const makers = splitWorkEntities(work.maker);
+  const series = splitWorkEntities(work.series);
+  const {
+    currentPrice,
+    mobileDisplayPrice,
+    mobileDisplayDiscountRate,
+  } = resolveWorkDetailPricePresentation(work, currentOffers);
+  const mainActress = getPrimaryWorkEntity(actresses);
+  const mainGenre = getPrimaryWorkEntity(genres);
+  const mainMaker = getPrimaryWorkEntity(makers);
+  const mainSeries = getPrimaryWorkEntity(series);
   const relatedWorks = await getRelatedWorks(
     work.id,
     mainActress,
@@ -371,99 +333,24 @@ export default async function WorkDetailPage(
     mainMaker,
   );
 
-  const purchaseAlternatives = (relatedWorks ?? []).filter((candidate) => {
-    const saleEnd = parseDatabaseDate(candidate.sale_end_at)?.getTime();
-    const saleExpired = candidate.sale_price > 0 &&
-      Boolean(candidate.sale_end_at) &&
-      (saleEnd == null || saleEnd <= currentTimeMs());
-    const price = !saleExpired && candidate.sale_price > 0 && candidate.sale_price < candidate.price
-      ? candidate.sale_price
-      : candidate.price;
-    return Boolean(
-      mobileDisplayPrice &&
-      price > 0 &&
-      price < mobileDisplayPrice &&
-      candidate.review_count >= 10 &&
-      candidate.review_average > 0,
-    );
-  }).slice(0, 3);
-  const purchaseAlternativeIds = new Set(purchaseAlternatives.map((candidate) => candidate.id));
-
+  const purchaseAlternatives = selectPurchaseAlternatives(
+    relatedWorks,
+    mobileDisplayPrice,
+  );
   return (
-  <>
-  <Header />
-  <main className="min-h-screen bg-gray-100 py-8 pb-24 md:pb-8">
-    <WorkPageViewTracker
-      workId={work.id}
-      price={mobileDisplayPrice ?? null}
-      discountRate={mobileDisplayDiscountRate ?? null}
-      discoveryScore={null}
-      ranking={typeof work.ranking === "number" ? work.ranking : null}
+    <WorkDetailPageView
+      work={work}
+      sampleImages={sampleImages}
+      sampleMovieUrl={work.sample_movie_url}
+      officialSampleEmbedUrl={getOfficialSampleEmbedUrl(work)}
+      priceHistory={priceHistory}
+      defaultPriceSeries={defaultPriceSeries}
+      relatedWorks={relatedWorks}
+      purchaseAlternatives={purchaseAlternatives}
+      currentPrice={currentPrice}
+      mainMaker={mainMaker}
+      displayPrice={mobileDisplayPrice}
+      discountRate={mobileDisplayDiscountRate}
     />
-    <div className="mx-auto max-w-[1500px] px-4 sm:px-6">
-
-      <Breadcrumb
-        variant="compact"
-        items={[
-          { label: "ホーム", href: "/" },
-          ...(mainMaker ? [{ label: mainMaker, href: `/maker/${encodeURIComponent(mainMaker)}` }] : []),
-          { label: work.title },
-        ]}
-      />
-
-      <BreadcrumbJsonLd
-        items={[
-          { name: "TOP", url: "/" },
-          { name: work.title, url: `/works/${work.id}` },
-        ]}
-      />
-
-      <ProductJsonLd work={work} />
-
-      {/* Hero */}
-      <section className="mt-0 p-0 sm:p-8">
-<WorkDetailHero
-  key={work.id}
-  work={work}
-  sampleImages={sampleImages ?? []}
-  sampleMovieUrl={work.sample_movie_url}
-  officialSampleEmbedUrl={getOfficialSampleEmbedUrl(work)}
-  priceHistory={priceHistory ?? []}
-  defaultPriceSeries={defaultPriceSeries}
-  displayPrice={mobileDisplayPrice ?? null}
-  regularPrice={currentPrice.normal_price ?? work.price ?? null}
-  discountRate={mobileDisplayDiscountRate}
-/>
-      </section>
-
-      {purchaseAlternatives.length > 0 && (
-        <section className="mt-8" aria-labelledby="purchase-alternatives-title">
-          <div className="mb-4">
-            <h2 id="purchase-alternatives-title" className="text-xl font-black text-zinc-900">価格を抑えて選びたい方へ</h2>
-            <p className="mt-1 text-sm text-slate-600">表示中の作品より価格が低く、レビューが10件以上ある関連作品です。</p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-3">
-            {purchaseAlternatives.map((candidate) => (
-              <FanzaStyleWorkCard
-                key={`purchase-alternative-${candidate.id}`}
-                work={candidate}
-                sourcePage="direct"
-                showChart={false}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      <RelatedWorks works={(relatedWorks ?? []).filter((candidate) => !purchaseAlternativeIds.has(candidate.id))} />
-
-    </div>
-  </main>
-  <MobilePurchaseBar
-    work={work}
-    displayPrice={mobileDisplayPrice}
-    displayDiscountRate={mobileDisplayDiscountRate}
-  />
-  </>
-);
+  );
 }

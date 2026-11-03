@@ -8,6 +8,8 @@ import {
 import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
 import { getSaleItems } from "@/lib/playwright/getSaleItems";
 import { notifyPriceAlertsForProducts } from "@/lib/pushNotifications";
+import { processSaleWorkBatch } from "./saleWorkBatch";
+import { collectSaleWorks } from "./saleWorkQuery";
 
 import {
   beginJob,
@@ -42,22 +44,10 @@ const saleIds = new Set(
   products.map((p) => p.productId)
 );
 
-const allWorks: {
-  product_id: string;
-  url: string | null;
-  price: number | null;
-  sale_price: number | null;
-  is_on_sale: boolean | null;
-  sale_end_at: string | null;
-}[] = [];
-
 console.log("③ worksテーブル取得開始");
-
-let from = 0;
-const pageSize = 1000;
-
-while (true) {
-  const { data, error } = await supabase
+const { allWorks, works } = await collectSaleWorks(
+  saleIds,
+  async (from, to) => supabase
     .from("works")
     .select(`
       product_id,
@@ -68,32 +58,11 @@ while (true) {
       sale_end_at
     `)
     .order("product_id")
-    .range(from, from + pageSize - 1);
-
-  if (error) {
-    throw error;
-  }
-
-  if (!data || data.length === 0) {
-    break;
-  }
-
-  allWorks.push(...data);
-
-  if (data.length < pageSize) {
-    break;
-  }
-
-  from += pageSize;
-}
+    .range(from, to),
+);
 
 console.log("④ works取得完了");
 console.log("works総数 =", allWorks.length);
-
-const works =
-  (allWorks ?? []).filter((work) =>
-    saleIds.has(work.product_id)
-  );
 
 console.log("⑤ セール抽出完了");
 console.log("Playwright取得 =", products.length);
@@ -145,35 +114,15 @@ console.log("targets =", targets.length);
         i + UPDATE_CONFIG.parallel
       );
 
-      const results = await Promise.all(
-  batch.map(async (work) => {
-    const needsPlaywright =
-      !work.sale_price ||
-      !work.sale_end_at;
-
-    if (!needsPlaywright) {
-      return true;
-    }
-
-    console.log(
-      `▶ Playwright価格更新 ${work.product_id}`
-    );
-
-    try {
-      const result = await updatePlaywrightItem(
-        work.product_id,
-        work.url,
-        browser,
-        work.price
+      const results = await processSaleWorkBatch(
+        batch,
+        async (work) => {
+          console.log(`▶ Playwright価格更新 ${work.product_id}`);
+          return updatePlaywrightItem(work.product_id, work.url, browser, work.price);
+        },
+        (productId) => updatedWorkIds.push(productId),
+        (work, error) => console.error(`[SALE_UPDATE_ERROR] ${work.product_id}`, error),
       );
-      if (result === "updated") updatedWorkIds.push(work.product_id);
-      return true;
-    } catch (error) {
-      console.error(`[SALE_UPDATE_ERROR] ${work.product_id}`, error);
-      return false;
-    }
-  })
-);
 
       succeeded += results.filter(Boolean).length;
       failed += results.filter((result) => !result).length;

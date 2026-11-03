@@ -39,3 +39,18 @@ const strongerIncomingImage = mergePersistedQuoteMediaEvidence(existingVideo, {
 });
 assert.equal(strongerIncomingImage.media_type, "image");
 assert.equal(strongerIncomingImage.media_permalink, "https://x.com/creator/status/1/photo/1");
+
+const unverifiedVideo = {
+  media_type: "video",
+  media_permalink: null,
+  media_count: 0,
+  quote_visual_ready: false,
+  media_permalink_validation_status: "not_media",
+  media_permalink_verified_at: null,
+  visual_score: 0,
+  has_image: false,
+  has_video: false,
+};
+const savedVideoEvidence = { ...unverifiedVideo, has_video: true };
+assert.equal(mergePersistedQuoteMediaEvidence(unverifiedVideo, savedVideoEvidence).has_video, true);
+assert.deepEqual(mergePersistedQuoteMediaEvidence(savedVideoEvidence, unverifiedVideo), savedVideoEvidence);

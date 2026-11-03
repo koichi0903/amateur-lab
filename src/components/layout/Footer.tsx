@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -31,7 +32,7 @@ export default function Footer() {
                 <p className="mt-1 text-slate-300">当サイトはFANZA(DMM)のアフィリエイトプログラムに参加しています。</p>
               </div>
               <a href="https://affiliate.dmm.com/api/" target="_blank" rel="nofollow sponsored noopener noreferrer" className="shrink-0 opacity-90 transition hover:opacity-100">
-                <img src="https://p.dmm.co.jp/p/affiliate/web_service/r18_135_17.gif" width="135" height="17" alt="WEB SERVICE BY FANZA" />
+                <Image src="https://p.dmm.co.jp/p/affiliate/web_service/r18_135_17.gif" width={135} height={17} unoptimized alt="WEB SERVICE BY FANZA" />
               </a>
             </div>
           </div>

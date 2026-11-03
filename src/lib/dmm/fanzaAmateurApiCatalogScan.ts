@@ -1,32 +1,25 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { FANZA_AMATEUR_FLOOR, getFanzaAmateurAffiliateId } from "@/lib/dmm/fanzaAmateurCatalog";
-import {
-  extractFanzaAmateurPriceHistoryRows,
-  selectChangedFanzaAmateurPriceHistoryRowsByWork,
-} from "@/lib/dmm/fanzaAmateurPriceHistory";
+import { normalizeFanzaAmateurCatalogItem } from "@/lib/dmm/fanzaAmateurCatalog";
 import { notifyAmateurMakerAlertsForContentIds, notifyAmateurPriceAlertsForContentIds } from "@/lib/pushNotifications";
+import { buildFanzaAmateurApiCatalogPageProgress, splitFanzaAmateurApiDateRange } from "@/lib/dmm/fanzaAmateurApiCatalogRange";
+import { buildFanzaAmateurApiPopularityPagePlan } from "@/lib/dmm/fanzaAmateurApiPopularityRank";
+import { buildFanzaAmateurWeeklyPriceSnapshotRows } from "@/lib/dmm/fanzaAmateurWeeklyPriceSnapshots";
+import { catalogContentIds, catalogItemChangeIds, countInvalidCatalogContentIds, observedCatalogItemKeyPaths } from "@/lib/dmm/fanzaAmateurApiCatalogPage";
+import { fetchFanzaAmateurApiItemListPage, safeFanzaAmateurApiError } from "@/lib/dmm/fanzaAmateurApiItemListRequest";
 
 const PAGE_SIZE = 100;
 const API_OFFSET_LIMIT = 5_000;
 const API_RANGE_LIMIT = 5_000;
-const API_ROOT = "https://api.dmm.com/affiliate/v3/ItemList";
-const RUN_FIELDS = "id,status,run_type,source_sort,total_count,next_offset,fetched_item_count,observed_item_key_paths,last_error,started_at,updated_at,completed_at,pending_ranges,current_range,expected_item_count,completed_range_count,range_count";
+const POPULARITY_RANK_LIMIT = 5_000;
+const DAILY_PRICE_HISTORY_BATCH_SIZE = 1_000;
+const RUN_FIELDS = "id,status,run_type,source_sort,total_count,next_offset,fetched_item_count,observed_item_key_paths,last_error,started_at,updated_at,completed_at,pending_ranges,current_range,expected_item_count,completed_range_count,range_count,rank_next_offset,rank_fetched_item_count,rank_total_count,rank_snapshot_at";
 
 export type FanzaAmateurRunType = "daily_incremental" | "weekly_full";
 type DateRange = { fromDate: string; toDate: string };
 type ActiveDateRange = DateRange & { offset: number; expectedCount: number | null };
 type ApiItem = Record<string, unknown> & { content_id?: unknown };
-type ItemListResponse = {
-  result?: {
-    status?: number | string;
-    total_count?: number | string;
-    result_count?: number | string;
-    items?: unknown;
-  };
-};
-
 export type FanzaAmateurApiCatalogRun = {
   id: string;
   status: "running" | "completed" | "limit_reached" | "needs_attention" | "failed";
@@ -45,6 +38,10 @@ export type FanzaAmateurApiCatalogRun = {
   expected_item_count: number;
   completed_range_count: number;
   range_count: number;
+  rank_next_offset: number;
+  rank_fetched_item_count: number;
+  rank_total_count: number | null;
+  rank_snapshot_at: string | null;
 };
 
 function asCount(value: unknown): number | null {
@@ -56,80 +53,15 @@ function asText(value: unknown): string | null {
   return typeof value === "string" || typeof value === "number" ? String(value) : null;
 }
 
-function collectItemKeyPaths(value: unknown, prefix = "", paths = new Set<string>()): Set<string> {
-  if (Array.isArray(value)) {
-    const arrayPath = `${prefix}[]`;
-    paths.add(arrayPath);
-    for (const entry of value) collectItemKeyPaths(entry, arrayPath, paths);
-    return paths;
-  }
-  if (value && typeof value === "object") {
-    if (prefix) paths.add(prefix);
-    for (const [key, entry] of Object.entries(value)) {
-      collectItemKeyPaths(entry, prefix ? `${prefix}.${key}` : key, paths);
-    }
-    return paths;
-  }
-  if (prefix) paths.add(prefix);
-  return paths;
-}
-
-function jstDateOffset(days: number) {
-  const now = new Date();
-  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  jst.setUTCHours(0, 0, 0, 0);
-  jst.setUTCDate(jst.getUTCDate() + days);
-  return jst.toISOString().slice(0, 10);
-}
-
-function rangeParams(range: DateRange) {
-  return {
-    gte_date: `${range.fromDate}T00:00:00`,
-    lte_date: `${range.toDate}T23:59:59`,
-  };
-}
-
-function splitDateRange(range: DateRange): [DateRange, DateRange] | null {
-  const start = Date.parse(`${range.fromDate}T00:00:00Z`);
-  const end = Date.parse(`${range.toDate}T00:00:00Z`);
-  const days = Math.floor((end - start) / 86_400_000) + 1;
-  if (!Number.isFinite(days) || days < 2) return null;
-  const leftDays = Math.floor(days / 2);
-  const middle = new Date(start + (leftDays - 1) * 86_400_000).toISOString().slice(0, 10);
-  const rightStart = new Date(start + leftDays * 86_400_000).toISOString().slice(0, 10);
-  return [
-    { fromDate: range.fromDate, toDate: middle },
-    { fromDate: rightStart, toDate: range.toDate },
-  ];
-}
-
-function safeApiError(response: Response, payload: ItemListResponse) {
-  return `DMM APIの取得に失敗しました（HTTP ${response.status} / API ${String(payload.result?.status ?? response.status)}）。`;
-}
-
 async function fetchApiPage(range: DateRange, offset: number) {
-  const apiId = process.env.DMM_API_ID?.trim();
-  if (!apiId) throw new Error("DMM API IDが設定されていません。");
-  const params = new URLSearchParams({
-    api_id: apiId,
-    affiliate_id: getFanzaAmateurAffiliateId(),
-    site: "FANZA",
-    service: "digital",
-    floor: FANZA_AMATEUR_FLOOR,
-    hits: String(PAGE_SIZE),
-    offset: String(offset),
+  const { response, payload, rawItems } = await fetchFanzaAmateurApiItemListPage({
+    offset,
+    hits: PAGE_SIZE,
     sort: "date",
-    output: "json",
-    ...rangeParams(range),
+    range,
   });
-  const response = await fetch(`${API_ROOT}?${params}`, {
-    cache: "no-store",
-    signal: AbortSignal.timeout(20_000),
-  });
-  const payload = await response.json().catch(() => ({})) as ItemListResponse;
-  const rawItems = payload.result?.items;
   if (!response.ok || String(payload.result?.status ?? "200") !== "200" || !Array.isArray(rawItems)) {
-    throw new Error(safeApiError(response, payload));
+    throw new Error(safeFanzaAmateurApiError(response.status, payload));
   }
   return { payload, rawItems: rawItems as ApiItem[] };
 }
@@ -157,6 +89,9 @@ export async function getLatestFanzaAmateurApiCatalogRun(runType?: FanzaAmateurR
 }
 
 export async function startFanzaAmateurApiCatalogRun(runType: FanzaAmateurRunType) {
+  if (runType !== "weekly_full") {
+    throw new Error("新規取得は全作品の再照合のみ実行できます。日次新作補完は終了しました。");
+  }
   let current = await getActiveFanzaAmateurApiCatalogRun();
   if (current && isLegacyRunningRun(current)) {
     const now = new Date().toISOString();
@@ -164,7 +99,7 @@ export async function startFanzaAmateurApiCatalogRun(runType: FanzaAmateurRunTyp
       .from("fanza_amateur_api_catalog_runs")
       .update({
         status: "needs_attention",
-        last_error: "旧50,000件スキャナーの途中状態です。取得済み履歴は保持し、新方式の全件補完を開始してください。",
+        last_error: "旧50,000件スキャナーの途中状態です。取得済み履歴は保持し、新方式では再開せず、新しい週次全件補完を開始してください。",
         updated_at: now,
         completed_at: now,
       })
@@ -182,9 +117,7 @@ export async function startFanzaAmateurApiCatalogRun(runType: FanzaAmateurRunTyp
     throw new Error("別の素人作品補完が実行中です。先に現在の補完を完了または一時停止してください。");
   }
 
-  const initialRange: DateRange = runType === "weekly_full"
-    ? { fromDate: "1900-01-01", toDate: "2100-12-31" }
-    : { fromDate: jstDateOffset(-7), toDate: jstDateOffset(7) };
+  const initialRange: DateRange = { fromDate: "1900-01-01", toDate: "2100-12-31" };
   const { data, error } = await supabaseAdmin
     .from("fanza_amateur_api_catalog_runs")
     .insert({
@@ -215,17 +148,26 @@ export function isLegacyRunningRun(run: FanzaAmateurApiCatalogRun) {
 }
 
 async function persistRun(run: FanzaAmateurApiCatalogRun, updates: Record<string, unknown>) {
-  const { data, error } = await supabaseAdmin
-    .from("fanza_amateur_api_catalog_runs")
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq("id", run.id)
-    .eq("status", "running")
-    .eq("updated_at", run.updated_at)
-    .select(RUN_FIELDS)
-    .maybeSingle();
+  const persistCatalogRun = supabaseAdmin.rpc as unknown as (
+    functionName: string,
+    args: {
+      p_run_id: string;
+      p_expected_updated_at: string;
+      p_updates: Record<string, unknown>;
+    },
+  ) => Promise<{ data: unknown; error: { message: string } | null }>;
+  const { data, error } = await persistCatalogRun(
+    "persist_fanza_amateur_api_catalog_run",
+    {
+      p_run_id: run.id,
+      p_expected_updated_at: run.updated_at,
+      p_updates: updates,
+    },
+  );
   if (error) throw new Error(`補完の進捗を保存できませんでした: ${error.message}`);
-  if (!data) throw new Error("補完ジョブの状態が変わりました。画面を再読み込みしてください。");
-  return data as FanzaAmateurApiCatalogRun;
+  const updatedRun = Array.isArray(data) ? data[0] : data;
+  if (!updatedRun) throw new Error("補完ジョブの状態が変わりました。画面を再読み込みしてください。");
+  return updatedRun as FanzaAmateurApiCatalogRun;
 }
 
 function workRowsFor(run: FanzaAmateurApiCatalogRun, range: ActiveDateRange, rawItems: ApiItem[], fetchedAt: string) {
@@ -264,27 +206,15 @@ function workRowsFor(run: FanzaAmateurApiCatalogRun, range: ActiveDateRange, raw
 }
 
 async function finishRun(run: FanzaAmateurApiCatalogRun) {
-  const { count: savedWorkCount, error: savedWorkError } = await supabaseAdmin
-    .from("fanza_amateur_works")
+  const { count, error } = await supabaseAdmin
+    .from("fanza_amateur_api_catalog_items")
     .select("content_id", { count: "exact", head: true })
-    .eq("source_run_id", run.id);
-  if (savedWorkError) throw new Error(`今回の補完で保存した作品を確認できませんでした: ${savedWorkError.message}`);
-
-  const hasUnfinishedRanges = Boolean(run.current_range) || (run.pending_ranges?.length ?? 0) > 0;
-  const hasRangeCountMismatch = run.completed_range_count !== run.range_count;
-  const hasApiCountMismatch = run.fetched_item_count !== run.expected_item_count;
-  const hasNoSavedWorks = run.expected_item_count > 0 && (savedWorkCount ?? 0) === 0;
-  if (hasUnfinishedRanges || hasRangeCountMismatch || hasApiCountMismatch || hasNoSavedWorks) {
-    const reason = hasUnfinishedRanges
-      ? "未処理の検索範囲が残っています"
-      : hasRangeCountMismatch
-        ? `完了範囲(${run.completed_range_count}/${run.range_count})が一致しません`
-        : hasApiCountMismatch
-          ? `API件数(${run.expected_item_count})と実取得件数(${run.fetched_item_count})が一致しません`
-          : `作品テーブルに今回の保存作品が見つかりません（取得${run.fetched_item_count}件）`;
+    .eq("run_id", run.id);
+  if (error) throw new Error(`走査済み件数を確認できませんでした: ${error.message}`);
+  if ((count ?? 0) !== run.expected_item_count) {
     return persistRun(run, {
       status: "needs_attention",
-      last_error: `${reason}。欠落を防ぐため、掲載終了判定は保留しました。`,
+      last_error: `分割検索の件数(${run.expected_item_count})と保存した作品ID数(${count ?? 0})が一致しません。欠落を防ぐため、掲載終了判定は保留しました。`,
       completed_at: new Date().toISOString(),
     });
   }
@@ -308,210 +238,276 @@ async function finishRun(run: FanzaAmateurApiCatalogRun) {
     if (candidateError) throw new Error(`未掲載候補を記録できませんでした: ${candidateError.message}`);
   }
 
-  const { error: pruneError } = await supabaseAdmin.rpc("prune_fanza_amateur_price_history");
-  if (pruneError) throw new Error(`1年を超えた素人価格履歴を整理できませんでした: ${pruneError.message}`);
+  if (run.run_type !== "weekly_full") {
+    return persistRun(run, { status: "completed", last_error: null, completed_at: new Date().toISOString() });
+  }
 
-  return persistRun(run, { status: "completed", last_error: null, completed_at: new Date().toISOString() });
+  return persistRun(run, {
+    rank_next_offset: 1,
+    rank_fetched_item_count: 0,
+    rank_total_count: null,
+    rank_snapshot_at: new Date().toISOString(),
+    last_error: null,
+  });
+}
+
+async function savePopularityRankRows(run: FanzaAmateurApiCatalogRun, capturedAt: string, rankRows: Array<{ rank: number; content_id: string }>) {
+  if (rankRows.length === 0) return;
+  const { data, error } = await supabaseAdmin.rpc("save_fanza_amateur_rank_snapshot_page", {
+    p_run_id: run.id,
+    p_captured_at: capturedAt,
+    p_items: rankRows,
+  });
+  if (error) throw new Error(`人気順位を保存できませんでした: ${error.message}`);
+  if (Number(data) !== rankRows.length) throw new Error("保存した人気順位の件数が取得件数と一致しませんでした。");
+}
+
+async function assertPopularityRankSnapshotCount(run: FanzaAmateurApiCatalogRun, targetCount: number) {
+  const { count, error } = await supabaseAdmin
+    .from("fanza_amateur_rank_snapshot_items")
+    .select("rank", { count: "exact", head: true })
+    .eq("run_id", run.id);
+  if (error) throw new Error(`保存済み順位を確認できませんでした: ${error.message}`);
+  if ((count ?? 0) !== targetCount) throw new Error(`順位保存件数が一致しません（必要${targetCount}件 / 保存${count ?? 0}件）。`);
+}
+
+async function commitDailyPriceHistoryBatches(runId: string) {
+  const commitPriceHistoryBatch = supabaseAdmin.rpc as unknown as (
+    functionName: string,
+    args: { p_run_id: string; p_after_content_id: string | null; p_batch_size: number },
+  ) => Promise<{ data: unknown; error: { message: string } | null }>;
+  let priceHistoryCursor: string | null = null;
+  let priceHistoryBatchCount = 0;
+  let priceHistoryDone = false;
+  while (!priceHistoryDone) {
+    const { data, error: priceHistoryError } = await commitPriceHistoryBatch(
+      "commit_fanza_amateur_daily_price_history_batch",
+      { p_run_id: runId, p_after_content_id: priceHistoryCursor, p_batch_size: DAILY_PRICE_HISTORY_BATCH_SIZE },
+    );
+    if (priceHistoryError) {
+      throw new Error(`日次価格履歴の分割保存に失敗しました（バッチ${priceHistoryBatchCount + 1}）: ${priceHistoryError.message}`);
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new Error("日次価格履歴の分割保存から有効な進捗が返りませんでした。");
+    }
+    const batch = data as { next_cursor?: unknown; done?: unknown };
+    if (typeof batch.done !== "boolean" || (batch.next_cursor !== null && typeof batch.next_cursor !== "string")) {
+      throw new Error("日次価格履歴の分割保存から不正な進捗が返りました。");
+    }
+    if (batch.next_cursor === priceHistoryCursor && !batch.done) {
+      throw new Error("日次価格履歴の分割保存位置が進まなかったため停止しました。");
+    }
+    priceHistoryCursor = batch.next_cursor as string | null;
+    priceHistoryDone = batch.done;
+    priceHistoryBatchCount += 1;
+    if (priceHistoryBatchCount > 200) throw new Error("日次価格履歴の分割保存が200バッチを超えたため停止しました。");
+  }
+}
+
+async function finishPopularityRankRun(run: FanzaAmateurApiCatalogRun, nextOffset: number, fetchedCount: number, expectedTotalCount: number) {
+  await assertPopularityRankSnapshotCount(run, Math.min(POPULARITY_RANK_LIMIT, expectedTotalCount));
+  await commitDailyPriceHistoryBatches(run.id);
+  return persistRun(run, {
+    rank_next_offset: nextOffset,
+    rank_fetched_item_count: fetchedCount,
+    rank_total_count: expectedTotalCount,
+    status: "completed",
+    last_error: null,
+    completed_at: new Date().toISOString(),
+  });
+}
+
+async function fetchNextPopularityRankPage(run: FanzaAmateurApiCatalogRun) {
+  const { response, payload, rawItems } = await fetchFanzaAmateurApiItemListPage({
+    offset: run.rank_next_offset,
+    hits: PAGE_SIZE,
+    sort: "rank",
+  });
+  const result = payload.result;
+  if (!response.ok || String(result?.status ?? "200") !== "200" || !Array.isArray(rawItems)) {
+    throw new Error(`人気順取得に失敗しました（${safeFanzaAmateurApiError(response.status, payload)}）`);
+  }
+  const items = rawItems as ApiItem[];
+  const plan = buildFanzaAmateurApiPopularityPagePlan({
+    run,
+    items,
+    totalCount: asCount(result?.total_count),
+    rankLimit: POPULARITY_RANK_LIMIT,
+    capturedAtFallback: new Date().toISOString(),
+  });
+  await savePopularityRankRows(run, plan.capturedAt, plan.rankRows);
+
+  if (plan.complete) {
+    return finishPopularityRankRun(run, plan.nextOffset, plan.fetchedCount, plan.expectedTotalCount);
+  }
+
+  return persistRun(run, {
+    rank_next_offset: plan.nextOffset,
+    rank_fetched_item_count: plan.fetchedCount,
+    rank_total_count: plan.expectedTotalCount,
+    rank_snapshot_at: plan.capturedAt,
+    last_error: null,
+  });
+}
+
+async function activateNextCatalogRange(run: FanzaAmateurApiCatalogRun) {
+  const pendingRanges = [...(run.pending_ranges ?? [])];
+  const currentRange = run.current_range;
+  if (currentRange) return { run, activeRange: currentRange, pendingRanges, exhausted: false };
+  const nextRange = pendingRanges.shift();
+  if (!nextRange) return { run, activeRange: null, pendingRanges, exhausted: true };
+  const activeRange = { ...nextRange, offset: 1, expectedCount: null };
+  const updatedRun = await persistRun(run, { current_range: activeRange, pending_ranges: pendingRanges, next_offset: 1 });
+  return { run: updatedRun, activeRange: updatedRun.current_range, pendingRanges, exhausted: false };
+}
+
+async function handleCatalogOffsetLimit(run: FanzaAmateurApiCatalogRun, activeRange: ActiveDateRange) {
+  if (activeRange.offset <= API_OFFSET_LIMIT) return null;
+  return persistRun(run, {
+    status: "needs_attention",
+    last_error: `この期間の取得位置がoffset上限${API_OFFSET_LIMIT}を超えました。期間をさらに分割する必要があります。`,
+    completed_at: new Date().toISOString(),
+  });
+}
+
+async function handleCatalogRangeCountLimit(
+  run: FanzaAmateurApiCatalogRun,
+  activeRange: ActiveDateRange,
+  pendingRanges: DateRange[],
+  totalCount: number,
+) {
+  if (activeRange.expectedCount === null && totalCount > API_RANGE_LIMIT) {
+    const split = splitFanzaAmateurApiDateRange(activeRange);
+    if (!split) {
+      return persistRun(run, {
+        status: "needs_attention",
+        last_error: `${activeRange.fromDate}〜${activeRange.toDate}だけで${totalCount.toLocaleString("ja-JP")}件あり、offset上限${API_OFFSET_LIMIT}以内に収まりません。日付より細かく分けるAPI条件が必要です。掲載終了判定は行っていません。`,
+        completed_at: new Date().toISOString(),
+      });
+    }
+    return persistRun(run, {
+      current_range: null,
+      pending_ranges: [...split, ...pendingRanges],
+      next_offset: 1,
+      last_error: null,
+    });
+  }
+  if (activeRange.expectedCount !== null && totalCount > API_RANGE_LIMIT) {
+    return persistRun(run, {
+      status: "needs_attention",
+      last_error: `走査中に期間件数が${API_RANGE_LIMIT}を超えました。件数が安定していないため、掲載終了判定は行っていません。`,
+      completed_at: new Date().toISOString(),
+    });
+  }
+  return null;
+}
+
+async function persistFetchedCatalogPageItems(
+  run: FanzaAmateurApiCatalogRun,
+  activeRange: ActiveDateRange,
+  rawItems: ApiItem[],
+  fetchedAt: string,
+) {
+  if (rawItems.length === 0) return;
+  const contentIds = catalogContentIds(rawItems);
+  const { data: existingWorks, error: existingWorksError } = await supabaseAdmin
+    .from("fanza_amateur_works")
+    .select("content_id,raw_item")
+    .in("content_id", contentIds);
+  if (existingWorksError) throw new Error(`通知対象の既存作品を確認できませんでした: ${existingWorksError.message}`);
+  const existingById = new Map((existingWorks ?? []).map((work) => [work.content_id as string, work.raw_item]));
+  const { newContentIds, changedPriceContentIds } = catalogItemChangeIds(rawItems, existingById, normalizeFanzaAmateurCatalogItem);
+  const historyRows = rawItems.map((rawItem, index) => ({
+    run_id: run.id,
+    content_id: String(rawItem.content_id).trim(),
+    source_offset: activeRange.offset + index,
+    raw_item: rawItem,
+    fetched_at: fetchedAt,
+  }));
+  const { error: historyError } = await supabaseAdmin
+    .from("fanza_amateur_api_catalog_items")
+    .upsert(historyRows, { onConflict: "run_id,content_id" });
+  if (historyError) throw new Error(`取得履歴を保存できませんでした: ${historyError.message}`);
+
+  const { error: worksError } = await supabaseAdmin
+    .from("fanza_amateur_works")
+    .upsert(workRowsFor(run, activeRange, rawItems, fetchedAt), { onConflict: "content_id" });
+  if (worksError) throw new Error(`素人作品テーブルへ保存できませんでした: ${worksError.message}`);
+
+  const notificationResults = await Promise.allSettled([
+    notifyAmateurPriceAlertsForContentIds(changedPriceContentIds),
+    notifyAmateurMakerAlertsForContentIds(newContentIds),
+  ]);
+  for (const result of notificationResults) {
+    if (result.status === "rejected") console.error("[fanza-amateur] push notification processing failed", result.reason);
+  }
+
+  const uniqueContentIds = [...new Set(contentIds)];
+  const weeklyCutoff = new Date(Date.parse(fetchedAt) - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const recentSnapshots = await supabaseAdmin
+    .from("fanza_amateur_price_weekly_snapshots")
+    .select("content_id")
+    .in("content_id", uniqueContentIds)
+    .gt("observed_at", weeklyCutoff);
+  if (recentSnapshots.error) throw new Error(`週次価格履歴の有無を確認できませんでした: ${recentSnapshots.error.message}`);
+  const recentIds = new Set((recentSnapshots.data ?? []).map((row) => row.content_id as string));
+  const weeklySnapshots = buildFanzaAmateurWeeklyPriceSnapshotRows(rawItems, recentIds, run.id, fetchedAt);
+  if (weeklySnapshots.length > 0) {
+    const { error: snapshotError } = await supabaseAdmin
+      .from("fanza_amateur_price_weekly_snapshots")
+      .upsert(weeklySnapshots, { onConflict: "source_run_id,content_id" });
+    if (snapshotError) throw new Error(`週次価格履歴を保存できませんでした: ${snapshotError.message}`);
+  }
+}
+
+async function persistCatalogPageProgress(
+  run: FanzaAmateurApiCatalogRun,
+  activeRange: ActiveDateRange,
+  pendingRanges: DateRange[],
+  rawItems: ApiItem[],
+  totalCount: number,
+) {
+  const progress = buildFanzaAmateurApiCatalogPageProgress({
+    run,
+    activeRange,
+    pendingRanges,
+    rawItemCount: rawItems.length,
+    observedItemKeyPaths: observedCatalogItemKeyPaths(run.observed_item_key_paths ?? [], rawItems),
+    totalCount,
+  });
+  const updatedRun = await persistRun(run, progress.updates);
+  if (progress.kind === "recovery") return updatedRun;
+  if (!progress.rangeComplete || pendingRanges.length > 0) return updatedRun;
+  return finishRun(updatedRun);
 }
 
 export async function fetchNextFanzaAmateurApiCatalogPage(run: FanzaAmateurApiCatalogRun) {
   if (run.status !== "running") throw new Error("この補完ジョブは実行中ではありません。");
 
   try {
-    let activeRange = run.current_range;
-    const pendingRanges = [...(run.pending_ranges ?? [])];
-    if (!activeRange) {
-      const nextRange = pendingRanges.shift();
-      if (!nextRange) return finishRun(run);
-      activeRange = { ...nextRange, offset: 1, expectedCount: null };
-      run = await persistRun(run, { current_range: activeRange, pending_ranges: pendingRanges, next_offset: 1 });
-      activeRange = run.current_range;
-    }
+    if (run.rank_next_offset > 0) return await fetchNextPopularityRankPage(run);
+    const activated = await activateNextCatalogRange(run);
+    run = activated.run;
+    if (activated.exhausted) return finishRun(run);
+    const { activeRange, pendingRanges } = activated;
     if (!activeRange) throw new Error("次の検索期間を設定できませんでした。");
-    if (activeRange.offset > API_OFFSET_LIMIT) {
-      return persistRun(run, {
-        status: "needs_attention",
-        last_error: `この期間の取得位置がoffset上限${API_OFFSET_LIMIT}を超えました。期間をさらに分割する必要があります。`,
-        completed_at: new Date().toISOString(),
-      });
-    }
+    const offsetLimitRun = await handleCatalogOffsetLimit(run, activeRange);
+    if (offsetLimitRun) return offsetLimitRun;
 
     const { payload, rawItems } = await fetchApiPage(activeRange, activeRange.offset);
     const totalCount = asCount(payload.result?.total_count);
     if (totalCount === null) throw new Error("DMM APIのtotal_countを読み取れませんでした。");
 
-    if (activeRange.expectedCount === null && totalCount > API_RANGE_LIMIT) {
-      const split = splitDateRange(activeRange);
-      if (!split) {
-        return persistRun(run, {
-          status: "needs_attention",
-          last_error: `${activeRange.fromDate}〜${activeRange.toDate}だけで${totalCount.toLocaleString("ja-JP")}件あり、offset上限${API_OFFSET_LIMIT}以内に収まりません。日付より細かく分けるAPI条件が必要です。掲載終了判定は行っていません。`,
-          completed_at: new Date().toISOString(),
-        });
-      }
-      return persistRun(run, {
-        current_range: null,
-        pending_ranges: [...split, ...pendingRanges],
-        next_offset: 1,
-        last_error: null,
-      });
-    }
-    if (activeRange.expectedCount !== null && totalCount > API_RANGE_LIMIT) {
-      return persistRun(run, {
-        status: "needs_attention",
-        last_error: `走査中に期間件数が${API_RANGE_LIMIT}を超えました。件数が安定していないため、掲載終了判定は行っていません。`,
-        completed_at: new Date().toISOString(),
-      });
-    }
+    const rangeLimitRun = await handleCatalogRangeCountLimit(run, activeRange, pendingRanges, totalCount);
+    if (rangeLimitRun) return rangeLimitRun;
 
     const fetchedAt = new Date().toISOString();
-    const invalidItemCount = rawItems.filter((item) => typeof item?.content_id !== "string" || !item.content_id.trim()).length;
+    const invalidItemCount = countInvalidCatalogContentIds(rawItems);
     if (invalidItemCount > 0) {
       throw new Error(`DMM APIの返却作品${rawItems.length}件中${invalidItemCount}件にcontent_idがなく、欠落を避けるため保存を停止しました。`);
     }
-
-    if (rawItems.length > 0) {
-      const contentIds = [...new Set(rawItems.map((item) => String(item.content_id).trim()))];
-      const existingWorks = await supabaseAdmin.from("fanza_amateur_works").select("content_id").in("content_id", contentIds);
-      if (existingWorks.error) throw new Error(`新着通知の対象作品を確認できませんでした: ${existingWorks.error.message}`);
-      const previouslySavedIds = new Set((existingWorks.data ?? []).map((row) => row.content_id as string));
-
-      const { error: worksError } = await supabaseAdmin
-        .from("fanza_amateur_works")
-        .upsert(workRowsFor(run, activeRange, rawItems, fetchedAt), { onConflict: "content_id" });
-      if (worksError) throw new Error(`素人作品テーブルへ保存できませんでした: ${worksError.message}`);
-
-      const priceRowsByWork = rawItems.flatMap((item) => extractFanzaAmateurPriceHistoryRows(
-        String(item.content_id).trim(),
-        run.id,
-        item,
-        fetchedAt,
-      ));
-      const requiredPriceKeys = new Set(priceRowsByWork.map((row) => `${row.content_id}\u0000${row.price_type}`));
-      const previousByWork = new Map<string, Map<string, { price: string | null; list_price: string | null }>>();
-      const seenPriceKeys = new Set<string>();
-      for (let historyOffset = 0; seenPriceKeys.size < requiredPriceKeys.size; historyOffset += 500) {
-        const history = await supabaseAdmin
-          .from("fanza_amateur_price_history")
-          .select("content_id,price_type,price,list_price")
-          .in("content_id", [...new Set(rawItems.map((item) => String(item.content_id).trim()))])
-          .order("observed_at", { ascending: false })
-          .range(historyOffset, historyOffset + 499);
-        if (history.error) throw new Error(`価格履歴比較用の既存履歴を読めませんでした: ${history.error.message}`);
-        const historyRows = history.data ?? [];
-        for (const row of historyRows) {
-          const key = `${row.content_id}\u0000${row.price_type}`;
-          if (!requiredPriceKeys.has(key) || seenPriceKeys.has(key)) continue;
-          seenPriceKeys.add(key);
-          const byType = previousByWork.get(row.content_id) ?? new Map();
-          byType.set(row.price_type, { price: row.price, list_price: row.list_price });
-          previousByWork.set(row.content_id, byType);
-        }
-        if (historyRows.length < 500) break;
-      }
-      const { changed } = selectChangedFanzaAmateurPriceHistoryRowsByWork(priceRowsByWork, previousByWork);
-      for (let index = 0; index < changed.length; index += 500) {
-        const { error: priceError } = await supabaseAdmin
-          .from("fanza_amateur_price_history")
-          .upsert(changed.slice(index, index + 500), { onConflict: "content_id,observed_date_jst,price_type" });
-        if (priceError) throw new Error(`価格変更履歴を保存できませんでした: ${priceError.message}`);
-      }
-
-      const summaryPriceChanges = [...new Set(priceRowsByWork.flatMap((row) => {
-        if (row.price_type !== "summary") return [];
-        const previous = previousByWork.get(row.content_id)?.get("summary");
-        return previous && (previous.price !== row.price || previous.list_price !== row.list_price) ? [row.content_id] : [];
-      }))];
-      if (summaryPriceChanges.length > 0) {
-        try {
-          await notifyAmateurPriceAlertsForContentIds(summaryPriceChanges);
-        } catch (error) {
-          console.error("[push] amateur price notification batch failed", { contentCount: summaryPriceChanges.length, error });
-        }
-      }
-
-      if (run.run_type === "daily_incremental") {
-        const now = Date.now();
-        const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-        const newRecentContentIds = rawItems.flatMap((item) => {
-          const contentId = String(item.content_id).trim();
-          if (previouslySavedIds.has(contentId)) return [];
-          const releaseAt = Date.parse(String(item.date ?? ""));
-          return Number.isFinite(releaseAt) && releaseAt >= weekAgo && releaseAt <= now ? [contentId] : [];
-        });
-        if (newRecentContentIds.length > 0) {
-          try {
-            await notifyAmateurMakerAlertsForContentIds(newRecentContentIds);
-          } catch (error) {
-            console.error("[push] amateur maker notification batch failed", { contentCount: newRecentContentIds.length, error });
-          }
-        }
-      }
-
-      const weeklyCutoff = new Date(Date.parse(fetchedAt) - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const recentSnapshots = await supabaseAdmin
-        .from("fanza_amateur_price_weekly_snapshots")
-        .select("content_id")
-        .in("content_id", contentIds)
-        .gt("observed_at", weeklyCutoff);
-      if (recentSnapshots.error) throw new Error(`週次価格履歴の有無を確認できませんでした: ${recentSnapshots.error.message}`);
-      const recentIds = new Set((recentSnapshots.data ?? []).map((row) => row.content_id as string));
-      const weeklySnapshots = rawItems.flatMap((item) => {
-        const contentId = String(item.content_id).trim();
-        if (recentIds.has(contentId)) return [];
-        const prices = item.prices && typeof item.prices === "object" && !Array.isArray(item.prices) ? item.prices : {};
-        return [{ source_run_id: run.id, content_id: contentId, observed_at: fetchedAt, prices }];
-      });
-      if (weeklySnapshots.length > 0) {
-        const { error: snapshotError } = await supabaseAdmin
-          .from("fanza_amateur_price_weekly_snapshots")
-          .upsert(weeklySnapshots, { onConflict: "source_run_id,content_id" });
-        if (snapshotError) throw new Error(`週次価格履歴を保存できませんでした: ${snapshotError.message}`);
-      }
-    }
-
-    const keyPaths = new Set(run.observed_item_key_paths ?? []);
-    for (const item of rawItems) for (const path of collectItemKeyPaths(item)) keyPaths.add(path);
-    const expectedCount = activeRange.expectedCount ?? totalCount;
-    const nextOffset = activeRange.offset + rawItems.length;
-    const rangeComplete = rawItems.length === 0 || nextOffset > expectedCount;
-
-    if (rawItems.length === 0 && activeRange.expectedCount !== null && activeRange.offset <= expectedCount) {
-      const split = splitDateRange(activeRange);
-      if (split) {
-        return persistRun(run, {
-          total_count: totalCount,
-          next_offset: 1,
-          current_range: null,
-          pending_ranges: [...split, ...pendingRanges],
-          expected_item_count: Math.max(0, run.expected_item_count - expectedCount),
-          range_count: Math.max(0, run.range_count - 1),
-          last_error: `日付範囲${activeRange.fromDate}〜${activeRange.toDate}でAPI件数と実取得数が一致しなかったため、範囲を分割して再確認しています。`,
-        });
-      }
-      return persistRun(run, {
-        status: "needs_attention",
-        last_error: `1日分の範囲${activeRange.fromDate}でAPI件数${expectedCount}件に対し取得位置${activeRange.offset}までしか返されませんでした。欠落の可能性があるため、全作品補完を完了扱いにしていません。`,
-        completed_at: new Date().toISOString(),
-      });
-    }
-
-    const nextActiveRange = rangeComplete ? null : { ...activeRange, expectedCount, offset: nextOffset };
-    const updatedRun = await persistRun(run, {
-      total_count: totalCount,
-      next_offset: nextOffset,
-      fetched_item_count: run.fetched_item_count + rawItems.length,
-      observed_item_key_paths: [...keyPaths].sort(),
-      current_range: nextActiveRange,
-      pending_ranges: pendingRanges,
-      expected_item_count: run.expected_item_count + (activeRange.expectedCount === null ? expectedCount : 0),
-      range_count: run.range_count + (activeRange.expectedCount === null ? 1 : 0),
-      completed_range_count: run.completed_range_count + (rangeComplete ? 1 : 0),
-      last_error: null,
-    });
-    if (!rangeComplete) return updatedRun;
-    if (pendingRanges.length > 0) return updatedRun;
-    return finishRun(updatedRun);
+    await persistFetchedCatalogPageItems(run, activeRange, rawItems, fetchedAt);
+    return persistCatalogPageProgress(run, activeRange, pendingRanges, rawItems, totalCount);
   } catch (error) {
     const message = error instanceof Error ? error.message : "DMM APIの取得に失敗しました。";
     await supabaseAdmin
@@ -522,4 +518,3 @@ export async function fetchNextFanzaAmateurApiCatalogPage(run: FanzaAmateurApiCa
     throw error;
   }
 }
-

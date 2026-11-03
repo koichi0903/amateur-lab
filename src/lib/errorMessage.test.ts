@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { formatUnknownError } from "./errorMessage.ts";
+import { formatUnknownError, simpleErrorMessage } from "./errorMessage.ts";
+
+test("simpleErrorMessage preserves the narrow admin update error contract", () => {
+  assert.equal(simpleErrorMessage(new Error("failed")), "failed");
+  assert.equal(simpleErrorMessage({ message: "query failed", code: "PGRST001" }), "query failed");
+  assert.equal(simpleErrorMessage("plain failure"), "plain failure");
+  assert.equal(simpleErrorMessage(null), "null");
+});
 
 test("formats structured Supabase errors", () => {
   assert.equal(
@@ -22,4 +29,10 @@ test("reads nested network error causes", () => {
 
 test("does not render object errors as object Object", () => {
   assert.equal(formatUnknownError({ message: "" }), "詳細のない通信エラー");
+});
+
+test("uses the stable fallback for circular object errors", () => {
+  const error: Record<string, unknown> = {};
+  error.self = error;
+  assert.equal(formatUnknownError(error), "詳細のない通信エラー");
 });

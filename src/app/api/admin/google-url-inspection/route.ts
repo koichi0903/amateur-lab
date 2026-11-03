@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { getGoogleAccessToken } from "@/lib/googleAcquisitionAnalytics";
+import { validateGoogleUrlInspectionUrls } from "@/lib/googleUrlInspectionInput";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -10,7 +11,6 @@ const SEARCH_CONSOLE_SITE_URL =
   process.env.SEARCH_CONSOLE_SITE_URL ?? "sc-domain:hakkutsu-lab.com";
 const URL_INSPECTION_ENDPOINT =
   "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect";
-const MAX_URLS_PER_REQUEST = 635;
 const CONCURRENCY = 5;
 const SEARCH_CONSOLE_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 
@@ -37,30 +37,6 @@ type InspectionRow = {
   error?: string;
   stopBatch?: boolean;
 };
-
-function normalizeActressUrl(value: unknown): string | null {
-  if (typeof value !== "string" || value.length > 2048) return null;
-
-  try {
-    const url = new URL(value);
-    if (
-      url.protocol !== "https:" ||
-      url.hostname !== "hakkutsu-lab.com" ||
-      url.port ||
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      !url.pathname.startsWith("/actress/") ||
-      url.pathname.slice("/actress/".length).length === 0 ||
-      url.pathname.slice("/actress/".length).includes("/")
-    ) return null;
-
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
 
 function safeGoogleError(status: number) {
   if (status === 403) {
@@ -117,25 +93,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "JSON形式のリクエストが必要です。" }, { status: 400 });
   }
 
-  const urls = (body as { urls?: unknown } | null)?.urls;
-  if (!Array.isArray(urls) || urls.length === 0 || urls.length > MAX_URLS_PER_REQUEST) {
-    return NextResponse.json(
-      { error: `urlsには1〜${MAX_URLS_PER_REQUEST}件を指定してください。` },
-      { status: 400 },
-    );
-  }
-
-  const normalizedUrls = urls.map(normalizeActressUrl);
-  if (normalizedUrls.some((url) => !url)) {
-    return NextResponse.json(
-      { error: "https://hakkutsu-lab.com/actress/{slug} のURLだけを指定できます。" },
-      { status: 400 },
-    );
-  }
-  const safeUrls = normalizedUrls as string[];
-  if (new Set(safeUrls).size !== safeUrls.length) {
-    return NextResponse.json({ error: "URLの重複は指定できません。" }, { status: 400 });
-  }
+  const urlValidation = validateGoogleUrlInspectionUrls((body as { urls?: unknown } | null)?.urls);
+  if (!urlValidation.ok) return NextResponse.json({ error: urlValidation.error }, { status: 400 });
+  const safeUrls = urlValidation.urls;
 
   let token: string;
   try {

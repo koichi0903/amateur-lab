@@ -100,6 +100,37 @@ export function buildDbExistingEvidence(input: {
   };
 }
 
+function resolveTextEvidenceTarget(discovered: string, product: MyfansProduct | null, isMfco: boolean) {
+  if (product) {
+    return {
+      approvedMediaId: product.approved_media_id ?? null,
+      discoveredMyfansUrl: product.product_url ?? discovered,
+      finalMyfansUrl: product.product_url ?? null,
+      productId: product.id,
+      resolutionMethod: "exact_product_url" as const,
+      confidence: "exact" as const,
+    };
+  }
+  if (isMfco) {
+    return {
+      approvedMediaId: null,
+      discoveredMyfansUrl: discovered,
+      finalMyfansUrl: null,
+      productId: null,
+      resolutionMethod: "mfco_link_observed" as const,
+      confidence: "strong" as const,
+    };
+  }
+  return {
+    approvedMediaId: null,
+    discoveredMyfansUrl: discovered,
+    finalMyfansUrl: null,
+    productId: null,
+    resolutionMethod: "unresolved" as const,
+    confidence: "unresolved" as const,
+  };
+}
+
 export function resolveTextEvidence(input: {
   sourceStatusUrl: string;
   sourceAuthorHandle: string;
@@ -114,16 +145,17 @@ export function resolveTextEvidence(input: {
   if (!discovered) return null;
   const product = resolveMyfansUrlToProduct(discovered, input.products);
   const isMfco = /^https?:\/\/(?:www\.)?mfco\.link\//i.test(discovered);
+  const target = resolveTextEvidenceTarget(discovered, product, isMfco);
   return {
-    approved_media_id: input.approvedMediaId ?? product?.approved_media_id ?? null,
+    approved_media_id: input.approvedMediaId ?? target.approvedMediaId,
     quote_candidate_id: input.quoteCandidateId ?? null,
     source_status_url: input.sourceStatusUrl,
     source_author_handle: normalizeXHandle(input.sourceAuthorHandle),
-    discovered_myfans_url: product?.product_url ?? discovered,
-    final_myfans_url: product?.product_url ?? null,
-    product_id: product?.id ?? null,
-    resolution_method: product ? "exact_product_url" : isMfco ? "mfco_link_observed" : "unresolved",
-    confidence: product ? "exact" : isMfco ? "strong" : "unresolved",
+    discovered_myfans_url: target.discoveredMyfansUrl,
+    final_myfans_url: target.finalMyfansUrl,
+    product_id: target.productId,
+    resolution_method: target.resolutionMethod,
+    confidence: target.confidence,
     evidence_source: input.evidenceSource,
     verified_at: input.verifiedAt ?? new Date().toISOString(),
     metadata: { extracted_from_text: true },

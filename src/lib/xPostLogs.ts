@@ -1,5 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { XPostCandidate } from "@/lib/xPostPlanner";
+import { aggregateXCreativeLearning, type XCreativeLearningRow } from "./x-growth/xCreativeLearningAggregation";
+import { buildLegacyXPostLogFallback } from "./x-growth/xPostLogFallback";
+export type { XCreativeLearningRow } from "./x-growth/xCreativeLearningAggregation";
 
 export type XPostLog = {
   id: number;
@@ -71,20 +74,6 @@ export type XPostOutcome = XPostLog & {
   recommendation: string;
 };
 
-export type XCreativeLearningRow = {
-  dimension: "hook_type" | "image_strategy" | "link_strategy" | "cta_strategy";
-  value: string;
-  label: string;
-  posts: number;
-  xPageViews: number;
-  xFanzaClicks: number;
-  rawCtr: number;
-  adjustedCtr: number;
-  clicksPerPost: number;
-  confidence: "low" | "medium" | "high";
-  recommendation: string;
-};
-
 type XClickRow = {
   work_id: number;
   clicked_at: string;
@@ -148,58 +137,9 @@ export async function saveXPostLog(input: XPostLogInput) {
     creative_genome: input.creativeGenome,
   };
   const result = await supabaseAdmin.from("x_post_logs").upsert(row, { onConflict: "post_key,post_date" });
-
-  if (result.error && (result.error.code === "PGRST204" || result.error.message?.includes("creative_variant_id") || result.error.message?.includes("account_handle") || result.error.message?.includes("post_intent") || result.error.message?.includes("x_post_id"))) {
-    if (input.xPostId) return result;
-    const { account_handle, post_intent, scheduled_slot, planned_at, evaluation_due_at, creative_variant_id, hook_type, image_strategy, link_strategy, cta_strategy, x_post_id, opportunity_id, media_asset_id, creative_genome, ...fallback } = row;
-    void account_handle;
-    void post_intent;
-    void scheduled_slot;
-    void planned_at;
-    void evaluation_due_at;
-    void creative_variant_id;
-    void hook_type;
-    void image_strategy;
-    void link_strategy;
-    void cta_strategy;
-    void x_post_id;
-    void opportunity_id;
-    void media_asset_id;
-    void creative_genome;
-    return supabaseAdmin.from("x_post_logs").upsert(fallback, { onConflict: "post_key,post_date" });
-  }
-
+  const fallback = buildLegacyXPostLogFallback(result.error, input.xPostId, row);
+  if (fallback) return supabaseAdmin.from("x_post_logs").upsert(fallback, { onConflict: "post_key,post_date" });
   return result;
-}
-
-function creativeLabel(dimension: XCreativeLearningRow["dimension"], value: string) {
-  const labels: Record<string, string> = {
-    price_anomaly: "価格フック",
-    rating_anomaly: "評価異常フック",
-    ranking_anomaly: "異常値フック",
-    review_proof: "レビュー証明",
-    discovery_anomaly: "発掘指数フック",
-    buy_timing: "買い時フック",
-    original_work_image: "作品画像",
-    branded_data_card: "データカード",
-    body_link: "本文リンク",
-    reply_link: "自己リプリンク",
-    price_cta: "価格CTA",
-    reason_cta: "理由を見るCTA",
-  };
-  return labels[value] ?? `${dimension}:${value}`;
-}
-
-function adjustedCtr(pageViews: number, clicks: number) {
-  const priorViews = 30;
-  const priorCtr = 0.06;
-  return ((clicks + priorViews * priorCtr) / (pageViews + priorViews)) * 100;
-}
-
-function confidence(posts: number, pageViews: number, clicks: number): XCreativeLearningRow["confidence"] {
-  if (posts >= 6 && pageViews >= 120 && clicks >= 8) return "high";
-  if (posts >= 3 && pageViews >= 50 && clicks >= 3) return "medium";
-  return "low";
 }
 
 export async function getXCreativeLearning(days = 30): Promise<{ rows: XCreativeLearningRow[]; error: string | null }> {
@@ -219,55 +159,9 @@ export async function getXCreativeLearning(days = 30): Promise<{ rows: XCreative
     return { rows: [], error: viewResult.error?.message ?? clickResult.error?.message ?? "creative learning error" };
   }
 
-  const views = new Map<string, number>();
-  const clicks = new Map<string, number>();
-  for (const row of (viewResult.data ?? []) as Array<{ x_post_key: string | null }>) {
-    if (row.x_post_key) views.set(row.x_post_key, (views.get(row.x_post_key) ?? 0) + 1);
-  }
-  for (const row of (clickResult.data ?? []) as Array<{ x_post_key: string | null }>) {
-    if (row.x_post_key) clicks.set(row.x_post_key, (clicks.get(row.x_post_key) ?? 0) + 1);
-  }
-
-  const dimensions: XCreativeLearningRow["dimension"][] = ["hook_type", "image_strategy", "link_strategy", "cta_strategy"];
-  const rows: XCreativeLearningRow[] = [];
-  for (const dimension of dimensions) {
-    const groups = new Map<string, { posts: number; pageViews: number; clicks: number }>();
-    for (const log of scopedLogs) {
-      const value = log[dimension] ?? "unknown";
-      if (value === "unknown") continue;
-      const current = groups.get(value) ?? { posts: 0, pageViews: 0, clicks: 0 };
-      current.posts += 1;
-      current.pageViews += views.get(log.post_key) ?? 0;
-      current.clicks += clicks.get(log.post_key) ?? 0;
-      groups.set(value, current);
-    }
-    for (const [value, stats] of groups) {
-      const rawCtr = stats.pageViews ? (stats.clicks / stats.pageViews) * 100 : 0;
-      const corrected = adjustedCtr(stats.pageViews, stats.clicks);
-      const trust = confidence(stats.posts, stats.pageViews, stats.clicks);
-      rows.push({
-        dimension,
-        value,
-        label: creativeLabel(dimension, value),
-        posts: stats.posts,
-        xPageViews: stats.pageViews,
-        xFanzaClicks: stats.clicks,
-        rawCtr: Math.round(rawCtr * 10) / 10,
-        adjustedCtr: Math.round(corrected * 10) / 10,
-        clicksPerPost: Math.round((stats.clicks / Math.max(stats.posts, 1)) * 10) / 10,
-        confidence: trust,
-        recommendation: trust === "low"
-          ? "サンプル不足。まだ断定しない"
-          : corrected >= 8
-            ? "勝ち寄り。配分を少し増やす"
-            : corrected <= 3
-              ? "弱め。別フックを試す"
-              : "継続テスト",
-      });
-    }
-  }
-
-  return { rows: rows.sort((a, b) => b.adjustedCtr - a.adjustedCtr || b.xFanzaClicks - a.xFanzaClicks), error: null };
+  const views = (viewResult.data ?? []) as Array<{ x_post_key: string | null }>;
+  const clicks = (clickResult.data ?? []) as Array<{ x_post_key: string | null }>;
+  return { rows: aggregateXCreativeLearning(scopedLogs, views, clicks), error: null };
 }
 
 export async function deleteXPostLog(postKey: string, postDate: string) {

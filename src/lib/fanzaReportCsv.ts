@@ -34,47 +34,52 @@ function findColumn(headers: string[], aliases: readonly string[]) {
   );
 }
 
-function parseCsv(text: string) {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let value = "";
-  let quoted = false;
+type CsvParserState = {
+  rows: string[][];
+  row: string[];
+  value: string;
+  quoted: boolean;
+};
 
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    const next = text[index + 1];
+function finishCsvRow(state: CsvParserState) {
+  state.row.push(state.value);
+  if (state.row.some((cell) => cell.trim())) state.rows.push(state.row);
+  state.row = [];
+  state.value = "";
+}
 
-    if (char === '"') {
-      if (quoted && next === '"') {
-        value += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-      continue;
-    }
-
-    if (char === "," && !quoted) {
-      row.push(value);
-      value = "";
-      continue;
-    }
-
-    if ((char === "\n" || char === "\r") && !quoted) {
-      if (char === "\r" && next === "\n") index += 1;
-      row.push(value);
-      if (row.some((cell) => cell.trim())) rows.push(row);
-      row = [];
-      value = "";
-      continue;
-    }
-
-    value += char;
+function consumeCsvQuote(state: CsvParserState, next: string | undefined) {
+  if (state.quoted && next === '"') {
+    state.value += '"';
+    return 1;
   }
+  state.quoted = !state.quoted;
+  return 0;
+}
 
-  row.push(value);
-  if (row.some((cell) => cell.trim())) rows.push(row);
-  return rows;
+function consumeCsvCharacter(state: CsvParserState, char: string, next: string | undefined) {
+  if (char === '"') return consumeCsvQuote(state, next);
+  if (char === "," && !state.quoted) {
+    state.row.push(state.value);
+    state.value = "";
+    return 0;
+  }
+  if ((char === "\n" || char === "\r") && !state.quoted) {
+    const isCrLf = char === "\r" && next === "\n";
+    finishCsvRow(state);
+    return isCrLf ? 1 : 0;
+  }
+  state.value += char;
+  return 0;
+}
+
+function parseCsv(text: string) {
+  const state: CsvParserState = { rows: [], row: [], value: "", quoted: false };
+  for (let index = 0; index < text.length; index += 1) {
+    index += consumeCsvCharacter(state, text[index], text[index + 1]);
+  }
+  finishCsvRow(state);
+  return state.rows;
 }
 
 function parseNumber(value: string | undefined) {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildMyfansAdminErrorContext } from "@/lib/myfans/myfansAdminErrors";
 import { getMyfansAnalytics } from "@/lib/myfansAnalytics";
 import { ensureMyfansDailySnapshot } from "@/lib/myfansDailySnapshot";
 import { buildMyfansExecutionBoard } from "@/lib/myfansXExecution";
@@ -10,7 +11,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({})) as { approvedMediaId?: number; planDate?: string };
     const approvedMediaId = Number.isFinite(body.approvedMediaId) ? Number(body.approvedMediaId) : 1;
-    const analytics = await getMyfansAnalytics({ approvedMediaId });
+    const analytics = await getMyfansAnalytics({ approvedMediaId, includeCompleteDailyFunnelInputs: true });
     if (analytics.error) return NextResponse.json({ error: "候補データを読み込めません。接続状態を確認して再試行してください。" }, { status: 503 });
     const board = buildMyfansExecutionBoard(analytics, body.planDate ? { planDate: body.planDate } : {});
     const snapshot = await ensureMyfansDailySnapshot(board, approvedMediaId);
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
     }
     return NextResponse.json(snapshot);
   } catch (error) {
-    console.error("myfans daily plan reevaluate failed", error);
+    console.error("myfans daily plan reevaluate failed", buildMyfansAdminErrorContext("daily_plan_reevaluate_failed", error));
     return NextResponse.json({ error: "Daily Planの再評価に失敗しました。保存状態は変更されていません。時間をおいて再試行してください。" }, { status: 500 });
   }
 }

@@ -3,6 +3,13 @@ import dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 
 import { createClient } from "@supabase/supabase-js";
+import {
+  buildSnapshotPriceIndex,
+  groupCurrentPricePlans,
+  limitPricePeriodRepairTargets,
+  resolvePriceHistoryPeriod,
+  selectPricePeriodRepairTargets,
+} from "./repair-price-period-resolver";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -101,8 +108,6 @@ async function resetHistory(productId: string) {
   if (insertError) throw insertError;
 }
 
-const normalizeName = (value: string) => value.normalize("NFKC").replace(/\s+/g, "");
-
 async function repairHistoryPeriods(productId: string) {
   const [{ data: current, error: currentError }, { data: history, error: historyError }] =
     await Promise.all([
@@ -119,49 +124,14 @@ async function repairHistoryPeriods(productId: string) {
   if (currentError) throw currentError;
   if (historyError) throw historyError;
 
-  const currentByName = new Map<string, NonNullable<typeof current>>();
-  for (const row of current ?? []) {
-    const key = normalizeName(row.display_name);
-    const rows = currentByName.get(key) ?? [];
-    rows.push(row);
-    currentByName.set(key, rows);
-  }
-
-  const snapshotPrices = new Map<string, number[]>();
-  for (const row of history ?? []) {
-    if (row.normal_price == null) continue;
-    const key = `${normalizeName(row.display_name)}\u0000${row.changed_at.slice(0, 16)}`;
-    const prices = snapshotPrices.get(key) ?? [];
-    if (!prices.includes(row.normal_price)) prices.push(row.normal_price);
-    snapshotPrices.set(key, prices.sort((a, b) => a - b));
-  }
+  const currentByName = groupCurrentPricePlans(current ?? []);
+  const snapshotPrices = buildSnapshotPriceIndex(history ?? []);
 
   let repaired = 0;
   let removed = 0;
   for (const row of history ?? []) {
     if (row.period != null) continue;
-    const name = normalizeName(row.display_name);
-    const candidates = (currentByName.get(name) ?? []).filter((item) => item.period != null);
-    let period: string | null = null;
-
-    if (candidates.length === 1) {
-      period = candidates[0].period;
-    } else if (candidates.length > 1 && row.normal_price != null) {
-      const exact = candidates.filter((item) => item.normal_price === row.normal_price);
-      if (exact.length === 1) {
-        period = exact[0].period;
-      } else {
-        const snapshotKey = `${name}\u0000${row.changed_at.slice(0, 16)}`;
-        const prices = snapshotPrices.get(snapshotKey) ?? [];
-        const sortedCandidates = [...candidates].sort(
-          (a, b) => (a.normal_price ?? Number.MAX_SAFE_INTEGER) - (b.normal_price ?? Number.MAX_SAFE_INTEGER),
-        );
-        const index = prices.indexOf(row.normal_price);
-        if (prices.length === sortedCandidates.length && index >= 0) {
-          period = sortedCandidates[index].period;
-        }
-      }
-    }
+    const period = resolvePriceHistoryPeriod(row, currentByName, snapshotPrices);
 
     if (period) {
       const { error } = await supabase.from("price_history").update({ period }).eq("id", row.id);
@@ -194,75 +164,17 @@ async function main() {
   const repairAll = process.argv.includes("--all");
   const prices = await readAllWorkPrices();
   const history = repairAll ? [] : await readAllPriceHistory();
-  const byProduct = new Map<string, WorkPrice[]>();
-  for (const row of prices) {
-    const rows = byProduct.get(row.product_id) ?? [];
-    rows.push(row);
-    byProduct.set(row.product_id, rows);
-  }
-
-  const historyByProduct = new Map<string, PriceHistoryKey[]>();
-  for (const row of history) {
-    const rows = historyByProduct.get(row.product_id) ?? [];
-    rows.push(row);
-    historyByProduct.set(row.product_id, rows);
-  }
-
-  const periodMismatchTargets = [...byProduct.entries()]
-    .filter(([productId, rows]) => {
-      const historyRows = historyByProduct.get(productId) ?? [];
-      if (historyRows.length === 0) return false;
-
-      const historyPeriods = new Map<string, Set<string>>();
-      for (const row of historyRows) {
-        const periods = historyPeriods.get(row.display_name) ?? new Set<string>();
-        periods.add(row.period ?? "");
-        historyPeriods.set(row.display_name, periods);
-      }
-
-      return rows.some((row) => {
-        const periods = historyPeriods.get(row.display_name);
-        return Boolean(periods?.size && !periods.has(row.period ?? ""));
-      });
-    })
-    .map(([productId]) => productId);
-
-  // Before period became part of the key, two plans with the same display
-  // name (for example HQ 7-day and unlimited) collapsed into one current row.
-  // The history still exposes the collision because one scrape wrote two
-  // different normal prices for the same name within the same minute.
-  const ambiguousHistoryTargets = [...historyByProduct.entries()]
-    .filter(([, rows]) => {
-      const snapshots = new Map<string, Set<number>>();
-      for (const row of rows) {
-        if (row.period != null || row.normal_price == null) continue;
-        const minute = row.changed_at.slice(0, 16);
-        const key = `${row.display_name}\u0000${minute}`;
-        const prices = snapshots.get(key) ?? new Set<number>();
-        prices.add(row.normal_price);
-        snapshots.set(key, prices);
-      }
-      return [...snapshots.values()].some((values) => values.size > 1);
-    })
-    .map(([productId]) => productId);
-
-  const ambiguousTargets = [
-    ...new Set([...periodMismatchTargets, ...ambiguousHistoryTargets]),
-  ];
-  const nullPeriodTargets = [...byProduct.entries()]
-    .filter(([, rows]) => rows.some((row) => row.period == null))
-    .map(([productId]) => productId);
-  const detectedTargets = repairAll
-    ? [...new Set([...ambiguousTargets, ...nullPeriodTargets])]
-    : ambiguousTargets;
-
   const requestedProductId = process.env.REPAIR_PRODUCT_ID?.trim();
-  const targets = (requestedProductId ? [requestedProductId] : detectedTargets).sort();
+  const targets = selectPricePeriodRepairTargets({
+    prices,
+    history,
+    repairAll,
+    requestedProductId,
+  });
 
   // --all processes every detected target. REPAIR_LIMIT is only used when an
   // intentionally bounded run is requested.
-  const limit = Number(process.env.REPAIR_LIMIT ?? targets.length);
-  const selected = targets.slice(0, Number.isFinite(limit) && limit > 0 ? limit : targets.length);
+  const selected = limitPricePeriodRepairTargets(targets, process.env.REPAIR_LIMIT);
   const works = await readWorks(selected);
   console.log(`[repair] 対象 ${targets.length}作品、今回 ${works.length}作品`);
 

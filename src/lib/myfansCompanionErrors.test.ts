@@ -13,6 +13,27 @@ assert.deepEqual(normalizeCompanionError({ reason: "product_resolution_failed", 
   reason: "product_resolution_failed",
 });
 assert.equal(normalizeCompanionError({ code: "OBJECT_THROW" }, "structured").errorMessage.includes("[object Object]"), false);
+const nativeError = Object.assign(new Error("  check failed  "), {
+  code: "23514",
+  errorStage: "  persistence  ",
+  reason: "  product_resolution_failed  ",
+});
+assert.deepEqual(normalizeCompanionError(nativeError, "fallback"), {
+  errorCode: "23514",
+  errorMessage: "check failed",
+  errorStage: "persistence",
+  reason: "product_resolution_failed",
+});
+assert.deepEqual(normalizeCompanionError("  ＦＡＩＬＥＤ  ", "fallback"), {
+  errorCode: "UNKNOWN_ERROR",
+  errorMessage: "FAILED",
+  errorStage: "fallback",
+});
+assert.deepEqual(normalizeCompanionError(null, "fallback"), {
+  errorCode: "UNKNOWN_ERROR",
+  errorMessage: "不明なエラーです。",
+  errorStage: "fallback",
+});
 const wrapped = companionPersistenceError({ code: "23514", message: "constraint failed" }, "myfans_product_import", "product_resolution_failed");
 assert.equal((wrapped as Error & { reason: string }).reason, "product_resolution_failed");
 assert.doesNotMatch(normalizeCompanionError({ code: "OBJECT_THROW" }, "structured").errorMessage, /\[object Object\]/);

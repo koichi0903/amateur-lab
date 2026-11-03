@@ -11,13 +11,47 @@ const genreOptions = [
 
 type AdvancedSearchModalProps = { open: boolean; onClose: () => void; catalog?: "fanza" | "amateur" };
 
+function PerformerField({ isAmateur }: { isAmateur: boolean }) {
+  if (!isAmateur) return null;
+  return <label className="mt-5 block text-xs font-black text-slate-600">女優名（登録名と一致）<input name="performer" maxLength={100} autoComplete="off" className="mt-2 h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-100" placeholder="例：美園和花" /></label>;
+}
+
+function GenreField({
+  isAmateur,
+  amateurGenresLoaded,
+  amateurGenresError,
+  amateurGenreOptions,
+  selectedGenres,
+  onToggle,
+}: {
+  isAmateur: boolean;
+  amateurGenresLoaded: boolean;
+  amateurGenresError: string | null;
+  amateurGenreOptions: string[];
+  selectedGenres: string[];
+  onToggle: (genre: string) => void;
+}) {
+  const availableGenres = isAmateur ? amateurGenreOptions : genreOptions;
+
+  return <fieldset className="mt-5">
+    <legend className="text-xs font-black text-slate-600">ジャンル</legend>
+    <input name="genres" value={selectedGenres.join(",")} readOnly className="sr-only" aria-label="選択したジャンル" />
+    <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-slate-300 bg-slate-50 p-2">
+      {isAmateur && !amateurGenresLoaded && !amateurGenresError ? <p className="px-2 py-3 text-xs text-slate-500">素人作品のジャンルを読み込み中...</p> : amateurGenresError ? <p role="status" className="px-2 py-3 text-xs text-rose-600">{amateurGenresError}</p> : availableGenres.length ? <div className="flex flex-wrap gap-2">{availableGenres.map((genre) => <button key={genre} type="button" onClick={() => onToggle(genre)} className={`shrink-0 whitespace-nowrap rounded-md border px-3 py-2 text-xs font-bold transition ${selectedGenres.includes(genre) ? "border-pink-500 bg-pink-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-pink-300 hover:text-pink-600"}`}>{genre}</button>)}</div> : <p className="px-2 py-3 text-xs text-slate-500">登録済みのジャンルはありません。</p>}
+    </div>
+  </fieldset>;
+}
+
+function SortField({ isAmateur }: { isAmateur: boolean }) {
+  return <label className="mt-5 block text-xs font-black text-slate-600">並び替え<select name="sort" defaultValue={isAmateur ? "date_desc" : "release-desc"} className="mt-2 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 outline-none focus:border-pink-500">{isAmateur ? <><option value="date_desc">発売日が新しい順</option><option value="date_asc">発売日が古い順</option><option value="rank">人気順</option><option value="price">価格が安い順</option><option value="review">レビュー評価順</option></> : <><option value="release-desc">発売日が新しい順</option><option value="release-asc">発売日が古い順</option><option value="score">発掘スコア順</option><option value="price">価格が安い順</option><option value="review">レビュー評価順</option></>}</select></label>;
+}
+
 export default function AdvancedSearchModal({ open, onClose, catalog = "fanza" }: AdvancedSearchModalProps) {
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [amateurGenreOptions, setAmateurGenreOptions] = useState<string[]>([]);
   const [amateurGenresLoaded, setAmateurGenresLoaded] = useState(false);
   const [amateurGenresError, setAmateurGenresError] = useState<string | null>(null);
   const isAmateur = catalog === "amateur";
-  const availableGenres = isAmateur ? amateurGenreOptions : genreOptions;
 
   useEffect(() => {
     if (!open || !isAmateur || amateurGenresLoaded) return;
@@ -67,21 +101,15 @@ export default function AdvancedSearchModal({ open, onClose, catalog = "fanza" }
         </div>
         <form id={isAmateur ? "advanced-search-form-amateur" : "advanced-search-form"} action={isAmateur ? "/amateur/search" : "/search"} className="overflow-y-auto px-5 py-5">
           <label className="block text-xs font-black text-slate-600">キーワード<input name="q" maxLength={100} className="mt-2 h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-100" placeholder={isAmateur ? "作品名・品番など..." : "タイトル、メーカー名、女優名など..."} /></label>
-          {isAmateur && <label className="mt-5 block text-xs font-black text-slate-600">女優名（登録名と一致）<input name="performer" maxLength={100} autoComplete="off" className="mt-2 h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-100" placeholder="例：美園和花" /></label>}
-          <fieldset className="mt-5">
-            <legend className="text-xs font-black text-slate-600">ジャンル</legend>
-            <input name={isAmateur ? "genres" : "genres"} value={selectedGenres.join(",")} readOnly className="sr-only" aria-label="選択したジャンル" />
-            <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-slate-300 bg-slate-50 p-2">
-              {isAmateur && !amateurGenresLoaded && !amateurGenresError ? <p className="px-2 py-3 text-xs text-slate-500">素人作品のジャンルを読み込み中...</p> : amateurGenresError ? <p role="status" className="px-2 py-3 text-xs text-rose-600">{amateurGenresError}</p> : availableGenres.length ? <div className="flex flex-wrap gap-2">{availableGenres.map((genre) => <button key={genre} type="button" onClick={() => toggleGenre(genre)} className={`shrink-0 whitespace-nowrap rounded-md border px-3 py-2 text-xs font-bold transition ${selectedGenres.includes(genre) ? "border-pink-500 bg-pink-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-pink-300 hover:text-pink-600"}`}>{genre}</button>)}</div> : <p className="px-2 py-3 text-xs text-slate-500">登録済みのジャンルはありません。</p>}
-            </div>
-          </fieldset>
+          <PerformerField isAmateur={isAmateur} />
+          <GenreField isAmateur={isAmateur} amateurGenresLoaded={amateurGenresLoaded} amateurGenresError={amateurGenresError} amateurGenreOptions={amateurGenreOptions} selectedGenres={selectedGenres} onToggle={toggleGenre} />
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <label className="text-xs font-black text-slate-600">発売日（開始）<input type="date" name="releaseFrom" className="mt-2 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 outline-none focus:border-pink-500" /></label>
             <label className="text-xs font-black text-slate-600">発売日（終了）<input type="date" name="releaseTo" className="mt-2 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 outline-none focus:border-pink-500" /></label>
             <label className="text-xs font-black text-slate-600">金額（最小）<input type="number" name="minPrice" min="0" step="1" placeholder="¥ 0" className="mt-2 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 outline-none focus:border-pink-500" /></label>
             <label className="text-xs font-black text-slate-600">金額（最大）<input type="number" name="maxPrice" min="0" step="1" placeholder="¥ 上限なし" className="mt-2 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 outline-none focus:border-pink-500" /></label>
           </div>
-          <label className="mt-5 block text-xs font-black text-slate-600">並び替え<select name="sort" defaultValue={isAmateur ? "date_desc" : "release-desc"} className="mt-2 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 outline-none focus:border-pink-500">{isAmateur ? <><option value="date_desc">発売日が新しい順</option><option value="date_asc">発売日が古い順</option><option value="rank">人気順</option><option value="price">価格が安い順</option><option value="review">レビュー評価順</option></> : <><option value="release-desc">発売日が新しい順</option><option value="release-asc">発売日が古い順</option><option value="score">発掘スコア順</option><option value="price">価格が安い順</option><option value="review">レビュー評価順</option></>}</select></label>
+          <SortField isAmateur={isAmateur} />
         </form>
         <div className="flex gap-3 border-t border-slate-200 px-5 py-4"><button type="button" onClick={reset} className="h-12 flex-1 rounded-lg border border-slate-300 text-sm font-black text-slate-700 hover:bg-slate-50">リセット</button><button type="submit" form={isAmateur ? "advanced-search-form-amateur" : "advanced-search-form"} className="h-12 flex-[1.5] rounded-lg bg-pink-600 text-sm font-black text-white hover:bg-pink-500">この条件で検索</button></div>
       </div>

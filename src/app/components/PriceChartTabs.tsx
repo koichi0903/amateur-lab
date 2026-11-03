@@ -59,4 +59,3 @@ export default function PriceChartTabs({ history, selectedSeriesKey, onSelectedS
     </>
   );
 }
-

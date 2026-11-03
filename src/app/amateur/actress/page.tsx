@@ -43,6 +43,55 @@ function visiblePageNumbers(currentPage: number, totalPages: number): Array<numb
   return [1, "start-ellipsis", currentPage - 1, currentPage, currentPage + 1, "end-ellipsis", totalPages];
 }
 
+type ActressIndexItem = Awaited<ReturnType<typeof getFanzaAmateurActressIndex>>["items"][number];
+
+function actressProfileDetails(item: ActressIndexItem) {
+  const details: string[] = [];
+  if (item.birthday) details.push(item.birthday);
+  if (item.height_cm) details.push(`身長: ${item.height_cm}cm`);
+  if (item.bust_cm || item.waist_cm || item.hip_cm || item.cup) {
+    details.push(`B${item.bust_cm ?? "-"} W${item.waist_cm ?? "-"} H${item.hip_cm ?? "-"}${item.cup ? ` ${item.cup}カップ` : ""}`);
+  }
+  return details;
+}
+
+function AmateurActressCard({ item }: { item: ActressIndexItem }) {
+  const profileImage = item.profile_image_url;
+  const profileDetails = actressProfileDetails(item);
+  return <Link href={`/amateur/actress/${encodeURIComponent(item.name)}`} className="group flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg sm:p-3">
+    <div className="relative flex items-center justify-center"><div className="relative h-28 w-28 overflow-hidden rounded-xl border-2 border-slate-300 bg-white shadow-sm">
+      <WorkImage src={profileImage || item.image_url} fallbackSrc={profileImage ? item.image_url : null} alt={`${item.name}のプロフィール画像`} sizes="112px" unoptimized className="object-cover object-[50%_25%] transition duration-300 group-hover:scale-105" />
+    </div></div>
+    <div className="flex flex-1 flex-col px-1 pb-1 pt-1.5">
+      <h2 className="mt-0.5 truncate text-base font-black sm:text-lg">{item.name}</h2>
+      <div className="mt-1 h-[4rem] space-y-0.5 overflow-hidden text-xs font-bold leading-4 text-slate-500">
+        {profileDetails.map((detail) => <p key={detail}>{detail}</p>)}
+      </div>
+      <div className="mt-auto flex items-end justify-between gap-2 border-t border-slate-100 pt-2"><div><p className="text-[10px] font-bold text-slate-400">素人作品</p><p className="text-xl font-black text-pink-600">{Number(item.work_count).toLocaleString("ja-JP")}<span className="ml-0.5 text-xs">作品</span></p></div><ArrowRight size={17} className="mb-1 text-pink-600" /></div>
+    </div>
+  </Link>;
+}
+
+function AmateurActressPagination({ currentPage, totalPages, query, sort }: {
+  currentPage: number;
+  totalPages: number;
+  query: string;
+  sort: FanzaAmateurActressSort;
+}) {
+  if (totalPages <= 1) return null;
+
+  return <nav aria-label="素人女優一覧のページ送り" className="mt-10 flex flex-wrap items-center justify-center gap-2">
+    {currentPage > 1 && <Link href={pageHref(currentPage - 1, query, sort)} className="rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-black">← 前へ</Link>}
+    <span className="sr-only">{currentPage} / {totalPages}</span>
+    {visiblePageNumbers(currentPage, totalPages).map((pageNumber, index) => typeof pageNumber !== "number"
+      ? <span key={pageNumber} aria-hidden="true" className="px-1 text-sm font-black text-slate-400">…</span>
+      : pageNumber === currentPage
+        ? <span key={pageNumber} aria-current="page" aria-label={`${pageNumber}ページ目（現在のページ）`} className="flex h-10 min-w-[2.5rem] items-center justify-center rounded-full bg-pink-600 px-3 text-sm font-black text-white">{pageNumber}</span>
+        : <Link key={`${pageNumber}-${index}`} href={pageHref(pageNumber, query, sort)} aria-label={`${pageNumber}ページ目へ`} className="flex h-10 min-w-[2.5rem] items-center justify-center rounded-full border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 hover:border-pink-300 hover:text-pink-600">{pageNumber}</Link>)}
+    {currentPage < totalPages && <Link href={pageHref(currentPage + 1, query, sort)} className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-pink-600">次へ →</Link>}
+  </nav>;
+}
+
 export async function generateMetadata({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; sort?: string }> }): Promise<Metadata> {
   const params = await searchParams;
   const query = (params.q ?? "").trim();
@@ -100,34 +149,9 @@ export default async function AmateurActressPage({ searchParams }: { searchParam
     </section>
     <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       {result.items.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-        {result.items.map((item) => {
-          const profileImage = item.profile_image_url;
-          return <Link key={item.name} href={`/amateur/actress/${encodeURIComponent(item.name)}`} className="group flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:-translate-y-1 hover:border-pink-200 hover:shadow-lg sm:p-3">
-            <div className="relative flex items-center justify-center"><div className="relative h-28 w-28 overflow-hidden rounded-xl border-2 border-slate-300 bg-white shadow-sm">
-              <WorkImage src={profileImage || item.image_url} fallbackSrc={profileImage ? item.image_url : null} alt={`${item.name}のプロフィール画像`} sizes="112px" unoptimized className="object-cover object-[50%_25%] transition duration-300 group-hover:scale-105" />
-            </div></div>
-            <div className="flex flex-1 flex-col px-1 pb-1 pt-1.5">
-              <h2 className="mt-0.5 truncate text-base font-black sm:text-lg">{item.name}</h2>
-              <div className="mt-1 h-[4rem] space-y-0.5 overflow-hidden text-xs font-bold leading-4 text-slate-500">
-                {item.birthday && <p>{item.birthday}</p>}
-                {item.height_cm && <p>身長: {item.height_cm}cm</p>}
-                {(item.bust_cm || item.waist_cm || item.hip_cm || item.cup) && <p>B{item.bust_cm ?? "-"} W{item.waist_cm ?? "-"} H{item.hip_cm ?? "-"}{item.cup ? ` ${item.cup}カップ` : ""}</p>}
-              </div>
-              <div className="mt-auto flex items-end justify-between gap-2 border-t border-slate-100 pt-2"><div><p className="text-[10px] font-bold text-slate-400">素人作品</p><p className="text-xl font-black text-pink-600">{Number(item.work_count).toLocaleString("ja-JP")}<span className="ml-0.5 text-xs">作品</span></p></div><ArrowRight size={17} className="mb-1 text-pink-600" /></div>
-            </div>
-          </Link>;
-        })}
+        {result.items.map((item) => <AmateurActressCard key={item.name} item={item} />)}
       </div> : <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center"><Sparkles className="mx-auto text-slate-300" size={38} /><p className="mt-4 font-black">該当する女優が見つかりませんでした</p><Link href="/amateur/actress" className="mt-3 inline-block text-sm font-black text-pink-600">一覧に戻る</Link></div>}
-      {result.totalPages > 1 && <nav aria-label="素人女優一覧のページ送り" className="mt-10 flex flex-wrap items-center justify-center gap-2">
-        {currentPage > 1 && <Link href={pageHref(currentPage - 1, query, sort)} className="rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-black">← 前へ</Link>}
-        <span className="sr-only">{currentPage} / {result.totalPages}</span>
-        {visiblePageNumbers(currentPage, result.totalPages).map((pageNumber, index) => typeof pageNumber !== "number"
-          ? <span key={pageNumber} aria-hidden="true" className="px-1 text-sm font-black text-slate-400">…</span>
-          : pageNumber === currentPage
-            ? <span key={pageNumber} aria-current="page" aria-label={`${pageNumber}ページ目（現在のページ）`} className="flex h-10 min-w-[2.5rem] items-center justify-center rounded-full bg-pink-600 px-3 text-sm font-black text-white">{pageNumber}</span>
-            : <Link key={`${pageNumber}-${index}`} href={pageHref(pageNumber, query, sort)} aria-label={`${pageNumber}ページ目へ`} className="flex h-10 min-w-[2.5rem] items-center justify-center rounded-full border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 hover:border-pink-300 hover:text-pink-600">{pageNumber}</Link>)}
-        {currentPage < result.totalPages && <Link href={pageHref(currentPage + 1, query, sort)} className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-black text-white hover:bg-pink-600">次へ →</Link>}
-      </nav>}
+      <AmateurActressPagination currentPage={currentPage} totalPages={result.totalPages} query={query} sort={sort} />
     </div>
   </main></>;
 }

@@ -22,4 +22,3 @@ alter table public.fanza_amateur_x_post_jobs enable row level security;
 revoke all privileges on table public.fanza_amateur_x_post_jobs from public, anon, authenticated, service_role;
 grant select, insert, update, delete on table public.fanza_amateur_x_post_jobs to service_role;
 grant usage, select on sequence public.fanza_amateur_x_post_jobs_id_seq to service_role;
-

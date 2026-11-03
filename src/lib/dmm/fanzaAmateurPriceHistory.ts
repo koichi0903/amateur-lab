@@ -1,6 +1,14 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  getRequiredFanzaAmateurPriceHistoryKeys,
+  reconstructChangedFanzaAmateurPriceHistoryRows,
+  rememberNewestFanzaAmateurPriceHistoryValues,
+  selectDailyFanzaAmateurPriceHistoryRows,
+} from "./fanzaAmateurPriceHistoryBackfill";
+import type { FanzaAmateurPriceHistoryValuesByWork } from "./fanzaAmateurPriceHistoryBackfill";
+import { selectChangedFanzaAmateurPriceHistoryRowsByWork as projectChangedPriceRowsByWork } from "./fanzaAmateurPriceHistoryRows";
 
 type JsonRecord = Record<string, unknown>;
 type RawCatalogRow = {
@@ -12,7 +20,7 @@ type RawCatalogRow = {
 
 export type FanzaAmateurPriceValue = { price: string | null; list_price: string | null };
 type PriceValue = FanzaAmateurPriceValue;
-type PriceValuesByWork = Map<string, Map<string, PriceValue>>;
+type PriceValuesByWork = FanzaAmateurPriceHistoryValuesByWork;
 
 export type FanzaAmateurPriceHistoryRow = {
   content_id: string;
@@ -118,16 +126,7 @@ export function selectChangedFanzaAmateurPriceHistoryRowsByWork(
   rows: FanzaAmateurPriceHistoryRow[],
   previousByWork: PriceValuesByWork,
 ) {
-  const changed: FanzaAmateurPriceHistoryRow[] = [];
-  const nextByWork = new Map<string, Map<string, PriceValue>>();
-  for (const row of rows) {
-    const previous = nextByWork.get(row.content_id) ?? new Map(previousByWork.get(row.content_id) ?? []);
-    const priorValue = previous.get(row.price_type);
-    if (!priorValue || priorValue.price !== row.price || priorValue.list_price !== row.list_price) changed.push(row);
-    previous.set(row.price_type, { price: row.price, list_price: row.list_price });
-    nextByWork.set(row.content_id, previous);
-  }
-  return { changed, nextByWork };
+  return projectChangedPriceRowsByWork(rows, previousByWork);
 }
 
 async function upsertHistoryRows(rows: FanzaAmateurPriceHistoryRow[]) {
@@ -163,13 +162,8 @@ export async function backfillFanzaAmateurPriceHistory(offset: number) {
   if (error) throw new Error(`保存済みAPI履歴を読めませんでした: ${error.message}`);
 
   const sourceRows = (data ?? []) as RawCatalogRow[];
-  const previousByWork = new Map<string, Map<string, PriceValue>>();
-  const requiredKeys = new Set<string>();
-  for (const row of sourceRows) {
-    for (const price of extractFanzaAmateurPriceHistoryRows(row.content_id, row.run_id, row.raw_item, row.fetched_at)) {
-      requiredKeys.add(`${row.content_id}\u0000${price.price_type}`);
-    }
-  }
+  const previousByWork: PriceValuesByWork = new Map();
+  const requiredKeys = getRequiredFanzaAmateurPriceHistoryKeys(sourceRows);
 
   if (sourceRows.length > 0) {
     const contentIds = [...new Set(sourceRows.map((row) => row.content_id))];
@@ -186,35 +180,13 @@ export async function backfillFanzaAmateurPriceHistory(offset: number) {
       if (prior.error) throw new Error(`直前の価格履歴を読めませんでした: ${prior.error.message}`);
       const priorRows = (prior.data ?? []) as Pick<FanzaAmateurPriceHistoryRow, "content_id" | "price_type" | "price" | "list_price">[];
       if (priorRows.length === 0) break;
-      for (const priorRow of priorRows) {
-        const key = `${priorRow.content_id}\u0000${priorRow.price_type}`;
-        if (!requiredKeys.has(key) || seenKeys.has(key)) continue;
-        seenKeys.add(key);
-        const workValues = previousByWork.get(priorRow.content_id) ?? new Map<string, PriceValue>();
-        workValues.set(priorRow.price_type, { price: priorRow.price, list_price: priorRow.list_price });
-        previousByWork.set(priorRow.content_id, workValues);
-      }
+      rememberNewestFanzaAmateurPriceHistoryValues(priorRows, requiredKeys, seenKeys, previousByWork);
       if (priorRows.length < BACKFILL_BATCH_SIZE) break;
     }
   }
 
-  const orderedRows = [...sourceRows].sort((a, b) => a.fetched_at.localeCompare(b.fetched_at)
-    || a.run_id.localeCompare(b.run_id));
-  const changedRows: FanzaAmateurPriceHistoryRow[] = [];
-  for (const row of orderedRows) {
-    const extracted = extractFanzaAmateurPriceHistoryRows(row.content_id, row.run_id, row.raw_item, row.fetched_at);
-    const selected = selectChangedFanzaAmateurPriceHistoryRowsByWork(extracted, previousByWork);
-    changedRows.push(...selected.changed);
-    for (const [contentId, values] of selected.nextByWork) previousByWork.set(contentId, values);
-  }
-  const dailyRows = new Map<string, FanzaAmateurPriceHistoryRow>();
-  for (const row of changedRows) {
-    const observedAtMs = Date.parse(row.observed_at);
-    if (!Number.isFinite(observedAtMs)) throw new Error("価格履歴の取得日時が不正です。");
-    const observedDateJst = new Date(observedAtMs + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    dailyRows.set(`${row.content_id}\u0000${observedDateJst}\u0000${row.price_type}`, row);
-  }
-  const dailyChangedRows = [...dailyRows.values()];
+  const changedRows = reconstructChangedFanzaAmateurPriceHistoryRows(sourceRows, previousByWork);
+  const dailyChangedRows = selectDailyFanzaAmateurPriceHistoryRows(changedRows);
   await upsertHistoryRows(dailyChangedRows);
 
   const nextOffset = safeOffset + sourceRows.length;

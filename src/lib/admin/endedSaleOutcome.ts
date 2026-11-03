@@ -13,6 +13,15 @@ export type EndedSaleItemOutcome =
   | "unavailable_deferred"
   | "unchanged";
 
+export function buildEndedSaleDeferredMessage(
+  deferredTargets: readonly EndedSaleRemainingTarget[],
+): string | null {
+  if (deferredTargets.length === 0) return null;
+  const visibleIds = deferredTargets.slice(0, 20).map((target) => target.product_id).join(", ");
+  const omittedMarker = deferredTargets.length > 20 ? " …" : "";
+  return `INFO: FANZA側で価格を確認できなかった${deferredTargets.length}件は、誤って配信終了にしないため別日で自動再確認中です。対象: ${visibleIds}${omittedMarker}`;
+}
+
 export function summarizeEndedSaleOutcomes(
   outcomes: readonly EndedSaleItemOutcome[],
 ): { updated: number; deferred: number; unchanged: number } {
@@ -52,4 +61,11 @@ export function classifyEndedSaleRemaining(
   }
 
   return { deferred, fatal };
+}
+
+export function selectEndedSaleFinalRetryTargets(
+  fatalTargets: EndedSaleRemainingTarget[],
+  processedProductIds: ReadonlySet<string>,
+): EndedSaleRemainingTarget[] {
+  return fatalTargets.filter((target) => processedProductIds.has(target.product_id));
 }

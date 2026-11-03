@@ -102,4 +102,3 @@ revoke all on function public.get_fanza_amateur_related_work_candidates(text[], 
   from public, anon, authenticated, service_role;
 grant execute on function public.get_fanza_amateur_related_work_candidates(text[], text[], text[], integer)
   to service_role;
-

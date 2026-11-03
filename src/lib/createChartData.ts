@@ -112,4 +112,3 @@ export function createChartData(
         parsePriceHistoryDate(b.changed_at).getTime()
     );
 }
-

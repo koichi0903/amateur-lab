@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { unstable_cache } from "next/cache";
+import { fnv1aHash } from "@/lib/fnv1aHash";
 import { normalizeDisplayName } from "@/lib/createChartData";
 import { parseDatabaseDate } from "@/lib/dateTime";
 import { getAiDiscoveries } from "@/lib/getAiDiscoveries";
@@ -88,6 +89,8 @@ type PriceObservation = {
   changed_at: string;
 };
 
+type ValuedPriceHistoryRow = PriceHistoryRow & { value: number };
+
 // Eligibility uses one displayed price per history timestamp. Whether that
 // displayed price came from a sale or a regular price is irrelevant.
 const allPriceObservations = (rows: PriceHistoryRow[]): PriceObservation[] =>
@@ -151,15 +154,10 @@ function scoreBuyTiming(input: {
   return Math.max(0, Math.min(100, score));
 }
 
-function buildHeroInsight(
-  work: HomePriceInsightWork,
-  rows: PriceHistoryRow[],
-  windowStartAt: string,
-  windowEndAt: string,
-): HomePriceInsightWork | null {
+function selectHeroPriceSeries(work: HomePriceInsightWork, rows: PriceHistoryRow[]) {
   const sorted = rows
     .map((row) => ({ ...row, value: effectivePrice(row) }))
-    .filter((row): row is PriceHistoryRow & { value: number } => row.value !== null)
+    .filter((row): row is ValuedPriceHistoryRow => row.value !== null)
     .sort((a, b) => databaseDateTime(b.changed_at) - databaseDateTime(a.changed_at));
 
   if (!sorted.length) return null;
@@ -180,34 +178,94 @@ function buildHeroInsight(
       (row.period ?? null) === currentPeriod,
   );
   if (!chartRows.length || chartRows[0].value !== currentPrice) return null;
+
+  return { currentPrice, sorted, chartRows };
+}
+
+function findPreviousHeroPrice(
+  chartHistory: ValuedPriceHistoryRow[],
+  currentPrice: number,
+  latestChangedAt: string,
+) {
+  return chartHistory.find(
+    (row) =>
+      row.value !== currentPrice &&
+      databaseDateTime(row.changed_at) < databaseDateTime(latestChangedAt),
+  )?.value ?? null;
+}
+
+function selectHeroPriceDrop(chartHistory: ValuedPriceHistoryRow[], currentPrice: number) {
+  const previousPrice = findPreviousHeroPrice(
+    chartHistory,
+    currentPrice,
+    chartHistory[0].changed_at,
+  );
+  if (!previousPrice || previousPrice <= currentPrice) return null;
+
+  const dropAmount = previousPrice - currentPrice;
+  if (dropAmount <= 0) return null;
+
+  return {
+    previousPrice,
+    dropAmount,
+    dropRate: Math.round((dropAmount / previousPrice) * 100),
+  };
+}
+
+function heroPriceRange(chartHistory: ValuedPriceHistoryRow[], currentPrice: number) {
+  const historicalPrices = chartHistory.map((row) => row.value);
+  return {
+    low90Price: Math.min(...historicalPrices, currentPrice),
+    peak90Price: Math.max(...historicalPrices, currentPrice),
+  };
+}
+
+function heroDiscountRate(work: HomePriceInsightWork, currentPrice: number) {
+  if (work.discount_rate > 0) return work.discount_rate;
+  if (work.list_price && work.list_price > currentPrice) {
+    return Math.round((1 - currentPrice / work.list_price) * 100);
+  }
+  return 0;
+}
+
+function heroPriceBadge(dropRate: number, isBottomPrice: boolean, currentPrice: number, low90Price: number) {
+  if (dropRate >= 25) return "急落";
+  if (isBottomPrice) return "過去最安";
+  if (currentPrice <= low90Price * 1.05) return "90日安値";
+  if (currentPrice > low90Price) return "価格上昇";
+  return "買い時";
+}
+
+export function buildHeroInsight(
+  work: HomePriceInsightWork,
+  rows: PriceHistoryRow[],
+  windowStartAt: string,
+  windowEndAt: string,
+): HomePriceInsightWork | null {
+  const series = selectHeroPriceSeries(work, rows);
+  if (!series) return null;
+  const { currentPrice, sorted, chartRows } = series;
   // Compare only with the immediately preceding price of the same format.
   // Looking farther back would incorrectly turn 1,480 -> 250 -> 500 into a
   // current 66% discount, even though the latest movement was an increase.
   const chartHistory = chartRows.length >= 1 ? chartRows : sorted;
-  const previous = chartHistory.find(
-    (row) =>
-      row.value !== currentPrice &&
-      databaseDateTime(row.changed_at) < databaseDateTime(chartRows[0].changed_at),
-  );
-  const historicalPrices = chartHistory.map((row) => row.value);
-  const low90Price = Math.min(...historicalPrices, currentPrice);
-  const peak90Price = Math.max(...historicalPrices, currentPrice);
-  const previousPrice = previous?.value ?? null;
-  const dropAmount = previousPrice && previousPrice > currentPrice ? previousPrice - currentPrice : 0;
-  const dropRate = previousPrice && previousPrice > currentPrice ? Math.round((dropAmount / previousPrice) * 100) : 0;
-  const discountRate = work.discount_rate > 0 ? work.discount_rate : work.list_price && work.list_price > currentPrice ? Math.round((1 - currentPrice / work.list_price) * 100) : 0;
+  const priceDrop = selectHeroPriceDrop(chartHistory, currentPrice);
+  if (!priceDrop) return null;
+
+  const { low90Price, peak90Price } = heroPriceRange(chartHistory, currentPrice);
+  const discountRate = heroDiscountRate(work, currentPrice);
   // Do not trust the denormalized flag after a sale ends; compare with the
   // price history so a price increase cannot still be labeled as a bargain.
   const isBottomPrice = currentPrice <= low90Price * 1.05;
   const buyScore = scoreBuyTiming({
     currentPrice,
-    previousPrice,
+    previousPrice: priceDrop.previousPrice,
     low90Price,
-    dropRate,
+    dropRate: priceDrop.dropRate,
     discountRate,
     isBottomPrice,
   });
-  const badge = dropRate >= 25 ? "急落" : isBottomPrice ? "過去最安" : currentPrice <= low90Price * 1.05 ? "90日安値" : currentPrice > low90Price ? "価格上昇" : "買い時";
+  const badge = heroPriceBadge(priceDrop.dropRate, isBottomPrice, currentPrice, low90Price);
   const priceHistory = buildPriceHistory(
     chartRows,
     currentPrice,
@@ -215,14 +273,10 @@ function buildHeroInsight(
     windowEndAt,
   );
 
-  if (!previousPrice || previousPrice <= currentPrice || dropAmount <= 0) return null;
-
   return {
     ...work,
     currentPrice,
-    previousPrice,
-    dropAmount,
-    dropRate,
+    ...priceDrop,
     low90Price,
     peak90Price,
     buyScore,
@@ -233,20 +287,16 @@ function buildHeroInsight(
   };
 }
 
-export function buildPriceInsightFromRows(
-  work: HomePriceInsightWork,
+function selectPriceInsightSeries(
   rows: PriceHistoryRow[],
-  windowStartAt: string,
-  windowEndAt: string,
-  options: { requireBuyTimingSignal?: boolean } = {},
-): HomePriceInsightWork | null {
-  const requireBuyTimingSignal = options.requireBuyTimingSignal ?? true;
-  const currentPrice = currentWorkPrice(work);
+  currentPrice: number,
+  requireBuyTimingSignal: boolean,
+) {
   const displayedRows = rows
     .map((row) => ({ ...row, value: effectivePrice(row) }))
-    .filter((row): row is PriceHistoryRow & { value: number } => Boolean(row.value && row.value > 0))
+    .filter((row): row is ValuedPriceHistoryRow => Boolean(row.value && row.value > 0))
     .sort((a, b) => databaseDateTime(b.changed_at) - databaseDateTime(a.changed_at));
-  if (!displayedRows.length || !currentPrice || currentPrice <= 0) return null;
+  if (!displayedRows.length) return null;
 
   const seriesLatest = displayedRows.find((row) => row.value === currentPrice) ?? displayedRows[0];
   const priceRows = displayedRows.filter(
@@ -266,20 +316,54 @@ export function buildPriceInsightFromRows(
   const isCurrentLowest = observations.every((row) => row.value >= currentPrice);
   if (requireBuyTimingSignal && (!hadHigherPrice || !isCurrentLowest)) return null;
 
-  const chartRows = priceRows;
-  const previous = observations.find((row) => row.value !== currentPrice);
+  return { priceRows, observations };
+}
+
+function priceInsightDiscountRate(work: HomePriceInsightWork, currentPrice: number) {
+  if (work.discount_rate > 0) return work.discount_rate;
+  if (work.list_price && work.list_price > currentPrice) {
+    return Math.round((1 - currentPrice / work.list_price) * 100);
+  }
+  return 0;
+}
+
+function priceInsightBadge(dropRate: number, isBottomPrice: boolean, currentPrice: number, low90Price: number): HomePriceInsightWork["badge"] {
+  if (dropRate >= 25) return "急落";
+  if (isBottomPrice) return "過去最安";
+  if (currentPrice <= low90Price * 1.05) return "90日安値";
+  return "買い時";
+}
+
+function summarizePriceInsight(work: HomePriceInsightWork, currentPrice: number, observations: PriceObservation[]) {
+  const previousPrice = observations.find((row) => row.value !== currentPrice)?.value ?? null;
   const historicalPrices = observations.map((row) => row.value);
   const low90Price = Math.min(...historicalPrices, currentPrice);
   const peak90Price = Math.max(...historicalPrices, currentPrice);
-  const previousPrice = previous?.value ?? null;
   const dropAmount = previousPrice && previousPrice > currentPrice ? previousPrice - currentPrice : 0;
   const dropRate = previousPrice && previousPrice > currentPrice ? Math.round((dropAmount / previousPrice) * 100) : 0;
-  const discountRate = work.discount_rate > 0 ? work.discount_rate : work.list_price && work.list_price > currentPrice ? Math.round((1 - currentPrice / work.list_price) * 100) : 0;
+  const discountRate = priceInsightDiscountRate(work, currentPrice);
   const isBottomPrice = currentPrice <= low90Price;
   const buyScore = scoreBuyTiming({ currentPrice, previousPrice, low90Price, dropRate, discountRate, isBottomPrice });
-  const badge = dropRate >= 25 ? "急落" : isBottomPrice ? "過去最安" : currentPrice <= low90Price * 1.05 ? "90日安値" : "買い時";
+  const badge = priceInsightBadge(dropRate, isBottomPrice, currentPrice, low90Price);
+  return { previousPrice, dropAmount, dropRate, low90Price, peak90Price, buyScore, badge };
+}
+
+export function buildPriceInsightFromRows(
+  work: HomePriceInsightWork,
+  rows: PriceHistoryRow[],
+  windowStartAt: string,
+  windowEndAt: string,
+  options: { requireBuyTimingSignal?: boolean } = {},
+): HomePriceInsightWork | null {
+  const requireBuyTimingSignal = options.requireBuyTimingSignal ?? true;
+  const currentPrice = currentWorkPrice(work);
+  if (!currentPrice || currentPrice <= 0) return null;
+  const series = selectPriceInsightSeries(rows, currentPrice, requireBuyTimingSignal);
+  if (!series) return null;
+  const { priceRows, observations } = series;
+  const summary = summarizePriceInsight(work, currentPrice, observations);
   const priceHistory = buildPriceHistory(
-    chartRows,
+    priceRows,
     currentPrice,
     windowStartAt,
     windowEndAt,
@@ -287,13 +371,7 @@ export function buildPriceInsightFromRows(
   return {
     ...work,
     currentPrice,
-    previousPrice,
-    dropAmount,
-    dropRate,
-    low90Price,
-    peak90Price,
-    buyScore,
-    badge,
+    ...summary,
     priceHistory,
     priceWindowStartAt: windowStartAt,
     priceWindowEndAt: windowEndAt,
@@ -312,15 +390,6 @@ export async function getPriceInsightForWork(work: HomePriceInsightWork) {
     .limit(HOME_PRICE_HISTORY_LIMIT);
   if (error || !data?.length) return null;
   return buildPriceInsightFromRows(work, data as PriceHistoryRow[], since, windowEndAt);
-}
-
-function stableHash(value: string) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
 }
 
 export const getHeroPriceDrop = unstable_cache(async () => {
@@ -355,7 +424,7 @@ export const getHeroPriceDrop = unstable_cache(async () => {
     "",
   );
   const seed = `${newestHistoryAt}:${eligible.map((work) => work.product_id).join(",")}`;
-  return eligible[stableHash(seed) % eligible.length] ?? null;
+  return eligible[fnv1aHash(seed) % eligible.length] ?? null;
 }, ["hero-ai-price-drop-v2"], { revalidate: 86400, tags: ["hero-price-drop", "home-daily-discovery"] });
 
 async function fetchPriceHistory(productIds: string[], since: string) {

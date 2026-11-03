@@ -16,6 +16,7 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { updateWork } from "./updateWork";
 import { restoreDiscontinuedWorks } from "./restoreDiscontinuedWorks";
 import { shouldCaptureSampleMovie } from "./sampleMovieCapture";
+import { assessSemiNewWorkRefresh } from "./semiNewWorkRefreshRules";
 
 type SemiNewWork = {
   product_id: string;
@@ -27,6 +28,9 @@ type SemiNewWork = {
   sample_movie_url: string | null;
   sample_movie_checked_at: string | null;
 };
+
+type SemiNewProduct = Awaited<ReturnType<typeof getSemiNewItems>>["products"][number];
+type SemiNewBrowser = Awaited<ReturnType<typeof createBrowser>>;
 
 async function loadSemiNewWorks(): Promise<SemiNewWork[]> {
   const works: SemiNewWork[] = [];
@@ -59,6 +63,89 @@ function hasRequiredDataMissing(work: SemiNewWork): boolean {
     work.list_price == null ||
     !work.playwright_status
   );
+}
+
+async function moveMissingSemiNewProductToOld(
+  work: SemiNewWork,
+  browser: SemiNewBrowser,
+  updatedWorkIds: string[],
+) {
+  try {
+    // Capture the final DMM/Playwright state before archiving it.
+    await updateWork(work.product_id, null, browser, null, {
+      captureSampleMovie: shouldCaptureSampleMovie({
+        stage: "SEMI_NEW",
+        sampleMovieUrl: work.sample_movie_url,
+        sampleMovieCheckedAt: work.sample_movie_checked_at,
+      }),
+    });
+
+    const { error } = await supabase
+      .from("works")
+      .update({ stage: "OLD" })
+      .eq("product_id", work.product_id);
+
+    if (error) throw error;
+
+    updatedWorkIds.push(work.product_id);
+    console.log(`[STAGE] ${work.product_id} SEMI_NEW → OLD`);
+  } catch (error) {
+    // Keep SEMI_NEW so the final refresh can be retried next time.
+    console.error(`[SEMI_NEW_FINAL_UPDATE_ERROR] ${work.product_id}`, error);
+  }
+}
+
+async function updateAvailableSemiNewProduct(
+  work: SemiNewWork,
+  latest: SemiNewProduct,
+  browser: SemiNewBrowser,
+  updatedWorkIds: string[],
+) {
+  const dbPrice = work.sale_price ?? work.list_price ?? work.price;
+  const latestPrice = latest.salePrice ?? latest.listPrice;
+  const isPending = work.playwright_status === "PENDING";
+  const isUnavailable = work.playwright_status?.startsWith("UNAVAILABLE_") ?? false;
+  const isMissingData = hasRequiredDataMissing(work);
+  const captureSampleMovie = shouldCaptureSampleMovie({
+    stage: "SEMI_NEW",
+    sampleMovieUrl: work.sample_movie_url,
+    sampleMovieCheckedAt: work.sample_movie_checked_at,
+  });
+  const assessment = assessSemiNewWorkRefresh({
+    dbPrice,
+    latestPrice,
+    isPending,
+    isUnavailable,
+    isMissingData,
+    captureSampleMovie,
+  });
+
+  if (assessment.shouldSkip) {
+    console.log(`[SKIP] ${work.product_id} price=${dbPrice}`);
+    return;
+  }
+
+  console.log(`[UPDATE] ${work.product_id} reasons=${assessment.reasons.join(",")}`);
+
+  try {
+    const changed = await updateWork(work.product_id, null, browser, latest.listPrice, { captureSampleMovie });
+    if (changed) updatedWorkIds.push(work.product_id);
+  } catch (error) {
+    console.error(`[SEMI_NEW_UPDATE_ERROR] ${work.product_id}`, error);
+  }
+}
+
+async function processSemiNewProduct(
+  work: SemiNewWork,
+  latest: SemiNewProduct | undefined,
+  browser: SemiNewBrowser,
+  updatedWorkIds: string[],
+) {
+  if (!latest) {
+    await moveMissingSemiNewProductToOld(work, browser, updatedWorkIds);
+    return;
+  }
+  await updateAvailableSemiNewProduct(work, latest, browser, updatedWorkIds);
 }
 
 export async function updateSemiNewWorks() {
@@ -105,92 +192,7 @@ export async function updateSemiNewWorks() {
       const batch = targets.slice(i, i + UPDATE_CONFIG.parallel);
 
       await Promise.all(
-        batch.map(async (work) => {
-          const latest = productMap.get(work.product_id);
-
-          if (!latest) {
-            try {
-              // Capture the final DMM/Playwright state before archiving it.
-              await updateWork(work.product_id, null, browser, null, {
-                captureSampleMovie: shouldCaptureSampleMovie({
-                  stage: "SEMI_NEW",
-                  sampleMovieUrl: work.sample_movie_url,
-                  sampleMovieCheckedAt: work.sample_movie_checked_at,
-                }),
-              });
-
-              const { error } = await supabase
-                .from("works")
-                .update({ stage: "OLD" })
-                .eq("product_id", work.product_id);
-
-              if (error) throw error;
-
-              updatedWorkIds.push(work.product_id);
-
-              console.log(`[STAGE] ${work.product_id} SEMI_NEW → OLD`);
-            } catch (error) {
-              // Keep SEMI_NEW so the final refresh can be retried next time.
-              console.error(
-                `[SEMI_NEW_FINAL_UPDATE_ERROR] ${work.product_id}`,
-                error,
-              );
-            }
-            return;
-          }
-
-          const dbPrice = work.sale_price ?? work.list_price ?? work.price;
-          const latestPrice = latest.salePrice ?? latest.listPrice;
-          const isPending = work.playwright_status === "PENDING";
-          const isUnavailable =
-            work.playwright_status?.startsWith("UNAVAILABLE_") ?? false;
-          const isMissingData = hasRequiredDataMissing(work);
-          const captureSampleMovie = shouldCaptureSampleMovie({
-            stage: "SEMI_NEW",
-            sampleMovieUrl: work.sample_movie_url,
-            sampleMovieCheckedAt: work.sample_movie_checked_at,
-          });
-          const isPriceChanged =
-            latestPrice != null && dbPrice !== latestPrice;
-
-          if (
-            !isPending &&
-            !isUnavailable &&
-            !isMissingData &&
-            dbPrice != null &&
-            latestPrice != null &&
-            !isPriceChanged &&
-            !captureSampleMovie
-          ) {
-            console.log(`[SKIP] ${work.product_id} price=${dbPrice}`);
-            return;
-          }
-
-          const reasons = [
-            isPending ? "PENDING" : null,
-            isUnavailable ? "UNAVAILABLE" : null,
-            isMissingData ? "MISSING_DATA" : null,
-            isPriceChanged ? "PRICE_CHANGED" : null,
-            latestPrice == null ? "LIST_PRICE_MISSING" : null,
-          ].filter((reason): reason is string => Boolean(reason));
-
-          console.log(
-            `[UPDATE] ${work.product_id} reasons=${reasons.join(",")}`,
-          );
-
-          try {
-            const changed = await updateWork(
-              work.product_id,
-              null,
-              browser,
-              latest.listPrice,
-              { captureSampleMovie },
-            );
-            if (changed) updatedWorkIds.push(work.product_id);
-          } catch (error) {
-            console.error(`[SEMI_NEW_UPDATE_ERROR] ${work.product_id}`, error);
-          }
-        }),
+        batch.map((work) => processSemiNewProduct(work, productMap.get(work.product_id), browser, updatedWorkIds)),
       );
 
       const processed = processedCount + i + batch.length;

@@ -3,7 +3,7 @@ import { unstable_cache } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { getEntityIndexSummary, type EntityIndexKind } from "./entityIndexSummaries";
-import { preserveWorkOrderByIds } from "./entityWorksProjection";
+import { preserveWorkOrderByIds, priceSortedWorkIds, type PriceWorkRow } from "./entityWorksProjection";
 
 export const ENTITY_PAGE_SIZE = 60;
 export const CATALOG_PAGE_SIZE = 24;
@@ -26,67 +26,81 @@ function genrePattern(name: string) {
 async function loadCatalogWorksPage(kind: CatalogWorkKind, name: string, page: number, sort: GenreWorkSort = "popular"): Promise<GenreWorksResult> {
   const currentPage = Math.max(1, page);
   const from = (currentPage - 1) * CATALOG_PAGE_SIZE;
-  if (sort === "popular") {
-    const [entityPage, summary] = await Promise.all([
-      getEntityWorksPage(kind, name, currentPage, CATALOG_PAGE_SIZE),
-      getEntityIndexSummary(kind, name),
-    ]);
-    const totalCount = summary?.count ?? 0;
-    if (entityPage.error) {
-      return { error: entityPage.error, works: [], totalCount };
-    }
+  if (sort === "popular") return loadPopularCatalogWorksPage(kind, name, currentPage);
+  if (sort === "price-asc" || sort === "price-desc") return loadPriceSortedCatalogWorksPage(kind, name, page, sort, from);
+  return loadReleaseSortedCatalogWorksPage(kind, name, page, sort, from);
+}
 
-    const workIds = entityPage.works.map(({ id }) => id);
-    if (workIds.length === 0) return { error: null, works: [], totalCount };
+async function loadPopularCatalogWorksPage(kind: CatalogWorkKind, name: string, page: number): Promise<GenreWorksResult> {
+  const [entityPage, summary] = await Promise.all([
+    getEntityWorksPage(kind, name, page, CATALOG_PAGE_SIZE),
+    getEntityIndexSummary(kind, name),
+  ]);
+  const totalCount = summary?.count ?? 0;
+  if (entityPage.error) return { error: entityPage.error, works: [], totalCount };
 
-    const result = await supabase.from("works").select(genreWorkSelect).in("id", workIds);
-    if (result.error) {
-      return {
-        error: { code: result.error.code, message: result.error.message, details: result.error.details, hint: result.error.hint },
-        works: [],
-        totalCount,
-      };
-    }
+  const workIds = entityPage.works.map(({ id }) => id);
+  if (workIds.length === 0) return { error: null, works: [], totalCount };
 
+  const result = await supabase.from("works").select(genreWorkSelect).in("id", workIds);
+  if (result.error) {
     return {
-      error: null,
-      works: preserveWorkOrderByIds(workIds, (result.data ?? []) as Work[]),
+      error: { code: result.error.code, message: result.error.message, details: result.error.details, hint: result.error.hint },
+      works: [],
       totalCount,
     };
   }
 
-  if (sort === "price-asc" || sort === "price-desc") {
-    type PriceRow = { id: number; price: number | null; sale_price: number | null };
-    const priceRows: PriceRow[] = [];
-    const batchSize = 1000;
-    for (let offset = 0; offset < 100000; offset += batchSize) {
-      const batch = await supabase
-        .from("works")
-        .select("id,price,sale_price")
-        .ilike(kind, genrePattern(name))
-        .neq("stage", "DISCONTINUED")
-        .order("id", { ascending: true })
-        .range(offset, offset + batchSize - 1);
-      if (batch.error) {
-        console.error(`[${kind}-works] failed to load price rows`, { name, page, sort, code: batch.error.code, message: batch.error.message });
-        return { error: { code: batch.error.code, message: batch.error.message, details: batch.error.details, hint: batch.error.hint }, works: [], totalCount: 0 };
-      }
-      const rows = (batch.data ?? []) as PriceRow[];
-      priceRows.push(...rows);
-      if (rows.length < batchSize) break;
+  return {
+    error: null,
+    works: preserveWorkOrderByIds(workIds, (result.data ?? []) as Work[]),
+    totalCount,
+  };
+}
+
+async function loadPriceSortedCatalogWorksPage(
+  kind: CatalogWorkKind,
+  name: string,
+  page: number,
+  sort: "price-asc" | "price-desc",
+  from: number,
+): Promise<GenreWorksResult> {
+  const priceRows: PriceWorkRow[] = [];
+  const batchSize = 1000;
+  for (let offset = 0; offset < 100000; offset += batchSize) {
+    const batch = await supabase
+      .from("works")
+      .select("id,price,sale_price")
+      .ilike(kind, genrePattern(name))
+      .neq("stage", "DISCONTINUED")
+      .order("id", { ascending: true })
+      .range(offset, offset + batchSize - 1);
+    if (batch.error) {
+      console.error(`[${kind}-works] failed to load price rows`, { name, page, sort, code: batch.error.code, message: batch.error.message });
+      return { error: { code: batch.error.code, message: batch.error.message, details: batch.error.details, hint: batch.error.hint }, works: [], totalCount: 0 };
     }
-    const currentPrice = (row: PriceRow) => row.sale_price != null && row.sale_price > 0 ? row.sale_price : row.price ?? 0;
-    priceRows.sort((a, b) => sort === "price-asc" ? currentPrice(a) - currentPrice(b) || b.id - a.id : currentPrice(b) - currentPrice(a) || b.id - a.id);
-    const pageIds = priceRows.slice(from, from + CATALOG_PAGE_SIZE).map((row) => row.id);
-    if (!pageIds.length) return { error: null, works: [], totalCount: priceRows.length };
-    const result = await supabase.from("works").select(genreWorkSelect).in("id", pageIds);
-    if (result.error) {
-      console.error(`[${kind}-works] failed to load sorted works`, { name, page, sort, code: result.error.code, message: result.error.message });
-      return { error: { code: result.error.code, message: result.error.message, details: result.error.details, hint: result.error.hint }, works: [], totalCount: priceRows.length };
-    }
-    const byId = new Map((result.data ?? []).map((work) => [work.id, work]));
-    return { error: null, works: pageIds.map((id) => byId.get(id)).filter(Boolean) as Work[], totalCount: priceRows.length };
+    const rows = (batch.data ?? []) as PriceWorkRow[];
+    priceRows.push(...rows);
+    if (rows.length < batchSize) break;
   }
+  const pageIds = priceSortedWorkIds(priceRows, sort, from, CATALOG_PAGE_SIZE);
+  if (!pageIds.length) return { error: null, works: [], totalCount: priceRows.length };
+  const result = await supabase.from("works").select(genreWorkSelect).in("id", pageIds);
+  if (result.error) {
+    console.error(`[${kind}-works] failed to load sorted works`, { name, page, sort, code: result.error.code, message: result.error.message });
+    return { error: { code: result.error.code, message: result.error.message, details: result.error.details, hint: result.error.hint }, works: [], totalCount: priceRows.length };
+  }
+  const byId = new Map((result.data ?? []).map((work) => [work.id, work]));
+  return { error: null, works: pageIds.map((id) => byId.get(id)).filter(Boolean) as Work[], totalCount: priceRows.length };
+}
+
+async function loadReleaseSortedCatalogWorksPage(
+  kind: CatalogWorkKind,
+  name: string,
+  page: number,
+  sort: Exclude<GenreWorkSort, "popular" | "price-asc" | "price-desc">,
+  from: number,
+): Promise<GenreWorksResult> {
   let query = supabase
     .from("works")
     .select(genreWorkSelect, { count: "exact" })

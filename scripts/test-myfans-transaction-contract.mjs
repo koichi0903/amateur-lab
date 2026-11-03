@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const route = fs.readFileSync("src/app/api/admin/myfans/quote-refresh/route.ts", "utf8");
-const migration = fs.readFileSync("supabase/migrations/20260924143000_formalize_myfans_quote_refresh_atomic_create.sql", "utf8");
+const migration = fs.readFileSync("supabase/migrations/20260924071145_formalize_myfans_quote_refresh_atomic_create.sql", "utf8");
 
 assert.match(route, /await assertDatabaseReady\(\)/);
 assert.match(route, /create_myfans_quote_refresh_job/);

@@ -15,6 +15,18 @@ $OutputEncoding = $utf8
 Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
 $env:FORCE_COLOR = "0"
 $projectDir = Split-Path -Parent $PSScriptRoot
+# Pin project-scoped state, caches, and temporary files to the migrated F: profile.
+$runtimeNode = 'F:\HakkutsuLAB\runtime\nodejs'
+$localAppData = 'F:\HakkutsuLAB\workspace\Users\DELL\AppData\Local'
+$taskTemp = 'F:\HakkutsuLAB\migration\tmp'
+New-Item -ItemType Directory -Path $taskTemp -Force | Out-Null
+$env:Path = "$runtimeNode;$env:Path"
+$env:LOCALAPPDATA = $localAppData
+$env:npm_config_cache = Join-Path $localAppData 'npm-cache'
+$env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $localAppData 'ms-playwright'
+$env:BIJYO_VIDEO_DESKTOP_DIR = 'F:\HakkutsuLAB\workspace\Users\DELL\OneDrive\Desktop'
+$env:TEMP = $taskTemp
+$env:TMP = $taskTemp
 $logDir = 'F:\HakkutsuLAB\workspace\Users\DELL\AppData\Local\HakkutsuLAB\scheduled-update-logs'
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $logPath = Join-Path $logDir "$timestamp-$Group.log"
@@ -68,6 +80,8 @@ try {
 
     "[$(Get-Date -Format o)] Starting scheduled update: $Group" |
         Tee-Object -FilePath $logPath
+    # Leave PLAYWRIGHT_EXECUTABLE_PATH unset so browserManager resolves the
+    # Playwright-managed Chromium from the F: PLAYWRIGHT_BROWSERS_PATH above.
     Invoke-ScheduleMonitor -Status "running"
 
     $node = (Get-Command node.exe -ErrorAction Stop).Source

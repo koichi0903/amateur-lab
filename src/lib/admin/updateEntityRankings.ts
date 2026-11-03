@@ -1,10 +1,16 @@
-import type { DmmItem } from "@/types/dmm";
 import { IGNORE_GENRES } from "@/lib/genre";
 import { getActressRanking } from "@/lib/playwright/getActressRanking";
 import { getSeriesRanking } from "@/lib/playwright/getSeriesRanking";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
+import {
+  mergeActressRankingRows,
+  mergeSeriesRankingRows,
+  projectEntityRankingItems,
+  type RankedDmmItem,
+} from "./entityRankingProjection";
+import { buildEntityRankingSyncPlan } from "./entityRankingSyncPlan";
 
-export type RankedDmmItem = DmmItem & { rank: number };
+export type { RankedDmmItem } from "./entityRankingProjection";
 
 type EntityRankingProgress = (processed: number, total: number) => Promise<void>;
 type EntityRankingTable =
@@ -20,14 +26,50 @@ type EntityRankingRow = {
 
 const ENTITY_STEPS = 7;
 
-function getRankingPoint(rank: number) {
-  return Math.max(1, Math.floor(500 / Math.sqrt(rank)));
+async function loadExistingRankingRows(table: EntityRankingTable) {
+  const existingRows: Array<{ id: number | string; name: string }> = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from(table)
+      .select("id,name")
+      .order("id", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    existingRows.push(...((data ?? []) as typeof existingRows));
+    if ((data?.length ?? 0) < pageSize) break;
+  }
+  return existingRows;
 }
 
-function addScore(target: Record<string, number>, name: string, point: number) {
-  const normalized = name.trim();
-  if (!normalized) return;
-  target[normalized] = (target[normalized] ?? 0) + point;
+async function updateExistingRankingRows(table: EntityRankingTable, rows: Array<{ id: number | string } & EntityRankingRow>) {
+  const chunkSize = 20;
+  for (let offset = 0; offset < rows.length; offset += chunkSize) {
+    const results = await Promise.all(
+      rows.slice(offset, offset + chunkSize).map(({ id, ...row }) =>
+        supabase.from(table).update(row).eq("id", id),
+      ),
+    );
+    const failed = results.find((result) => result.error);
+    if (failed?.error) throw failed.error;
+  }
+}
+
+async function insertNewRankingRows(table: EntityRankingTable, rows: EntityRankingRow[]) {
+  if (rows.length === 0) return;
+  const { error } = await supabase.from(table).insert(rows);
+  if (error) throw error;
+}
+
+async function deleteStaleRankingRows(table: EntityRankingTable, staleIds: Array<number | string>) {
+  const chunkSize = 100;
+  for (let offset = 0; offset < staleIds.length; offset += chunkSize) {
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .in("id", staleIds.slice(offset, offset + chunkSize));
+    if (error) throw error;
+  }
 }
 
 async function syncRankingByName(
@@ -50,30 +92,8 @@ async function syncRankingByName(
     if (clearError) throw clearError;
   }
 
-  const existingRows: Array<{ id: number | string; name: string }> = [];
-  const pageSize = 1000;
-  for (let offset = 0; ; offset += pageSize) {
-    const { data, error } = await supabase
-      .from(table)
-      .select("id,name")
-      .order("id", { ascending: true })
-      .range(offset, offset + pageSize - 1);
-    if (error) throw error;
-    existingRows.push(...((data ?? []) as typeof existingRows));
-    if ((data?.length ?? 0) < pageSize) break;
-  }
-
-  const idsByName = new Map<string, Array<number | string>>();
-  for (const existingRow of existingRows) {
-    const ids = idsByName.get(existingRow.name) ?? [];
-    ids.push(existingRow.id);
-    idsByName.set(existingRow.name, ids);
-  }
-
-  const rowsToUpdate = rows.flatMap((row) =>
-    (idsByName.get(row.name) ?? []).map((id) => ({ id, ...row })),
-  );
-  const rowsToInsert = rows.filter((row) => !idsByName.has(row.name));
+  const existingRows = await loadExistingRankingRows(table);
+  const { rowsToUpdate, rowsToInsert, staleIds } = buildEntityRankingSyncPlan(rows, existingRows);
 
   console.log(`[entity-ranking] ${table}`, {
     target: rows.length,
@@ -85,38 +105,9 @@ async function syncRankingByName(
   // Production does not guarantee UNIQUE(name) on every ranking table, and id
   // is GENERATED ALWAYS. Update known ids explicitly instead of using upsert,
   // which PostgreSQL treats as an INSERT and rejects for identity columns.
-  if (rowsToUpdate.length > 0) {
-    const chunkSize = 20;
-    for (let offset = 0; offset < rowsToUpdate.length; offset += chunkSize) {
-      const results = await Promise.all(
-        rowsToUpdate.slice(offset, offset + chunkSize).map(({ id, ...row }) =>
-          supabase.from(table).update(row).eq("id", id),
-        ),
-      );
-      const failed = results.find((result) => result.error);
-      if (failed?.error) throw failed.error;
-    }
-  }
-  if (rowsToInsert.length > 0) {
-    const { error: insertError } = await supabase.from(table).insert(rowsToInsert);
-    if (insertError) throw insertError;
-  }
-
-  const currentNames = new Set(rows.map((row) => row.name));
-  const staleIds = existingRows
-    .filter((row) => !currentNames.has(row.name))
-    .map((row) => row.id);
-
-  if (staleIds.length > 0 && options.deleteStale) {
-    const chunkSize = 100;
-    for (let offset = 0; offset < staleIds.length; offset += chunkSize) {
-      const { error: deleteError } = await supabase
-        .from(table)
-        .delete()
-        .in("id", staleIds.slice(offset, offset + chunkSize));
-      if (deleteError) throw deleteError;
-    }
-  }
+  await updateExistingRankingRows(table, rowsToUpdate);
+  await insertNewRankingRows(table, rowsToInsert);
+  if (staleIds.length > 0 && options.deleteStale) await deleteStaleRankingRows(table, staleIds);
 
   console.log(`[entity-ranking] ${table} completed`, {
     staleDeleted: options.deleteStale ? staleIds.length : 0,
@@ -127,34 +118,7 @@ export async function updateEntityRankings(
   rankingItems: RankedDmmItem[],
   onProgress?: EntityRankingProgress,
 ) {
-  const genreScores: Record<string, number> = {};
-  const actressScores: Record<string, number> = {};
-  const makerScores: Record<string, number> = {};
-  const seriesScores: Record<string, number> = {};
-
-  for (const item of rankingItems) {
-    const point = getRankingPoint(item.rank);
-    item.iteminfo?.genre?.forEach((genre) => {
-      if (!IGNORE_GENRES.includes(genre.name)) addScore(genreScores, genre.name, point);
-    });
-    item.iteminfo?.actress?.forEach((actress) =>
-      addScore(actressScores, actress.name, point),
-    );
-    item.iteminfo?.maker?.forEach((maker) => addScore(makerScores, maker.name, point));
-    item.iteminfo?.series?.forEach((series) =>
-      addScore(seriesScores, series.name, point),
-    );
-  }
-
-  const toRankedRows = (scores: Record<string, number>) =>
-    Object.entries(scores)
-      .sort((a, b) => b[1] - a[1])
-      .map(([name, score], index) => ({ name, score, rank: index + 1 }));
-
-  const actressRows = toRankedRows(actressScores).slice(0, 100);
-  const genreRows = toRankedRows(genreScores).slice(0, 30);
-  const makerRows = toRankedRows(makerScores).slice(0, 50);
-  const seriesRows = toRankedRows(seriesScores).slice(0, 100);
+  const { actressRows, genreRows, makerRows, seriesRows } = projectEntityRankingItems(rankingItems, IGNORE_GENRES);
   if (actressRows.length === 0 || seriesRows.length === 0) {
     throw new Error("DMMランキングの人物・シリーズ集計結果が0件です");
   }
@@ -174,24 +138,9 @@ export async function updateEntityRankings(
   await onProgress?.(3, ENTITY_STEPS);
 
   const updatedAt = new Date().toISOString();
-  const actressOriginalRanks = new Map(
-    actressRows.map((row) => [row.name, row.rank]),
-  );
-  const actressFanzaRanks = new Map(
-    fanzaActressRows.map((row) => [row.name, row.rank]),
-  );
-  const actressNames = new Set([
-    ...actressOriginalRanks.keys(),
-    ...actressFanzaRanks.keys(),
-  ]);
   await syncRankingByName(
     "actress_rankings",
-    [...actressNames].map((name) => ({
-      name,
-      original_rank: actressOriginalRanks.get(name) ?? null,
-      fanza_rank: actressFanzaRanks.get(name) ?? null,
-      updated_at: updatedAt,
-    })),
+    mergeActressRankingRows(actressRows, fanzaActressRows, updatedAt),
     { stalePatch: { original_rank: null, fanza_rank: null } },
   );
   await onProgress?.(4, ENTITY_STEPS);
@@ -208,25 +157,9 @@ export async function updateEntityRankings(
   );
   await onProgress?.(5, ENTITY_STEPS);
 
-  const seriesOriginalRows = new Map(
-    seriesRows.map((row) => [row.name, row]),
-  );
-  const seriesFanzaRanks = new Map(
-    fanzaSeriesRows.map((row) => [row.name, row.rank]),
-  );
-  const seriesNames = new Set([
-    ...seriesOriginalRows.keys(),
-    ...seriesFanzaRanks.keys(),
-  ]);
   await syncRankingByName(
     "series_rankings",
-    [...seriesNames].map((name) => ({
-      name,
-      original_rank: seriesOriginalRows.get(name)?.rank ?? null,
-      fanza_rank: seriesFanzaRanks.get(name) ?? null,
-      score: seriesOriginalRows.get(name)?.score ?? 0,
-      updated_at: updatedAt,
-    })),
+    mergeSeriesRankingRows(seriesRows, fanzaSeriesRows, updatedAt),
     { stalePatch: { original_rank: null, fanza_rank: null, score: 0 } },
   );
   await onProgress?.(6, ENTITY_STEPS);

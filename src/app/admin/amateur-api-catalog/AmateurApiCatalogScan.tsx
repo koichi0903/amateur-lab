@@ -1,8 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  catalogRunStepEffects,
+  type CatalogRunType,
+} from "./AmateurApiCatalogMessages";
 
-type RunType = "daily_incremental" | "weekly_full";
+type RunType = CatalogRunType;
 type ScanRun = {
   id: string;
   status: "running" | "completed" | "limit_reached" | "needs_attention" | "failed";
@@ -20,14 +24,24 @@ type ScanRun = {
   expected_item_count: number;
   completed_range_count: number;
   range_count: number;
+  rank_next_offset: number;
+  rank_fetched_item_count: number;
+  rank_total_count: number | null;
+  rank_snapshot_at: string | null;
 };
 type RunResponse = { run: ScanRun | null; processedItemCount: number; error?: string };
 type RunsResponse = { runs: Record<RunType, ScanRun | null>; activeRun: ScanRun | null; error?: string };
+type CatalogRunRequest = (
+  action: "start" | "continue",
+  runType: RunType,
+  runId?: string,
+) => Promise<RunResponse>;
 type AmateurWork = {
   content_id: string;
   title: string | null;
   api_date: string | null;
   rank: number | null;
+  rank_observed_at: string | null;
   raw_item: Record<string, unknown>;
   fetched_at: string;
   is_listed: boolean;
@@ -40,8 +54,8 @@ type AmateurWork = {
 type WorksResponse = { items: AmateurWork[]; page: number; pageSize: number; total: number; error?: string };
 
 const RUN_LABELS: Record<RunType, string> = {
-  daily_incremental: "素人作品API補完",
-  weekly_full: "素人作品API全件補完",
+  daily_incremental: "旧・日次新作補完（履歴）",
+  weekly_full: "週次・全作品API補完",
 };
 
 function count(value: number) {
@@ -60,6 +74,161 @@ function isLegacyActiveRun(run: ScanRun | null) {
     && run.expected_item_count === 0
     && run.completed_range_count === 0
     && run.range_count === 0);
+}
+
+function statusLabel(run: ScanRun | null) {
+  if (!run) return "未実行";
+  if (run.status === "running") return "実行中";
+  if (run.status === "completed") return "完了";
+  if (run.status === "needs_attention") return "要確認";
+  if (run.status === "limit_reached") return "API上限";
+  return "失敗";
+}
+
+function runStatusTone(run: ScanRun | null, isLegacy: boolean) {
+  if (isLegacy || run?.status === "needs_attention") {
+    return "bg-amber-900 text-amber-200";
+  }
+  if (run?.status === "running") return "bg-blue-900 text-blue-200";
+  return "bg-zinc-800 text-zinc-300";
+}
+
+function RunCardStatus({ run, isLegacy }: { run: ScanRun | null; isLegacy: boolean }) {
+  return (
+    <span className={`rounded-full px-3 py-1 text-xs font-bold ${runStatusTone(run, isLegacy)}`}>
+      {isLegacy ? "旧仕様・要切替" : statusLabel(run)}
+    </span>
+  );
+}
+
+function RunCardMetrics({ run }: { run: ScanRun | null }) {
+  const fetchedItemCount = run?.fetched_item_count ?? 0;
+  const completedRangeCount = run?.completed_range_count ?? 0;
+  const rangeCount = run?.range_count ?? 0;
+  const lastRunAt = run?.completed_at ?? run?.started_at;
+
+  return (
+    <div className="mt-4 grid gap-2 sm:grid-cols-3">
+      <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">処理済み</p><strong className="mt-1 block">{count(fetchedItemCount)}</strong></div>
+      <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">分割範囲</p><strong className="mt-1 block">{count(completedRangeCount)} / {count(rangeCount)}</strong></div>
+      <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">最終実行</p><strong className="mt-1 block text-xs">{dateTime(lastRunAt)}</strong></div>
+    </div>
+  );
+}
+
+function RunCardError({ error }: { error: string | null | undefined }) {
+  if (!error) return null;
+  return <p className="mt-3 rounded-lg bg-amber-950/60 p-3 text-xs leading-5 text-amber-200">{error}</p>;
+}
+
+function RunCardActions({
+  runType,
+  activeRun,
+  isActive,
+  isLegacy,
+  isBusy,
+  onRunAll,
+  onStop,
+}: {
+  runType: RunType;
+  activeRun: ScanRun | null;
+  isActive: boolean;
+  isLegacy: boolean;
+  isBusy: boolean;
+  onRunAll: (runType: RunType, resumeRun?: ScanRun) => void;
+  onStop: () => void;
+}) {
+  const startHref = "/admin/amateur-api-catalog?mode=full&start=1";
+
+  return (
+    <div className="mt-4 flex flex-wrap gap-2">
+      {!activeRun && !isBusy && <a href={startHref} className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-zinc-950">週次の全作品補完を開始</a>}
+      {isActive && isLegacy && !isBusy && <button type="button" onClick={() => void onRunAll(runType)} className="rounded-xl bg-amber-400 px-4 py-3 text-sm font-black text-zinc-950">旧履歴を保持して新方式で開始</button>}
+      {isActive && !isLegacy && !isBusy && <button type="button" onClick={() => void onRunAll(runType, activeRun!)} className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-zinc-950">続きから再開</button>}
+      {isBusy && <button type="button" onClick={onStop} className="rounded-xl border border-zinc-600 px-4 py-3 text-sm font-bold">一時停止</button>}
+    </div>
+  );
+}
+
+function AmateurApiCatalogRunCard({
+  runType,
+  run,
+  activeRun,
+  busyType,
+  description,
+  rangeDescription,
+  onRunAll,
+  onStop,
+}: {
+  runType: RunType;
+  run: ScanRun | null;
+  activeRun: ScanRun | null;
+  busyType: RunType | null;
+  description: string;
+  rangeDescription: string;
+  onRunAll: (runType: RunType, resumeRun?: ScanRun) => void;
+  onStop: () => void;
+}) {
+  const isActive = activeRun?.run_type === runType;
+  const isLegacy = isActive && isLegacyActiveRun(activeRun);
+  const isBusy = busyType === runType;
+
+  return (
+    <article className="rounded-2xl border border-zinc-700 bg-zinc-900 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black tracking-[0.14em] text-emerald-300">WEEKLY FULL RECONCILIATION</p>
+          <h2 className="mt-2 text-xl font-black">{RUN_LABELS[runType]}</h2>
+        </div>
+        <RunCardStatus run={run} isLegacy={isLegacy} />
+      </div>
+      <p className="mt-3 text-sm leading-6 text-zinc-300">{description}</p>
+      <p className="mt-2 text-xs text-zinc-400">対象期間：{rangeDescription}</p>
+      <RunCardMetrics run={run} />
+      <RunCardError error={run?.last_error} />
+      <RunCardActions
+        runType={runType}
+        activeRun={activeRun}
+        isActive={isActive}
+        isLegacy={isLegacy}
+        isBusy={isBusy}
+        onRunAll={onRunAll}
+        onStop={onStop}
+      />
+    </article>
+  );
+}
+
+async function continueCatalogRun({
+  runType,
+  resumeRun,
+  request,
+  refreshWorks,
+  shouldStop,
+  setMessage,
+}: {
+  runType: RunType;
+  resumeRun?: ScanRun;
+  request: CatalogRunRequest;
+  refreshWorks: (page?: number) => Promise<void>;
+  shouldStop: () => boolean;
+  setMessage: (message: string) => void;
+}) {
+  let next = resumeRun
+    ? { run: resumeRun, processedItemCount: resumeRun.fetched_item_count }
+    : await request("start", runType);
+  let step = 0;
+  while (next.run?.status === "running" && !shouldStop()) {
+    next = await request("continue", runType, next.run.id);
+    step += 1;
+    const effects = catalogRunStepEffects(next.run, RUN_LABELS[runType], runType, step);
+    if (effects.message) setMessage(effects.message);
+    if (effects.refreshWorks) await refreshWorks(1).catch(() => undefined);
+    if (effects.wait) await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  if (shouldStop() && next.run?.status === "running") {
+    setMessage("一時停止しました。画面を開き直して「続きから再開」できます。");
+  }
 }
 
 export default function AmateurApiCatalogScan() {
@@ -111,26 +280,14 @@ export default function AmateurApiCatalogScan() {
     stopRef.current = false;
     setMessage(`${RUN_LABELS[runType]}を準備しています。`);
     try {
-      let next = resumeRun
-        ? { run: resumeRun, processedItemCount: resumeRun.fetched_item_count }
-        : await request("start", runType);
-      let step = 0;
-      while (next.run?.status === "running" && !stopRef.current) {
-        next = await request("continue", runType, next.run.id);
-        step += 1;
-        if (next.run?.status === "completed") {
-          setMessage(`${RUN_LABELS[runType]}が完了しました。${count(next.run.fetched_item_count)}件を処理しました。`);
-          await refreshWorks(1).catch(() => undefined);
-        } else if (next.run?.status === "needs_attention") {
-          setMessage(next.run.last_error || "取得範囲を分割できないため、確認が必要です。");
-        } else if (next.run?.status === "running") {
-          const range = next.run.current_range;
-          setMessage(`${RUN_LABELS[runType]}：${count(next.run.fetched_item_count)}件処理 · 期間 ${range ? `${range.fromDate}〜${range.toDate}` : "次の期間を準備中"} · ${count(next.run.completed_range_count)} / ${count(next.run.range_count)}範囲完了`);
-          if (step % 10 === 0) await refreshWorks(1).catch(() => undefined);
-        }
-        if (next.run?.status === "running") await new Promise((resolve) => setTimeout(resolve, 1_000));
-      }
-      if (stopRef.current && next.run?.status === "running") setMessage("一時停止しました。画面を開き直して「続きから再開」できます。");
+      await continueCatalogRun({
+        runType,
+        resumeRun,
+        request,
+        refreshWorks,
+        shouldStop: () => stopRef.current,
+        setMessage,
+      });
       await refreshRuns().catch(() => undefined);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "DMM API補完に失敗しました。");
@@ -144,7 +301,7 @@ export default function AmateurApiCatalogScan() {
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     const mode = query.get("mode");
-    const runType: RunType | null = mode === "full" || mode === "weekly" ? "weekly_full" : mode === "daily" ? "daily_incremental" : null;
+    const runType: RunType | null = mode === "full" || mode === "weekly" ? "weekly_full" : null;
     if (query.get("start") === "1" && runType && !autoStartRef.current) {
       autoStartRef.current = true;
       window.history.replaceState(null, "", window.location.pathname);
@@ -154,60 +311,27 @@ export default function AmateurApiCatalogScan() {
     void Promise.all([refreshRuns(), refreshWorks()]).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "補完状況を読み込めませんでした。"));
   }, [refreshRuns, refreshWorks, runAll]);
 
-  const statusLabel = (run: ScanRun | null) => {
-    if (!run) return "未実行";
-    if (run.status === "running") return "実行中";
-    if (run.status === "completed") return "完了";
-    if (run.status === "needs_attention") return "要確認";
-    if (run.status === "limit_reached") return "API上限";
-    return "失敗";
-  };
-
-  const renderRunCard = (runType: RunType, description: string, rangeDescription: string) => {
-    const run = runs[runType];
-    const isActive = activeRun?.run_type === runType;
-    const isLegacy = isActive && isLegacyActiveRun(activeRun);
-    const isBusy = busyType === runType;
-    const startHref = "/admin/amateur-api-catalog?mode=full&start=1";
-    return (
-      <article key={runType} className="rounded-2xl border border-zinc-700 bg-zinc-900 p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-black tracking-[0.14em] text-emerald-300">FULL CATALOG</p>
-            <h2 className="mt-2 text-xl font-black">素人作品 API 全件補完</h2>
-          </div>
-          <span className={`rounded-full px-3 py-1 text-xs font-bold ${isLegacy || run?.status === "needs_attention" ? "bg-amber-900 text-amber-200" : run?.status === "running" ? "bg-blue-900 text-blue-200" : "bg-zinc-800 text-zinc-300"}`}>{isLegacy ? "旧仕様・要切替" : statusLabel(run)}</span>
-        </div>
-        <p className="mt-3 text-sm leading-6 text-zinc-300">{description}</p>
-        <p className="mt-2 text-xs text-zinc-400">対象期間：{rangeDescription}</p>
-        <div className="mt-4 grid gap-2 sm:grid-cols-3">
-          <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">API取得累計（再取得を含む）</p><strong className="mt-1 block">{count(run?.fetched_item_count ?? 0)}</strong></div>
-          <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">分割範囲</p><strong className="mt-1 block">{count(run?.completed_range_count ?? 0)} / {count(run?.range_count ?? 0)}</strong></div>
-          <div className="rounded-xl bg-zinc-950 p-3"><p className="text-[11px] text-zinc-500">最終実行</p><strong className="mt-1 block text-xs">{dateTime(run?.completed_at ?? run?.started_at)}</strong></div>
-        </div>
-        {run?.last_error && <p className="mt-3 rounded-lg bg-amber-950/60 p-3 text-xs leading-5 text-amber-200">{run.last_error}</p>}
-        <div className="mt-4 flex flex-wrap gap-2">
-          {!activeRun && !isBusy && <a href={startHref} className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-zinc-950">全件補完を開始</a>}
-          {isActive && isLegacy && !isBusy && <button type="button" onClick={() => void runAll(runType)} className="rounded-xl bg-amber-400 px-4 py-3 text-sm font-black text-zinc-950">旧履歴を保持して新方式で開始</button>}
-          {isActive && !isLegacy && !isBusy && <button type="button" onClick={() => void runAll(runType, activeRun!)} className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-zinc-950">続きから再開</button>}
-          {isBusy && <button type="button" onClick={() => { stopRef.current = true; }} className="rounded-xl border border-zinc-600 px-4 py-3 text-sm font-bold">一時停止</button>}
-        </div>
-      </article>
-    );
-  };
-
   return (
     <section className="space-y-6">
       <div className="rounded-2xl border border-emerald-900 bg-zinc-900 p-6">
         <p className="text-xs font-black tracking-[0.16em] text-emerald-300">DMM ITEM API / OFFSET 5,000 SAFE</p>
-        <h2 className="mt-2 text-2xl font-black">全作品のAPI情報を補完</h2>
-        <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-300">全作品を発売日範囲ごとに分割して取得します。取得途中の失敗や件数不一致がある場合は完了扱いにせず、掲載終了の判定も行いません。</p>
-        <div className="mt-5 grid gap-4">
-          {renderRunCard("weekly_full", "API掲載作品を発売日の範囲に分けて全体を再照合します。成功完了後にだけ未掲載候補を更新します。", "APIの発売日範囲全体")}
+        <h2 className="mt-2 text-2xl font-black">週次・全作品API補完</h2>
+        <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-300">ボタンを押すとAPI掲載作品を全期間で再照合し、作品情報と価格・セール情報を更新します。1回の検索範囲が5,000件を超えた場合は日付範囲を自動分割します。途中失敗・件数不一致・分割できない範囲がある場合は掲載終了を判定せず、要確認で止まります。</p>
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <AmateurApiCatalogRunCard
+            runType="weekly_full"
+            run={runs.weekly_full}
+            activeRun={activeRun}
+            busyType={busyType}
+            description="全作品の価格・セール情報を含むAPIデータを再取得します。成功完了後にだけ未掲載候補を更新します。"
+            rangeDescription="APIの発売日範囲全体を分割"
+            onRunAll={runAll}
+            onStop={() => { stopRef.current = true; }}
+          />
         </div>
+        {activeRun?.run_type === "daily_incremental" && <div className="mt-4 rounded-xl border border-amber-800 bg-amber-950/40 p-4 text-sm text-amber-100">旧方式の日次新作補完が進行中です。新規の日次新作補完は停止しています。旧ジョブを安全に終えるには、続きから再開してください。<button type="button" disabled={busyType !== null} onClick={() => void runAll("daily_incremental", activeRun)} className="ml-3 rounded-lg bg-amber-400 px-3 py-2 font-bold text-zinc-950 disabled:opacity-50">旧ジョブを再開</button></div>}
         {message && <p role="status" className="mt-4 rounded-xl bg-zinc-950 p-4 text-sm leading-6 text-zinc-200">{message}</p>}
-        <p className="mt-4 text-[11px] leading-5 text-zinc-500">管理画面から「全件補完」を開始してください。5,000件以下の範囲に分割して取得し、件数不一致などで完了を確認できない場合は要確認で停止します。</p>
-        {activeRun && activeRun.run_type !== "weekly_full" && <p role="status" className="mt-3 rounded-xl bg-amber-950/60 p-3 text-sm text-amber-200">別のAPI補完処理が実行中です。完了後に全件補完を開始できます。</p>}
+        <p className="mt-4 text-[11px] leading-5 text-zinc-500">週次の全作品補完を必要に応じて手動で開始します。自動時刻実行は設定しません。5,000件以内に分割できない範囲が見つかった場合は要確認で停止し、全件完了とは表示しません。</p>
       </div>
 
       <section className="rounded-2xl border border-zinc-700 bg-zinc-900 p-5">
@@ -232,7 +356,7 @@ export default function AmateurApiCatalogScan() {
                   <td className="whitespace-nowrap px-3 py-3 font-mono text-cyan-200">{work.content_id}</td>
                   <td className="min-w-64 max-w-md px-3 py-3">{work.title ?? "—"}</td>
                   <td className="whitespace-nowrap px-3 py-3">{work.api_date ?? "—"}</td>
-                  <td className="px-3 py-3">{work.rank ?? "—"}</td>
+                  <td className="px-3 py-3" title={work.rank_observed_at ? `取得日時: ${new Date(work.rank_observed_at).toLocaleString("ja-JP")}` : undefined}>{work.rank ?? "—"}{work.rank_observed_at && <span className="ml-1 text-zinc-500">取得済</span>}</td>
                   <td className="min-w-56 px-3 py-3">
                     <details>
                       <summary className="cursor-pointer text-cyan-300">{count(Object.keys(work.raw_item ?? {}).length)}項目を開く</summary>
@@ -248,7 +372,7 @@ export default function AmateurApiCatalogScan() {
                   <td className="px-3 py-3">{work.is_listed ? (work.missing_since ? "未掲載候補（再確認中）" : "掲載中") : "未掲載確認"}</td>
                 </tr>
               ))}
-              {works.length === 0 && <tr><td colSpan={7} className="px-3 py-10 text-center text-zinc-500">まだ作品データはありません。全件補完を開始すると、作品ごとのAPI情報がここに表示されます。</td></tr>}
+              {works.length === 0 && <tr><td colSpan={7} className="px-3 py-10 text-center text-zinc-500">まだ作品データはありません。週次全件補完を開始すると、作品ごとのAPI情報がここに表示されます。</td></tr>}
             </tbody>
           </table>
         </div>
@@ -256,4 +380,3 @@ export default function AmateurApiCatalogScan() {
     </section>
   );
 }
-

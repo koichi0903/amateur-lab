@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { buildVisualVideoFacts } from "./xVisualVideoFacts";
-import { buildXCreativeVariants, finalNativeXVoiceGate, validateXCopyGrammar } from "./xCreativeEngine";
+import { buildXCreativeVariants, finalNativeXVoiceGate, validateXCopyGrammar, voiceArchetype } from "./xCreativeEngine";
 import { buildDecisionFacts } from "./domain/decisionFacts";
+import { videoSpecificLines } from "./x-growth/xCreativeVideoCopy";
+import type { XCreativeInput, XVideoManualTag } from "./x-growth/xCreativeTypes";
 import type { XPostLog } from "./xPostLogs";
 
 const movieUrl = "https://cc3001.dmm.co.jp/litevideo/freepv/test/test_dmb_w.mp4";
@@ -31,15 +33,147 @@ const baseInput = {
   visualFacts: buildVisualVideoFacts({ sampleMovieUrl: movieUrl, manualTags: ["scene_surprise"] }),
 };
 
+const videoTagCopyCases: Array<{
+  tag: Exclude<XVideoManualTag, "too_explicit_for_reach" | "weak_visual">;
+  opening: string;
+  closing: string;
+  includesProof: boolean;
+}> = [
+  { tag: "first_seconds_strong", opening: "開いてすぐ、目が止まった。", closing: "固定女優、この空気はかなり好み。", includesProof: true },
+  { tag: "visual_mismatch", opening: "固定女優、ジャケより動画の方が気になる。", closing: "こっちの雰囲気の方が好きな人いそう。", includesProof: true },
+  { tag: "actress_fit", opening: "固定女優、この空気だと見え方が変わる。", closing: "名前だけで流すの、少しもったいない。", includesProof: false },
+  { tag: "scene_surprise", opening: "入り方が少し予想とズレます。", closing: "この入り方、少し気になる。", includesProof: false },
+  { tag: "safe_preview", opening: "固定女優、数字より先に動画で分かる。", closing: "強く言わなくても、これで十分。", includesProof: false },
+];
+for (const copyCase of videoTagCopyCases) {
+  const lines = videoSpecificLines({
+    ...baseInput,
+    key: `manual-tag-${copyCase.tag}`,
+    mediaManualTags: [copyCase.tag],
+    visualFacts: null,
+  } as XCreativeInput, "REACH", "body_link", "curiosity");
+  assert.equal(lines[0], copyCase.opening, `${copyCase.tag} opening`);
+  assert.equal(lines.at(-2), copyCase.closing, `${copyCase.tag} closing`);
+  assert.equal(lines.includes("評価4.7"), copyCase.includesProof, `${copyCase.tag} proof placement`);
+  assert.equal(lines.at(-1), baseInput.url, `${copyCase.tag} body link`);
+}
+
+const voiceArchetypeCases = [
+  ["confession", "spontaneous_reaction"], ["missed", "spontaneous_reaction"],
+  ["surprise", "surprise_mismatch"], ["contrast", "surprise_mismatch"],
+  ["social_proof", "social_proof_light"], ["follow_up", "conversational"], ["question", "conversational"],
+  ["curation", "quiet_recommendation"], ["anti_obvious", "quiet_recommendation"],
+  ["hot_take", "changed_mind"], ["comparison", "dry_observation"], ["pattern_break", "dry_observation"],
+  ["empathy", "actress_fit"],
+] as const;
+for (const [direction, expected] of voiceArchetypeCases) {
+  assert.equal(voiceArchetype(direction, 0), expected);
+}
+assert.equal(voiceArchetype("curiosity", 0), "hidden_find");
+assert.equal(voiceArchetype("curiosity", 1), "price_reason");
+assert.equal(voiceArchetype("curiosity", 2), "spontaneous_reaction");
+
 const oldRepresentative = "冒頭の展開が予想と少し違う。\nサンプルの方が強いかどうか、そこまで見たい。";
 assert.equal(/見る|見て|迷|決め|止ま|流|拾|比べ|買|見送|気にな|刺さ|引っかか|伝わ/.test(oldRepresentative), false);
 
 const variants = buildXCreativeVariants(baseInput);
 const videoVariants = variants.filter((variant) => variant.mediaType === "sample_movie");
 assert.deepEqual(buildXCreativeVariants(baseInput), variants);
+assert.equal(variants[0]?.hookAlternatives[0]?.direction, "surprise");
+const genericOpeningFixture = {
+  ...baseInput,
+  key: "fixed-generic-opening-order-fixture",
+  title: "余白のある街",
+  actress: null,
+  genre: null,
+  currentPrice: null,
+  previousPrice: null,
+  discountRate: 0,
+  reviewAverage: null,
+  reviewCount: 0,
+  ranking: null,
+  score: 0,
+  discoveryScore: 0,
+  buyTimingScore: 0,
+  sampleMovieUrl: null,
+  imageUrl: null,
+  hasRightsCheckedMovie: false,
+  mediaManualTags: [],
+  mediaQuality: "weak" as const,
+  sourceType: "WORK" as const,
+  visualFacts: null,
+};
+const genericOpeningAlternatives = buildXCreativeVariants(genericOpeningFixture)[0]?.hookAlternatives ?? [];
+assert.deepEqual(genericOpeningAlternatives.map(({ direction, opening, score }) => ({ direction, opening, score })), [
+  { direction: "question", opening: "「余白のある街」、まだ見てない人は多そうです。", score: 80 },
+  { direction: "missed", opening: "「余白のある街」、最初は通りすぎてました。", score: 78 },
+  { direction: "curiosity", opening: "「余白のある街」、数字より先に雰囲気で気になります。", score: 76 },
+  { direction: "surprise", opening: "「余白のある街」、思ったより静かな顔をしてます。", score: 76 },
+  { direction: "hot_take", opening: "売れているかより、引っかかり方の方が気になります。", score: 73 },
+  { direction: "empathy", opening: "セール欄を流し見してる人ほど、「余白のある街」は一回止まっていいと思います。", score: 72 },
+]);
+const decisionOpeningCases = [
+  {
+    key: "decision-opening-record-low",
+    facts: buildDecisionFacts({ currentPrice: 500, recordedLowestPrice: 500, discountRate: 50, isOnSale: true, ranking: 9999, reviewAverage: 4.7, reviewCount: 120 }),
+    direction: "curiosity",
+    opening: "発掘LABの記録上の最安値。価格履歴を先に見たいです。",
+  },
+  {
+    key: "decision-opening-high-discount",
+    facts: buildDecisionFacts({ currentPrice: 1500, recordedLowestPrice: 1000, discountRate: 50, isOnSale: true, ranking: 9999, reviewAverage: 4.7, reviewCount: 120 }),
+    direction: "contrast",
+    opening: "50%OFFでも、発掘LABの記録上の最安値ではありません。",
+  },
+  {
+    key: "decision-opening-hidden-value",
+    facts: buildDecisionFacts({ currentPrice: 1500, recordedLowestPrice: null, discountRate: 50, isOnSale: true, ranking: 9999, reviewAverage: 4.7, reviewCount: 120 }),
+    direction: "comparison",
+    opening: "ランキング外。評価4.7 / レビュー120件 / 現在1,500円 / 50%OFF。ランキングだけでは見落としやすいです。",
+  },
+];
+for (const decisionCase of decisionOpeningCases) {
+  const opening = buildXCreativeVariants({ ...baseInput, key: decisionCase.key, decisionFacts: decisionCase.facts })[0]?.hookAlternatives[0];
+  assert.equal(opening?.direction, decisionCase.direction);
+  assert.equal(opening?.opening, decisionCase.opening);
+  assert.equal(opening?.score, 112);
+}
+const visualMismatchOpening = buildXCreativeVariants({
+  ...baseInput,
+  key: "fixed-video-mismatch-opening-fixture",
+  mediaManualTags: ["visual_mismatch" as const],
+  visualFacts: buildVisualVideoFacts({ sampleMovieUrl: movieUrl, manualTags: ["visual_mismatch"] }),
+})[0]?.hookAlternatives[0];
+assert.equal(visualMismatchOpening?.direction, "contrast");
+const lastMileSourceCases = [
+  { sourceType: "PRICE_EVENT" as const, expected: "半額だけでなく、評価まで高いのが少し気になります。" },
+  { sourceType: "MARKET" as const, expected: "ランキングだけ見ていると、今日の当たりを外しそうです。" },
+  { sourceType: "COMPARISON" as const, expected: "同じ50%OFFでも、サンプルを見るなら差があります。" },
+  { sourceType: "JUDGMENT" as const, expected: "50%OFFだけど、これは今日は見送っていいかもしれません。" },
+];
+for (const routeCase of lastMileSourceCases) {
+  const routed = buildXCreativeVariants({
+    ...baseInput,
+    key: `last-mile-route-${routeCase.sourceType}`,
+    sourceType: routeCase.sourceType,
+    sampleMovieUrl: null,
+    hasRightsCheckedMovie: false,
+    visualFacts: null,
+    mediaManualTags: [],
+  })[0];
+  assert.ok(routed?.bodyText.includes(routeCase.expected), `${routeCase.sourceType} route should retain its opening`);
+}
 assert.ok(videoVariants.length > 0);
 const openingFactPhrases = ["冒頭の展開が予想と少し違う", "再生してすぐ、想像していた流れと変わった", "冒頭の入り方が、思っていた流れと少し違う"];
 assert.ok(videoVariants.every((variant) => openingFactPhrases.some((phrase) => variant.bodyText.includes(phrase))));
+const priceEventVideoVariants = buildXCreativeVariants({
+  ...baseInput,
+  key: "price-event-video-route-fixture",
+  sourceType: "PRICE_EVENT",
+  imageUrl: null,
+}).filter((variant) => variant.mediaType === "sample_movie");
+assert.ok(priceEventVideoVariants.length > 0);
+assert.ok(priceEventVideoVariants.every((variant) => openingFactPhrases.some((phrase) => variant.bodyText.includes(phrase))));
 assert.ok(new Set(videoVariants.flatMap((variant) => openingFactPhrases.filter((phrase) => variant.bodyText.includes(phrase)))).size >= 2);
 assert.ok(videoVariants.filter((variant) => variant.intent === "AUTHORITY").every((variant) => variant.quality.dimensions.replyability >= 58));
 assert.ok(videoVariants.every((variant) => variant.quality.lastMile.humanVoice.checks.readerAction));

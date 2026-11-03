@@ -1,29 +1,30 @@
 import { spawn } from "node:child_process";
-import { createHmac, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { config as loadEnv } from "dotenv";
 import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
-import { createServer } from "node:net";
 import { resolve } from "node:path";
 import {
+  buildRevalidationHeaders,
+  continueAmateurApiCatalogRun,
   describeReadinessFailure,
+  findAvailablePort,
+  getAmateurApiCatalogCompletionError,
+  getAmateurApiCatalogRunAction,
+  getCurrentRunJobOutcome,
+  getProductionRevalidationEndpoint,
+  getRevalidationSiteUrls,
+  getScheduledTaskCompletionMessages,
+  getScheduledTaskNames,
   isSuccessfulTaskResponse,
+  requestScheduledTaskResult,
+  requestReadinessAttempt,
+  reportScheduledTaskError,
+  reportScheduledTaskSequence,
+  runTaskSequence,
+  shouldContinueScheduledTask,
+  writeFileWithRetry,
 } from "./local-admin-update-helpers.mjs";
-
-async function writeFileWithRetry(path, contents) {
-  let lastError;
-  for (let attempt = 1; attempt <= 20; attempt += 1) {
-    try {
-      await writeFile(path, contents, "utf8");
-      return;
-    } catch (error) {
-      lastError = error;
-      if (error?.code !== "EPERM" && error?.code !== "EBUSY") throw error;
-      await new Promise((resolveWait) => setTimeout(resolveWait, 250));
-    }
-  }
-  throw lastError;
-}
 
 loadEnv({ path: resolve(process.cwd(), ".env.local"), quiet: true });
 
@@ -62,15 +63,13 @@ const TASK_GROUPS = {
   "sunday-1800": ["missing-prices"],
 };
 
-const LOCAL_UPDATE_DIST_DIR = ".next-local-update-production";
+const LOCAL_UPDATE_DIST_DIR = ".next-local-update-production-scheduled";
+const LOCAL_UPDATE_BUILD_SUCCESS_MARKER = ".local-update-build-success";
 
 async function revalidateProduction(tasks) {
   if (tasks.length === 0) return;
 
-  const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "");
-  const siteUrls = configuredSiteUrl
-    ? [configuredSiteUrl]
-    : ["https://hakkutsu-lab.com", "https://amateur-lab.vercel.app"];
+  const siteUrls = getRevalidationSiteUrls(process.env.NEXT_PUBLIC_SITE_URL);
   const cronSecret = process.env.CRON_SECRET?.trim();
   const signingSecret = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!cronSecret && !signingSecret) {
@@ -81,32 +80,18 @@ async function revalidateProduction(tasks) {
 
   const body = JSON.stringify({ tasks });
   const timestamp = Date.now().toString();
-  const headers = { "content-type": "application/json" };
-  if (cronSecret) {
-    headers.authorization = `Bearer ${cronSecret}`;
-  } else {
-    headers["x-hakkutsu-timestamp"] = timestamp;
-    headers["x-hakkutsu-signature"] = createHmac("sha256", signingSecret)
-      .update(`${timestamp}.${body}`)
-      .digest("hex");
-  }
+  const headers = buildRevalidationHeaders({ cronSecret, signingSecret, timestamp, body });
 
   const failures = [];
   for (const siteUrl of siteUrls) {
-    let endpoint;
-    try {
-      endpoint = new URL("/api/admin/revalidate", siteUrl);
-    } catch {
-      failures.push(`${siteUrl}: URL不正`);
-      continue;
-    }
-    if (["localhost", "127.0.0.1"].includes(endpoint.hostname)) {
-      failures.push(`${siteUrl}: 本番URLではありません`);
+    const endpointResult = getProductionRevalidationEndpoint(siteUrl);
+    if (endpointResult.error) {
+      failures.push(endpointResult.error);
       continue;
     }
 
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch(endpointResult.endpoint, {
         method: "POST",
         headers,
         body,
@@ -162,23 +147,6 @@ if (!requestedTask || (requestedTask !== "all" && !TASK_GROUPS[requestedTask] &&
       }
     }
   }
-}
-
-async function findAvailablePort() {
-  return new Promise((resolvePort, reject) => {
-    const probe = createServer();
-    probe.unref();
-    probe.once("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      const port = typeof address === "object" && address ? address.port : null;
-      probe.close((error) => {
-        if (error) reject(error);
-        else if (port) resolvePort(port);
-        else reject(new Error("空きポートを取得できませんでした。"));
-      });
-    });
-  });
 }
 
 function postWithoutTimeout(url, options = {}) {
@@ -263,8 +231,10 @@ async function latestMtimeMs(path) {
 async function shouldBuildProductionServer(distDirPath) {
   if (process.env.FORCE_LOCAL_UPDATE_BUILD === "true") return true;
 
-  const buildIdMtime = await pathMtimeMs(`${LOCAL_UPDATE_DIST_DIR}/BUILD_ID`);
-  if (buildIdMtime === 0) return true;
+  const successfulBuildMtime = await pathMtimeMs(
+    `${LOCAL_UPDATE_DIST_DIR}/${LOCAL_UPDATE_BUILD_SUCCESS_MARKER}`,
+  );
+  if (successfulBuildMtime === 0) return true;
 
   const sourceMtime = Math.max(
     await latestMtimeMs("src"),
@@ -274,7 +244,7 @@ async function shouldBuildProductionServer(distDirPath) {
     await pathMtimeMs("package-lock.json"),
   );
 
-  return sourceMtime > buildIdMtime || !(await pathMtimeMs(distDirPath));
+  return sourceMtime > successfulBuildMtime || !(await pathMtimeMs(distDirPath));
 }
 
 async function runBuild(distDirName) {
@@ -298,9 +268,21 @@ async function runBuild(distDirName) {
     );
 
     build.once("error", rejectBuild);
-    build.once("exit", (code) => {
-      if (code === 0) resolveBuild();
-      else rejectBuild(new Error(`production build failed with exit ${code ?? "unknown"}`));
+    build.once("exit", async (code) => {
+      if (code === 0) {
+        try {
+          await writeFile(
+            resolve(process.cwd(), distDirName, LOCAL_UPDATE_BUILD_SUCCESS_MARKER),
+            new Date().toISOString(),
+            "utf8",
+          );
+          resolveBuild();
+        } catch (error) {
+          rejectBuild(error);
+        }
+      } else {
+        rejectBuild(new Error(`production build failed with exit ${code ?? "unknown"}`));
+      }
     });
   });
 }
@@ -335,6 +317,34 @@ async function getJobStatus(jobName) {
   return Array.isArray(rows) ? rows[0] ?? null : null;
 }
 
+async function getActiveAmateurApiCatalogRun() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()?.replace(/\/+$/, "");
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!supabaseUrl || !serviceRoleKey) return null;
+
+  const url = new URL("/rest/v1/fanza_amateur_api_catalog_runs", supabaseUrl);
+  url.searchParams.set("select", "id,status,run_type,fetched_item_count,expected_item_count,rank_next_offset,last_error,updated_at");
+  url.searchParams.set("status", "eq.running");
+  url.searchParams.set("run_type", "eq.weekly_full");
+  url.searchParams.set("order", "updated_at.desc");
+  url.searchParams.set("limit", "2");
+
+  const response = await fetch(url, {
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`,
+    },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    throw new Error(`素人API全件補完の実行状態を確認できません（HTTP ${response.status}）。`);
+  }
+  const rows = await response.json();
+  if (!Array.isArray(rows)) throw new Error("素人API全件補完の実行状態が不正です。");
+  if (rows.length > 1) throw new Error("実行中の素人API全件補完が複数あります。重複を避けるため停止しました。");
+  return rows[0] ?? null;
+}
+
 async function recoverDisconnectedTask(task, startedAt) {
   if (!task.jobName) return false;
 
@@ -346,16 +356,14 @@ async function recoverDisconnectedTask(task, startedAt) {
     const job = await getJobStatus(task.jobName);
     lastStatus = job?.status ?? null;
 
-    const jobUpdatedAt = job?.updated_at ? Date.parse(job.updated_at) : 0;
-    const belongsToCurrentRun = Number.isFinite(jobUpdatedAt) && jobUpdatedAt >= startedAt - 60_000;
-
-    if (job?.status === "completed" && belongsToCurrentRun) {
+    const outcome = getCurrentRunJobOutcome(job, startedAt);
+    if (outcome?.status === "completed") {
       console.warn(`[接続断復旧] ${task.label}はジョブ状態が完了のため成功扱いにします。`);
       return true;
     }
 
-    if (job?.status === "failed" && belongsToCurrentRun) {
-      throw new Error(job.error_message || `${task.label}のジョブが失敗しました。`);
+    if (outcome?.status === "failed") {
+      throw new Error(outcome.message || `${task.label}のジョブが失敗しました。`);
     }
 
     await new Promise((resolveWait) => setTimeout(resolveWait, 30_000));
@@ -376,10 +384,22 @@ async function run(taskName) {
   const originalTsconfig = await readFile(tsconfigPath, "utf8");
   let interrupted = false;
 
-  if (await shouldBuildProductionServer(distDirPath)) {
-    await runBuild(distDirName);
-  } else {
-    console.log(`[local-update] 既存の ${distDirName} を使用します。`);
+  try {
+    if (await shouldBuildProductionServer(distDirPath)) {
+      await runBuild(distDirName);
+    } else {
+      console.log(`[local-update] 既存の ${distDirName} を使用します。`);
+    }
+  } catch (error) {
+    try {
+      await writeFileWithRetry(tsconfigPath, originalTsconfig);
+    } catch (restoreError) {
+      throw new AggregateError(
+        [error, restoreError],
+        "local update build failed and tsconfig.json could not be restored",
+      );
+    }
+    throw error;
   }
 
   const server = spawn(
@@ -394,9 +414,27 @@ async function run(taskName) {
         NODE_ENV: "production",
         FORCE_COLOR: "1",
       },
-      stdio: "inherit",
+      stdio: ["ignore", "pipe", "pipe"],
     },
   );
+  server.stdout?.setEncoding("utf8");
+  server.stderr?.setEncoding("utf8");
+  server.stdout?.on("data", (chunk) => {
+    for (const line of String(chunk).split(/\r?\n/).filter(Boolean)) {
+      console.log(`[next:stdout] ${line}`);
+    }
+  });
+  server.stderr?.on("data", (chunk) => {
+    for (const line of String(chunk).split(/\r?\n/).filter(Boolean)) {
+      console.error(`[next:stderr] ${line}`);
+    }
+  });
+  server.once("error", (error) => {
+    console.error(`[next:process-error] ${error?.code ?? "unknown"}: ${error?.message ?? error}`);
+  });
+  server.once("exit", (code, signal) => {
+    console.log(`[next:process-exit] code=${code ?? "null"} signal=${signal ?? "null"}`);
+  });
   const heartbeat = process.env.SCHEDULE_RUN_ID
     ? spawn(process.execPath, ["scripts/scheduled-update-heartbeat.mjs"], {
         cwd: process.cwd(),
@@ -430,78 +468,103 @@ async function run(taskName) {
 
   async function waitForHttpReady(path, phase, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
+    const startedAt = Date.now();
+    const targetUrl = `${baseUrl}${path}`;
     let lastFailure = null;
+    let attempt = 0;
+    console.log(
+      `[readiness:start] ${new Date().toISOString()} phase=${phase} url=${targetUrl} timeout=${timeoutMs}ms`,
+    );
     while (Date.now() < deadline) {
+      attempt += 1;
       if (server.exitCode !== null) {
+        console.error(
+          `[readiness:server-exited] ${new Date().toISOString()} phase=${phase} attempt=${attempt} elapsed=${Date.now() - startedAt}ms exit=${server.exitCode}`,
+        );
         throw new Error(
           `${describeReadinessFailure({ phase, error: `ローカルサーバーが終了しました（exit ${server.exitCode}）`, timeoutMs })}`,
         );
       }
-      try {
-        const response = await fetch(`${baseUrl}${path}`, {
-          signal: AbortSignal.timeout(Math.min(5_000, timeoutMs)),
-        });
-        const body = await response.text();
-        if (response.ok) return;
-        lastFailure = describeReadinessFailure({ phase, status: response.status, body });
-        console.warn(`[readiness] ${lastFailure}`);
-      } catch (error) {
-        lastFailure = describeReadinessFailure({ phase, error });
+      const attemptStartedAt = Date.now();
+      // Let a cold first request use the remaining readiness budget instead of
+      // repeatedly aborting it with a shorter per-request timeout.
+      const remainingMs = Math.max(1, deadline - Date.now());
+      const result = await requestReadinessAttempt({ targetUrl, remainingMs });
+      const elapsedMs = Date.now() - attemptStartedAt;
+      if (result.kind === "ready") {
+        console.log(
+          `[readiness:ok] ${new Date().toISOString()} phase=${phase} attempt=${attempt} http=${result.status} request=${elapsedMs}ms total=${Date.now() - startedAt}ms body=${JSON.stringify(result.body.slice(0, 160))}`,
+        );
+        return;
+      }
+      if (result.kind === "http-error") {
+        lastFailure = describeReadinessFailure({ phase, status: result.status, body: result.body });
+        console.warn(
+          `[readiness:http-error] ${new Date().toISOString()} attempt=${attempt} request=${elapsedMs}ms total=${Date.now() - startedAt}ms ${lastFailure}`,
+        );
+      } else {
+        lastFailure = describeReadinessFailure({ phase, error: result.errorDetail });
+        console.error(
+          `[readiness:request-error] ${new Date().toISOString()} attempt=${attempt} request=${elapsedMs}ms total=${Date.now() - startedAt}ms ${lastFailure}`,
+        );
       }
       if (phase === "browser") break;
       await new Promise((resolveWait) => setTimeout(resolveWait, 750));
     }
+    console.error(
+      `[readiness:timeout] ${new Date().toISOString()} phase=${phase} url=${targetUrl} attempts=${attempt} elapsed=${Date.now() - startedAt}ms timeout=${timeoutMs}ms last=${lastFailure ?? "no-response"}`,
+    );
     throw new Error(
       lastFailure ?? describeReadinessFailure({ phase, timeoutMs }),
     );
   }
 
   async function executeAmateurApiCatalog(task) {
-    const headers = { "x-hakkutsu-schedule-token": localScheduleToken };
+    const headers = {
+      "x-hakkutsu-schedule-token": localScheduleToken,
+    };
     const send = async (body) => {
-      const response = await postWithoutTimeout(`${baseUrl}${task.path}`, {
+      const response = await postWithoutTimeout("http://127.0.0.1:" + port + task.path, {
         headers,
         body: JSON.stringify(body),
       });
       let result;
-      try {
-        result = JSON.parse(response.text);
-      } catch {
-        result = { message: response.text };
-      }
-      if (!isSuccessfulTaskResponse(response.ok, result)) {
-        throw new Error(result.message || result.error || `${task.label}に失敗しました（HTTP ${response.status}）。`);
+      try { result = JSON.parse(response.text); }
+      catch { result = { message: response.text }; }
+      if (!response.ok || !isSuccessfulTaskResponse(response.ok, result)) {
+        throw new Error(result.message || result.error || (task.label + "に失敗しました（HTTP " + response.status + "）。"));
       }
       if (!result.run?.id || !result.run?.status) {
-        throw new Error(`${task.label}から有効な実行状況が返りませんでした。`);
+        throw new Error(task.label + "から有効な実行状況が返りませんでした。");
       }
       return result.run;
     };
 
-    console.log(`\n[開始] ${task.label}（DMM APIのみ、MP4補完なし）`);
-    let run = await send({ action: "start", runType: "weekly_full" });
-    let pageCount = 0;
-    while (run.status === "running" && !interrupted) {
-      if (pageCount >= 1_000) {
-        throw new Error(`${task.label}が1,000ページを超えたため安全停止しました。保存済み進捗から次回再開できます。`);
-      }
-      run = await send({ action: "continue", runId: run.id });
-      pageCount += 1;
-      console.log(`[進捗] 素人API ${Number(run.fetched_item_count ?? 0).toLocaleString("ja-JP")}/${run.total_count == null ? "件数未確定" : Number(run.total_count).toLocaleString("ja-JP")}件（今回${pageCount}ページ）`);
-      if (run.status === "running" && !interrupted) {
-        await new Promise((resolveWait) => setTimeout(resolveWait, 350));
-      }
+    console.log("\n[開始] " + task.label);
+    const activeRun = await getActiveAmateurApiCatalogRun();
+    const action = getAmateurApiCatalogRunAction(activeRun);
+    let run;
+    if (action === "abort") {
+      throw new Error("素人API全件補完に直近の実行中runがあります。重複を避けるため今回の開始を中止しました。");
     }
-    if (interrupted && run.status === "running") {
-      throw new Error(`${task.label}は中断されました。保存済みの進捗から次回再開できます。`);
+    if (action === "resume") {
+      console.log(`[再開] 保存済みの素人API全件補完run ${activeRun.id} を継続します（${Number(activeRun.fetched_item_count ?? 0).toLocaleString("ja-JP")}件取得済み）。`);
+      run = await send({ action: "continue", runId: activeRun.id });
+    } else {
+      run = await send({ action: "start", runType: "weekly_full" });
     }
-    if (run.status === "limit_reached") {
-      throw new Error(`${task.label}はAPI取得上限で停止しました（${Number(run.fetched_item_count ?? 0).toLocaleString("ja-JP")}件）。全作品完了とは判定できません。`);
-    }
-    if (run.status !== "completed") {
-      throw new Error(`${task.label}が完了状態になりませんでした（${String(run.status)}）。`);
-    }
-    console.log(`[完了] ${task.label} ${Number(run.fetched_item_count ?? 0).toLocaleString("ja-JP")}件`);
+    run = await continueAmateurApiCatalogRun({
+      taskLabel: task.label,
+      initialRun: run,
+      send,
+      isInterrupted: () => interrupted,
+      onProgress: (nextRun, pageCount) => {
+        console.log("[進捗] 素人API " + Number(nextRun.fetched_item_count ?? 0).toLocaleString("ja-JP") + "/" + (nextRun.total_count == null ? "件数未確定" : Number(nextRun.total_count).toLocaleString("ja-JP")) + "件（今回" + pageCount + "ページ）");
+      },
+    });
+    const completionError = getAmateurApiCatalogCompletionError(task.label, run, interrupted);
+    if (completionError) throw new Error(completionError);
+    console.log("[完了] " + task.label + " " + Number(run.fetched_item_count ?? 0).toLocaleString("ja-JP") + "件");
   }
 
   async function executeTask(name) {
@@ -515,37 +578,24 @@ async function run(taskName) {
       batch += 1;
       console.log(`\n[開始] ${task.label}${task.repeat ? `（バッチ${batch}）` : ""}`);
       const startedAt = Date.now();
-      let response;
-      try {
-        response = await postWithoutTimeout(`${baseUrl}${task.path}`);
-      } catch (error) {
-        if (isConnectionReset(error) && await recoverDisconnectedTask(task, startedAt)) {
-          break;
-        }
-        throw error;
-      }
-      const text = response.text;
-      let result;
-      try {
-        result = JSON.parse(text);
-      } catch {
-        result = { message: text };
-      }
-      if (!isSuccessfulTaskResponse(response.ok, result)) {
-        throw new Error(result.message || `${task.label}に失敗しました（HTTP ${response.status}）。`);
-      }
-      if (name === "ended-sale" && Number(result.deferredCount ?? 0) > 0) {
-        console.log(
-          `[情報] 終了セール更新は完了しました。価格を取得できなかった${result.deferredCount}件は別日に自動再確認します。` +
-            "後続のランキング・スコア更新を継続します。",
-        );
-      }
-      const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
-      console.log(`[完了] ${task.label} ${seconds}秒`);
-      if (result.processedCount != null && result.totalCount != null) {
-        console.log(`[進捗] ${result.processedCount}/${result.totalCount}`);
-      }
-      if (!task.repeat || result.completed !== false) break;
+      const outcome = await requestScheduledTaskResult({
+        task,
+        baseUrl,
+        startedAt,
+        postWithoutTimeout,
+        isConnectionReset,
+        recoverDisconnectedTask,
+      });
+      if (outcome.kind === "recovered") break;
+      const result = outcome.result;
+      const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      for (const message of getScheduledTaskCompletionMessages({
+        name,
+        taskLabel: task.label,
+        result,
+        elapsedSeconds,
+      })) console.log(message);
+      if (!shouldContinueScheduledTask(task, result)) break;
     } while (!interrupted);
   }
 
@@ -553,63 +603,22 @@ async function run(taskName) {
     console.log(`[local-update] localhost:${port} を使用します。`);
     await waitForHttpReady("/api/admin/server-health", "server", 60_000);
     await waitForHttpReady("/api/admin/browser-health", "browser", 60_000);
-    const taskNames = taskName === "all"
-      ? ALL_TASKS
-      : (TASK_GROUPS[taskName] ?? [taskName]);
-    const succeededTasks = [];
-    const failedTasks = [];
-    let stoppedAfterFailure = false;
+    const taskNames = getScheduledTaskNames(taskName, ALL_TASKS, TASK_GROUPS);
+    const { succeededTasks, failedTasks, stoppedAfterFailure } = await runTaskSequence(
+      taskNames,
+      executeTask,
+      () => interrupted,
+    );
 
-    for (const name of taskNames) {
-      if (interrupted) break;
-      try {
-        await executeTask(name);
-        succeededTasks.push(name);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        failedTasks.push({ name, message });
-        console.error(
-          `\n[工程失敗] ${TASKS[name].label}: ${message}`,
-        );
-        console.error(
-          "[中断] 同時実行とデータ不整合を防ぐため、後続の更新工程は実行しません。",
-        );
-        stoppedAfterFailure = true;
-        break;
-      }
-    }
-
-    if (!interrupted) {
-      console.log("\n[実行結果]");
-      console.log(
-        `  成功 ${succeededTasks.length}件: ${succeededTasks.join(", ") || "なし"}`,
-      );
-      console.log(
-        `  失敗 ${failedTasks.length}件: ${failedTasks.map(({ name }) => name).join(", ") || "なし"}`,
-      );
-
-      for (const failure of failedTasks) {
-        console.error(`  - ${failure.name}: ${failure.message}`);
-      }
-
-      if (failedTasks.length > 0) {
-        process.exitCode = 1;
-        console.error(
-          stoppedAfterFailure
-            ? "\n[工程中断] 失敗した工程で停止しました。後続工程は未実行です。"
-            : "\n[一部失敗] 失敗した工程があります。",
-        );
-      } else {
-        console.log(
-          "\n[全工程完了] ローカル更新が終了しました。ローカルサーバーを停止します。",
-        );
-      }
-    }
+    process.exitCode = reportScheduledTaskSequence({
+      succeededTasks,
+      failedTasks,
+      stoppedAfterFailure,
+      taskLabels: TASKS,
+      interrupted,
+    }) ?? process.exitCode;
   } catch (error) {
-    if (!interrupted) {
-      console.error("\n[失敗]", error instanceof Error ? error.message : error);
-      process.exitCode = 1;
-    }
+    process.exitCode = reportScheduledTaskError(error, interrupted) ?? process.exitCode;
   } finally {
     await stopServer();
     await writeFileWithRetry(tsconfigPath, originalTsconfig);

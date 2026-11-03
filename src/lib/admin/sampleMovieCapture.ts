@@ -46,3 +46,20 @@ export function sampleMovieUpdateFor(outcome: SampleMovieOutcome): {
   }
   return { sample_movie_checked_at: outcome.checkedAt };
 }
+
+export type SampleMovieCaptureResult = {
+  dataChanged: boolean;
+  result?: "updated" | "unchanged" | "sample_movie_missing";
+};
+
+export function resolveSampleMovieCaptureResult(
+  sampleMovieOnly: boolean,
+  sampleMovieSaved: boolean,
+  sampleMovieUrl: string | null,
+): SampleMovieCaptureResult {
+  if (!sampleMovieOnly) return { dataChanged: sampleMovieSaved };
+  return {
+    dataChanged: sampleMovieSaved,
+    result: sampleMovieSaved ? "updated" : sampleMovieUrl ? "unchanged" : "sample_movie_missing",
+  };
+}

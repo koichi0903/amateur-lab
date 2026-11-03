@@ -6,8 +6,10 @@ import {
   selectEndedSaleBatch,
 } from "./endedSaleBatch.ts";
 import {
+  buildEndedSaleDeferredMessage,
   classifyEndedSaleRemaining,
   isDeferredUnavailableStatus,
+  selectEndedSaleFinalRetryTargets,
   summarizeEndedSaleOutcomes,
 } from "./endedSaleOutcome.ts";
 import { advanceUnavailableStatus } from "../playwright/unavailableStatus.ts";
@@ -116,6 +118,18 @@ test("classifies only processed UNAVAILABLE_1/2 rows as non-fatal deferred work"
   assert.deepEqual(result.fatal.map((target) => target.product_id), ["unprocessed", "failed"]);
 });
 
+test("retries only fatal leftovers that were already processed in this run", () => {
+  const result = selectEndedSaleFinalRetryTargets(
+    [
+      { product_id: "already-processed", playwright_status: "NORMAL" },
+      { product_id: "new-target", playwright_status: "NORMAL" },
+    ],
+    new Set(["already-processed"]),
+  );
+
+  assert.deepEqual(result.map((target) => target.product_id), ["already-processed"]);
+});
+
 test("keeps deferred classification safe for a paged backlog larger than 1,000", () => {
   const processed = new Set(Array.from({ length: 1001 }, (_, index) => `p-${index}`));
   const remaining = Array.from({ length: 1001 }, (_, index) => ({
@@ -134,6 +148,23 @@ test("keeps ended-sale counters semantically separate", () => {
     "unchanged",
   ]);
   assert.deepEqual(result, { updated: 1, deferred: 25, unchanged: 1 });
+});
+
+test("builds a bounded deferred notice and omits it when no targets are deferred", () => {
+  assert.equal(buildEndedSaleDeferredMessage([]), null);
+  assert.match(
+    buildEndedSaleDeferredMessage([{ product_id: "work-1", playwright_status: null }]) ?? "",
+    /価格を確認できなかった1件.*対象: work-1$/,
+  );
+
+  const many = Array.from({ length: 21 }, (_, index) => ({
+    product_id: `work-${index + 1}`,
+    playwright_status: null,
+  }));
+  const message = buildEndedSaleDeferredMessage(many) ?? "";
+  assert.match(message, /価格を確認できなかった21件/);
+  assert.match(message, /work-20 …$/);
+  assert.doesNotMatch(message, /work-21/);
 });
 
 test("advances SALE to UNAVAILABLE_1 without clearing sale fields", () => {

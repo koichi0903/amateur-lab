@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { parseXPostUrl } from "@/lib/xPostUrl";
-
-const ACCOUNTS = new Set(["hakkutsu_lab", "bijyo1010"]);
+import { parseXGrowthPostRegistrationInput } from "@/lib/x-growth/xGrowthPostRegistration";
 
 export async function POST(request: NextRequest) {
   if (!(await isAdminRequest(request))) return NextResponse.json({ error: "管理画面の認証が必要です。" }, { status: 401 });
 
-  const payload = await request.json().catch(() => null) as Record<string, unknown> | null;
-  const postKey = typeof payload?.postKey === "string" ? payload.postKey.trim() : "";
-  const account = typeof payload?.account === "string" ? payload.account.toLowerCase() : "";
-  const xPostUrl = typeof payload?.xPostUrl === "string" ? payload.xPostUrl.trim() : "";
-  const post = parseXPostUrl(xPostUrl);
-  if (!postKey || postKey.length > 180 || !ACCOUNTS.has(account) || !post) {
+  const input = parseXGrowthPostRegistrationInput(await request.json().catch(() => null));
+  if (!input) {
     return NextResponse.json({ error: "HTTPSのX投稿URL（x.com/アカウント/status/投稿ID）を入力してください。" }, { status: 400 });
   }
+  const { postKey, account, post } = input;
 
   const existingId = await supabaseAdmin
     .from("x_post_logs")

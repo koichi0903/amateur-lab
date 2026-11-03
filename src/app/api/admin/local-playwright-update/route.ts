@@ -6,6 +6,14 @@ import {
 } from "@/lib/playwright/browserManager";
 import { updatePlaywrightItem } from "@/lib/playwright/updatePlaywrightItem";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  buildLocalPlaywrightUpdateOptions,
+  localPlaywrightUpdateFailureMessage,
+  localPlaywrightUpdateStatusMessage,
+  selectLocalPlaywrightUpdateWorks,
+  summarizeLocalPlaywrightUpdate,
+  type LocalPlaywrightUpdateResult,
+} from "@/lib/localPlaywrightUpdatePlan";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -19,39 +27,20 @@ export async function POST(request: NextRequest) {
     return new NextResponse("Not Found", { status: 404 });
   }
 
-  const body = (await request.json().catch(() => ({}))) as {
-    productId?: string;
-    limit?: number;
-    excludeProductIds?: string[];
-  };
-  const requestedProductId = body.productId?.trim();
-  const requestedLimit = Number.isFinite(body.limit)
-    ? Math.trunc(body.limit ?? 10)
-    : 10;
-  const limit = requestedProductId
-    ? 1
-    : Math.min(Math.max(requestedLimit, 1), 100);
-  const excludeProductIds = (body.excludeProductIds ?? [])
-    .filter((id) => /^[a-zA-Z0-9_-]+$/.test(id))
-    .slice(0, 100);
+  const body = await request.json().catch(() => ({})) as { productId?: string; limit?: number; excludeProductIds?: string[] };
+  const options = buildLocalPlaywrightUpdateOptions(body);
 
   let query = supabaseAdmin
     .from("works")
     .select("product_id,url,list_price")
     .not("url", "is", null);
 
-  query = requestedProductId
-    ? query.eq("product_id", requestedProductId)
+  query = options.productId
+    ? query.eq("product_id", options.productId)
     : query.eq("stage", "OLD").order("updated_at", { ascending: true });
 
-  const fetchLimit = requestedProductId
-    ? 1
-    : Math.min(limit + excludeProductIds.length, 200);
-  const { data: candidateWorks, error } = await query.limit(fetchLimit);
-  const excluded = new Set(excludeProductIds);
-  const works = (candidateWorks ?? [])
-    .filter((work) => !excluded.has(work.product_id))
-    .slice(0, limit);
+  const { data: candidateWorks, error } = await query.limit(options.fetchLimit);
+  const works = selectLocalPlaywrightUpdateWorks(candidateWorks, options);
 
   if (error) {
     console.error("[local-playwright-update] target lookup failed", error);
@@ -69,12 +58,7 @@ export async function POST(request: NextRequest) {
   }
 
   let browser: Awaited<ReturnType<typeof createBrowser>> | null = null;
-  const results: Array<{
-    productId: string;
-    success: boolean;
-    status: "updated" | "unchanged" | "unavailable" | "unavailable_deferred" | "sample_movie_missing" | "failed";
-    message?: string;
-  }> = [];
+  const results: LocalPlaywrightUpdateResult[] = [];
 
   try {
     browser = await createBrowser();
@@ -103,18 +87,10 @@ export async function POST(request: NextRequest) {
               productId: work.product_id,
               success: true,
               status,
-              message:
-                status === "unavailable" || status === "unavailable_deferred"
-                  ? "FANZA側でページまたは価格を確認できませんでした。"
-                  : status === "sample_movie_missing"
-                    ? "サンプル動画を確認できませんでした。"
-                  : undefined,
+              message: localPlaywrightUpdateStatusMessage(status),
             } as const;
           } catch (updateError) {
-            const message =
-              updateError instanceof Error
-                ? updateError.message
-                : "Playwright更新に失敗しました。";
+            const message = localPlaywrightUpdateFailureMessage(updateError);
             console.error(
               `[local-playwright-update] ${work.product_id} failed`,
               updateError,
@@ -131,36 +107,13 @@ export async function POST(request: NextRequest) {
       results.push(...batchResults);
     }
 
-    const succeeded = results.filter(
-      (result) => result.status === "updated",
-    ).length;
-    const unavailable = results.filter(
-      (result) =>
-        result.status === "unavailable" ||
-        result.status === "unavailable_deferred" ||
-        result.status === "sample_movie_missing",
-    ).length;
-    const failed = results.filter(
-      (result) => result.status === "failed",
-    ).length;
-
-    return NextResponse.json({
-      success: failed === 0,
-      succeeded,
-      unavailable,
-      failed,
-      results,
-      message: `ローカルPlaywright更新: 更新${succeeded}件 / 利用不可${unavailable}件 / 失敗${failed}件`,
-    });
+    return NextResponse.json(summarizeLocalPlaywrightUpdate(results));
   } catch (updateError) {
     console.error("[local-playwright-update] update failed", updateError);
     return NextResponse.json(
       {
         success: false,
-        message:
-          updateError instanceof Error
-            ? updateError.message
-            : "Playwright更新に失敗しました。",
+        message: localPlaywrightUpdateFailureMessage(updateError),
       },
       { status: 500 },
     );

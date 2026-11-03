@@ -1,26 +1,9 @@
 import { NextResponse } from "next/server";
-import type { AffiliatePlacement } from "@/lib/affiliatePlacements";
-import { normalizeAffiliateSource } from "@/lib/affiliateTracking";
-import { normalizeCtaVariant } from "@/lib/ctaExperiment";
+import { parseAffiliateImpressionPayload } from "@/lib/affiliateImpressionPayload";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-
-const experimentPlacements = new Set<AffiliatePlacement>([
-  "detail-sidebar",
-  "mobile-sticky",
-]);
 
 function isMissingXPostKey(error: { code?: string; message?: string }) {
   return error.code === "PGRST204" || error.message?.includes("x_post_key");
-}
-
-function optionalString(payload: unknown, key: string) {
-  if (typeof payload !== "object" || payload === null || !(key in payload)) {
-    return null;
-  }
-  const value = (payload as Record<string, unknown>)[key];
-  return typeof value === "string" && value.trim()
-    ? value.trim().slice(0, 120)
-    : null;
 }
 
 export async function POST(request: Request) {
@@ -36,32 +19,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const workId = typeof payload === "object" && payload !== null && "workId" in payload
-    ? Number(payload.workId)
-    : Number.NaN;
-  const placement = typeof payload === "object" && payload !== null && "placement" in payload
-    ? payload.placement
-    : null;
-  const sourcePage = normalizeAffiliateSource(
-    typeof payload === "object" && payload !== null && "sourcePage" in payload && typeof payload.sourcePage === "string"
-      ? payload.sourcePage
-      : null,
-  );
-  const ctaVariant = normalizeCtaVariant(
-    typeof payload === "object" && payload !== null && "ctaVariant" in payload
-      ? payload.ctaVariant
-      : null,
-  );
-  const xPostKey = optionalString(payload, "xPostKey");
-
-  if (
-    !Number.isSafeInteger(workId) ||
-    workId <= 0 ||
-    typeof placement !== "string" ||
-    !experimentPlacements.has(placement as AffiliatePlacement)
-  ) {
+  const event = parseAffiliateImpressionPayload(payload);
+  if (!event) {
     return NextResponse.json({ error: "Invalid event" }, { status: 400 });
   }
+  const { workId, placement, sourcePage, ctaVariant, xPostKey } = event;
 
   let { error } = await supabaseAdmin.from("affiliate_cta_impressions").insert({
     work_id: workId,

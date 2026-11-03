@@ -1,4 +1,10 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  buildRevenueStats,
+  normalizeRevenueWorkIds,
+  type RevenueEvent,
+  type RevenueStat,
+} from "./revenueWeightedWorksProjection";
 
 type WorkLike = {
   id: number;
@@ -6,12 +12,6 @@ type WorkLike = {
   discount_rate?: number | null;
   review_count?: number | null;
   sale_price?: number | null;
-};
-
-type RevenueStat = {
-  pageViews: number;
-  fanzaClicks: number;
-  ctr: number;
 };
 
 const DAY_MS = 86_400_000;
@@ -33,10 +33,8 @@ function revenueMerit(stat: RevenueStat | undefined) {
 }
 
 export async function getRevenueStats(workIds: number[], days = 30) {
-  const uniqueIds = [...new Set(workIds)].filter((id) => Number.isSafeInteger(id) && id > 0);
-  const stats = new Map<number, RevenueStat>();
-  for (const id of uniqueIds) stats.set(id, { pageViews: 0, fanzaClicks: 0, ctr: 0 });
-  if (!uniqueIds.length) return stats;
+  const uniqueIds = normalizeRevenueWorkIds(workIds);
+  if (!uniqueIds.length) return buildRevenueStats(uniqueIds, [], []);
 
   const cutoff = new Date(Date.now() - Math.max(1, days) * DAY_MS).toISOString();
   const [viewResult, clickResult] = await Promise.all([
@@ -54,25 +52,13 @@ export async function getRevenueStats(workIds: number[], days = 30) {
       .limit(50_000),
   ]);
 
-  if (viewResult.error || clickResult.error) return stats;
+  if (viewResult.error || clickResult.error) return buildRevenueStats(uniqueIds, [], []);
 
-  for (const row of (viewResult.data ?? []) as Array<{ work_id: number }>) {
-    const current = stats.get(row.work_id);
-    if (current) current.pageViews += 1;
-  }
-
-  for (const row of (clickResult.data ?? []) as Array<{ work_id: number }>) {
-    const current = stats.get(row.work_id);
-    if (current) current.fanzaClicks += 1;
-  }
-
-  for (const current of stats.values()) {
-    current.ctr = current.pageViews > 0
-      ? Math.round((current.fanzaClicks / current.pageViews) * 1000) / 10
-      : 0;
-  }
-
-  return stats;
+  return buildRevenueStats(
+    uniqueIds,
+    (viewResult.data ?? []) as RevenueEvent[],
+    (clickResult.data ?? []) as RevenueEvent[],
+  );
 }
 
 export async function sortByRevenuePotential<T extends WorkLike>(

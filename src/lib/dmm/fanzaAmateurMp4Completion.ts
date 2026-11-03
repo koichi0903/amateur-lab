@@ -2,10 +2,14 @@ import "server-only";
 
 import type { Browser } from "playwright-core";
 import { captureFanzaSampleMovieUrl } from "@/lib/playwright/captureFanzaSampleMovie";
+import { projectFanzaAmateurMp4AttemptCompletion } from "@/lib/dmm/fanzaAmateurMp4CompletionProjection";
 import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-const BATCH_SIZE = 3;
+// Keep the external site and the local browser workload bounded while reducing
+// the per-request browser startup overhead.
+const BATCH_SIZE = 6;
+const PAGE_CONCURRENCY = 3;
 const RUN_FIELDS = "id,run_type,status,target_count,processed_count,found_count,no_video_count,failed_attempt_count,last_error,started_at,updated_at,completed_at";
 const WORK_FIELDS = "content_id,title,api_date,api_url,mp4_attempt_count,mp4_last_attempt_run_id";
 
@@ -79,6 +83,9 @@ export async function getLatestFanzaAmateurMp4Run(runType: FanzaAmateurMp4RunTyp
 }
 
 export async function startFanzaAmateurMp4Run(runType: FanzaAmateurMp4RunType) {
+  if (runType !== "weekly_full") {
+    throw new Error("新規MP4補完は全対象の再照合のみ実行できます。日次新作補完は終了しました。");
+  }
   const active = await getActiveFanzaAmateurMp4Run();
   if (active) throw new Error("別のMP4補完が実行中です。進行中の処理を先に再開または完了してください。");
 
@@ -179,27 +186,26 @@ async function attemptTarget(target: Mp4Target, run: FanzaAmateurMp4Run, browser
     failure = (error instanceof Error ? error.message : "MP4リンク取得に失敗しました。").slice(0, 500);
   }
 
-  const checkedAt = new Date().toISOString();
-  const found = Boolean(movieUrl);
-  const terminal = !found && attemptCount >= 3;
+  const completion = projectFanzaAmateurMp4AttemptCompletion({
+    movieUrl,
+    failure,
+    attemptCount,
+    checkedAt: new Date().toISOString(),
+  });
   const { error: saveError } = await supabaseAdmin
     .from("fanza_amateur_works")
-    .update({
-      mp4_url: movieUrl,
-      mp4_status: found ? "found" : terminal ? "no_video" : "pending",
-      mp4_checked_at: checkedAt,
-      mp4_last_error: found ? null : terminal ? "3回の取得試行でMP4リンクを確認できませんでした。" : failure,
-    })
+    .update(completion.update)
     .eq("content_id", target.content_id)
     .eq("mp4_last_attempt_run_id", run.id)
     .is("mp4_url", null);
   if (saveError) throw new Error(`取得したMP4情報を保存できませんでした: ${saveError.message}`);
-  return { kind: found ? "found" as const : terminal ? "no_video" as const : "failed" as const };
+  return { kind: completion.kind };
 }
 
 export async function continueFanzaAmateurMp4Run(runId: string) {
-  let run = await getActiveFanzaAmateurMp4Run();
-  if (!run || run.id !== runId) throw new Error("進行中のMP4補完がありません。状態を再読み込みしてください。");
+  const activeRun = await getActiveFanzaAmateurMp4Run();
+  if (!activeRun || activeRun.id !== runId) throw new Error("進行中のMP4補完がありません。状態を再読み込みしてください。");
+  let run = activeRun;
 
   run = await markExhaustedAsNoVideo(run);
   const targets = await loadTargets(run);
@@ -209,15 +215,27 @@ export async function continueFanzaAmateurMp4Run(runId: string) {
 
   const browser = await createBrowser();
   try {
-    for (const target of targets) {
-      const result = await attemptTarget(target, run, browser);
-      if (result.kind === "skipped") continue;
-      run = await updateRun(run, {
-        processed_count: 1,
-        found_count: result.kind === "found" ? 1 : 0,
-        no_video_count: result.kind === "no_video" ? 1 : 0,
-        failed_attempt_count: result.kind === "failed" || result.kind === "no_video" ? 1 : 0,
-      });
+    for (let offset = 0; offset < targets.length; offset += PAGE_CONCURRENCY) {
+      const pageGroup = targets.slice(offset, offset + PAGE_CONCURRENCY);
+      const settled = await Promise.allSettled(pageGroup.map((target) => attemptTarget(target, run, browser)));
+      const results = settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+      const counted = results.filter((result) => result.kind !== "skipped");
+      const rejected = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+
+      if (counted.length || rejected) {
+        run = await updateRun(run, {
+          processed_count: counted.length,
+          found_count: counted.filter((result) => result.kind === "found").length,
+          no_video_count: counted.filter((result) => result.kind === "no_video").length,
+          failed_attempt_count: counted.filter((result) => result.kind === "failed" || result.kind === "no_video").length,
+          last_error: rejected
+            ? (rejected.reason instanceof Error ? rejected.reason.message : "MP4補完中に保存エラーが発生しました。").slice(0, 500)
+            : null,
+        });
+      }
+      if (rejected) {
+        throw rejected.reason instanceof Error ? rejected.reason : new Error("MP4補完中に保存エラーが発生しました。");
+      }
     }
   } finally {
     await closeBrowser(browser);

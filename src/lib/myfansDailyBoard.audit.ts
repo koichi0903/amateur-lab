@@ -3,7 +3,7 @@ import { getMyfansAnalytics } from "@/lib/myfansAnalytics";
 import { buildMyfansExecutionBoard, detectPublicCopyLeak } from "@/lib/myfansXExecution";
 
 async function main() {
-  const analytics = await getMyfansAnalytics({ approvedMediaId: 1 });
+  const analytics = await getMyfansAnalytics({ approvedMediaId: 1, includeCompleteDailyFunnelInputs: true });
   if (analytics.error) throw new Error(analytics.error);
   const board = buildMyfansExecutionBoard(analytics, { planDate: "2026-09-08", operationDay: 1 });
   const publicTexts = [

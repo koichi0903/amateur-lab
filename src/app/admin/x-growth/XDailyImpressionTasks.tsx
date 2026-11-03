@@ -1,14 +1,9 @@
 import Link from "next/link";
 import { getFanzaDailyPostFunnel } from "@/lib/fanzaDailyPostFunnel";
+import { formatJstDateTime } from "@/lib/dateTime";
 import XDailyTaskQueue from "./XDailyTaskQueue";
 
 const HOUR_MS = 60 * 60 * 1000;
-
-function formatJst(value: string) {
-  return new Intl.DateTimeFormat("ja-JP", {
-    month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tokyo",
-  }).format(new Date(value));
-}
 
 export default async function XDailyImpressionTasks() {
   // The manual capture API accepts posts up to 30 days old. Keep the task queue
@@ -42,7 +37,7 @@ export default async function XDailyImpressionTasks() {
           <p className="mt-2 max-w-3xl text-xs leading-5 text-zinc-400">
             2つの投稿入口をまとめて確認します。投稿URLを登録し、24時間後にX画面の表示回数を入力してください。入力時刻までの作品PV・FANZA CTAと照合します。X APIは使いません。
           </p>
-          <p className="mt-1 text-[10px] text-zinc-600">タスク集計 {formatJst(result.evaluatedAt)} JST / 対象は直近30日投稿（手入力の受付期間と同じ）</p>
+          <p className="mt-1 text-[10px] text-zinc-600">タスク集計 {formatJstDateTime(result.evaluatedAt)} JST / 対象は直近30日投稿（手入力の受付期間と同じ）</p>
         </div>
         <Link href="/admin/revenue#fanza-daily-post-funnel" className="rounded-lg border border-emerald-800 px-3 py-2 text-xs font-black text-emerald-200 hover:bg-emerald-950">
           FANZA分析を見る

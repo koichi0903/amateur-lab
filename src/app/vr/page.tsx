@@ -40,7 +40,7 @@ async function getVrWorks() {
     return sortTrendingWorks((data ?? []).filter(isVrWork) as unknown as Work[]);
   } catch (error) {
     console.warn("[vr] works are temporarily unavailable", error instanceof Error ? error.message : error);
-    throw error;
+    return [];
   }
 }
 

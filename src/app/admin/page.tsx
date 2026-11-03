@@ -24,36 +24,35 @@ const menus = [
     href: "/admin/x-growth",
   },
   {
-    title: "𝕏 @bijyo1010 予約作品 手動投稿",
-    description: "毎日4件 / 動画・本文・自己リプ準備済み",
-    href: "/admin/bijyo-reserved",
-  },
-  {
-    title: "𝕏 素人動画 手動投稿",
-    description: "Xアカウントを選択 / 新作7日分・人気順TOP500",
-    href: "/admin/amateur-x-post",
-  },
-  {
-      title: "🦋 Bluesky 投稿候補レビュー",
-      description: "候補の根拠確認と公式サンプル素材の準備",
-    href: "/admin/bluesky-post",
-  },
-  {
     title: "📈 FANZA送客分析",
     description: "クリック流入元・上位作品を確認",
     href: "/admin/revenue",
-  },
-  {
-    title: "🎞️ 素人API全作品取得",
-    description: "FANZA素人作品のAPI生データを全件保存",
-    href: "/admin/amateur-api-catalog",
   },
   {
     title: "𝕏 myfans X運用",
     description: "ID1 Source / ID5 Market WinnerのDaily Growth Command Centerを開く",
     href: "/admin/myfans?media=1",
   },
-
+  {
+    title: "𝕏 @bijyo1010 予約作品 手動投稿",
+    description: "毎日4件 / 動画・本文・自己リプ準備済み",
+    href: "/admin/bijyo-reserved",
+  },
+  {
+    title: "𝕏 素人動画 手動投稿",
+    description: "複数アカウント共通リスト・新作7日分・人気順TOP500",
+    href: "/admin/amateur-x-post",
+  },
+  {
+    title: "🦋 Bluesky 投稿候補レビュー",
+    description: "候補の根拠・素材の安全性・価格とリンク先を確認し、公式サンプル素材を準備",
+    href: "/admin/bluesky-post",
+  },
+  {
+    title: "🎞️ 素人API全作品取得",
+    description: "FANZA素人作品のAPI生データを全件保存",
+    href: "/admin/amateur-api-catalog",
+  },
 ];
 
 export default function AdminDashboard() {
@@ -75,6 +74,7 @@ export default function AdminDashboard() {
             <Link
               key={menu.href}
               href={menu.href}
+              prefetch={false}
               className="
                 rounded-2xl
                 border
@@ -106,4 +106,3 @@ Admin Control Panel
     </main>
   );
 }
-

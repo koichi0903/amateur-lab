@@ -1,8 +1,80 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { collectionOutcomeForResult, selectCollectionAccounts } from "./myfansCollectionRotation.ts";
+import {
+  collectionOutcomeForResult,
+  buildCreatorCollectionStatePatch,
+  resolveTerminalCollectionCursorAdvance,
+  selectCollectionAccounts,
+} from "./myfansCollectionRotation.ts";
 
 const accounts = Array.from({ length: 12 }, (_, index) => ({ creatorId: index + 1, rotationOrder: index + 1, collectionEnabled: true }));
+
+test("advances the persistent cursor only after a later terminal creator", () => {
+  assert.deepEqual(
+    resolveTerminalCollectionCursorAdvance({ cursorOrder: 5, cycleNo: 2 }, 4, 10),
+    { cursorOrder: 5, cycleNo: 2, cycleCompleted: false, shouldAdvance: false },
+  );
+  assert.deepEqual(
+    resolveTerminalCollectionCursorAdvance({ cursorOrder: 5, cycleNo: 2 }, 8, 10),
+    { cursorOrder: 8, cycleNo: 2, cycleCompleted: false, shouldAdvance: true },
+  );
+});
+
+test("wraps the cursor and increments the cycle at the last eligible creator", () => {
+  assert.deepEqual(
+    resolveTerminalCollectionCursorAdvance({ cursorOrder: 8, cycleNo: 2 }, 10, 10),
+    { cursorOrder: 0, cycleNo: 3, cycleCompleted: true, shouldAdvance: true },
+  );
+});
+
+test("builds a permanent exclusion patch only for creators without posts or with private profiles", () => {
+  const timestamps = ["2026-11-01T00:00:00.000Z", "2026-11-01T00:00:01.000Z", "2026-11-01T00:00:02.000Z"];
+  let index = 0;
+  assert.deepEqual(buildCreatorCollectionStatePatch({
+    jobId: 12,
+    creatorId: 34,
+    rotationOrder: 8,
+    collectionState: "PRIVATE",
+    collectorMethod: "collector-v2",
+    error: "PRIVATE: profile hidden",
+    collectedCount: 0,
+    evidence: { observed: true },
+    now: () => timestamps[index++],
+  }), {
+    creator_id: 34,
+    rotation_order: 8,
+    collection_enabled: false,
+    state: "PRIVATE",
+    exclusion_reason: "private",
+    excluded_at: timestamps[0],
+    last_processed_at: timestamps[1],
+    last_run_id: 12,
+    evidence: { collectorMethod: "collector-v2", error: "PRIVATE: profile hidden", collectedCount: 0, observed: true },
+    updated_at: timestamps[2],
+  });
+});
+
+test("keeps eligible creators enabled and preserves evidence overrides", () => {
+  const timestamps = ["2026-11-01T00:00:00.000Z", "2026-11-01T00:00:01.000Z"];
+  let index = 0;
+  const patch = buildCreatorCollectionStatePatch({
+    jobId: 13,
+    creatorId: 35,
+    rotationOrder: 9,
+    collectionState: "ELIGIBLE",
+    collectorMethod: "collector-v2",
+    collectedCount: 2,
+    evidence: { collectorMethod: "captured-method", collectedCount: 99 },
+    now: () => timestamps[index++],
+  });
+
+  assert.equal(patch.collection_enabled, true);
+  assert.equal(patch.exclusion_reason, null);
+  assert.equal(patch.excluded_at, null);
+  assert.deepEqual(patch.evidence, { collectorMethod: "captured-method", error: null, collectedCount: 99 });
+  assert.equal(patch.last_processed_at, timestamps[0]);
+  assert.equal(patch.updated_at, timestamps[1]);
+});
 
 test("caps one low-load run at five and continues after the cursor", () => {
   const manyAccounts = Array.from({ length: 30 }, (_, index) => ({ creatorId: index + 1, rotationOrder: index + 1, collectionEnabled: true }));

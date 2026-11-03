@@ -47,17 +47,37 @@ export function evaluateCrossAccountGuard(candidate: MarketWinnerCandidate, guar
   const reasons: string[] = [];
   let penalty = 0;
   for (const guard of guards) {
-    if (guard.globalContentFingerprint && guard.globalContentFingerprint === candidate.globalContentFingerprint) reasons.push("same_body_fingerprint");
-    if (guard.sourceXUrl && guard.sourceXUrl.toLowerCase() === candidate.sourceXUrl.toLowerCase()) reasons.push("same_source");
-    if (guard.productId && candidate.productId && guard.productId === candidate.productId) {
-      const cooldown = guard.cooldownUntil ? new Date(guard.cooldownUntil).getTime() : 0;
-      if (cooldown > now.getTime()) reasons.push("product_cooldown");
-      else penalty = Math.max(penalty, 12);
-    }
-    if (guard.creatorId && candidate.creatorId && guard.creatorId === candidate.creatorId) penalty = Math.max(penalty, 8);
+    const signals = guardSignalsForCandidate(candidate, guard, now);
+    reasons.push(...signals.reasons);
+    penalty = Math.max(penalty, signals.penalty);
   }
-  const hardReasons = reasons.filter((reason) => reason === "same_body_fingerprint" || reason === "same_source" || reason === "product_cooldown");
+  const hardReasons = reasons.filter(isHardGuardReason);
   return { blocked: hardReasons.length > 0, penalty, reasons: [...new Set(reasons)] };
+}
+
+function guardSignalsForCandidate(candidate: MarketWinnerCandidate, guard: CrossAccountGuard, now: Date) {
+  const reasons: string[] = [];
+  if (guard.globalContentFingerprint && guard.globalContentFingerprint === candidate.globalContentFingerprint) reasons.push("same_body_fingerprint");
+  if (guard.sourceXUrl && guard.sourceXUrl.toLowerCase() === candidate.sourceXUrl.toLowerCase()) reasons.push("same_source");
+
+  const productSignal = productCooldownSignal(candidate, guard, now);
+  if (productSignal.reason) reasons.push(productSignal.reason);
+  const creatorPenalty = guard.creatorId && candidate.creatorId && guard.creatorId === candidate.creatorId ? 8 : 0;
+
+  return { reasons, penalty: Math.max(productSignal.penalty, creatorPenalty) };
+}
+
+function productCooldownSignal(candidate: MarketWinnerCandidate, guard: CrossAccountGuard, now: Date) {
+  if (!guard.productId || !candidate.productId || guard.productId !== candidate.productId) {
+    return { reason: null, penalty: 0 };
+  }
+  const cooldown = guard.cooldownUntil ? new Date(guard.cooldownUntil).getTime() : 0;
+  if (cooldown > now.getTime()) return { reason: "product_cooldown", penalty: 0 };
+  return { reason: null, penalty: 12 };
+}
+
+function isHardGuardReason(reason: string) {
+  return reason === "same_body_fingerprint" || reason === "same_source" || reason === "product_cooldown";
 }
 
 export function calculateWinnerScore(candidate: MarketWinnerCandidate, guard: GuardDecision) {

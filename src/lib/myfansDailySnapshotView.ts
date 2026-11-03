@@ -73,6 +73,14 @@ function asNumber(value: unknown, fallback: number | null = null) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+function asStringOrFallback(value: unknown, fallback: string) {
+  return asString(value) || fallback;
+}
+
+function asNumberOrFallback(value: unknown, fallback: number) {
+  return asNumber(value, fallback) ?? fallback;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -86,10 +94,10 @@ function restoreCandidate(raw: unknown, postOrder: number, index: number): Persi
   const row = asRecord(raw);
   const productId = asNumber(row.product_id);
   return {
-    id: asString(row.id) || `persisted-${postOrder}-${index}`,
-    optionLabel: asString(row.option_label) || String.fromCharCode(65 + index),
-    optionName: asString(row.option_name) || "保存済み候補",
-    optionRank: asNumber(row.option_rank, index + 1) ?? index + 1,
+    id: asStringOrFallback(row.id, `persisted-${postOrder}-${index}`),
+    optionLabel: asStringOrFallback(row.option_label, String.fromCharCode(65 + index)),
+    optionName: asStringOrFallback(row.option_name, "保存済み候補"),
+    optionRank: asNumberOrFallback(row.option_rank, index + 1),
     body: asString(row.body),
     selfReply: asString(row.self_reply),
     sourceXUrl: asString(row.source_x_url),
@@ -102,9 +110,9 @@ function restoreCandidate(raw: unknown, postOrder: number, index: number): Persi
     sourceProductMatch: row.source_product_match ?? null,
     resolverEvidence: row.resolver_evidence ?? null,
     candidateType: asString(row.candidate_type),
-    monetizableStatus: asString(row.monetizable_status) || "unlinked",
+    monetizableStatus: asStringOrFallback(row.monetizable_status, "unlinked"),
     monetizable: row.monetizable === true,
-    sourceSpecificityScore: asNumber(row.source_specificity_score, 0) ?? 0,
+    sourceSpecificityScore: asNumberOrFallback(row.source_specificity_score, 0),
     candidateTitle: asString(row.candidate_title),
     role: asString(row.role),
     postType: asString(row.post_type),
@@ -112,7 +120,7 @@ function restoreCandidate(raw: unknown, postOrder: number, index: number): Persi
     linkStrategy: asString(row.link_strategy),
     sourceMediaType: asString(row.source_media_type),
     myfansTargetUrl: asString(row.myfans_target_url),
-    affiliateStatus: asString(row.affiliate_status) || "missing",
+    affiliateStatus: asStringOrFallback(row.affiliate_status, "missing"),
     affiliateConnectionStatus: asString(row.affiliate_connection_status),
     affiliateUrl: asString(row.affiliate_url),
     productId,
@@ -120,7 +128,7 @@ function restoreCandidate(raw: unknown, postOrder: number, index: number): Persi
     creativeStrategy: asString(row.creative_strategy),
     topicIdentity: asString(row.topic_identity),
     reasonToCare: asString(row.reason_to_care),
-    visualStatus: asString(row.visual_status) || "unavailable",
+    visualStatus: asStringOrFallback(row.visual_status, "unavailable"),
     visualEvidence: asString(row.visual_evidence),
     quality: asNumber(row.quality),
     topicValue: asNumber(row.topic_value),

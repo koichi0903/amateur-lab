@@ -64,5 +64,15 @@ const fallback = selectRankedMediaMix([
 assert.deepEqual(fallback.rankedPool.map((item) => item.workId), [1, 3]);
 assert.equal(fallback.rankedPool.find((item) => item.workId === 2), undefined);
 assert.equal(new Set(fallback.rankedPool.map((item) => item.workId)).size, fallback.rankedPool.length);
+assert.deepEqual(fallback.duplicateBreakdown, {
+  sameWorkVariants: 1,
+  sameMediaVariants: 0,
+  sameDestinationUrlVariants: 0,
+  sameImageVariants: 0,
+  sameSampleMovieVariants: 0,
+  sameBodyVariants: 0,
+  sameFingerprintVariants: 0,
+  lostUniqueWorks: 1,
+});
 
 console.log("xGrowth ranking regression tests passed");

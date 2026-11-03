@@ -6,6 +6,17 @@ import { BulkProductGuide, ProductForm } from "../MyfansAdminForms";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function ProductSourceLinks({ productUrl, sourceXUrl }: { productUrl: string | null; sourceXUrl: string | null }) {
+  if (!productUrl && !sourceXUrl) return null;
+
+  return (
+    <div className="mt-2 flex gap-3 text-xs font-bold text-emerald-300">
+      {productUrl && <a href={productUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1">商品 <ExternalLink size={12} /></a>}
+      {sourceXUrl && <a href={sourceXUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1">引用元X <ExternalLink size={12} /></a>}
+    </div>
+  );
+}
+
 export default async function MyfansProductsPage() {
   const analytics = await getMyfansAnalytics();
 
@@ -64,12 +75,7 @@ export default async function MyfansProductsPage() {
                   <td className="py-4 pr-4 text-zinc-300">{product.approved_media_name || product.affiliate_media_id || "-"}</td>
                   <td className="max-w-sm py-4">
                     <p className="line-clamp-2 text-zinc-400">{product.selection_reason || "-"}</p>
-                    {(product.product_url || product.source_x_url) && (
-                      <div className="mt-2 flex gap-3 text-xs font-bold text-emerald-300">
-                        {product.product_url && <a href={product.product_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1">商品 <ExternalLink size={12} /></a>}
-                        {product.source_x_url && <a href={product.source_x_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1">引用元X <ExternalLink size={12} /></a>}
-                      </div>
-                    )}
+                    <ProductSourceLinks productUrl={product.product_url} sourceXUrl={product.source_x_url} />
                   </td>
                 </tr>
               ))}

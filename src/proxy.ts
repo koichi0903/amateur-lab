@@ -31,6 +31,9 @@ const LOCAL_UPDATE_API_PATHS = new Set([
   "/api/update-sale",
   "/api/update-semi-new",
 ]);
+const LOCAL_SCHEDULE_API_PATHS = new Set([
+  "/api/admin/fanza-amateur-api-catalog",
+]);
 const LOCAL_ADMIN_API_PATHS = new Set([
   "/api/dmm",
   "/api/register-work",
@@ -143,8 +146,21 @@ async function authenticatedAdminResponse(request: NextRequest) {
   return response;
 }
 
-export async function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+function imageRedirectResponse(request: NextRequest, pathname: string) {
+  if (!WORK_SOCIAL_IMAGE_PATH_PATTERN.test(pathname)) return null;
+
+  return NextResponse.redirect(new URL("/ogp-20261028.png", request.url), {
+    status: 308,
+    headers: {
+      "Cache-Control": "public, s-maxage=604800, stale-while-revalidate=2592000",
+    },
+  });
+}
+
+function shouldSkipAdminAuthentication(
+  request: NextRequest,
+  pathname: string,
+): boolean {
   const isLoopbackRequest = ["localhost", "127.0.0.1"].includes(
     request.nextUrl.hostname,
   );
@@ -152,77 +168,78 @@ export async function proxy(request: NextRequest) {
     process.env.NODE_ENV === "development" &&
     isLoopbackRequest;
 
-  if (WORK_SOCIAL_IMAGE_PATH_PATTERN.test(pathname)) {
-    return NextResponse.redirect(new URL("/ogp-20261028.png", request.url), {
-      status: 308,
-      headers: {
-        "Cache-Control": "public, s-maxage=604800, stale-while-revalidate=2592000",
-      },
-    });
-  }
-
   // The local admin UI is the control panel for update jobs that cannot run
   // reliably on Vercel (notably Playwright). Keep production admin routes
   // authenticated, while allowing the loopback-only development server.
-  if (isLocalDevelopmentRequest && pathname.startsWith("/admin")) {
-    return NextResponse.next();
-  }
-
-  if (isLocalDevelopmentRequest && pathname.startsWith("/api/admin/")) {
-    return NextResponse.next();
-  }
-
   if (
-    LOCAL_UPDATE_API_PATHS.has(pathname) &&
+    isLocalDevelopmentRequest &&
+    (pathname.startsWith("/admin") || pathname.startsWith("/api/admin/"))
+  ) return true;
+
+  if (LOCAL_UPDATE_API_PATHS.has(pathname) && isLoopbackRequest) return true;
+
+  // Scheduled local catalog updates use a one-run token validated by the route.
+  // Keep this bypass limited to loopback POSTs; admin reads still require admin auth.
+  if (
+    request.method === "POST" &&
+    LOCAL_SCHEDULE_API_PATHS.has(pathname) &&
     isLoopbackRequest
-  ) {
-    return NextResponse.next();
-  }
+  ) return true;
 
-  if (
-    LOCAL_ADMIN_API_PATHS.has(pathname) &&
-    isLocalDevelopmentRequest
-  ) {
-    return NextResponse.next();
-  }
+  if (LOCAL_ADMIN_API_PATHS.has(pathname) && isLocalDevelopmentRequest) return true;
 
-  if (PUBLIC_API_PATHS.has(pathname)) {
-    return NextResponse.next();
-  }
+  return PUBLIC_API_PATHS.has(pathname);
+}
 
-  if (pathname === "/api/cron/fanza-x-metrics") {
-    return NextResponse.json(
-      { error: "X APIによる閲覧数取得は停止中です。X Growth OSの手入力タスクを使ってください。" },
-      { status: 410, headers: { "Cache-Control": "no-store" } },
-    );
-  }
+function stoppedCronResponse(pathname: string) {
+  if (pathname !== "/api/cron/fanza-x-metrics") return null;
 
-  if (pathname === "/api/admin/revalidate") {
-    // HMAC signatures are verified against the exact request body in the route.
-    // The proxy can only recognize the signed request shape without consuming it.
-    if (hasSignedRevalidationHeaders(request)) return NextResponse.next();
-    if (!process.env.CRON_SECRET) return unavailable();
-    return hasValidCronSecret(request)
-      ? NextResponse.next()
-      : NextResponse.json(
-          { error: "Unauthorized" },
-          { status: 401, headers: { "Cache-Control": "no-store" } },
-        );
-  }
+  return NextResponse.json(
+    { error: "X APIによる閲覧数取得は停止中です。X Growth OSの手入力タスクを使ってください。" },
+    { status: 410, headers: { "Cache-Control": "no-store" } },
+  );
+}
 
+function revalidationResponse(request: NextRequest, pathname: string) {
+  if (pathname !== "/api/admin/revalidate") return null;
+
+  // HMAC signatures are verified against the exact request body in the route.
+  // The proxy can only recognize the signed request shape without consuming it.
+  if (hasSignedRevalidationHeaders(request)) return NextResponse.next();
+  if (!process.env.CRON_SECRET) return unavailable();
+  return hasValidCronSecret(request)
+    ? NextResponse.next()
+    : NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401, headers: { "Cache-Control": "no-store" } },
+      );
+}
+
+async function adminAuthenticationResponse(request: NextRequest) {
   if (!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) {
     return unavailable();
   }
 
-  if (hasValidBasicAuth(request)) {
-    return authenticatedAdminResponse(request);
-  }
-
-  if (await hasValidAdminSession(request)) {
-    return NextResponse.next();
-  }
-
+  if (hasValidBasicAuth(request)) return authenticatedAdminResponse(request);
+  if (await hasValidAdminSession(request)) return NextResponse.next();
   return unauthorized();
+}
+
+export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  const imageRedirect = imageRedirectResponse(request, pathname);
+  if (imageRedirect) return imageRedirect;
+
+  if (shouldSkipAdminAuthentication(request, pathname)) return NextResponse.next();
+
+  const stoppedCron = stoppedCronResponse(pathname);
+  if (stoppedCron) return stoppedCron;
+
+  const revalidation = revalidationResponse(request, pathname);
+  if (revalidation) return revalidation;
+
+  return adminAuthenticationResponse(request);
 }
 
 export const config = {
