@@ -1,5 +1,5 @@
-import Script from "next/script";
 import type { ReactNode } from "react";
+import DmmAffiliateBanner from "@/app/guides/DmmAffiliateBanner";
 
 const officialSources = [
   { label: "DMMプレミアムの料金・無料体験", href: "https://premium.dmm.com/about/" },
@@ -112,10 +112,9 @@ export default function FanzaSubscriptionGuideBody() {
       <h2 className="mt-1 text-base font-black text-slate-950">標準FANZA TVの対象作品と、無料体験の適用条件を公式で確認する</h2>
       <p className="mt-2 text-xs leading-6 text-slate-700">見たい作品・契約プラン・無料体験の条件を公式画面で確認してください。条件に合わない場合は、新規登録をせず、単品購入や見送りを選べます。</p>
       <div className="mt-4 flex min-h-[250px] justify-center overflow-hidden rounded-md bg-white p-2" aria-label="DMM公式FANZA TVバナー">
-        <ins className="widget-banner" />
+        <DmmAffiliateBanner />
       </div>
       <p className="mt-2 text-[11px] leading-5 text-slate-500">広告経由の登録・購入が所定の条件を満たすと、運営者に報酬が発生する場合があります。</p>
     </aside>
-    <Script id="dmm-fanza-tv-banner-1277" src="https://widget-view.dmm.co.jp/js/banner_placement.js?affiliate_id=koichi1928-026&banner_id=1277_300_250" strategy="afterInteractive" />
   </div>;
 }
