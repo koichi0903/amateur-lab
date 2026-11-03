@@ -32,9 +32,9 @@ const guideCards = [
   },
   {
     guide: analyzerGuideArticles[3],
-    badge: "見放題",
-    title: "FANZAの見放題サービスを比較｜FANZA TV・月額動画の選び方",
-    description: "FANZA TV、FANZA TV Plus、月額動画の違いを整理し、自分に合う見放題サービスの選び方を解説します。",
+    badge: "比較",
+    title: "FANZA TVと単品購入、どちらが合う？4つの確認で選ぶ",
+    description: "対象作品・契約状況・無料体験・単品価格と期限を確認し、月額登録の前に選び方を整理します。",
   },
   {
     guide: analyzerGuideArticles[4],

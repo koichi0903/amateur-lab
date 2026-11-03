@@ -7,6 +7,7 @@ export type AnalyzerGuide = {
   description: string;
   summary: string;
   intro?: readonly string[];
+  disclosure?: string;
   sections: readonly EditorialSection[];
   faq: readonly { question: string; answer: string }[];
   related: readonly EditorialLink[];
@@ -88,26 +89,20 @@ export const analyzerGuideArticles: readonly AnalyzerGuide[] = [
   },
   {
     slug: "fanza-subscription-guide",
-    eyebrow: "見放題 GUIDE",
-    title: "FANZAの見放題サービスを比較｜FANZA TV・月額動画の選び方",
-    description: "FANZA TV、FANZA TV Plus、月額動画の違いを整理し、料金・作品ジャンル・視聴方法から自分に合う見放題サービスを選ぶ方法を解説します。",
-    summary: "FANZAの見放題には、DMMプレミアムで利用するFANZA TV、追加サービスのFANZA TV Plus、チャンネルごとに契約するFANZA月額動画があります。名前が似ていても仕組みが違うため、目的別に比較します。",
-    intro: ["FANZAの見放題サービスは、ひとつの料金プランにまとまっているわけではありません。DMMプレミアムに付属するFANZA TVと、メーカー・ジャンル別のFANZA月額動画は別サービスです。", "このページでは、契約前に確認したい料金、対象範囲、視聴期限、解約条件を整理します。料金や配信内容は変わるため、最終的な条件は各公式ページで確認してください。"],
-    sections: [
-      { title: "FANZAの見放題は3系統", paragraphs: ["FANZA TVはDMMプレミアムに登録すると利用できるサービスです。FANZA TV PlusはFANZA TVとは別の追加サービスで、DMMプレミアムへの登録も必要です。FANZA月額動画は、チャンネルごとに作品をまとめたサブスクリプションです。"], points: ["FANZA TV：DMMプレミアムに付属する見放題", "FANZA TV Plus：FANZA TVの追加サービス", "FANZA月額動画：見放題ch、見放題ch デラックス、VRchなどのチャンネル型サービス"] },
-      { title: "サービスごとの特徴", paragraphs: ["料金だけでなく、見たいジャンルと作品の探し方で選ぶと比較しやすくなります。DMMプレミアムのFANZA TVと、特定ジャンルを深く見る月額動画では向いている人が異なります。"], points: ["幅広く安く試したい：FANZA TV", "FANZA TVをさらに楽しみたい：FANZA TV Plus", "一般的な動画や複数ジャンルを見たい：見放題ch", "作品数を最優先したい：見放題ch デラックス", "VR作品を中心に見たい：VRch"] },
-      { title: "契約前に確認すること", paragraphs: ["月額サービスは入会時と更新時に決済されるため、無料期間・更新日・解約方法を確認してから登録します。見放題対象でも配信終了や対象外作品があるため、目当ての作品が含まれるか公式ページで確認してください。", "FANZA TV内の動画はDMMプレミアム会員期間中に視聴できます。単品購入とは視聴条件が異なるため、長く残したい作品は購入方式も比較します。"], points: ["月額料金と無料体験の条件", "見放題対象作品と配信終了の有無", "視聴できる端末・アプリ", "自動更新日と解約後の視聴条件"] },
+    eyebrow: "購入方法の比較",
+    title: "FANZA TVと単品購入、どちらが合う？4つの確認で選ぶ",
+    description: "見たい作品がFANZA TVの対象か、既存契約や無料体験、単品価格と視聴期限を4つの確認で比べる判断ガイドです。",
+    summary: "月額登録を決める前に、見たい作品が標準FANZA TVの対象か、単品購入の価格と期限が目的に合うかを確認します。",
+    disclosure: "このページにはFANZAのアフィリエイト広告が含まれます。広告を経由した登録・購入などが所定の条件を満たすと、運営者に報酬が発生する場合があります。",
+    intro: ["見たい作品がFANZA TVの対象に含まれ、契約期間中にいくつかの作品を楽しみたいなら、月額料金と単品料金を比べてみましょう。特定の1本だけが目的なら、その作品の単品価格と視聴条件を確認する方が判断しやすくなります。", "FANZA TVは、DMMプレミアムの会員が対象作品を視聴できるサービスです。すべてのFANZA作品や見たい新作が含まれるとは限りません。まず、次の4つを確認してください。情報の確認日は2026年11月3日です。"],
+    sections: [],
+    faq: [
+      { question: "FANZA TVなら新作をすべて見られますか？", answer: "すべてのFANZA作品が対象とは限りません。見たい作品・版が標準FANZA TVの対象か、公式の対象作品一覧や作品ページで確認してください。" },
+      { question: "無料体験は誰でも使えますか？", answer: "初回登録などの条件があり、決済方法や登録プランによって対象外になる場合もあります。自分のアカウントに適用されるか、登録画面で確認してください。" },
+      { question: "単品で購入した動画はずっと見られますか？", answer: "商品ごとに視聴期限やダウンロード期限が設定されています。購入前に商品詳細ページで期限を確認してください。" },
+      { question: "DMM | Disney+ セットプランでもFANZA TVを見られますか？", answer: "公式案内では、同セットプランでFANZA TVとFANZA TV Plusは利用できないとされています。" },
     ],
-    faq: [{ question: "FANZA TVとFANZA月額動画は同じですか？", answer: "別サービスです。FANZA TVはDMMプレミアムに登録すると利用でき、FANZA月額動画はチャンネルごとに契約します。" }, { question: "FANZA TV Plusだけ登録できますか？", answer: "FANZA TV Plusの利用にはDMMプレミアムへの登録も必要です。登録先の公式ページで最新条件を確認してください。" }, { question: "見放題なら作品はずっと見られますか？", answer: "サービスや作品によって配信条件が異なります。FANZA TVはDMMプレミアム登録期間中の視聴となるため、単品購入とは異なります。" }],
     related: [{ href: "/guides/fanza-registration", label: "FANZAの登録方法を見る" }, { href: "/guides/fanza-sale-timing", label: "FANZAのセールはいつ？" }, { href: "/sale", label: "今日のFANZAセール情報を見る" }],
-    serviceLinks: [
-      { label: "FANZA TV・FANZA TV Plusを確認する", href: "https://al.fanza.co.jp/?lurl=https%3A%2F%2Fpremium.fanza.jp%2Fnotice%2Ffanzatv_plus_welcome%2F&af_id=koichi1928-026&ch=link_tool&ch_id=link" },
-      { label: "FANZA月額動画トップを見る", href: "https://al.fanza.co.jp/?lurl=https%3A%2F%2Fvideo.dmm.co.jp%2Fsvod%2F&af_id=koichi1928-026&ch=toolbar_sp&ch_id=link" },
-      { label: "見放題chを見る", href: "https://al.fanza.co.jp/?lurl=https%3A%2F%2Fvideo.dmm.co.jp%2Fsvod%2Fstandard%2F&af_id=koichi1928-026&ch=toolbar_sp&ch_id=link" },
-      { label: "見放題ch デラックスを見る", href: "https://al.fanza.co.jp/?lurl=https%3A%2F%2Fvideo.dmm.co.jp%2Fsvod%2Fdeluxe%2F&af_id=koichi1928-026&ch=toolbar_sp&ch_id=link" },
-      { label: "VRchを見る", href: "https://al.fanza.co.jp/?lurl=https%3A%2F%2Fvideo.dmm.co.jp%2Fsvod%2Fvr%2F&af_id=koichi1928-026&ch=toolbar_sp&ch_id=link" },
-    ],
-    cta: { label: "見放題サービスを公式ページで確認する", href: "https://al.fanza.co.jp/?lurl=https%3A%2F%2Fvideo.dmm.co.jp%2Fsvod%2F&af_id=koichi1928-026&ch=toolbar_sp&ch_id=link", eyebrow: "PR", title: "自分に合う見放題サービスを確認", body: "料金・対象作品・無料体験・更新条件は、登録前に公式ページで確認してください。" },
   },
   {
     slug: "fanza-vr-guide",
