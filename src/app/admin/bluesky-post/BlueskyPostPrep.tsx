@@ -61,7 +61,7 @@ export default function BlueskyPostPrep() {
         <BlueskySampleConsole initialContentId="scute1583" />
       </section>
 
-      <p className="mt-5 text-xs leading-5 text-zinc-500">価格は2026-10-31時点の確認済み記録です。公開前の再確認が必要です。素材の保存や切り出しは、投稿許可の判定ではありません。投稿、キュー登録、DB/Supabase書込みはありません。</p>
+      <p className="mt-5 text-xs leading-5 text-zinc-500">価格は2026-10-31時点の確認済み記録です。公開前の再確認が必要です。品番登録時は公式「素人」APIで確認した素材情報を本画面専用テーブルに保存します。作品カタログ、投稿、キュー、投稿履歴は変更しません。素材の保存や切り出しは、投稿許可の判定ではありません。</p>
     </div>
   </main>;
 }

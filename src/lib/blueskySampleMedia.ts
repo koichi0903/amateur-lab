@@ -6,6 +6,9 @@ import { Readable } from "node:stream";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isOfficialFanzaDmmSampleUrl } from "@/lib/xMediaAssets";
 import { trimVideoForX } from "@/lib/xVideoTrim";
+import { FANZA_AMATEUR_FLOOR, getFanzaAmateurAffiliateId } from "@/lib/dmm/fanzaAmateurCatalog";
+import { captureFanzaSampleMovieUrl } from "@/lib/playwright/captureFanzaSampleMovie";
+import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
 
 type RecordValue = Record<string, unknown>;
 
@@ -44,27 +47,122 @@ function normalizeContentId(value: string) {
   return /^[a-z0-9][a-z0-9_-]{2,79}$/.test(contentId) ? contentId : null;
 }
 
+export async function registerBlueskySampleWork(rawContentId: string) {
+  const contentId = normalizeContentId(rawContentId);
+  if (!contentId) throw new Error("品番の形式を確認してください。");
+
+  const apiId = process.env.DMM_API_ID?.trim();
+  if (!apiId) throw new Error("DMM API IDが設定されていません。");
+  const params = new URLSearchParams({
+    api_id: apiId,
+    affiliate_id: getFanzaAmateurAffiliateId(),
+    site: "FANZA",
+    service: "digital",
+    floor: FANZA_AMATEUR_FLOOR,
+    hits: "1",
+    offset: "1",
+    sort: "date",
+    output: "json",
+    cid: contentId,
+  });
+  const response = await fetch(`https://api.dmm.com/affiliate/v3/ItemList?${params}`, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(20_000),
+  });
+  const payload = await response.json().catch(() => ({})) as { result?: { status?: number | string; items?: unknown } };
+  if (!response.ok || String(payload.result?.status ?? "200") !== "200" || !Array.isArray(payload.result?.items)) {
+    throw new Error(`DMM APIの取得に失敗しました（HTTP ${response.status} / API ${String(payload.result?.status ?? response.status)}）。`);
+  }
+  const rawItem = payload.result.items.find((value) => isRecord(value)
+    && typeof value.content_id === "string"
+    && value.content_id.trim().toLowerCase() === contentId);
+  if (!isRecord(rawItem)) return null;
+  if (typeof rawItem.floor_code === "string" && rawItem.floor_code !== FANZA_AMATEUR_FLOOR) {
+    throw new Error("この品番はFANZA公式「素人」カテゴリの作品ではありません。");
+  }
+
+  const title = typeof rawItem.title === "string" ? rawItem.title.trim() : "";
+  const officialUrl = typeof rawItem.URL === "string" ? rawItem.URL : "";
+  let parsedOfficialUrl: URL;
+  try {
+    parsedOfficialUrl = new URL(officialUrl);
+  } catch {
+    throw new Error("FANZA公式作品ページを確認できませんでした。");
+  }
+  if (!title || parsedOfficialUrl.protocol !== "https:" || parsedOfficialUrl.hostname !== "video.dmm.co.jp"
+    || !parsedOfficialUrl.pathname.startsWith("/amateur/content/")) {
+    throw new Error("FANZA公式「素人」作品ページを確認できませんでした。");
+  }
+
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from("bluesky_sample_work_registry")
+    .select("mp4_url")
+    .eq("content_id", contentId)
+    .maybeSingle();
+  if (existingError) throw new Error(`登録済み素材を確認できませんでした: ${existingError.message}`);
+
+  let capturedMovieUrl: string | null = null;
+  let browser: Awaited<ReturnType<typeof createBrowser>> | null = null;
+  try {
+    browser = await createBrowser();
+    capturedMovieUrl = await captureFanzaSampleMovieUrl(officialUrl, browser);
+  } catch (error) {
+    console.warn("Bluesky official sample capture failed", error instanceof Error ? error.message : "unknown");
+  } finally {
+    if (browser) await closeBrowser(browser);
+  }
+
+  const previousMovieUrl = typeof existing?.mp4_url === "string" && isOfficialFanzaDmmSampleUrl(existing.mp4_url)
+    ? existing.mp4_url
+    : null;
+  const movieUrl = capturedMovieUrl && isOfficialFanzaDmmSampleUrl(capturedMovieUrl) ? capturedMovieUrl : previousMovieUrl;
+  const { error: saveError } = await supabaseAdmin
+    .from("bluesky_sample_work_registry")
+    .upsert({
+      content_id: contentId,
+      title,
+      api_date: typeof rawItem.date === "string" ? rawItem.date : null,
+      api_url: officialUrl,
+      image_url: rawItem.imageURL ?? null,
+      sample_image_url: rawItem.sampleImageURL ?? null,
+      sample_movie_url: rawItem.sampleMovieURL ?? null,
+      mp4_url: movieUrl,
+      mp4_status: movieUrl ? "found" : "pending",
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "content_id" });
+  if (saveError) throw new Error(`素材作品を登録できませんでした: ${saveError.message}`);
+
+  return { contentId, title, sampleMovieReady: Boolean(movieUrl) };
+}
+
 export async function getBlueskySampleWorkMedia(rawContentId: string) {
   const contentId = normalizeContentId(rawContentId);
   if (!contentId) throw new Error("品番の形式を確認してください。");
-  const result = await supabaseAdmin.from("fanza_amateur_works")
+  const [result, manualResult] = await Promise.all([supabaseAdmin.from("fanza_amateur_works")
     .select("content_id,title,api_date,is_listed,mp4_url,mp4_status,image_url,sample_image_url,raw_item")
     .eq("content_id", contentId)
-    .maybeSingle();
+    .maybeSingle(), supabaseAdmin.from("bluesky_sample_work_registry")
+    .select("content_id,title,api_date,mp4_url,mp4_status,image_url,sample_image_url,sample_movie_url")
+    .eq("content_id", contentId)
+    .maybeSingle()]);
   if (result.error) throw new Error(`作品データを取得できませんでした: ${result.error.message}`);
-  if (!result.data) return null;
+  if (manualResult.error) throw new Error(`素材登録データを取得できませんでした: ${manualResult.error.message}`);
+  if (!result.data && !manualResult.data) return null;
 
-  const row = result.data as RecordValue;
-  const movie = typeof row.mp4_url === "string" && isOfficialFanzaDmmSampleUrl(row.mp4_url) ? row.mp4_url : null;
+  const row = (result.data ?? manualResult.data) as RecordValue;
+  const manual = manualResult.data as RecordValue | null;
+  const mainMovie = typeof result.data?.mp4_url === "string" && isOfficialFanzaDmmSampleUrl(result.data.mp4_url) ? result.data.mp4_url : null;
+  const registeredMovie = typeof manual?.mp4_url === "string" && isOfficialFanzaDmmSampleUrl(manual.mp4_url) ? manual.mp4_url : null;
+  const movie = registeredMovie ?? mainMovie;
   return {
     contentId: String(row.content_id),
     title: typeof row.title === "string" ? row.title : null,
     releaseDate: typeof row.api_date === "string" ? row.api_date.slice(0, 10) : null,
-    isListed: row.is_listed === true,
-    officialWorkImageUrl: officialWorkImage(row.image_url),
-    sampleImageUrls: sampleImages(row.sample_image_url, row.raw_item),
+    isListed: result.data ? result.data.is_listed === true : true,
+    officialWorkImageUrl: officialWorkImage(row.image_url ?? manual?.image_url),
+    sampleImageUrls: sampleImages(row.sample_image_url, row.raw_item, manual?.sample_image_url),
     sampleMovieUrl: movie,
-    sampleMovieReady: Boolean(movie && row.mp4_status === "found"),
+    sampleMovieReady: Boolean(movie && (registeredMovie ? manual?.mp4_status === "found" : result.data?.mp4_status === "found")),
   };
 }
 
