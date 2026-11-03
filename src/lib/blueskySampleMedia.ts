@@ -43,7 +43,9 @@ function officialWorkImage(value: unknown) {
 }
 
 function normalizeContentId(value: string) {
-  const contentId = value.trim().toLowerCase();
+  // FANZA product codes are often displayed with a hyphen (for example,
+  // PAI-515), while the official API's content_id is commonly unhyphenated.
+  const contentId = value.trim().toLowerCase().replace(/-/g, "");
   return /^[a-z0-9][a-z0-9_-]{2,79}$/.test(contentId) ? contentId : null;
 }
 
