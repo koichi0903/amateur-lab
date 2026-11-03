@@ -64,6 +64,9 @@ export default function MobilePurchaseBar({
             workId={work.id}
             placement="mobile-sticky"
             experiment
+            variantChildren={{
+              "price-focus": "価格と視聴条件を確認",
+            }}
             ariaLabel="FANZA公式で作品を確認する（新しいタブで開きます）"
             className="flex h-12 min-w-40 shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-pink-600 to-fuchsia-600 px-4 text-center text-xs font-black leading-4 text-white shadow-sm transition active:scale-[0.98]"
           >
