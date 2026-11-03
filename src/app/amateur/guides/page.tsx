@@ -16,7 +16,7 @@ const guideCards = [
   { guide: analyzerGuideArticles[0], badge: "入門", title: "FANZAライブチャットとは？動画との違いと楽しみ方を徹底解説", description: "リアルタイムで楽しめるFANZAライブチャットの基本から、ポイント購入・使い方・注意点まで詳しく解説します。" },
   { guide: analyzerGuideArticles[1], badge: "セール", title: "FANZAのセールはいつ？過去データから読み解くお得な買い時", description: "価格推移データをもとに、FANZAセールのパターンと傾向を分析。10円セール・半額セールを見逃さない方法を紹介します。" },
   { guide: analyzerGuideArticles[2], badge: "登録", title: "FANZAの登録方法・始め方【画像付きで手順を解説】", description: "FANZA（旧DMM.R18）の会員登録手順をわかりやすく解説。無料登録からコンテンツ購入まですべての流れを紹介します。" },
-  { guide: analyzerGuideArticles[3], badge: "見放題", title: "FANZAの見放題サービスを比較｜FANZA TV・月額動画の選び方", description: "FANZA TV、FANZA TV Plus、月額動画の違いを整理し、自分に合う見放題サービスの選び方を解説します。" },
+  { guide: analyzerGuideArticles[3], badge: "比較", title: "FANZA TVと単品購入、どちらが合う？4つの確認で選ぶ", description: "対象作品・契約状況・無料体験・単品価格と期限を確認し、月額登録の前に選び方を整理します。" },
   { guide: analyzerGuideArticles[4], badge: "VR", title: "FANZA VRの始め方｜VR動画とVRchの違い・対応機器を解説", description: "FANZA VR動画の単品購入とVRch（月額VR）の違い、対応機器、再生方法を解説します。" },
 ] as const;
 
