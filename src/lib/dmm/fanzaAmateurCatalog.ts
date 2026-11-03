@@ -469,29 +469,86 @@ async function loadRankedBrowseSelection(
   return buildRankedBrowseSelection(orderedItems, safePage);
 }
 
-function buildStandardFanzaAmateurBrowseRequest(
-  criteria: FanzaAmateurBrowseCriteria,
-  performerContentIds: string[] | null,
-) {
-  const { sort, campaignOnly, maker, releaseFrom, releaseTo, safeQuery, selectedGenres } = criteria;
-  let request = supabaseAdmin
+function createStandardFanzaAmateurBrowseRequest() {
+  return supabaseAdmin
     .from("fanza_amateur_works")
     .select("raw_item,fetched_at", { count: "exact" });
+}
+
+type StandardFanzaAmateurBrowseRequest = ReturnType<typeof createStandardFanzaAmateurBrowseRequest>;
+
+function applyStandardBrowseSort(
+  request: StandardFanzaAmateurBrowseRequest,
+  sort: FanzaAmateurBrowseCriteria["sort"],
+) {
   if (sort === "date_asc") request = request.order("api_date", { ascending: true, nullsFirst: true });
   else if (sort === "review") request = request.order("raw_item->review->count", { ascending: false, nullsFirst: false }).order("raw_item->review->average", { ascending: false, nullsFirst: false });
   else request = request.order("api_date", { ascending: false, nullsFirst: false });
-  request = request.order("content_id", { ascending: true });
+
+  return request.order("content_id", { ascending: true });
+}
+
+function applyStandardBrowseSearchAndPerformerFilters(
+  request: StandardFanzaAmateurBrowseRequest,
+  safeQuery: string | undefined,
+  performerContentIds: string[] | null,
+) {
   if (safeQuery) {
     const escaped = safeQuery.replace(/[\\%_]/g, "\\$&").replace(/[(),]/g, " ");
     request = request.or("title.ilike.%" + escaped + "%,product_id.ilike.%" + escaped + "%");
   }
   if (performerContentIds) request = request.in("content_id", performerContentIds.length ? performerContentIds : ["__no_confirmed_performer_match__"]);
+
+  return request;
+}
+
+function applyStandardBrowseGenreAndMakerFilters(
+  request: StandardFanzaAmateurBrowseRequest,
+  selectedGenres: string[],
+  maker: string | undefined,
+) {
   for (const selectedGenre of selectedGenres) request = request.contains("iteminfo", { genre: [{ name: selectedGenre }] });
   if (maker) request = request.contains("iteminfo", { maker: [{ name: maker.slice(0, 100) }] });
+
+  return request;
+}
+
+function applyStandardBrowseDateAndCampaignFilters(
+  request: StandardFanzaAmateurBrowseRequest,
+  releaseFrom: string | undefined,
+  releaseTo: string | undefined,
+  campaignOnly: boolean,
+) {
   if (releaseFrom) request = request.gte("api_date", releaseFrom);
   if (releaseTo) request = request.lte("api_date", releaseTo);
   if (campaignOnly) request = request.not("campaign", "is", null);
+
   return request;
+}
+
+function buildStandardFanzaAmateurBrowseRequest(
+  criteria: FanzaAmateurBrowseCriteria,
+  performerContentIds: string[] | null,
+) {
+  const request = createStandardFanzaAmateurBrowseRequest();
+  const orderedRequest = applyStandardBrowseSort(request, criteria.sort);
+  const identityFilteredRequest = applyStandardBrowseSearchAndPerformerFilters(
+    orderedRequest,
+    criteria.safeQuery,
+    performerContentIds,
+  );
+  const facetFilteredRequest = applyStandardBrowseGenreAndMakerFilters(
+    identityFilteredRequest,
+    criteria.selectedGenres,
+    criteria.maker,
+  );
+
+  return applyStandardBrowseDateAndCampaignFilters(
+    facetFilteredRequest,
+    criteria.releaseFrom,
+    criteria.releaseTo,
+    criteria.campaignOnly,
+  );
 }
 
 async function loadStandardBrowseSelection(
