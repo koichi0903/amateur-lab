@@ -16,6 +16,7 @@ import { CandidateSelectAction, DeferredXGrowthSections, MediaPipelineActions, O
 import XDailyImpressionTasks from "./XDailyImpressionTasks";
 import VideoCandidatePool from "./VideoCandidatePool";
 import OperatorPostDirective from "./OperatorPostDirective";
+import SocialAutoPublishPanel from "./SocialAutoPublishPanel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -815,6 +816,7 @@ async function XGrowthPageContent() {
         </div>
         <TempFolderStatus />
         <VideoCandidatePool />
+        <SocialAutoPublishPanel />
 
         <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Metric label="ボトルネック" value={os.mission.bottleneck} note={os.mission.reason} />

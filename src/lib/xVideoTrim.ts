@@ -2,6 +2,7 @@ import { createWriteStream } from "node:fs";
 import { mkdtemp, readFile, rm, stat, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { spawn } from "node:child_process";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
@@ -18,10 +19,12 @@ export type TrimVideoForXResult = {
   contentType: "video/mp4";
   durationSeconds: number;
   outputDurationSeconds: number;
+  width: number | null;
+  height: number | null;
   codec: string | null;
   audioCodec: string | null;
   trimStartSeconds: number;
-  trimEndSeconds?: number;
+  trimEndSeconds: number | null;
 };
 
 function runBinary(command: string, args: string[]) {
@@ -39,14 +42,41 @@ function runBinary(command: string, args: string[]) {
   });
 }
 
-async function downloadSource(url: string, file: string) {
+async function downloadSource(url: string, file: string, options?: { maxBytes?: number; timeoutMs?: number; rejectRedirects?: boolean }) {
   const parsed = new URL(url);
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("動画URLがHTTP/HTTPSではありません。");
-  const response = await fetch(url, { cache: "no-store" });
+  const response = await fetch(url, {
+    cache: "no-store",
+    ...(options?.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
+    ...(options?.rejectRedirects ? { redirect: "error" as const } : {}),
+  });
   if (!response.ok || !response.body) throw new Error(`元動画を取得できませんでした (${response.status})。`);
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType && !/video|mp4|octet-stream/i.test(contentType)) throw new Error(`動画ではない応答です: ${contentType}`);
-  await pipeline(response.body as unknown as NodeJS.ReadableStream, createWriteStream(file));
+  const declaredSize = Number(response.headers.get("content-length"));
+  if (options?.maxBytes && Number.isFinite(declaredSize) && declaredSize > options.maxBytes) {
+    await response.body.cancel().catch(() => undefined);
+    throw new Error("元動画が設定した容量上限を超えています。");
+  }
+  let received = 0;
+  const limited = async function* () {
+    const reader = response.body!.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        received += value.byteLength;
+        if (options?.maxBytes && received > options.maxBytes) {
+          await reader.cancel().catch(() => undefined);
+          throw new Error("元動画が設定した容量上限を超えています。");
+        }
+        yield Buffer.from(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  };
+  await pipeline(Readable.from(limited()), createWriteStream(file));
 }
 
 export async function probeVideoFile(file: string) {
@@ -59,7 +89,7 @@ export async function probeVideoFile(file: string) {
   ]);
   const data = JSON.parse(stdout) as {
     format?: { duration?: string };
-    streams?: Array<{ codec_type?: string; codec_name?: string; duration?: string }>;
+    streams?: Array<{ codec_type?: string; codec_name?: string; duration?: string; width?: number; height?: number }>;
   };
   const durationSeconds = Number(data.format?.duration ?? data.streams?.find((stream) => stream.duration)?.duration);
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error("動画の長さを取得できませんでした。");
@@ -69,28 +99,37 @@ export async function probeVideoFile(file: string) {
     durationSeconds,
     codec: video?.codec_name ?? null,
     audioCodec: audio?.codec_name ?? null,
+    width: Number.isSafeInteger(video?.width) ? video!.width! : null,
+    height: Number.isSafeInteger(video?.height) ? video!.height! : null,
   };
 }
 
-export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds: number; trimEndSeconds?: number }) {
+export async function trimVideoForX(
+  input: { sourceUrl: string; trimStartSeconds: number; trimEndSeconds?: number | null },
+  downloadOptions?: { maxBytes?: number; timeoutMs?: number; rejectRedirects?: boolean },
+) {
   const dir = await mkdtemp(join(tmpdir(), "x-growth-trim-"));
   const sourceFile = join(dir, "source.mp4");
   const outputFile = join(dir, "x-post-trimmed.mp4");
   try {
-    await downloadSource(input.sourceUrl, sourceFile);
+    await downloadSource(input.sourceUrl, sourceFile, downloadOptions);
     const sourceProbe = await probeVideoFile(sourceFile);
     const validation = validateTrimStartSeconds(input.trimStartSeconds, sourceProbe.durationSeconds);
     if (!validation.ok) throw new Error(validation.error);
-    const trimEndSeconds = input.trimEndSeconds == null ? sourceProbe.durationSeconds : Math.round(input.trimEndSeconds * 10) / 10;
-    if (!Number.isFinite(trimEndSeconds) || trimEndSeconds <= validation.value || trimEndSeconds > sourceProbe.durationSeconds) {
-      throw new Error("終了位置は開始位置より後で、動画の長さ以内にしてください。");
+    const requestedEnd = input.trimEndSeconds == null ? null : Number(input.trimEndSeconds);
+    if (requestedEnd != null && (!Number.isFinite(requestedEnd) || requestedEnd <= validation.value || requestedEnd > sourceProbe.durationSeconds)) {
+      throw new Error("切り抜き終了秒は開始秒より後、動画の長さ以内にしてください。");
+    }
+    const trimEndSeconds = requestedEnd == null ? null : Math.round(requestedEnd * 10) / 10;
+    if (trimEndSeconds != null && (trimEndSeconds <= validation.value || trimEndSeconds > sourceProbe.durationSeconds)) {
+      throw new Error("切り抜き終了秒は開始秒より後、動画の長さ以内にしてください。");
     }
     const trimArgs = [
       "-y",
       "-ss", validation.value.toFixed(1),
       "-i", sourceFile,
     ];
-    if (input.trimEndSeconds != null) trimArgs.push("-t", (trimEndSeconds - validation.value).toFixed(1));
+    if (trimEndSeconds != null) trimArgs.push("-t", (trimEndSeconds - validation.value).toFixed(1));
     trimArgs.push(
       "-map", "0:v:0",
       "-map", "0:a?",
@@ -115,6 +154,8 @@ export async function trimVideoForX(input: { sourceUrl: string; trimStartSeconds
       contentType: "video/mp4" as const,
       durationSeconds: sourceProbe.durationSeconds,
       outputDurationSeconds: outputProbe.durationSeconds,
+      width: outputProbe.width,
+      height: outputProbe.height,
       codec: outputProbe.codec,
       audioCodec: outputProbe.audioCodec,
       trimStartSeconds: validation.value,
