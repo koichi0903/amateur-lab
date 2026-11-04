@@ -6,6 +6,11 @@ const chromiumFiles = [
   "node_modules/playwright-core/**/*",
 ];
 
+const videoProcessingFiles = [
+  "node_modules/@ffmpeg-installer/linux-x64/**/*",
+  "node_modules/@ffprobe-installer/linux-x64/**/*",
+];
+
 const shouldBundleServerlessChromium =
   process.env.ENABLE_VERCEL_PLAYWRIGHT === "true" || !process.env.VERCEL;
 
@@ -81,6 +86,15 @@ const nextConfig: NextConfig = {
     ? {
         outputFileTracingIncludes: {
           "/*": chromiumFiles,
+          "/api/admin/social-publishing/jobs": videoProcessingFiles,
+          "/api/admin/social-publishing/media-upload": videoProcessingFiles,
+          "/api/admin/x-growth/media/download": videoProcessingFiles,
+          "/api/admin/bluesky-post": videoProcessingFiles,
+          "/api/admin/bluesky-post/video": videoProcessingFiles,
+          "/api/admin/bijyo-reserved": videoProcessingFiles,
+          "/api/admin/bijyo-reserved/video": videoProcessingFiles,
+          "/api/admin/amateur-x-post": videoProcessingFiles,
+          "/api/admin/amateur-x-post/video": videoProcessingFiles,
         },
       }
     : {}),
