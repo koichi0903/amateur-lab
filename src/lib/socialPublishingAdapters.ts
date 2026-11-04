@@ -100,7 +100,7 @@ async function graphGet(url: URL, token: string) {
 }
 
 async function publishMetaVideo(platform: "instagram_reels" | "threads", channel: Channel, token: string, job: VideoJob): Promise<SocialPublishResult> {
-  const root = platform === "instagram_reels" ? "https://graph.instagram.com" : "https://graph.threads.net";
+  const root = platform === "instagram_reels" ? "https://graph.facebook.com" : "https://graph.threads.net";
   const version = platform === "instagram_reels" ? graphVersion() : "v1.0";
   const mediaUrl = await createSocialPublishingPreviewUrl(job.media_storage_key, 6 * 60 * 60);
   const createUrl = new URL(`${root}/${version}/${encodeURIComponent(channel.provider_account_id)}/${platform === "instagram_reels" ? "media" : "threads"}`);
