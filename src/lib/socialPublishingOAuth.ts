@@ -24,6 +24,13 @@ type TokenResponse = {
   open_id?: string;
 };
 
+type AuthorizedAccount = {
+  id: string;
+  label: string;
+  accessToken?: string;
+  tokenExpiresAt?: string | null;
+};
+
 const COOKIE_PREFIX = "hakkutsu_social_oauth_";
 const STATE_TTL_MS = 10 * 60 * 1000;
 
@@ -47,8 +54,8 @@ function config(platform: SocialPlatform): OAuthConfig | null {
     const redirectUri = env.INSTAGRAM_REDIRECT_URI;
     return clientId && clientSecret && redirectUri ? {
       clientId, clientSecret, redirectUri,
-      authorizeUrl: "https://www.instagram.com/oauth/authorize",
-      scopes: ["instagram_business_basic", "instagram_business_content_publish"],
+      authorizeUrl: `https://www.facebook.com/${metaGraphVersion()}/dialog/oauth`,
+      scopes: ["instagram_basic", "instagram_content_publish", "pages_read_engagement", "pages_show_list"],
     } : null;
   }
   if (platform === "threads") {
@@ -77,6 +84,16 @@ function config(platform: SocialPlatform): OAuthConfig | null {
 
 function b64url(value: Buffer | string) {
   return Buffer.from(value).toString("base64url");
+}
+
+function metaGraphVersion() {
+  const version = process.env.SOCIAL_GRAPH_API_VERSION?.trim() || "v24.0";
+  if (!/^v\d+\.\d+$/.test(version)) throw new Error("Meta Graph API version is invalid.");
+  return version;
+}
+
+function metaGraphUrl(path: string) {
+  return new URL(`https://graph.facebook.com/${metaGraphVersion()}/${path.replace(/^\//, "")}`);
 }
 
 function signingKey() {
@@ -167,14 +184,29 @@ async function exchangeCode(platform: SocialPlatform, settings: OAuthConfig, cod
     if (!body.access_token || !body.open_id || !body.refresh_token || !body.scope) throw new Error("TikTok did not return a verifiable authorized account and scope list.");
     return body as TokenResponse;
   }
+  if (platform === "instagram_reels") {
+    const exchangeUrl = metaGraphUrl("oauth/access_token");
+    exchangeUrl.searchParams.set("client_id", settings.clientId);
+    exchangeUrl.searchParams.set("client_secret", settings.clientSecret);
+    exchangeUrl.searchParams.set("redirect_uri", settings.redirectUri);
+    exchangeUrl.searchParams.set("code", code);
+    const shortLived = await getJson<TokenResponse>(await fetch(exchangeUrl, { signal: AbortSignal.timeout(20_000) }));
+    if (!shortLived.access_token) throw new Error("Meta did not return an Instagram authorization token.");
+
+    const longLivedUrl = metaGraphUrl("oauth/access_token");
+    longLivedUrl.searchParams.set("grant_type", "fb_exchange_token");
+    longLivedUrl.searchParams.set("client_id", settings.clientId);
+    longLivedUrl.searchParams.set("client_secret", settings.clientSecret);
+    longLivedUrl.searchParams.set("fb_exchange_token", shortLived.access_token);
+    const longLived = await getJson<TokenResponse>(await fetch(longLivedUrl, { signal: AbortSignal.timeout(20_000) }));
+    if (!longLived.access_token) throw new Error("Meta did not return a long-lived Instagram authorization token.");
+    return longLived;
+  }
   const form = new URLSearchParams({ client_id: settings.clientId, client_secret: settings.clientSecret, code, redirect_uri: settings.redirectUri });
   let response: Response;
   if (platform === "youtube_shorts") {
     form.set("grant_type", "authorization_code");
     response = await postForm("https://oauth2.googleapis.com/token", form);
-  } else if (platform === "instagram_reels") {
-    form.set("grant_type", "authorization_code");
-    response = await postForm("https://api.instagram.com/oauth/access_token", form);
   } else if (platform === "threads") {
     form.set("grant_type", "authorization_code");
     const url = new URL("https://graph.threads.net/oauth/access_token");
@@ -191,26 +223,10 @@ async function exchangeCode(platform: SocialPlatform, settings: OAuthConfig, cod
   const token = (Array.isArray(providerToken) ? providerToken[0] : providerToken) as TokenResponse;
   if (!token.access_token) throw new Error("OAuth provider did not return an access token.");
 
-  if (platform === "instagram_reels" && !token.scope) {
-    const permissions = token.permissions;
-    if (typeof permissions === "string") {
-      token.scope = permissions;
-    } else if (Array.isArray(permissions) && permissions.every((permission) => typeof permission === "string")) {
-      token.scope = permissions.join(" ");
-    } else if (Array.isArray(permissions)) {
-      const granted = permissions.flatMap((permission) => {
-        if (!permission || typeof permission !== "object") return [];
-        const item = permission as { permission?: unknown; status?: unknown };
-        return typeof item.permission === "string" && item.status === "granted" ? [item.permission] : [];
-      });
-      token.scope = granted.join(" ");
-    }
-  }
-
-  if ((platform === "instagram_reels" || platform === "threads") && token.access_token) {
-    const exchangeUrl = platform === "instagram_reels" ? "https://graph.instagram.com/access_token" : "https://graph.threads.net/access_token";
+  if (platform === "threads" && token.access_token) {
+    const exchangeUrl = "https://graph.threads.net/access_token";
     const longLivedUrl = new URL(exchangeUrl);
-    longLivedUrl.searchParams.set("grant_type", platform === "instagram_reels" ? "ig_exchange_token" : "th_exchange_token");
+    longLivedUrl.searchParams.set("grant_type", "th_exchange_token");
     longLivedUrl.searchParams.set("client_secret", settings.clientSecret);
     longLivedUrl.searchParams.set("access_token", token.access_token);
     const longLived = await getJson<TokenResponse>(await fetch(longLivedUrl));
@@ -240,7 +256,39 @@ async function inspectThreadsGrantedScopes(settings: OAuthConfig, userAccessToke
   return data.scopes as string[];
 }
 
-async function accountIdentity(platform: SocialPlatform, token: TokenResponse) {
+async function inspectInstagramGrantedScopes(userAccessToken: string) {
+  const url = metaGraphUrl("me/permissions");
+  const data = await getJson<{ data?: Array<{ permission?: unknown; status?: unknown }> }>(await fetch(url, {
+    headers: { Authorization: `Bearer ${userAccessToken}` },
+    signal: AbortSignal.timeout(20_000),
+  }));
+  if (!Array.isArray(data.data)) throw new Error("Meta did not confirm Instagram permissions for this account.");
+  return data.data.flatMap((entry) =>
+    typeof entry.permission === "string" && entry.status === "granted" ? [entry.permission] : [],
+  );
+}
+
+async function inspectInstagramPageToken(settings: OAuthConfig, pageAccessToken: string) {
+  const url = metaGraphUrl("debug_token");
+  url.searchParams.set("input_token", pageAccessToken);
+  url.searchParams.set("access_token", `${settings.clientId}|${settings.clientSecret}`);
+  const result = await getJson<{ data?: { app_id?: string; is_valid?: boolean; expires_at?: number; data_access_expires_at?: number } }>(await fetch(url, {
+    signal: AbortSignal.timeout(20_000),
+  }));
+  const token = result.data;
+  if (!token?.is_valid || token.app_id !== settings.clientId || typeof token.expires_at !== "number") {
+    throw new Error("Meta did not verify the linked Instagram Page token for this app.");
+  }
+  const expirySeconds = [token.expires_at, token.data_access_expires_at]
+    .filter((value): value is number => typeof value === "number" && value > 0)
+    .reduce<number | null>((earliest, value) => earliest === null ? value : Math.min(earliest, value), null);
+  if (expirySeconds !== null && expirySeconds * 1000 <= Date.now()) {
+    throw new Error("The linked Instagram Page token is already expired. Reconnect the account.");
+  }
+  return expirySeconds === null ? null : new Date(expirySeconds * 1000).toISOString();
+}
+
+async function accountIdentity(platform: SocialPlatform, token: TokenResponse, settings: OAuthConfig): Promise<AuthorizedAccount> {
   const bearer = { Authorization: `Bearer ${token.access_token}` };
   if (platform === "youtube_shorts") {
     const url = new URL("https://www.googleapis.com/youtube/v3/channels");
@@ -252,12 +300,38 @@ async function accountIdentity(platform: SocialPlatform, token: TokenResponse) {
     return { id: channel.id, label: channel.snippet?.title || channel.id };
   }
   if (platform === "instagram_reels") {
-    const url = new URL("https://graph.instagram.com/me");
-    url.searchParams.set("fields", "user_id,username");
-    const data = await getJson<{ user_id?: string | number; id?: string | number; username?: string }>(await fetch(url, { headers: bearer }));
-    const id = String(data.user_id ?? data.id ?? token.user_id ?? "");
-    if (!id) throw new Error("Instagram did not return an account id.");
-    return { id, label: data.username || id };
+    const url = metaGraphUrl("me/accounts");
+    url.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username}");
+    url.searchParams.set("limit", "100");
+    const data = await getJson<{
+      data?: Array<{
+        id?: string;
+        name?: string;
+        access_token?: string;
+        instagram_business_account?: { id?: string; username?: string };
+      }>;
+      paging?: { next?: string };
+    }>(await fetch(url, { headers: bearer, signal: AbortSignal.timeout(20_000) }));
+    if (data.paging?.next) throw new Error("More than 100 Facebook Pages are available; connect Instagram from an account with fewer managed Pages.");
+    const accounts = (data.data ?? []).flatMap((page) => {
+      const account = page.instagram_business_account;
+      if (!page.id || !page.access_token || !account?.id) return [];
+      return [{
+        id: account.id,
+        label: account.username ? `@${account.username}` : page.name || account.id,
+        accessToken: page.access_token,
+      }];
+    });
+    const uniqueAccounts = [...new Map(accounts.map((account) => [account.id, account])).values()];
+    if (uniqueAccounts.length === 0) {
+      throw new Error("No linked Instagram professional account was found. Link it to a Facebook Page and grant this app access before reconnecting.");
+    }
+    if (uniqueAccounts.length !== 1) {
+      throw new Error("More than one linked Instagram account is available. Limit the Facebook login to one target Page before connecting.");
+    }
+    const account = uniqueAccounts[0];
+    const tokenExpiresAt = await inspectInstagramPageToken(settings, account.accessToken);
+    return { id: account.id, label: account.label, accessToken: account.accessToken, tokenExpiresAt };
   }
   if (platform === "threads") {
     const url = new URL("https://graph.threads.net/v1.0/me");
@@ -320,10 +394,9 @@ async function refreshToken(platform: SocialPlatform, settings: OAuthConfig, acc
     });
     response = await postForm("https://oauth2.googleapis.com/token", form);
   } else {
-    const url = new URL(platform === "instagram_reels"
-      ? "https://graph.instagram.com/refresh_access_token"
-      : "https://graph.threads.net/refresh_access_token");
-    url.searchParams.set("grant_type", platform === "instagram_reels" ? "ig_refresh_token" : "th_refresh_token");
+    if (platform === "instagram_reels") throw new Error("Instagram Page tokens must be reauthorized after expiration.");
+    const url = new URL("https://graph.threads.net/refresh_access_token");
+    url.searchParams.set("grant_type", "th_refresh_token");
     url.searchParams.set("access_token", accessToken);
     response = await fetch(url);
   }
@@ -355,10 +428,13 @@ export async function getUsableSocialAccessToken(channelId: string) {
     }).eq("id", channelId).eq("enabled", true);
     throw new Error("Publishing stopped because the channel's confirmed permissions are missing.");
   }
-  if (!channel.token_expires_at) throw new Error("Social access-token expiry is unknown; reconnect this account.");
+  const currentToken = decryptToken(channel.access_token_ciphertext);
+  if (!channel.token_expires_at) {
+    if (channel.platform === "instagram_reels") return currentToken;
+    throw new Error("Social access-token expiry is unknown; reconnect this account.");
+  }
 
   const expiresAt = new Date(channel.token_expires_at).getTime();
-  const currentToken = decryptToken(channel.access_token_ciphertext);
   if (Number.isFinite(expiresAt) && expiresAt > Date.now() + 5 * 60_000) return currentToken;
   if (!settings) throw new Error("Social OAuth app settings are incomplete.");
 
@@ -446,18 +522,28 @@ export async function completeOAuth(request: NextRequest, platform: SocialPlatfo
   if (payload.platform !== platform || payload.nonce !== nonce || payload.issuedAt !== issuedAt) throw new Error("OAuth state did not match this channel.");
 
   const token = await exchangeCode(platform, settings, code);
+  if (platform === "instagram_reels") {
+    const scopes = await inspectInstagramGrantedScopes(token.access_token);
+    token.scope = scopes.join(" ");
+    const missingScopes = getMissingSocialPublishingScopes(platform, scopes);
+    if (missingScopes.length > 0) throw new Error("Meta did not grant all required Instagram publishing permissions.");
+  }
   if (platform === "threads") {
     const scopes = await inspectThreadsGrantedScopes(settings, token.access_token);
     token.scope = scopes.join(" ");
   }
-  const account = await accountIdentity(platform, token);
+  const account = await accountIdentity(platform, token, settings);
+  const accessToken = account.accessToken ?? token.access_token;
+  const tokenExpiresAt = "tokenExpiresAt" in account
+    ? account.tokenExpiresAt ?? null
+    : token.expires_in ? new Date(Date.now() + token.expires_in * 1000).toISOString() : null;
   const { error } = await supabaseAdmin.from("social_publishing_channels").upsert({
     platform,
     provider_account_id: account.id,
     account_label: account.label,
-    access_token_ciphertext: encryptToken(token.access_token),
+    access_token_ciphertext: encryptToken(accessToken),
     refresh_token_ciphertext: token.refresh_token ? encryptToken(token.refresh_token) : null,
-    token_expires_at: token.expires_in ? new Date(Date.now() + token.expires_in * 1000).toISOString() : null,
+    token_expires_at: tokenExpiresAt,
     refresh_token_expires_at: token.refresh_expires_in ? new Date(Date.now() + token.refresh_expires_in * 1000).toISOString() : null,
     // Never record the requested scope as if the provider had granted it.
     scopes: token.scope?.split(/[ ,]+/).filter(Boolean) ?? [],

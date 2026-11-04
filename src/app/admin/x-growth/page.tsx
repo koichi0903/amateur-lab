@@ -546,6 +546,7 @@ function TopPicksSkeleton() {
           <h1 className="mt-2 text-3xl font-black sm:text-5xl">@hakkutsu_lab 司令塔</h1>
         </div>
         <VideoCandidatePool />
+        <SocialAutoPublishPanel />
         <Panel className="mt-8 border-emerald-700 bg-emerald-950/10">
           <div className="flex items-center gap-2"><Sparkles className="text-emerald-300" size={20} /><h2 className="text-2xl font-black">今日の運営指示を読み込み中</h2></div>
           <p role="status" className="mt-3 rounded-lg border border-emerald-900 bg-zinc-950 p-4 text-sm leading-6 text-emerald-100/80">
@@ -614,6 +615,7 @@ async function XGrowthPageContent() {
           </div>
           <TempFolderStatus />
           <VideoCandidatePool />
+          <SocialAutoPublishPanel />
 
           <Panel className="mt-6 border-emerald-800 bg-emerald-950/20">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -768,6 +770,7 @@ async function XGrowthPageContent() {
             <div className="mt-4"><RegenerateTopPicksAction /></div>
           </Panel>
           </details>
+          <div className="mt-6"><SocialAutoPublishPanel /></div>
           <Suspense fallback={<section className="mt-6 rounded-2xl border border-emerald-800 bg-emerald-950/15 p-5" aria-busy="true"><h2 className="text-xl font-black">Xデイリータスク</h2><p role="status" className="mt-2 text-sm text-zinc-400">投稿タスクを読み込んでいます。</p></section>}>
             <XDailyImpressionTasks />
           </Suspense>
