@@ -82,22 +82,18 @@ const nextConfig: NextConfig = {
     "@ffmpeg-installer/ffmpeg",
     "@ffprobe-installer/ffprobe",
   ],
-  ...(shouldBundleServerlessChromium
-    ? {
-        outputFileTracingIncludes: {
-          "/*": chromiumFiles,
-          "/api/admin/social-publishing/jobs": videoProcessingFiles,
-          "/api/admin/social-publishing/media-upload": videoProcessingFiles,
-          "/api/admin/x-growth/media/download": videoProcessingFiles,
-          "/api/admin/bluesky-post": videoProcessingFiles,
-          "/api/admin/bluesky-post/video": videoProcessingFiles,
-          "/api/admin/bijyo-reserved": videoProcessingFiles,
-          "/api/admin/bijyo-reserved/video": videoProcessingFiles,
-          "/api/admin/amateur-x-post": videoProcessingFiles,
-          "/api/admin/amateur-x-post/video": videoProcessingFiles,
-        },
-      }
-    : {}),
+  outputFileTracingIncludes: {
+    ...(shouldBundleServerlessChromium ? { "/*": chromiumFiles } : {}),
+    "/api/admin/social-publishing/jobs": videoProcessingFiles,
+    "/api/admin/social-publishing/media-upload": videoProcessingFiles,
+    "/api/admin/x-growth/media/download": videoProcessingFiles,
+    "/api/admin/bluesky-post": videoProcessingFiles,
+    "/api/admin/bluesky-post/video": videoProcessingFiles,
+    "/api/admin/bijyo-reserved": videoProcessingFiles,
+    "/api/admin/bijyo-reserved/video": videoProcessingFiles,
+    "/api/admin/amateur-x-post": videoProcessingFiles,
+    "/api/admin/amateur-x-post/video": videoProcessingFiles,
+  },
   images: {
     // DMM images are already served by their CDN. Bypass Vercel's image
     // optimizer so crawlers cannot exhaust the Hobby Edge Request quota.
