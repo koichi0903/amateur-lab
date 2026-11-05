@@ -171,6 +171,18 @@ function postForm(url: string, form: URLSearchParams, headers?: HeadersInit) {
   return fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", ...headers }, body: form });
 }
 
+type InstagramOAuthReasonCode =
+  | "pages_response_missing_data"
+  | "pages_more_than_limit"
+  | "linked_instagram_account_not_returned"
+  | "linked_instagram_page_id_missing"
+  | "instagram_page_access_token_missing"
+  | "multiple_linked_instagram_accounts"
+  | "instagram_page_token_invalid"
+  | "instagram_page_token_app_mismatch"
+  | "instagram_page_token_expiry_missing"
+  | "instagram_page_token_expired";
+
 type OAuthProviderDiagnostic = {
   operation: string;
   failureKind: "provider_response" | "transport" | "invalid_response_shape";
@@ -179,6 +191,7 @@ type OAuthProviderDiagnostic = {
   providerType: string | null;
   providerSubcode: string | null;
   transportErrorName: string | null;
+  reasonCode: InstagramOAuthReasonCode | null;
 };
 
 class OAuthProviderError extends Error {
@@ -208,14 +221,45 @@ async function getJson<T>(response: Response, operation = "oauth_request"): Prom
       providerType: safeValue(providerError?.type),
       providerSubcode: safeValue(providerError?.error_subcode),
       transportErrorName: null,
+      reasonCode: null,
     });
   }
   return payload;
 }
 
+function instagramIdentityFailure(operation: string, reasonCode: InstagramOAuthReasonCode) {
+  return new OAuthProviderError({
+    operation,
+    failureKind: "invalid_response_shape",
+    httpStatus: 200,
+    providerCode: null,
+    providerType: null,
+    providerSubcode: null,
+    transportErrorName: null,
+    reasonCode,
+  });
+}
+
 function getSafeErrorName(error: unknown) {
   if (!(error instanceof Error)) return "UnknownError";
   return /^[A-Za-z0-9_]{1,32}$/.test(error.name) ? error.name : "Error";
+}
+
+async function fetchMetaOAuth(operation: string, url: URL, init: RequestInit) {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    throw new OAuthProviderError({
+      operation,
+      failureKind: "transport",
+      httpStatus: 0,
+      providerCode: null,
+      providerType: null,
+      providerSubcode: null,
+      transportErrorName: getSafeErrorName(error),
+      reasonCode: null,
+    });
+  }
 }
 
 async function fetchThreadsOAuth(operation: string, url: URL, init: RequestInit) {
@@ -230,6 +274,7 @@ async function fetchThreadsOAuth(operation: string, url: URL, init: RequestInit)
       providerType: null,
       providerSubcode: null,
       transportErrorName: getSafeErrorName(error),
+      reasonCode: null,
     });
   }
 }
@@ -332,18 +377,25 @@ async function inspectInstagramPageToken(settings: OAuthConfig, pageAccessToken:
   const url = metaGraphUrl("debug_token");
   url.searchParams.set("input_token", pageAccessToken);
   url.searchParams.set("access_token", `${settings.clientId}|${settings.clientSecret}`);
-  const result = await getJson<{ data?: { app_id?: string; is_valid?: boolean; expires_at?: number; data_access_expires_at?: number } }>(await fetch(url, {
-    signal: AbortSignal.timeout(20_000),
-  }));
+  const result = await getJson<{ data?: { app_id?: string; is_valid?: boolean; expires_at?: number; data_access_expires_at?: number } }>(
+    await fetchMetaOAuth("instagram_page_token_debug", url, { signal: AbortSignal.timeout(20_000) }),
+    "instagram_page_token_debug",
+  );
   const token = result.data;
-  if (!token?.is_valid || token.app_id !== settings.clientId || typeof token.expires_at !== "number") {
-    throw new Error("Meta did not verify the linked Instagram Page token for this app.");
+  if (!token?.is_valid) {
+    throw instagramIdentityFailure("instagram_page_token_debug", "instagram_page_token_invalid");
+  }
+  if (token.app_id !== settings.clientId) {
+    throw instagramIdentityFailure("instagram_page_token_debug", "instagram_page_token_app_mismatch");
+  }
+  if (typeof token.expires_at !== "number") {
+    throw instagramIdentityFailure("instagram_page_token_debug", "instagram_page_token_expiry_missing");
   }
   const expirySeconds = [token.expires_at, token.data_access_expires_at]
     .filter((value): value is number => typeof value === "number" && value > 0)
     .reduce<number | null>((earliest, value) => earliest === null ? value : Math.min(earliest, value), null);
   if (expirySeconds !== null && expirySeconds * 1000 <= Date.now()) {
-    throw new Error("The linked Instagram Page token is already expired. Reconnect the account.");
+    throw instagramIdentityFailure("instagram_page_token_debug", "instagram_page_token_expired");
   }
   return expirySeconds === null ? null : new Date(expirySeconds * 1000).toISOString();
 }
@@ -371,23 +423,38 @@ async function accountIdentity(platform: SocialPlatform, token: TokenResponse, s
         instagram_business_account?: { id?: string; username?: string };
       }>;
       paging?: { next?: string };
-    }>(await fetch(url, { headers: bearer, signal: AbortSignal.timeout(20_000) }));
-    if (data.paging?.next) throw new Error("More than 100 Facebook Pages are available; connect Instagram from an account with fewer managed Pages.");
-    const accounts = (data.data ?? []).flatMap((page) => {
+    }>(
+      await fetchMetaOAuth("instagram_page_account_list", url, { headers: bearer, signal: AbortSignal.timeout(20_000) }),
+      "instagram_page_account_list",
+    );
+    if (!Array.isArray(data.data)) {
+      throw instagramIdentityFailure("instagram_page_account_list", "pages_response_missing_data");
+    }
+    if (data.paging?.next) {
+      throw instagramIdentityFailure("instagram_page_account_list", "pages_more_than_limit");
+    }
+    const linkedPages = data.data.filter((page) => page.instagram_business_account);
+    if (linkedPages.length === 0) {
+      throw instagramIdentityFailure("instagram_page_account_list", "linked_instagram_account_not_returned");
+    }
+    if (linkedPages.some((page) => !page.id)) {
+      throw instagramIdentityFailure("instagram_page_account_list", "linked_instagram_page_id_missing");
+    }
+    const accounts = linkedPages.flatMap((page) => {
       const account = page.instagram_business_account;
-      if (!page.id || !page.access_token || !account?.id) return [];
+      if (!page.access_token || !account?.id) return [];
       return [{
         id: account.id,
         label: account.username ? `@${account.username}` : page.name || account.id,
         accessToken: page.access_token,
       }];
     });
-    const uniqueAccounts = [...new Map(accounts.map((account) => [account.id, account])).values()];
-    if (uniqueAccounts.length === 0) {
-      throw new Error("No linked Instagram professional account was found. Link it to a Facebook Page and grant this app access before reconnecting.");
+    if (accounts.length === 0) {
+      throw instagramIdentityFailure("instagram_page_account_list", "instagram_page_access_token_missing");
     }
+    const uniqueAccounts = [...new Map(accounts.map((account) => [account.id, account])).values()];
     if (uniqueAccounts.length !== 1) {
-      throw new Error("More than one linked Instagram account is available. Limit the Facebook login to one target Page before connecting.");
+      throw instagramIdentityFailure("instagram_page_account_list", "multiple_linked_instagram_accounts");
     }
     const account = uniqueAccounts[0];
     const tokenExpiresAt = await inspectInstagramPageToken(settings, account.accessToken);
@@ -592,7 +659,7 @@ export function getOAuthFailureDiagnostics(error: unknown) {
     rootErrorName = getSafeErrorName(current);
     current = current.cause;
   }
-  return { stage, provider, rootErrorName };
+  return { stage, provider, providerReasonCode: provider?.reasonCode ?? null, rootErrorName };
 }
 
 async function atOAuthStage<T>(stage: OAuthFailureStage, operation: () => Promise<T>): Promise<T> {
