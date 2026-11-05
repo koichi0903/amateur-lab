@@ -9,11 +9,5 @@ export function isSocialTokenEncryptionConfigured() {
   }
 }
 
-export function isTikTokAutoPublishingConfigured() {
-  // TikTok's current Content Sharing Guidelines reject a private utility that
-  // only uploads to accounts managed by the developer or its team. This
-  // product is internal-only; no environment flag can make Direct Post eligible.
-  // Reconsider only after a genuine broad-audience creator product and its
-  // required preview, consent, and commercial-disclosure UX exist.
-  return false;
+
 }

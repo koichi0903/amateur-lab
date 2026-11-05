@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEq
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-export const SOCIAL_PLATFORMS = ["youtube_shorts", "instagram_reels", "threads", "tiktok"] as const;
+export const SOCIAL_PLATFORMS = ["youtube_shorts", "instagram_reels", "threads"] as const;
 export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 
 type OAuthConfig = {
@@ -21,7 +21,7 @@ type TokenResponse = {
   scope?: string;
   permissions?: unknown;
   user_id?: string | number;
-  open_id?: string;
+
 };
 
 type AuthorizedAccount = {
@@ -66,17 +66,6 @@ function config(platform: SocialPlatform): OAuthConfig | null {
       clientId, clientSecret, redirectUri,
       authorizeUrl: "https://threads.net/oauth/authorize",
       scopes: ["threads_basic", "threads_content_publish"],
-    } : null;
-  }
-  if (platform === "tiktok") {
-    const clientId = env.TIKTOK_CLIENT_KEY;
-    const clientSecret = env.TIKTOK_CLIENT_SECRET;
-    const redirectUri = env.TIKTOK_REDIRECT_URI;
-    if (env.TIKTOK_CONTENT_POSTING_API_APPROVED !== "true" || env.TIKTOK_DIRECT_POST_AUDITED !== "true") return null;
-    return clientId && clientSecret && redirectUri ? {
-      clientId, clientSecret, redirectUri,
-      authorizeUrl: "https://www.tiktok.com/v2/auth/authorize/",
-      scopes: ["user.info.basic", "video.publish"],
     } : null;
   }
   return null;
@@ -142,14 +131,6 @@ export function createOAuthRedirect(request: NextRequest, platform: SocialPlatfo
   const statePayload = b64url(JSON.stringify({ platform, nonce, issuedAt }));
   const state = signedState(statePayload);
   const url = new URL(settings.authorizeUrl);
-  if (platform === "tiktok") {
-    url.searchParams.set("client_key", settings.clientId);
-    url.searchParams.set("redirect_uri", settings.redirectUri);
-    url.searchParams.set("response_type", "code");
-    url.searchParams.set("scope", settings.scopes.join(","));
-    url.searchParams.set("state", state);
-    return { url, cookieValue: `${state}|${nonce}|${issuedAt}`, cookieName: `${COOKIE_PREFIX}${platform}` };
-  }
   url.searchParams.set("client_id", settings.clientId);
   url.searchParams.set("redirect_uri", settings.redirectUri);
   url.searchParams.set("response_type", "code");
@@ -280,12 +261,6 @@ async function fetchThreadsOAuth(operation: string, url: URL, init: RequestInit)
 }
 
 async function exchangeCode(platform: SocialPlatform, settings: OAuthConfig, code: string) {
-  if (platform === "tiktok") {
-    const form = new URLSearchParams({ client_key: settings.clientId, client_secret: settings.clientSecret, code, grant_type: "authorization_code", redirect_uri: settings.redirectUri });
-    const body = await getJson<{ access_token?: string; refresh_token?: string; expires_in?: number; refresh_expires_in?: number; scope?: string; open_id?: string }>(await postForm("https://open.tiktokapis.com/v2/oauth/token/", form, { "Cache-Control": "no-cache" }));
-    if (!body.access_token || !body.open_id || !body.refresh_token || !body.scope) throw new Error("TikTok did not return a verifiable authorized account and scope list.");
-    return body as TokenResponse;
-  }
   if (platform === "instagram_reels") {
     const exchangeUrl = metaGraphUrl("oauth/access_token");
     exchangeUrl.searchParams.set("client_id", settings.clientId);
@@ -503,15 +478,6 @@ async function accountIdentity(platform: SocialPlatform, token: TokenResponse, s
     if (!data.id) throw new Error("Threads did not return an account id.");
     return { id: data.id, label: data.username || data.id };
   }
-  if (platform === "tiktok") {
-    if (!token.open_id) throw new Error("TikTok did not return the authorized account id.");
-    const url = new URL("https://open.tiktokapis.com/v2/user/info/");
-    url.searchParams.set("fields", "open_id,display_name");
-    const data = await getJson<{ data?: { user?: { open_id?: string; display_name?: string } }; error?: { code?: string } }>(await fetch(url, { headers: bearer, signal: AbortSignal.timeout(20_000) }));
-    const user = data.data?.user;
-    if (data.error?.code !== "ok" || !user?.open_id || user.open_id !== token.open_id) throw new Error("TikTok did not confirm the authorized creator account.");
-    return { id: user.open_id, label: user.display_name || user.open_id };
-  }
   throw new Error("Unsupported social account provider.");
 }
 
@@ -543,11 +509,7 @@ function decryptToken(value: string) {
 
 async function refreshToken(platform: SocialPlatform, settings: OAuthConfig, accessToken: string, refreshTokenValue: string | null) {
   let response: Response;
-  if (platform === "tiktok") {
-    if (!refreshTokenValue) throw new Error("TikTok refresh token is missing; reconnect this account.");
-    const form = new URLSearchParams({ client_key: settings.clientId, client_secret: settings.clientSecret, grant_type: "refresh_token", refresh_token: refreshTokenValue });
-    response = await postForm("https://open.tiktokapis.com/v2/oauth/token/", form, { "Cache-Control": "no-cache" });
-  } else if (platform === "youtube_shorts") {
+  if (platform === "youtube_shorts") {
     if (!refreshTokenValue) throw new Error("YouTube refresh token is missing; reconnect this account.");
     const form = new URLSearchParams({
       client_id: settings.clientId,
@@ -565,9 +527,6 @@ async function refreshToken(platform: SocialPlatform, settings: OAuthConfig, acc
   }
   const body = await getJson<{ access_token?: string; refresh_token?: string; expires_in?: number; refresh_expires_in?: number; scope?: string; data?: TokenResponse }>(response);
   const token = (body.data ?? body) as TokenResponse;
-  if (platform === "tiktok" && (!token.refresh_token || !token.scope)) {
-    throw new Error("TikTok did not return the rotated refresh token and granted scopes; reconnect this account before publishing.");
-  }
   if (!token.access_token || !token.expires_in) throw new Error("Provider did not return a refreshed token and expiry.");
   return token;
 }
@@ -608,18 +567,6 @@ export async function getUsableSocialAccessToken(channelId: string) {
       currentToken,
       channel.refresh_token_ciphertext ? decryptToken(channel.refresh_token_ciphertext) : null,
     );
-    if (channel.platform === "tiktok") {
-      const scopes = refreshed.scope?.split(/[ ,]+/).filter(Boolean) ?? [];
-      if (scopes.length === 0) throw new Error("TikTok did not return refreshed OAuth scopes; reconnect this account before publishing.");
-      if (getMissingSocialPublishingScopes(channel.platform, scopes).length > 0) {
-        await supabaseAdmin.from("social_publishing_channels").update({
-          enabled: false,
-          last_error_code: "publish_scope_missing",
-          last_error_at: new Date().toISOString(),
-        }).eq("id", channelId).eq("enabled", true);
-        throw new Error("Publishing stopped because TikTok's refreshed token no longer has the required permissions.");
-      }
-    }
     const now = Date.now();
     const update = {
       access_token_ciphertext: encryptToken(refreshed.access_token),
