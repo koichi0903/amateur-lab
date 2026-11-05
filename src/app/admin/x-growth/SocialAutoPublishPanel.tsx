@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, CircleHelp, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -99,6 +99,7 @@ function utf8Bytes(value: string) {
 export default function SocialAutoPublishPanel() {
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [oauthFailure, setOauthFailure] = useState<{ channel: string; stage: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyChannel, setBusyChannel] = useState<string | null>(null);
   const [reviewJobs, setReviewJobs] = useState<ReviewJob[]>([]);
@@ -115,6 +116,10 @@ export default function SocialAutoPublishPanel() {
   const [sampleTikTokPrivacy, setSampleTikTokPrivacy] = useState<TikTokCreatorInfo["privacyLevelOptions"][number] | "">("");
   const [preparingSample, setPreparingSample] = useState(false);
   const [manualSamplePreviewUrl, setManualSamplePreviewUrl] = useState<string | null>(null);
+  const manualSampleSourceKey = JSON.stringify([selectedSampleId, sampleTrimStart, sampleTrimEnd, sampleChannelId]);
+  const manualSampleSourceKeyRef = useRef(manualSampleSourceKey);
+  manualSampleSourceKeyRef.current = manualSampleSourceKey;
+  useEffect(() => { setManualSamplePreviewUrl(null); }, [manualSampleSourceKey]);
   const [reviewChecks, setReviewChecks] = useState<Record<string, boolean>>({});
   const [sourceUsageChecks, setSourceUsageChecks] = useState<Record<string, boolean>>({});
   const [busyReview, setBusyReview] = useState<string | null>(null);
@@ -158,6 +163,11 @@ export default function SocialAutoPublishPanel() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("social_connection") !== "failed") return;
+    setOauthFailure({ channel: params.get("channel") ?? "social", stage: params.get("failure_stage") ?? "unknown" });
+  }, []);
   useEffect(() => () => { if (manualSamplePreviewUrl) URL.revokeObjectURL(manualSamplePreviewUrl); }, [manualSamplePreviewUrl]);
 
   const loadTikTokCreatorInfo = async (channelId: string) => {
@@ -265,6 +275,7 @@ export default function SocialAutoPublishPanel() {
       setError("切り抜き範囲は開始0秒以上、長さ60秒以内で指定してください。");
       return;
     }
+    const requestedSourceKey = manualSampleSourceKey;
     setPreparingSample(true);
     setError(null);
     try {
@@ -278,9 +289,9 @@ export default function SocialAutoPublishPanel() {
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload.error ?? "TikTok用動画を準備できませんでした。");
         }
-        const previousUrl = manualSamplePreviewUrl;
-        const previewUrl = URL.createObjectURL(await response.blob());
-        if (previousUrl) URL.revokeObjectURL(previousUrl);
+        const clip = await response.blob();
+        if (manualSampleSourceKeyRef.current !== requestedSourceKey) return;
+        const previewUrl = URL.createObjectURL(clip);
         setManualSamplePreviewUrl(previewUrl);
         return;
       }
@@ -375,6 +386,7 @@ export default function SocialAutoPublishPanel() {
       </div>
 
       {error && <p role="alert" className="mt-4 rounded-lg border border-rose-800 bg-rose-950/40 p-3 text-sm text-rose-200">{error}</p>}
+      {oauthFailure && <div role="alert" className="mt-4 rounded-lg border border-rose-800 bg-rose-950/40 p-3 text-sm text-rose-100"><p className="font-bold">{oauthFailure.channel} の接続を完了できませんでした。</p><p className="mt-1">失敗段階: {oauthFailure.stage}。認証コードや秘密情報は表示していません。接続状態を更新し、原因を確認してから再接続してください。同じ認可操作を続けて繰り返さないでください。</p></div>}
       {status && !status.privateMediaBucketVerified && <p role="status" className="mt-4 rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100">素材保存先が未設定、または非公開であることを確認できません。素材の表示・チャンネル有効化・自動配信は停止します。</p>}
       {status?.databaseError && <p role="status" className="mt-4 rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100">投稿キューDBをまだ読めません。Migration未適用、またはサーバーDB接続未設定の可能性があります。詳細: {status.databaseError}</p>}
 
@@ -417,7 +429,7 @@ export default function SocialAutoPublishPanel() {
         <p className="flex gap-2"><AlertCircle className="mt-0.5 shrink-0 text-amber-300" size={14} />現在は接続・配信機能の準備段階です。画面表示だけで自動投稿が有効になったとは扱いません。</p>
         <p className="flex gap-2"><CheckCircle2 className="mt-0.5 shrink-0 text-emerald-300" size={14} />素材利用条件と各SNSの掲載可否は、投稿API接続とは別の確認項目です。</p>
       </div>
-      {!status?.workerEnabled && <p className="mt-3 rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-xs font-bold text-amber-100">予約投稿Workerは未配備です。候補の確認・承認状態は記録できますが、自動配信はまだ実行されません。</p>}
+      {!status?.workerEnabled && <p className="mt-3 rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-xs font-bold text-amber-100">予約配信Workerは停止中です。投稿の確認・承認はできますが、自動配信は実行されません。</p>}
       {!readyForConnect && <p className="mt-3 text-[11px] text-zinc-500">OAuth接続ボタンは、トークン暗号化キーと投稿キューの導入を確認してから有効にします。</p>}
 
       <div className="mt-6 border-t border-violet-900/70 pt-5">
@@ -430,8 +442,6 @@ export default function SocialAutoPublishPanel() {
               <select value={selectedSampleId ?? ""} onChange={(event) => {
                 const nextId = event.target.value ? Number(event.target.value) : null;
                 setSelectedSampleId(nextId);
-                const candidate = sampleCandidates.find((item) => item.id === nextId);
-                if (candidate && !sampleCaption.trim()) setSampleCaption(`PR｜気になった作品は、まずサンプルで雰囲気を確認。\n『${candidate.title}』が気になった方は、公式の商品情報と視聴条件もチェックしてください。`);
               }} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white">
                 <option value="">選択してください（最大20件）</option>
                 {sampleCandidates.map((candidate) => {
@@ -460,12 +470,12 @@ export default function SocialAutoPublishPanel() {
                 {sampleChannelId !== "manual:tiktok" && <label className="text-xs font-bold text-zinc-300">公開予定<input type="datetime-local" value={sampleSchedule} onChange={(event) => setSampleSchedule(event.target.value)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white" /></label>}
                 {publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "youtube_shorts" && <div className="rounded-md border border-amber-800 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100 md:col-span-2"><label className="font-bold">YouTubeの公開範囲<select required value={sampleYoutubePrivacy} onChange={(event) => setSampleYoutubePrivacy(event.target.value as typeof sampleYoutubePrivacy)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white"><option value="">選択してください</option><option value="private">非公開</option><option value="unlisted">限定公開</option><option value="public">公開</option></select></label><p className="mt-2">予約時刻にアップロードします。「公開」はアップロード後に公開、「限定公開」はリンクを知る人が視聴できます。「非公開」はアップロード後も非公開のままで、予約時刻に自動公開されません。対象チャンネル・動画の公開範囲とYouTube API利用条件を確認してください。</p><a className="underline" href="https://developers.google.com/youtube/terms/api-services-terms-of-service" target="_blank" rel="noreferrer">YouTube API利用条件</a></div>}
                 {publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "tiktok" && <div className="rounded-md border border-amber-800 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100 md:col-span-2"><label className="font-bold">TikTokの公開範囲<select required value={sampleTikTokPrivacy} onChange={(event) => setSampleTikTokPrivacy(event.target.value as typeof sampleTikTokPrivacy)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white"><option value="">選択してください</option>{(tiktokInfoByChannel[sampleChannelId]?.privacyLevelOptions ?? []).map((value) => <option key={value} value={value}>{TIKTOK_PRIVACY_LABELS[value]}</option>)}</select></label><p className="mt-2">最新のアカウント設定: {tiktokInfoByChannel[sampleChannelId] ? `${tiktokInfoByChannel[sampleChannelId].creatorNickname} (@${tiktokInfoByChannel[sampleChannelId].creatorUsername}) / 最大${tiktokInfoByChannel[sampleChannelId].maxVideoPostDurationSec}秒 / コメント${tiktokInfoByChannel[sampleChannelId].commentDisabled ? "不可" : "可"}・Duet${tiktokInfoByChannel[sampleChannelId].duetDisabled ? "不可" : "可"}・Stitch${tiktokInfoByChannel[sampleChannelId].stitchDisabled ? "不可" : "可"}` : "未取得。投稿準備前に最新設定を読み込んでください。"}</p></div>}
-          <label className="text-xs font-bold text-zinc-300 md:col-span-2">投稿文<textarea value={sampleCaption} onChange={(event) => setSampleCaption(event.target.value)} maxLength={publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "tiktok" ? 2200 : 5000} rows={4} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm font-normal text-white" />{publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "youtube_shorts" && <span className={`mt-1 block text-[11px] ${utf8Bytes(sampleCaption) > 5000 ? "text-rose-300" : "text-zinc-500"}`}>YouTube説明欄: {utf8Bytes(sampleCaption)} / 5,000 UTF-8バイト</span>}{publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "tiktok" && <span className={`mt-1 block text-[11px] ${sampleCaption.length > 2200 ? "text-rose-300" : "text-zinc-500"}`}>TikTok本文: {sampleCaption.length} / 2,200文字</span>}</label>
+          <label className="text-xs font-bold text-zinc-300 md:col-span-2">投稿文<textarea placeholder="映像・音声を確認してから、投稿先に合う本文を入力" value={sampleCaption} onChange={(event) => setSampleCaption(event.target.value)} maxLength={publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "tiktok" ? 2200 : 5000} rows={4} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm font-normal text-white" />{publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "youtube_shorts" && <span className={`mt-1 block text-[11px] ${utf8Bytes(sampleCaption) > 5000 ? "text-rose-300" : "text-zinc-500"}`}>YouTube説明欄: {utf8Bytes(sampleCaption)} / 5,000 UTF-8バイト</span>}{publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "tiktok" && <span className={`mt-1 block text-[11px] ${sampleCaption.length > 2200 ? "text-rose-300" : "text-zinc-500"}`}>TikTok本文: {sampleCaption.length} / 2,200文字</span>}</label>
               </div>
               <p className="text-[11px] leading-5 text-amber-200">サンプル表示や切り抜き機能は、素材利用許可・センシティブ判定・媒体適合の確認を代替しません。DMMはサンプル動画の切り抜き利用を一部メーカー等に限定し、利用可能一覧にないメーカーの利用を禁止しています。候補のメーカーを確認し、投稿前に公式条件と現行一覧を必ず確認してください。同じ投稿先で過去に使用した作品は選べません。同意済み候補のTikTok手動投稿用クリップはこの画面から確認・ダウンロードできます。TikTokは社内専用ツールでの自動投稿に使わず、TikTokアプリから手動投稿してください。</p>
               <p className="text-[11px] leading-5"><a className="text-violet-300 underline" href="https://support.dmm.com/affiliate/article/44123" target="_blank" rel="noreferrer">DMMのサンプル動画利用条件</a><span className="mx-2 text-zinc-500">/</span><a className="text-violet-300 underline" href="https://docs.google.com/forms/d/e/1FAIpQLSdH2qwHdfDrfwKKHbeV9wQYHYzYvjB30qkgJNAVUQY8z1VHRw/viewform" target="_blank" rel="noreferrer">現在の利用可能メーカー・レーベル一覧</a></p>
               <button type="button" disabled={preparingSample || !sampleChannelId || !sampleCaption.trim() || (sampleChannelId !== "manual:tiktok" && !sampleSchedule) || (publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "youtube_shorts" && !sampleYoutubePrivacy) || (publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "tiktok" && !sampleTikTokPrivacy)} onClick={() => void prepareSampleDraft()} className="justify-self-start rounded-md bg-violet-500 px-4 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{preparingSample ? "公式動画を切り抜き中…" : sampleChannelId === "manual:tiktok" ? "TikTok用の動画を切り抜いて確認" : "切り抜いて公開前確認へ登録"}</button>
-              {manualSamplePreviewUrl && sampleChannelId === "manual:tiktok" && <div className="grid gap-2 rounded-md border border-amber-800 bg-amber-950/20 p-3 md:col-span-2"><p className="text-xs font-bold text-amber-100">手動投稿用クリップ（未公開）。動画と本文を確認してください。</p><video className="max-h-[480px] w-full rounded-md bg-black object-contain" src={manualSamplePreviewUrl} controls playsInline /><div className="flex flex-wrap gap-2"><a className="rounded-md bg-emerald-700 px-3 py-2 text-xs font-bold text-white" href={manualSamplePreviewUrl} download={`work-${candidate.id}-clip.mp4`}>確認後にMP4をダウンロード</a><button type="button" className="rounded-md border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-100" onClick={() => void navigator.clipboard.writeText(sampleCaption).catch(() => setError("クリップボードへコピーできませんでした。"))}>本文案をコピー</button></div></div>}
+              {manualSamplePreviewUrl && sampleChannelId === "manual:tiktok" && <div className="grid gap-2 rounded-md border border-amber-800 bg-amber-950/20 p-3 md:col-span-2"><p className="text-xs font-bold text-amber-100">手動投稿用クリップ（未公開）。動画を最後まで再生し、映像・音声・本文を確認してください。</p><video className="max-h-[480px] w-full rounded-md bg-black object-contain" src={manualSamplePreviewUrl} controls playsInline /><div className="flex flex-wrap gap-2"><a className="rounded-md bg-emerald-700 px-3 py-2 text-xs font-bold text-white" href={manualSamplePreviewUrl} download={`work-${candidate.id}-clip.mp4`}>確認後にMP4をダウンロード</a><button type="button" className="rounded-md border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-100" onClick={() => void navigator.clipboard.writeText(sampleCaption).catch(() => setError("クリップボードへコピーできませんでした。"))}>本文案をコピー</button></div><ol className="list-decimal space-y-1 pl-5 text-xs text-amber-100"><li>確認したMP4をスマートフォンへ保存する。</li><li>TikTokで @hakkutsu_lab_short を選び、MP4と確認済み本文を設定する。</li><li>カバー・公開範囲・必要な広告表示を確認し、最終プレビュー後に本人が投稿する。</li><li>公開URLと投稿日時を記録する。</li></ol></div>}
             </>;
           })()}
         </div>
