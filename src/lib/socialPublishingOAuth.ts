@@ -433,32 +433,68 @@ async function accountIdentity(platform: SocialPlatform, token: TokenResponse, s
     if (data.paging?.next) {
       throw instagramIdentityFailure("instagram_page_account_list", "pages_more_than_limit");
     }
-    const linkedPages = data.data.filter((page) => page.instagram_business_account);
-    if (linkedPages.length === 0) {
-      throw instagramIdentityFailure("instagram_page_account_list", "linked_instagram_account_not_returned");
-    }
-    if (linkedPages.some((page) => !page.id)) {
-      throw instagramIdentityFailure("instagram_page_account_list", "linked_instagram_page_id_missing");
-    }
+
+    const linkedPages = data.data.filter(
+      (page) => page.instagram_business_account?.username?.toLowerCase() === "hakkutsu_lab",
+    );
     const accounts = linkedPages.flatMap((page) => {
       const account = page.instagram_business_account;
-      if (!page.access_token || !account?.id) return [];
+      if (!page.access_token || !page.id || !account?.id) return [];
       return [{
         id: account.id,
         label: account.username ? `@${account.username}` : page.name || account.id,
         accessToken: page.access_token,
       }];
     });
-    if (accounts.length === 0) {
-      throw instagramIdentityFailure("instagram_page_account_list", "instagram_page_access_token_missing");
-    }
     const uniqueAccounts = [...new Map(accounts.map((account) => [account.id, account])).values()];
-    if (uniqueAccounts.length !== 1) {
+    if (uniqueAccounts.length === 1) {
+      const account = uniqueAccounts[0];
+      const tokenExpiresAt = await inspectInstagramPageToken(settings, account.accessToken);
+      return { id: account.id, label: account.label, accessToken: account.accessToken, tokenExpiresAt };
+    }
+
+    // Business Portfolio-owned Pages can be absent from /me/accounts. When the
+    // known Page ID is configured, query that Page directly as Meta documents.
+    const pageId = process.env.INSTAGRAM_FACEBOOK_PAGE_ID?.trim();
+    if (pageId && /^\d+$/.test(pageId)) {
+      const pageUrl = metaGraphUrl(pageId);
+      pageUrl.searchParams.set("fields", "id,access_token,instagram_business_account{id,username}");
+      const page = await getJson<{
+        id?: string;
+        access_token?: string;
+        instagram_business_account?: { id?: string; username?: string };
+      }>(
+        await fetchMetaOAuth("instagram_direct_page_account_lookup", pageUrl, {
+          headers: bearer,
+          signal: AbortSignal.timeout(20_000),
+        }),
+        "instagram_direct_page_account_lookup",
+      );
+      const account = page.instagram_business_account;
+      if (account?.username?.toLowerCase() === "hakkutsu_lab" && account.id && page.access_token) {
+        const tokenExpiresAt = await inspectInstagramPageToken(settings, page.access_token);
+        return {
+          id: account.id,
+          label: `@${account.username}`,
+          accessToken: page.access_token,
+          tokenExpiresAt,
+        };
+      }
+      if (account && account.username?.toLowerCase() !== "hakkutsu_lab") {
+        throw instagramIdentityFailure("instagram_direct_page_account_lookup", "linked_instagram_account_not_returned");
+      }
+    }
+
+    if (uniqueAccounts.length > 1) {
       throw instagramIdentityFailure("instagram_page_account_list", "multiple_linked_instagram_accounts");
     }
-    const account = uniqueAccounts[0];
-    const tokenExpiresAt = await inspectInstagramPageToken(settings, account.accessToken);
-    return { id: account.id, label: account.label, accessToken: account.accessToken, tokenExpiresAt };
+    if (linkedPages.some((page) => !page.id)) {
+      throw instagramIdentityFailure("instagram_page_account_list", "linked_instagram_page_id_missing");
+    }
+    if (linkedPages.some((page) => !page.access_token)) {
+      throw instagramIdentityFailure("instagram_page_account_list", "instagram_page_access_token_missing");
+    }
+    throw instagramIdentityFailure("instagram_page_account_list", "linked_instagram_account_not_returned");
   }
   if (platform === "threads") {
     const url = new URL("https://graph.threads.net/v1.0/me");
