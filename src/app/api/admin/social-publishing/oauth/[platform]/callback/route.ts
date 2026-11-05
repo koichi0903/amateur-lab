@@ -66,6 +66,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       providerCode: provider?.providerCode ?? knownProviderCode,
       providerType: provider?.providerType ?? null,
       providerSubcode: provider?.providerSubcode ?? null,
+      providerReasonCode: diagnostics.providerReasonCode,
       transportErrorName: provider?.transportErrorName ?? null,
     });
     return response(false, stage ?? "unknown");
