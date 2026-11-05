@@ -171,10 +171,67 @@ function postForm(url: string, form: URLSearchParams, headers?: HeadersInit) {
   return fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", ...headers }, body: form });
 }
 
-async function getJson<T>(response: Response): Promise<T> {
-  const payload = await response.json().catch(() => null) as (T & { error?: { message?: string; code?: string }; error_description?: string }) | null;
-  if (!response.ok || !payload) throw new Error(payload?.error_description || payload?.error?.message || "OAuth provider request failed.");
+type OAuthProviderDiagnostic = {
+  operation: string;
+  failureKind: "provider_response" | "transport" | "invalid_response_shape";
+  httpStatus: number;
+  providerCode: string | null;
+  providerType: string | null;
+  providerSubcode: string | null;
+  transportErrorName: string | null;
+};
+
+class OAuthProviderError extends Error {
+  constructor(readonly diagnostic: OAuthProviderDiagnostic) {
+    super("OAuth provider request failed.");
+    this.name = "OAuthProviderError";
+  }
+}
+
+async function getJson<T>(response: Response, operation = "oauth_request"): Promise<T> {
+  const payload = await response.json().catch(() => null) as (T & {
+    error?: { message?: string; code?: string | number; type?: string; error_subcode?: string | number } | string;
+    error_description?: string;
+  }) | null;
+  if (!response.ok || !payload) {
+    const providerError = payload && typeof payload.error === "object" ? payload.error : null;
+    const safeValue = (value: unknown) => {
+      if (typeof value !== "string" && typeof value !== "number") return null;
+      const normalized = String(value);
+      return /^[A-Za-z0-9_.-]{1,64}$/.test(normalized) ? normalized : null;
+    };
+    throw new OAuthProviderError({
+      operation,
+      failureKind: "provider_response",
+      httpStatus: response.status,
+      providerCode: safeValue(typeof payload?.error === "string" ? payload.error : providerError?.code),
+      providerType: safeValue(providerError?.type),
+      providerSubcode: safeValue(providerError?.error_subcode),
+      transportErrorName: null,
+    });
+  }
   return payload;
+}
+
+function getSafeErrorName(error: unknown) {
+  if (!(error instanceof Error)) return "UnknownError";
+  return /^[A-Za-z0-9_]{1,32}$/.test(error.name) ? error.name : "Error";
+}
+
+async function fetchThreadsOAuth(operation: string, url: URL, init: RequestInit) {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    throw new OAuthProviderError({
+      operation,
+      failureKind: "transport",
+      httpStatus: 0,
+      providerCode: null,
+      providerType: null,
+      providerSubcode: null,
+      transportErrorName: getSafeErrorName(error),
+    });
+  }
 }
 
 async function exchangeCode(platform: SocialPlatform, settings: OAuthConfig, code: string) {
@@ -211,11 +268,14 @@ async function exchangeCode(platform: SocialPlatform, settings: OAuthConfig, cod
     form.set("grant_type", "authorization_code");
     const url = new URL("https://graph.threads.net/oauth/access_token");
     form.forEach((value, key) => url.searchParams.set(key, value));
-    response = await fetch(url, { method: "POST" });
+    response = await fetchThreadsOAuth("threads_authorization_code_exchange", url, { method: "POST", cache: "no-store", signal: AbortSignal.timeout(20_000) });
   } else {
     throw new Error("Unsupported social publishing OAuth platform.");
   }
-  const body = await getJson<{ access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; permissions?: unknown; user_id?: string | number; open_id?: string; data?: TokenResponse | TokenResponse[]; error?: { message?: string } }>(response);
+  const body = await getJson<{ access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; permissions?: unknown; user_id?: string | number; open_id?: string; data?: TokenResponse | TokenResponse[]; error?: { message?: string } }>(
+    response,
+    platform === "threads" ? "threads_authorization_code_exchange" : "youtube_authorization_code_exchange",
+  );
   const providerToken = body.data ?? body;
   if (Array.isArray(providerToken) && providerToken.length !== 1) {
     throw new Error("OAuth provider returned an unexpected number of authorized accounts.");
@@ -229,7 +289,7 @@ async function exchangeCode(platform: SocialPlatform, settings: OAuthConfig, cod
     longLivedUrl.searchParams.set("grant_type", "th_exchange_token");
     longLivedUrl.searchParams.set("client_secret", settings.clientSecret);
     longLivedUrl.searchParams.set("access_token", token.access_token);
-    const longLived = await getJson<TokenResponse>(await fetch(longLivedUrl));
+    const longLived = await getJson<TokenResponse>(await fetchThreadsOAuth("threads_long_lived_token_exchange", longLivedUrl, { cache: "no-store", signal: AbortSignal.timeout(20_000) }), "threads_long_lived_token_exchange");
     return { ...token, ...longLived, user_id: token.user_id ?? longLived.user_id, scope: token.scope ?? longLived.scope };
   }
   return token;
@@ -519,6 +579,20 @@ class OAuthStageError extends Error {
 
 export function getOAuthFailureStage(error: unknown): OAuthFailureStage | null {
   return error instanceof OAuthStageError ? error.stage : null;
+}
+
+export function getOAuthFailureDiagnostics(error: unknown) {
+  let current: unknown = error;
+  let stage: OAuthFailureStage | null = null;
+  let provider: OAuthProviderDiagnostic | null = null;
+  let rootErrorName: string | null = null;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
+    if (current instanceof OAuthStageError) stage = current.stage;
+    if (current instanceof OAuthProviderError) provider = current.diagnostic;
+    rootErrorName = getSafeErrorName(current);
+    current = current.cause;
+  }
+  return { stage, provider, rootErrorName };
 }
 
 async function atOAuthStage<T>(stage: OAuthFailureStage, operation: () => Promise<T>): Promise<T> {
