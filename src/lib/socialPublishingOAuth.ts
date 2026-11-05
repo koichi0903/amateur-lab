@@ -508,6 +508,24 @@ export async function getUsableSocialAccessToken(channelId: string) {
   }
 }
 
+export type OAuthFailureStage = "token_exchange" | "granted_permissions" | "account_identity" | "credential_storage";
+
+class OAuthStageError extends Error {
+  constructor(readonly stage: OAuthFailureStage, cause: unknown) {
+    super(`Social OAuth failed at ${stage}.`, { cause });
+    this.name = "OAuthStageError";
+  }
+}
+
+export function getOAuthFailureStage(error: unknown): OAuthFailureStage | null {
+  return error instanceof OAuthStageError ? error.stage : null;
+}
+
+async function atOAuthStage<T>(stage: OAuthFailureStage, operation: () => Promise<T>): Promise<T> {
+  try { return await operation(); }
+  catch (cause) { throw new OAuthStageError(stage, cause); }
+}
+
 export async function completeOAuth(request: NextRequest, platform: SocialPlatform, code: string, returnedState: string) {
   const settings = config(platform);
   if (!settings) throw new Error("OAuth app settings are incomplete for this channel.");
@@ -521,22 +539,23 @@ export async function completeOAuth(request: NextRequest, platform: SocialPlatfo
   try { payload = JSON.parse(Buffer.from(returnedState.slice(0, returnedState.lastIndexOf(".")), "base64url").toString("utf8")); } catch { throw new Error("Invalid OAuth state."); }
   if (payload.platform !== platform || payload.nonce !== nonce || payload.issuedAt !== issuedAt) throw new Error("OAuth state did not match this channel.");
 
-  const token = await exchangeCode(platform, settings, code);
+  const token = await atOAuthStage("token_exchange", () => exchangeCode(platform, settings, code));
   if (platform === "instagram_reels") {
-    const scopes = await inspectInstagramGrantedScopes(token.access_token);
+    const scopes = await atOAuthStage("granted_permissions", () => inspectInstagramGrantedScopes(token.access_token));
     token.scope = scopes.join(" ");
     const missingScopes = getMissingSocialPublishingScopes(platform, scopes);
     if (missingScopes.length > 0) throw new Error("Meta did not grant all required Instagram publishing permissions.");
   }
   if (platform === "threads") {
-    const scopes = await inspectThreadsGrantedScopes(settings, token.access_token);
+    const scopes = await atOAuthStage("granted_permissions", () => inspectThreadsGrantedScopes(settings, token.access_token));
     token.scope = scopes.join(" ");
   }
-  const account = await accountIdentity(platform, token, settings);
+  const account = await atOAuthStage("account_identity", () => accountIdentity(platform, token, settings));
   const accessToken = account.accessToken ?? token.access_token;
   const tokenExpiresAt = "tokenExpiresAt" in account
     ? account.tokenExpiresAt ?? null
     : token.expires_in ? new Date(Date.now() + token.expires_in * 1000).toISOString() : null;
+  await atOAuthStage("credential_storage", async () => {
   const { error } = await supabaseAdmin.from("social_publishing_channels").upsert({
     platform,
     provider_account_id: account.id,
@@ -554,5 +573,6 @@ export async function completeOAuth(request: NextRequest, platform: SocialPlatfo
     updated_at: new Date().toISOString(),
   }, { onConflict: "platform,provider_account_id" });
   if (error) throw new Error("Could not save the authorized channel.");
+  });
   return { accountLabel: account.label, cookieName };
 }
