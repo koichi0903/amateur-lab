@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { loadSocialPublishingMedia } from "@/lib/socialPublishingMedia";
-import { isTikTokAutoPublishingConfigured } from "@/lib/socialPublishingReadiness";
-import { getTikTokCreatorInfo } from "@/lib/socialPublishingAdapters";
-import { getUsableSocialAccessToken } from "@/lib/socialPublishingOAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +36,7 @@ export async function PATCH(
   const revision = Number(payload.contentRevision);
   const { data: job, error: jobError } = await supabaseAdmin
     .from("social_publishing_jobs")
-    .select("id, channel_id, content_kind, youtube_privacy_status, tiktok_privacy_level, caption, media_storage_key, media_sha256, source_work_id, source_maker, scheduled_at, status, content_revision, review_status")
+    .select("id, channel_id, content_kind, youtube_privacy_status, caption, media_storage_key, media_sha256, source_work_id, source_maker, scheduled_at, status, content_revision, review_status")
     .eq("id", id)
     .maybeSingle();
   if (jobError) return NextResponse.json({ error: "Could not load post review state." }, { status: 503 });
@@ -66,26 +63,12 @@ export async function PATCH(
       .maybeSingle();
     if (channelError) return NextResponse.json({ error: "Could not verify the destination account." }, { status: 503 });
     if (!channel?.enabled) return NextResponse.json({ error: "The destination account is not enabled." }, { status: 409 });
+    if (channel.platform === "tiktok") return NextResponse.json({ error: "TikTok運用は廃止されています。この投稿は承認できません。" }, { status: 409 });
     if (channel.platform === "youtube_shorts" && !["public", "unlisted", "private"].includes(String(job.youtube_privacy_status))) {
       return NextResponse.json({ error: "YouTubeの公開範囲が未選択です。下書きを作り直して確認してください。" }, { status: 409 });
     }
     if (channel.platform !== "youtube_shorts" && job.youtube_privacy_status !== null) {
       return NextResponse.json({ error: "YouTube公開範囲の保存状態が不正です。承認を中止しました。" }, { status: 409 });
-    }
-    if (channel.platform !== "tiktok" && job.tiktok_privacy_level !== null) {
-      return NextResponse.json({ error: "TikTok公開範囲の保存状態が不正です。承認を中止しました。" }, { status: 409 });
-    }
-    if (channel.platform === "tiktok") {
-      if (!isTikTokAutoPublishingConfigured()) return NextResponse.json({ error: "TikTok Direct Post is unavailable from this internal-only admin tool. The draft remains unapproved; use the manual TikTok flow." }, { status: 409 });
-      if (!job.tiktok_privacy_level || job.caption.length > 2200) return NextResponse.json({ error: "TikTok公開範囲または本文が未確認のため承認できません。" }, { status: 409 });
-      try {
-        const creator = await getTikTokCreatorInfo(await getUsableSocialAccessToken(channel.id));
-        if (!creator.privacyLevelOptions.includes(job.tiktok_privacy_level as typeof creator.privacyLevelOptions[number])) {
-          return NextResponse.json({ error: "TikTok公開範囲がアカウント設定で使えなくなりました。投稿下書きを更新して再確認してください。" }, { status: 409 });
-        }
-      } catch {
-        return NextResponse.json({ error: "TikTok最新の公開設定を確認できないため承認を中止しました。" }, { status: 503 });
-      }
     }
     if (job.content_kind !== "text") {
       if (!job.media_storage_key || !job.media_sha256) {

@@ -11,7 +11,6 @@ const CHANNELS = [
   { key: "youtube_shorts", label: "YouTube Shorts", appKeys: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REDIRECT_URI"] },
   { key: "instagram_reels", label: "Instagram Reels", appKeys: ["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET", "INSTAGRAM_REDIRECT_URI"] },
   { key: "threads", label: "Threads", appKeys: ["THREADS_APP_ID", "THREADS_APP_SECRET", "THREADS_REDIRECT_URI"] },
-  { key: "tiktok", label: "TikTok（手動投稿準備）", appKeys: [] },
 ] as const;
 
 export async function GET(request: NextRequest) {
@@ -28,8 +27,8 @@ export async function GET(request: NextRequest) {
   const results = CHANNELS.map((channel) => ({
     key: channel.key,
     label: channel.label,
-    appConfigured: channel.key !== "tiktok" && channel.appKeys.length > 0 && channel.appKeys.every((key) => Boolean(process.env[key])),
-    missingAppKeys: channel.key === "tiktok" ? [] : channel.appKeys.filter((key) => !process.env[key]),
+    appConfigured: channel.appKeys.length > 0 && channel.appKeys.every((key) => Boolean(process.env[key])),
+    missingAppKeys: channel.appKeys.filter((key) => !process.env[key]),
     connected: false,
     accountLabel: null as string | null,
     channelId: null as string | null,
@@ -62,8 +61,7 @@ export async function GET(request: NextRequest) {
     channel.missingScopes = connected && isSocialPlatform(connected.platform)
       ? getMissingSocialPublishingScopes(connected.platform, connected.scopes ?? [])
       : [];
-    // TikTok is intentionally manual-only in this internal publishing tool.
-    channel.canConnect = channel.key !== "tiktok" && channel.appConfigured && schemaReady && tokenEncryptionConfigured;
+    channel.canConnect = channel.appConfigured && schemaReady && tokenEncryptionConfigured;
   }
 
   return NextResponse.json({
@@ -72,10 +70,7 @@ export async function GET(request: NextRequest) {
     tokenEncryptionConfigured,
     privateMediaBucketVerified,
     databaseError,
-    // Shared readiness for the three supported automatic destinations. TikTok's
-    // separate manual-preparation path must not disable these destinations.
     publicPostingGate: schemaReady && tokenEncryptionConfigured && privateMediaBucketVerified,
     workerEnabled: process.env.SOCIAL_PUBLISHING_WORKER_ENABLED === "true",
-    tiktokAdapterReady: false,
   }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { assertPrivateSocialPublishingBucket, loadSocialPublishingMedia } from "@/lib/socialPublishingMedia";
 import { getUsableSocialAccessToken } from "@/lib/socialPublishingOAuth";
-import { getTikTokPublishingStatus, getYoutubePublishingStatus, publishSocialVideo } from "@/lib/socialPublishingAdapters";
-import { isTikTokAutoPublishingConfigured } from "@/lib/socialPublishingReadiness";
+import { getYoutubePublishingStatus, publishSocialVideo } from "@/lib/socialPublishingAdapters";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -49,9 +48,17 @@ export async function GET(request: NextRequest) {
       .select("id, platform, provider_account_id, enabled")
       .eq("id", pendingProvider.channel_id)
       .maybeSingle();
-    if (pendingChannelError || !pendingChannel?.enabled || !["tiktok", "youtube_shorts"].includes(pendingChannel.platform)) {
+    if (pendingChannelError || !pendingChannel) {
       return NextResponse.json({ error: "The pending provider post no longer has an enabled destination." }, { status: 409 });
     }
+    if (!["youtube_shorts", "instagram_reels", "threads"].includes(pendingChannel.platform)) {
+      const { error } = await supabaseAdmin.from("social_publishing_jobs")
+        .update({ status: "paused", updated_at: now.toISOString(), last_error_code: "platform_retired", last_error_message: "This destination is retired. No provider status request was made; verify the provider account manually before any replacement." })
+        .eq("id", pendingProvider.id).eq("status", "publishing").eq("provider_request_id", pendingProvider.provider_request_id);
+      if (error) return NextResponse.json({ error: "The retired provider job could not be paused. Do not retry it manually until its provider state is checked.", jobId: pendingProvider.id }, { status: 503 });
+      return NextResponse.json({ workerEnabled: true, claimed: false, pausedJobId: pendingProvider.id, reason: "platform_retired" }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (!pendingChannel.enabled) return NextResponse.json({ error: "The pending provider post no longer has an enabled destination." }, { status: 409 });
     if (pendingProvider.approved_revision !== pendingProvider.content_revision || pendingProvider.attempt_count > pendingProvider.max_attempts) {
       return NextResponse.json({ error: "The pending provider post no longer matches its approved revision." }, { status: 409 });
     }
@@ -81,44 +88,8 @@ export async function GET(request: NextRequest) {
         if (error) return NextResponse.json({ error: "Could not record the latest YouTube status check." }, { status: 503 });
         return NextResponse.json({ jobId: pendingProvider.id, status: result.state }, { headers: { "Cache-Control": "no-store" } });
       }
-      const result = await getTikTokPublishingStatus(token, pendingProvider.provider_request_id);
-      if (result.status === "PUBLISH_COMPLETE" && result.postIds[0]) {
-        const { data: completed, error } = await supabaseAdmin
-          .from("social_publishing_jobs")
-          .update({ status: "published", provider_post_id: result.postIds[0], published_at: checkedAt, updated_at: checkedAt, last_error_code: null, last_error_message: null })
-          .eq("id", pendingProvider.id)
-          .eq("status", "publishing")
-          .eq("content_revision", pendingProvider.content_revision)
-          .eq("provider_request_id", pendingProvider.provider_request_id)
-          .select("id, status, provider_post_id, provider_request_id, published_at")
-          .maybeSingle();
-        if (error || !completed) return NextResponse.json({ error: "TikTok reports completion, but the result could not be recorded. Reconcile manually before retrying.", jobId: pendingProvider.id }, { status: 503 });
-        return NextResponse.json({ job: completed }, { headers: { "Cache-Control": "no-store" } });
-      }
-      if (result.status === "FAILED" || result.status === "SEND_TO_USER_INBOX") {
-        const failureCode = result.status === "SEND_TO_USER_INBOX" ? "tiktok_manual_finish_required" : `tiktok_${safeErrorCode(new Error(result.reason ?? "publish_failed"))}`;
-        const { data: failed, error } = await supabaseAdmin
-          .from("social_publishing_jobs")
-          .update({ status: "failed", updated_at: checkedAt, last_error_code: failureCode, last_error_message: result.status === "SEND_TO_USER_INBOX" ? "TikTok routed this item to its in-app inbox. Automatic public publication was not confirmed; inspect the account before making another post." : "TikTok reported a terminal publishing failure. Inspect the provider status before creating a replacement." })
-          .eq("id", pendingProvider.id)
-          .eq("status", "publishing")
-          .eq("content_revision", pendingProvider.content_revision)
-          .eq("provider_request_id", pendingProvider.provider_request_id)
-          .select("id, status, provider_request_id, last_error_code")
-          .maybeSingle();
-        if (error || !failed) return NextResponse.json({ error: "TikTok's terminal result could not be recorded.", jobId: pendingProvider.id }, { status: 503 });
-        return NextResponse.json({ job: failed }, { headers: { "Cache-Control": "no-store" } });
-      }
-      const { error } = await supabaseAdmin
-        .from("social_publishing_jobs")
-        .update({ updated_at: checkedAt, last_error_code: result.status === "PUBLISH_COMPLETE" ? "tiktok_post_id_pending" : null, last_error_message: null })
-        .eq("id", pendingProvider.id)
-        .eq("status", "publishing")
-        .eq("provider_request_id", pendingProvider.provider_request_id);
-      if (error) return NextResponse.json({ error: "Could not record the latest TikTok status check." }, { status: 503 });
-      return NextResponse.json({ jobId: pendingProvider.id, status: result.status ?? "PROCESSING" }, { headers: { "Cache-Control": "no-store" } });
     } catch {
-      return NextResponse.json({ error: "Could not check TikTok publishing status. The provider request will not be resubmitted." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json({ error: "Could not check YouTube publishing status. The provider request will not be resubmitted." }, { status: 503, headers: { "Cache-Control": "no-store" } });
     }
   }
 
@@ -146,11 +117,19 @@ export async function GET(request: NextRequest) {
     .select("id, platform, enabled")
     .eq("id", due.channel_id)
     .maybeSingle();
-  if (destinationError || !destination?.enabled) {
+  if (destinationError || !destination) {
     return NextResponse.json({ error: "The approved post destination is unavailable or disabled." }, { status: 409 });
   }
-  if (destination.platform === "tiktok" && !isTikTokAutoPublishingConfigured()) {
-    return NextResponse.json({ workerEnabled: true, claimed: false, reason: "tiktok_internal_tool_ineligible" }, { headers: { "Cache-Control": "no-store" } });
+  if (!["youtube_shorts", "instagram_reels", "threads"].includes(destination.platform)) {
+    const { error } = await supabaseAdmin.from("social_publishing_jobs")
+      .update({ status: "paused", updated_at: now.toISOString(), last_error_code: "platform_retired", last_error_message: "This destination is retired. The scheduled job was paused without contacting the provider." })
+      .eq("id", due.id).eq("status", "scheduled");
+    if (error) return NextResponse.json({ error: "The retired scheduled job could not be paused.", jobId: due.id }, { status: 503 });
+    return NextResponse.json({ workerEnabled: true, claimed: false, pausedJobId: due.id, reason: "platform_retired" }, { headers: { "Cache-Control": "no-store" } });
+  }
+
+  if (!destination.enabled) {
+    return NextResponse.json({ error: "The approved post destination is unavailable or disabled." }, { status: 409 });
   }
 
   const { data: claimed, error: claimError } = await supabaseAdmin
@@ -174,18 +153,7 @@ export async function GET(request: NextRequest) {
       .eq("id", claimed.channel_id)
       .maybeSingle();
     if (channelError || !channel?.enabled) throw new Error("channel_not_enabled");
-    if (!['youtube_shorts', 'instagram_reels', 'threads', 'tiktok'].includes(channel.platform)) throw new Error("unsupported_social_platform");
-    if (channel.platform === "tiktok" && !isTikTokAutoPublishingConfigured()) {
-      const { error: releaseError } = await supabaseAdmin
-        .from("social_publishing_jobs")
-        .update({ status: "scheduled", attempt_count: due.attempt_count, updated_at: new Date().toISOString(), last_error_code: "tiktok_internal_tool_ineligible", last_error_message: "TikTok Direct Post is unavailable from this internal-only admin tool. The approved job remains scheduled and was not sent." })
-        .eq("id", claimed.id)
-        .eq("status", "publishing")
-        .eq("content_revision", claimed.content_revision)
-        .is("provider_request_id", null);
-      if (releaseError) return NextResponse.json({ error: "TikTok setup changed before dispatch and the approved job could not be safely released. Do not retry manually until its queue state is checked.", jobId: claimed.id }, { status: 503 });
-      return NextResponse.json({ workerEnabled: true, claimed: false, reason: "tiktok_setup_changed_before_dispatch", jobId: claimed.id }, { headers: { "Cache-Control": "no-store" } });
-    }
+    if (!["youtube_shorts", "instagram_reels", "threads"].includes(channel.platform)) throw new Error("unsupported_social_platform");
     const current = await loadSocialPublishingMedia(claimed.media_storage_key);
     if (current.sha256 !== claimed.media_sha256) throw new Error("media_checksum_mismatch");
     const token = await getUsableSocialAccessToken(channel.id);

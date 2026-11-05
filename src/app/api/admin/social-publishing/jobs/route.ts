@@ -3,9 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { isOfficialFanzaDmmSampleUrl, sourceDomain } from "@/lib/xMediaAssets";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { isTikTokAutoPublishingConfigured } from "@/lib/socialPublishingReadiness";
-import { getUsableSocialAccessToken } from "@/lib/socialPublishingOAuth";
-import { getTikTokCreatorInfo } from "@/lib/socialPublishingAdapters";
 import { assertPrivateSocialPublishingBucket, createSocialPublishingPreviewUrl, loadSocialPublishingMedia, socialPublishingMediaMaxBytes } from "@/lib/socialPublishingMedia";
 import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
 
@@ -53,7 +50,7 @@ export async function GET(request: NextRequest) {
   if (request.nextUrl.searchParams.get("view") === "sample-candidates") return getSampleCandidates();
   const { data, error } = await supabaseAdmin
     .from("social_publishing_jobs")
-    .select("id, idempotency_key, content_kind, caption, youtube_privacy_status, tiktok_privacy_level, media_storage_key, media_sha256, source_work_id, source_sample_url_hash, source_sample_host, source_maker, source_usage_attested, source_usage_checked_at, trim_start_seconds, trim_end_seconds, scheduled_at, status, content_revision, review_status, review_attested, approved_revision, reviewed_at, provider_request_id, provider_post_id, published_at, last_error_code, channel:social_publishing_channels(platform, account_label)")
+    .select("id, idempotency_key, content_kind, caption, youtube_privacy_status, media_storage_key, media_sha256, source_work_id, source_sample_url_hash, source_sample_host, source_maker, source_usage_attested, source_usage_checked_at, trim_start_seconds, trim_end_seconds, scheduled_at, status, content_revision, review_status, review_attested, approved_revision, reviewed_at, provider_request_id, provider_post_id, published_at, last_error_code, channel:social_publishing_channels(platform, account_label)")
     .order("scheduled_at", { ascending: true })
     .limit(50);
   if (error) return NextResponse.json({ error: "Could not load the publishing queue." }, { status: 503 });
@@ -82,7 +79,6 @@ export async function POST(request: NextRequest) {
   const contentKind = payload?.contentKind;
   const caption = typeof payload?.caption === "string" ? payload.caption : "";
   const youtubePrivacyStatus = payload?.youtubePrivacyStatus === "public" || payload?.youtubePrivacyStatus === "unlisted" || payload?.youtubePrivacyStatus === "private" ? payload.youtubePrivacyStatus : null;
-  const tiktokPrivacyLevel = ["PUBLIC_TO_EVERYONE", "FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"].includes(String(payload?.tiktokPrivacyLevel)) ? String(payload?.tiktokPrivacyLevel) : null;
   let mediaStorageKey = typeof payload?.mediaStorageKey === "string" ? payload.mediaStorageKey.trim() : null;
   const sourceWorkId = typeof payload?.sourceWorkId === "number" && Number.isSafeInteger(payload.sourceWorkId) ? payload.sourceWorkId : null;
   const trimStartSeconds = typeof payload?.trimStartSeconds === "number" ? payload.trimStartSeconds : null;
@@ -112,27 +108,16 @@ export async function POST(request: NextRequest) {
     .eq("id", channelId)
     .maybeSingle();
   if (channelError) return NextResponse.json({ error: "Publishing channel storage is unavailable." }, { status: 503 });
+  if (channel && !["youtube_shorts", "instagram_reels", "threads"].includes(channel.platform)) {
+    return NextResponse.json({ error: "この投稿先は運用対象外です。" }, { status: 410 });
+  }
   if (!channel?.enabled) return NextResponse.json({ error: "This channel is not authorized for automatic publishing." }, { status: 409 });
   if (channel.platform === "youtube_shorts" && !youtubePrivacyStatus) return NextResponse.json({ error: "YouTubeの公開範囲を明示的に選択してください。" }, { status: 400 });
   if (channel.platform !== "youtube_shorts" && payload?.youtubePrivacyStatus != null) return NextResponse.json({ error: "YouTube公開範囲はYouTube投稿だけに指定できます。" }, { status: 400 });
-  if (channel.platform === "tiktok" && !tiktokPrivacyLevel) return NextResponse.json({ error: "TikTokの最新設定から公開範囲を選択してください。" }, { status: 400 });
-  if (channel.platform !== "tiktok" && payload?.tiktokPrivacyLevel != null) return NextResponse.json({ error: "TikTok公開範囲はTikTok投稿だけに指定できます。" }, { status: 400 });
   if (channel.platform === "youtube_shorts") {
     const title = caption.split(/\r?\n/, 1)[0].trim();
     if (!title || [...title].length > 100 || Buffer.byteLength(caption, "utf8") > 5000) {
       return NextResponse.json({ error: "YouTubeのタイトルは100文字以内、説明欄はUTF-8で5,000バイト以内にしてください。" }, { status: 400 });
-    }
-  }
-  if (channel.platform === "tiktok") {
-    if (!isTikTokAutoPublishingConfigured()) return NextResponse.json({ error: "TikTok Direct Post is unavailable from this internal-only admin tool. Use the manual TikTok clip-preparation flow instead." }, { status: 409 });
-    if (caption.length > 2200) return NextResponse.json({ error: "TikTok本文はUTF-16で2,200文字以内にしてください。" }, { status: 400 });
-    try {
-      const creator = await getTikTokCreatorInfo(await getUsableSocialAccessToken(channel.id));
-      if (!tiktokPrivacyLevel || !creator.privacyLevelOptions.includes(tiktokPrivacyLevel as typeof creator.privacyLevelOptions[number])) {
-        return NextResponse.json({ error: "TikTok最新の公開範囲設定を取得できないか、選択値が利用できません。" }, { status: 409 });
-      }
-    } catch {
-      return NextResponse.json({ error: "TikTok最新の公開設定を確認できないため、投稿下書きを作成できません。" }, { status: 503 });
     }
   }
   if (contentKind !== "video") return NextResponse.json({ error: "This first automatic-publishing release accepts reviewed video posts only." }, { status: 400 });
@@ -205,7 +190,6 @@ export async function POST(request: NextRequest) {
     content_kind: contentKind,
     caption,
     youtube_privacy_status: youtubePrivacyStatus,
-    tiktok_privacy_level: tiktokPrivacyLevel,
     media_storage_key: mediaStorageKey,
     media_sha256: media.sha256,
     source_work_id: sourceWorkId,

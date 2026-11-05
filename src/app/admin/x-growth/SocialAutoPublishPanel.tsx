@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, CircleHelp, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -24,7 +24,6 @@ type Status = {
   privateMediaBucketVerified: boolean;
   databaseError: string | null;
   publicPostingGate: boolean;
-  tiktokAdapterReady: boolean;
   workerEnabled: boolean;
 };
 
@@ -33,7 +32,6 @@ type ReviewJob = {
   content_kind: "video" | "image" | "text";
   caption: string;
   youtube_privacy_status?: "public" | "unlisted" | "private" | null;
-  tiktok_privacy_level?: "PUBLIC_TO_EVERYONE" | "FOLLOWER_OF_CREATOR" | "MUTUAL_FOLLOW_FRIENDS" | "SELF_ONLY" | null;
   scheduled_at: string;
   status: string;
   content_revision: number;
@@ -53,23 +51,6 @@ type ReviewJob = {
   provider_post_id?: string | null;
   last_error_code?: string | null;
   channel: { platform: string; account_label: string } | null;
-};
-
-type TikTokCreatorInfo = {
-  creatorUsername: string;
-  creatorNickname: string;
-  privacyLevelOptions: Array<"PUBLIC_TO_EVERYONE" | "FOLLOWER_OF_CREATOR" | "MUTUAL_FOLLOW_FRIENDS" | "SELF_ONLY">;
-  commentDisabled: boolean;
-  duetDisabled: boolean;
-  stitchDisabled: boolean;
-  maxVideoPostDurationSec: number;
-};
-
-const TIKTOK_PRIVACY_LABELS: Record<TikTokCreatorInfo["privacyLevelOptions"][number], string> = {
-  PUBLIC_TO_EVERYONE: "全員に公開",
-  FOLLOWER_OF_CREATOR: "フォロワー",
-  MUTUAL_FOLLOW_FRIENDS: "相互フォロー",
-  SELF_ONLY: "自分のみ",
 };
 
 type SampleCandidate = {
@@ -99,7 +80,6 @@ function utf8Bytes(value: string) {
 export default function SocialAutoPublishPanel() {
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [oauthFailure, setOauthFailure] = useState<{ channel: string; stage: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyChannel, setBusyChannel] = useState<string | null>(null);
   const [reviewJobs, setReviewJobs] = useState<ReviewJob[]>([]);
@@ -113,13 +93,7 @@ export default function SocialAutoPublishPanel() {
   const [sampleCaption, setSampleCaption] = useState("");
   const [sampleSchedule, setSampleSchedule] = useState("");
   const [sampleYoutubePrivacy, setSampleYoutubePrivacy] = useState<"" | "public" | "unlisted" | "private">("");
-  const [sampleTikTokPrivacy, setSampleTikTokPrivacy] = useState<TikTokCreatorInfo["privacyLevelOptions"][number] | "">("");
   const [preparingSample, setPreparingSample] = useState(false);
-  const [manualSamplePreviewUrl, setManualSamplePreviewUrl] = useState<string | null>(null);
-  const manualSampleSourceKey = JSON.stringify([selectedSampleId, sampleTrimStart, sampleTrimEnd, sampleChannelId]);
-  const manualSampleSourceKeyRef = useRef(manualSampleSourceKey);
-  manualSampleSourceKeyRef.current = manualSampleSourceKey;
-  useEffect(() => { setManualSamplePreviewUrl(null); }, [manualSampleSourceKey]);
   const [reviewChecks, setReviewChecks] = useState<Record<string, boolean>>({});
   const [sourceUsageChecks, setSourceUsageChecks] = useState<Record<string, boolean>>({});
   const [busyReview, setBusyReview] = useState<string | null>(null);
@@ -128,8 +102,6 @@ export default function SocialAutoPublishPanel() {
   const [draftCaption, setDraftCaption] = useState("");
   const [draftSchedule, setDraftSchedule] = useState("");
   const [draftYoutubePrivacy, setDraftYoutubePrivacy] = useState<"" | "public" | "unlisted" | "private">("");
-  const [draftTikTokPrivacy, setDraftTikTokPrivacy] = useState<TikTokCreatorInfo["privacyLevelOptions"][number] | "">("");
-  const [tiktokInfoByChannel, setTiktokInfoByChannel] = useState<Record<string, TikTokCreatorInfo>>({});
   const [preparingDraft, setPreparingDraft] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -163,29 +135,8 @@ export default function SocialAutoPublishPanel() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("social_connection") !== "failed") return;
-    setOauthFailure({ channel: params.get("channel") ?? "social", stage: params.get("failure_stage") ?? "unknown" });
-  }, []);
-  useEffect(() => () => { if (manualSamplePreviewUrl) URL.revokeObjectURL(manualSamplePreviewUrl); }, [manualSamplePreviewUrl]);
-
-  const loadTikTokCreatorInfo = async (channelId: string) => {
-    setError(null);
-    try {
-      const response = await fetch(`/api/admin/social-publishing/channels?tiktokInfo=${encodeURIComponent(channelId)}`, { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok || !payload.creator) throw new Error(payload.error ?? "TikTokの最新投稿設定を取得できませんでした。");
-      setTiktokInfoByChannel((current) => ({ ...current, [channelId]: payload.creator as TikTokCreatorInfo }));
-      return payload.creator as TikTokCreatorInfo;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "TikTokの最新投稿設定を取得できませんでした。");
-      return null;
-    }
-  };
-
   const readyForConnect = Boolean(status?.schemaReady && status.tokenEncryptionConfigured);
-  const publishableChannels = (status?.channels ?? []).filter((channel) => status?.privateMediaBucketVerified && channel.connected && channel.enabled && channel.missingScopes.length === 0 && channel.channelId && (channel.key !== "tiktok" || (status?.publicPostingGate && status?.tiktokAdapterReady)));
+  const publishableChannels = (status?.channels ?? []).filter((channel) => status?.privateMediaBucketVerified && channel.connected && channel.enabled && channel.missingScopes.length === 0 && channel.channelId);
 
   const prepareDraft = async () => {
     if (!mediaFile || !draftChannelId || !draftCaption.trim() || !draftSchedule) return;
@@ -196,10 +147,6 @@ export default function SocialAutoPublishPanel() {
     }
     if (selectedChannel.key === "youtube_shorts" && !draftYoutubePrivacy) {
       setError("YouTubeの公開範囲を選択してください。");
-      return;
-    }
-    if (selectedChannel.key === "tiktok" && (!draftTikTokPrivacy || !tiktokInfoByChannel[draftChannelId]?.privacyLevelOptions.includes(draftTikTokPrivacy))) {
-      setError("TikTokの最新投稿設定を取得し、利用可能な公開範囲を選択してください。");
       return;
     }
     if (selectedChannel.key === "youtube_shorts" && utf8Bytes(draftCaption) > 5000) {
@@ -232,7 +179,6 @@ export default function SocialAutoPublishPanel() {
           contentKind: "video",
           caption: draftCaption.trim(),
           youtubePrivacyStatus: selectedChannel.key === "youtube_shorts" ? draftYoutubePrivacy : null,
-          tiktokPrivacyLevel: selectedChannel.key === "tiktok" ? draftTikTokPrivacy : null,
           mediaStorageKey: upload.storageKey,
           scheduledAt: new Date(draftSchedule).toISOString(),
         }),
@@ -243,7 +189,6 @@ export default function SocialAutoPublishPanel() {
       setDraftCaption("");
       setDraftSchedule("");
       setDraftYoutubePrivacy("");
-      setDraftTikTokPrivacy("");
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "確認待ちキューへの登録に失敗しました。");
@@ -257,14 +202,9 @@ export default function SocialAutoPublishPanel() {
     const start = Number(sampleTrimStart);
     const end = Number(sampleTrimEnd);
     const selectedChannel = publishableChannels.find((channel) => channel.channelId === sampleChannelId);
-    const manualTikTok = sampleChannelId === "manual:tiktok";
-    if (!selected || (!selectedChannel && !manualTikTok) || !sampleCaption.trim() || (!manualTikTok && !sampleSchedule)) return;
+    if (!selected || !selectedChannel || !sampleCaption.trim() || !sampleSchedule) return;
     if (selectedChannel?.key === "youtube_shorts" && !sampleYoutubePrivacy) {
       setError("YouTubeの公開範囲を選択してください。");
-      return;
-    }
-    if (selectedChannel?.key === "tiktok" && (!sampleTikTokPrivacy || !tiktokInfoByChannel[sampleChannelId]?.privacyLevelOptions.includes(sampleTikTokPrivacy))) {
-      setError("TikTokの最新投稿設定を取得し、利用可能な公開範囲を選択してください。");
       return;
     }
     if (selectedChannel?.key === "youtube_shorts" && utf8Bytes(sampleCaption) > 5000) {
@@ -275,27 +215,9 @@ export default function SocialAutoPublishPanel() {
       setError("切り抜き範囲は開始0秒以上、長さ60秒以内で指定してください。");
       return;
     }
-    const requestedSourceKey = manualSampleSourceKey;
     setPreparingSample(true);
     setError(null);
     try {
-      if (manualTikTok) {
-        const response = await fetch("/api/admin/social-publishing/media-upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "sample-clip", sourceWorkId: selected.id, trimStartSeconds: start, trimEndSeconds: end }),
-        });
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({}));
-          throw new Error(payload.error ?? "TikTok用動画を準備できませんでした。");
-        }
-        const clip = await response.blob();
-        if (manualSampleSourceKeyRef.current !== requestedSourceKey) return;
-        const previewUrl = URL.createObjectURL(clip);
-        setManualSamplePreviewUrl(previewUrl);
-        return;
-      }
-      if (!selectedChannel) return;
       const response = await fetch("/api/admin/social-publishing/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -305,7 +227,6 @@ export default function SocialAutoPublishPanel() {
           contentKind: "video",
           caption: sampleCaption.trim(),
           youtubePrivacyStatus: selectedChannel.key === "youtube_shorts" ? sampleYoutubePrivacy : null,
-          tiktokPrivacyLevel: selectedChannel.key === "tiktok" ? sampleTikTokPrivacy : null,
           scheduledAt: new Date(sampleSchedule).toISOString(),
           sourceWorkId: selected.id,
           trimStartSeconds: start,
@@ -317,7 +238,6 @@ export default function SocialAutoPublishPanel() {
       setSampleCaption("");
       setSampleSchedule("");
       setSampleYoutubePrivacy("");
-      setSampleTikTokPrivacy("");
       setSelectedSampleId(null);
       await refresh();
     } catch (cause) {
@@ -377,7 +297,7 @@ export default function SocialAutoPublishPanel() {
           <p className="text-xs font-black tracking-[0.16em] text-violet-300">CROSS-CHANNEL PUBLISHING</p>
           <h2 id="social-auto-publish-title" className="mt-1 text-xl font-black">複数SNSの自動投稿</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-violet-100/75">
-            YouTube Shorts・Instagram Reels・Threadsの自動投稿を準備します。投稿ごとに素材・本文・投稿先・公開時刻を目視確認して承認したものだけを予約します。TikTokは現在の社内専用ツールからの自動投稿に使えないため、素材準備と手動投稿に限ります。
+            YouTube Shorts・Instagram Reels・Threadsの自動投稿を準備します。投稿ごとに素材・本文・投稿先・公開時刻を目視確認して承認したものだけを予約します。TikTokは運用対象から廃止しました。
           </p>
         </div>
         <button type="button" onClick={() => void refresh()} disabled={loading} className="inline-flex h-9 items-center gap-2 rounded-lg border border-violet-700 px-3 text-xs font-bold text-violet-100 disabled:opacity-50">
@@ -386,39 +306,35 @@ export default function SocialAutoPublishPanel() {
       </div>
 
       {error && <p role="alert" className="mt-4 rounded-lg border border-rose-800 bg-rose-950/40 p-3 text-sm text-rose-200">{error}</p>}
-      {oauthFailure && <div role="alert" className="mt-4 rounded-lg border border-rose-800 bg-rose-950/40 p-3 text-sm text-rose-100"><p className="font-bold">{oauthFailure.channel} の接続を完了できませんでした。</p><p className="mt-1">失敗段階: {oauthFailure.stage}。認証コードや秘密情報は表示していません。接続状態を更新し、原因を確認してから再接続してください。同じ認可操作を続けて繰り返さないでください。</p></div>}
       {status && !status.privateMediaBucketVerified && <p role="status" className="mt-4 rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100">素材保存先が未設定、または非公開であることを確認できません。素材の表示・チャンネル有効化・自動配信は停止します。</p>}
       {status?.databaseError && <p role="status" className="mt-4 rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100">投稿キューDBをまだ読めません。Migration未適用、またはサーバーDB接続未設定の可能性があります。詳細: {status.databaseError}</p>}
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {(status?.channels ?? [
           { key: "youtube_shorts", label: "YouTube Shorts", appConfigured: false, missingAppKeys: [], connected: false, accountLabel: null, channelId: null, enabled: false, missingScopes: [], canConnect: false },
           { key: "instagram_reels", label: "Instagram Reels", appConfigured: false, missingAppKeys: [], connected: false, accountLabel: null, channelId: null, enabled: false, missingScopes: [], canConnect: false },
           { key: "threads", label: "Threads", appConfigured: false, missingAppKeys: [], connected: false, accountLabel: null, channelId: null, enabled: false, missingScopes: [], canConnect: false },
-          { key: "tiktok", label: "TikTok Content Posting API", appConfigured: false, missingAppKeys: [], connected: false, accountLabel: null, channelId: null, enabled: false, missingScopes: [], canConnect: false },
         ]).map((channel) => {
-          const tiktokSetupPending = channel.key === "tiktok";
           const scopesConfirmed = channel.missingScopes.length === 0;
-          const active = Boolean(status?.privateMediaBucketVerified) && !tiktokSetupPending && channel.connected && channel.enabled && scopesConfirmed;
+          const active = Boolean(status?.privateMediaBucketVerified) && channel.connected && channel.enabled && scopesConfirmed;
           return (
             <article key={channel.key} className="rounded-lg border border-zinc-800 bg-zinc-950/80 p-4">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="font-black text-white">{channel.label}</h3>
                 <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${active ? "border-emerald-700 text-emerald-200" : "border-amber-700 text-amber-200"}`}>
-                  {tiktokSetupPending ? "手動投稿のみ" : active ? "自動投稿ON" : channel.connected && !scopesConfirmed ? "投稿権限未確認・停止" : channel.connected ? "接続済み・停止中" : "未接続"}
+                  {active ? "自動投稿ON" : channel.connected && !scopesConfirmed ? "投稿権限未確認・停止" : channel.connected ? "接続済み・停止中" : "未接続"}
                 </span>
               </div>
               {channel.accountLabel && <p className="mt-2 text-xs text-zinc-300">接続先: {channel.accountLabel}</p>}
-              {channel.connected && channel.missingScopes.length > 0 && <p className="mt-2 text-xs leading-5 text-amber-200">投稿権限を確認できていません。OAuthの実許可スコープが不足しているか、プロバイダーが返していません。{channel.missingScopes.includes("provider_publish_scope_not_configured") ? "TikTokアプリでContent Posting APIの必要権限を設定してください。" : `不足: ${channel.missingScopes.join(", ")}`}</p>}
+                {channel.connected && channel.missingScopes.length > 0 && <p className="mt-2 text-xs leading-5 text-amber-200">投稿権限を確認できていません。OAuthの実許可スコープが不足しているか、プロバイダーが返していません。不足: {channel.missingScopes.join(", ")}</p>}
               <p className="mt-2 text-xs leading-5 text-zinc-400">
-                {channel.key === "tiktok" ? "自動投稿対象外" : channel.appConfigured ? "APIアプリ設定を検出" : "APIアプリ設定が未完了"}
-                {channel.key === "tiktok" ? <>。TikTokの開発者ガイドラインが、社内利用だけを目的とするアップロードツールを認めていないため、この画面ではTikTok API接続・自動投稿を無効にしています。公式サンプルの確認・素材準備後、投稿はTikTokアプリから手動で行ってください。</> : "。"}
+                {channel.appConfigured ? "APIアプリ設定を検出。" : "APIアプリ設定が未完了。"}
               </p>
               {!channel.connected && channel.missingAppKeys.length > 0 && (
                 <p className="mt-2 break-words text-[10px] leading-4 text-zinc-500">必要なサーバー設定: {channel.missingAppKeys.join(", ")}</p>
               )}
-              {!tiktokSetupPending && channel.canConnect && (!channel.connected || !scopesConfirmed) && <a href={`/api/admin/social-publishing/oauth/${channel.key}`} className="mt-3 inline-flex rounded-md bg-violet-500 px-3 py-2 text-xs font-black text-white hover:bg-violet-400">{channel.connected ? "投稿権限を再確認するため再接続" : "公式アカウントを接続"}</a>}
-              {!tiktokSetupPending && channel.connected && !channel.enabled && channel.missingScopes.length === 0 && <button type="button" onClick={() => void enableChannel(channel)} disabled={busyChannel === channel.channelId} className="mt-3 rounded-md bg-emerald-600 px-3 py-2 text-xs font-black text-white hover:bg-emerald-500 disabled:opacity-50">{busyChannel === channel.channelId ? "更新中…" : "自動投稿を有効化"}</button>}
+              {channel.canConnect && (!channel.connected || !scopesConfirmed) && <a href={`/api/admin/social-publishing/oauth/${channel.key}`} className="mt-3 inline-flex rounded-md bg-violet-500 px-3 py-2 text-xs font-black text-white hover:bg-violet-400">{channel.connected ? "投稿権限を再確認するため再接続" : "公式アカウントを接続"}</a>}
+              {channel.connected && !channel.enabled && channel.missingScopes.length === 0 && <button type="button" onClick={() => void enableChannel(channel)} disabled={busyChannel === channel.channelId} className="mt-3 rounded-md bg-emerald-600 px-3 py-2 text-xs font-black text-white hover:bg-emerald-500 disabled:opacity-50">{busyChannel === channel.channelId ? "更新中…" : "自動投稿を有効化"}</button>}
             </article>
           );
         })}
@@ -466,16 +382,14 @@ export default function SocialAutoPublishPanel() {
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="text-xs font-bold text-zinc-300">切り抜き開始秒<input type="number" min="0" step="0.1" value={sampleTrimStart} onChange={(event) => setSampleTrimStart(event.target.value)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white" /></label>
                 <label className="text-xs font-bold text-zinc-300">切り抜き終了秒（開始から60秒以内）<input type="number" min="0.1" step="0.1" value={sampleTrimEnd} onChange={(event) => setSampleTrimEnd(event.target.value)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white" /></label>
-                <label className="text-xs font-bold text-zinc-300">投稿先アカウント<select value={sampleChannelId} onChange={(event) => { const value = event.target.value; setSampleChannelId(value); setSampleTikTokPrivacy(""); if (publishableChannels.find((channel) => channel.channelId === value)?.key === "tiktok") void loadTikTokCreatorInfo(value); }} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white"><option value="">選択してください</option>{publishableChannels.map((channel) => <option key={channel.channelId} value={channel.channelId!}>{channel.label} / {channel.accountLabel}</option>)}<option value="manual:tiktok">TikTok（手動投稿用・自動配信なし）</option></select></label>
-                {sampleChannelId !== "manual:tiktok" && <label className="text-xs font-bold text-zinc-300">公開予定<input type="datetime-local" value={sampleSchedule} onChange={(event) => setSampleSchedule(event.target.value)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white" /></label>}
+                <label className="text-xs font-bold text-zinc-300">投稿先アカウント<select value={sampleChannelId} onChange={(event) => setSampleChannelId(event.target.value)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white"><option value="">選択してください</option>{publishableChannels.map((channel) => <option key={channel.channelId} value={channel.channelId!}>{channel.label} / {channel.accountLabel}</option>)}</select></label>
+                <label className="text-xs font-bold text-zinc-300">公開予定<input type="datetime-local" value={sampleSchedule} onChange={(event) => setSampleSchedule(event.target.value)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white" /></label>
                 {publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "youtube_shorts" && <div className="rounded-md border border-amber-800 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100 md:col-span-2"><label className="font-bold">YouTubeの公開範囲<select required value={sampleYoutubePrivacy} onChange={(event) => setSampleYoutubePrivacy(event.target.value as typeof sampleYoutubePrivacy)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white"><option value="">選択してください</option><option value="private">非公開</option><option value="unlisted">限定公開</option><option value="public">公開</option></select></label><p className="mt-2">予約時刻にアップロードします。「公開」はアップロード後に公開、「限定公開」はリンクを知る人が視聴できます。「非公開」はアップロード後も非公開のままで、予約時刻に自動公開されません。対象チャンネル・動画の公開範囲とYouTube API利用条件を確認してください。</p><a className="underline" href="https://developers.google.com/youtube/terms/api-services-terms-of-service" target="_blank" rel="noreferrer">YouTube API利用条件</a></div>}
-                {publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "tiktok" && <div className="rounded-md border border-amber-800 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100 md:col-span-2"><label className="font-bold">TikTokの公開範囲<select required value={sampleTikTokPrivacy} onChange={(event) => setSampleTikTokPrivacy(event.target.value as typeof sampleTikTokPrivacy)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white"><option value="">選択してください</option>{(tiktokInfoByChannel[sampleChannelId]?.privacyLevelOptions ?? []).map((value) => <option key={value} value={value}>{TIKTOK_PRIVACY_LABELS[value]}</option>)}</select></label><p className="mt-2">最新のアカウント設定: {tiktokInfoByChannel[sampleChannelId] ? `${tiktokInfoByChannel[sampleChannelId].creatorNickname} (@${tiktokInfoByChannel[sampleChannelId].creatorUsername}) / 最大${tiktokInfoByChannel[sampleChannelId].maxVideoPostDurationSec}秒 / コメント${tiktokInfoByChannel[sampleChannelId].commentDisabled ? "不可" : "可"}・Duet${tiktokInfoByChannel[sampleChannelId].duetDisabled ? "不可" : "可"}・Stitch${tiktokInfoByChannel[sampleChannelId].stitchDisabled ? "不可" : "可"}` : "未取得。投稿準備前に最新設定を読み込んでください。"}</p></div>}
-          <label className="text-xs font-bold text-zinc-300 md:col-span-2">投稿文<textarea placeholder="映像・音声を確認してから、投稿先に合う本文を入力" value={sampleCaption} onChange={(event) => setSampleCaption(event.target.value)} maxLength={publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "tiktok" ? 2200 : 5000} rows={4} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm font-normal text-white" />{publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "youtube_shorts" && <span className={`mt-1 block text-[11px] ${utf8Bytes(sampleCaption) > 5000 ? "text-rose-300" : "text-zinc-500"}`}>YouTube説明欄: {utf8Bytes(sampleCaption)} / 5,000 UTF-8バイト</span>}{publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "tiktok" && <span className={`mt-1 block text-[11px] ${sampleCaption.length > 2200 ? "text-rose-300" : "text-zinc-500"}`}>TikTok本文: {sampleCaption.length} / 2,200文字</span>}</label>
+                <label className="text-xs font-bold text-zinc-300 md:col-span-2">投稿文<textarea placeholder="映像・音声を確認してから、投稿先に合う本文を入力" value={sampleCaption} onChange={(event) => setSampleCaption(event.target.value)} maxLength={5000} rows={4} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm font-normal text-white" />{publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "youtube_shorts" && <span className={`mt-1 block text-[11px] ${utf8Bytes(sampleCaption) > 5000 ? "text-rose-300" : "text-zinc-500"}`}>YouTube説明欄: {utf8Bytes(sampleCaption)} / 5,000 UTF-8バイト</span>}</label>
               </div>
-              <p className="text-[11px] leading-5 text-amber-200">サンプル表示や切り抜き機能は、素材利用許可・センシティブ判定・媒体適合の確認を代替しません。DMMはサンプル動画の切り抜き利用を一部メーカー等に限定し、利用可能一覧にないメーカーの利用を禁止しています。候補のメーカーを確認し、投稿前に公式条件と現行一覧を必ず確認してください。同じ投稿先で過去に使用した作品は選べません。同意済み候補のTikTok手動投稿用クリップはこの画面から確認・ダウンロードできます。TikTokは社内専用ツールでの自動投稿に使わず、TikTokアプリから手動投稿してください。</p>
+              <p className="text-[11px] leading-5 text-amber-200">サンプル表示や切り抜き機能は、素材利用許可・センシティブ判定・媒体適合の確認を代替しません。DMMはサンプル動画の切り抜き利用を一部メーカー等に限定し、利用可能一覧にないメーカーの利用を禁止しています。候補のメーカーを確認し、投稿前に公式条件と現行一覧を必ず確認してください。同じ投稿先で過去に使用した作品は選べません。</p>
               <p className="text-[11px] leading-5"><a className="text-violet-300 underline" href="https://support.dmm.com/affiliate/article/44123" target="_blank" rel="noreferrer">DMMのサンプル動画利用条件</a><span className="mx-2 text-zinc-500">/</span><a className="text-violet-300 underline" href="https://docs.google.com/forms/d/e/1FAIpQLSdH2qwHdfDrfwKKHbeV9wQYHYzYvjB30qkgJNAVUQY8z1VHRw/viewform" target="_blank" rel="noreferrer">現在の利用可能メーカー・レーベル一覧</a></p>
-              <button type="button" disabled={preparingSample || !sampleChannelId || !sampleCaption.trim() || (sampleChannelId !== "manual:tiktok" && !sampleSchedule) || (publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "youtube_shorts" && !sampleYoutubePrivacy) || (publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "tiktok" && !sampleTikTokPrivacy)} onClick={() => void prepareSampleDraft()} className="justify-self-start rounded-md bg-violet-500 px-4 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{preparingSample ? "公式動画を切り抜き中…" : sampleChannelId === "manual:tiktok" ? "TikTok用の動画を切り抜いて確認" : "切り抜いて公開前確認へ登録"}</button>
-              {manualSamplePreviewUrl && sampleChannelId === "manual:tiktok" && <div className="grid gap-2 rounded-md border border-amber-800 bg-amber-950/20 p-3 md:col-span-2"><p className="text-xs font-bold text-amber-100">手動投稿用クリップ（未公開）。動画を最後まで再生し、映像・音声・本文を確認してください。</p><video className="max-h-[480px] w-full rounded-md bg-black object-contain" src={manualSamplePreviewUrl} controls playsInline /><div className="flex flex-wrap gap-2"><a className="rounded-md bg-emerald-700 px-3 py-2 text-xs font-bold text-white" href={manualSamplePreviewUrl} download={`work-${candidate.id}-clip.mp4`}>確認後にMP4をダウンロード</a><button type="button" className="rounded-md border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-100" onClick={() => void navigator.clipboard.writeText(sampleCaption).catch(() => setError("クリップボードへコピーできませんでした。"))}>本文案をコピー</button></div><ol className="list-decimal space-y-1 pl-5 text-xs text-amber-100"><li>確認したMP4をスマートフォンへ保存する。</li><li>TikTokで @hakkutsu_lab_short を選び、MP4と確認済み本文を設定する。</li><li>カバー・公開範囲・必要な広告表示を確認し、最終プレビュー後に本人が投稿する。</li><li>公開URLと投稿日時を記録する。</li></ol></div>}
+              <button type="button" disabled={preparingSample || !sampleChannelId || !sampleCaption.trim() || !sampleSchedule || (publishableChannels.find((channel) => channel.channelId === sampleChannelId)?.key === "youtube_shorts" && !sampleYoutubePrivacy)} onClick={() => void prepareSampleDraft()} className="justify-self-start rounded-md bg-violet-500 px-4 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{preparingSample ? "公式動画を切り抜き中…" : "切り抜いて公開前確認へ登録"}</button>
             </>;
           })()}
         </div>
@@ -489,21 +403,20 @@ export default function SocialAutoPublishPanel() {
             <input type="file" accept="video/mp4,.mp4" onChange={(event) => setMediaFile(event.target.files?.[0] ?? null)} className="mt-2 block w-full text-xs" />
           </label>
           <label className="text-xs font-bold text-zinc-300">投稿先アカウント
-            <select value={draftChannelId} onChange={(event) => { const value = event.target.value; setDraftChannelId(value); setDraftTikTokPrivacy(""); if (publishableChannels.find((channel) => channel.channelId === value)?.key === "tiktok") void loadTikTokCreatorInfo(value); }} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white">
+            <select value={draftChannelId} onChange={(event) => setDraftChannelId(event.target.value)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white">
               <option value="">選択してください</option>
               {publishableChannels.map((channel) => <option key={channel.channelId} value={channel.channelId!}>{channel.label} / {channel.accountLabel}</option>)}
             </select>
           </label>
           <label className="text-xs font-bold text-zinc-300 md:col-span-2">投稿文
-            <textarea value={draftCaption} onChange={(event) => setDraftCaption(event.target.value)} maxLength={publishableChannels.find((channel) => channel.channelId === draftChannelId)?.key === "tiktok" ? 2200 : 5000} rows={4} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm font-normal text-white" />{publishableChannels.find((channel) => channel.channelId === draftChannelId)?.key === "youtube_shorts" && <span className={`mt-1 block text-[11px] ${utf8Bytes(draftCaption) > 5000 ? "text-rose-300" : "text-zinc-500"}`}>YouTube説明欄: {utf8Bytes(draftCaption)} / 5,000 UTF-8バイト</span>}{publishableChannels.find((channel) => channel.channelId === draftChannelId)?.key === "tiktok" && <span className={`mt-1 block text-[11px] ${draftCaption.length > 2200 ? "text-rose-300" : "text-zinc-500"}`}>TikTok本文: {draftCaption.length} / 2,200文字</span>}
+            <textarea value={draftCaption} onChange={(event) => setDraftCaption(event.target.value)} maxLength={5000} rows={4} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm font-normal text-white" />{publishableChannels.find((channel) => channel.channelId === draftChannelId)?.key === "youtube_shorts" && <span className={`mt-1 block text-[11px] ${utf8Bytes(draftCaption) > 5000 ? "text-rose-300" : "text-zinc-500"}`}>YouTube説明欄: {utf8Bytes(draftCaption)} / 5,000 UTF-8バイト</span>}
           </label>
           <label className="text-xs font-bold text-zinc-300">公開予定
             <input type="datetime-local" value={draftSchedule} onChange={(event) => setDraftSchedule(event.target.value)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white" />
           </label>
           {publishableChannels.find((channel) => channel.channelId === draftChannelId)?.key === "youtube_shorts" && <div className="rounded-md border border-amber-800 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100 md:col-span-2"><label className="font-bold">YouTubeの公開範囲<select required value={draftYoutubePrivacy} onChange={(event) => setDraftYoutubePrivacy(event.target.value as typeof draftYoutubePrivacy)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white"><option value="">選択してください</option><option value="private">非公開</option><option value="unlisted">限定公開</option><option value="public">公開</option></select></label><p className="mt-2">予約時刻にアップロードします。「公開」はアップロード後に公開、「限定公開」はリンクを知る人が視聴できます。「非公開」はアップロード後も非公開のままで、予約時刻に自動公開されません。対象チャンネル・動画の公開範囲とYouTube API利用条件を確認してください。</p><a className="underline" href="https://developers.google.com/youtube/terms/api-services-terms-of-service" target="_blank" rel="noreferrer">YouTube API利用条件</a></div>}
-          {publishableChannels.find((channel) => channel.channelId === draftChannelId)?.key === "tiktok" && <div className="rounded-md border border-amber-800 bg-amber-950/30 p-3 text-xs leading-5 text-amber-100 md:col-span-2"><label className="font-bold">TikTokの公開範囲<select required value={draftTikTokPrivacy} onChange={(event) => setDraftTikTokPrivacy(event.target.value as typeof draftTikTokPrivacy)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white"><option value="">選択してください</option>{(tiktokInfoByChannel[draftChannelId]?.privacyLevelOptions ?? []).map((value) => <option key={value} value={value}>{TIKTOK_PRIVACY_LABELS[value]}</option>)}</select></label><p className="mt-2">最新のアカウント設定: {tiktokInfoByChannel[draftChannelId] ? `${tiktokInfoByChannel[draftChannelId].creatorNickname} (@${tiktokInfoByChannel[draftChannelId].creatorUsername}) / 最大${tiktokInfoByChannel[draftChannelId].maxVideoPostDurationSec}秒 / コメント${tiktokInfoByChannel[draftChannelId].commentDisabled ? "不可" : "可"}・Duet${tiktokInfoByChannel[draftChannelId].duetDisabled ? "不可" : "可"}・Stitch${tiktokInfoByChannel[draftChannelId].stitchDisabled ? "不可" : "可"}` : "未取得。投稿準備前に最新設定を読み込んでください。"}</p></div>}
-          <div className="flex items-end"><button type="button" disabled={preparingDraft || !mediaFile || !draftChannelId || !draftCaption.trim() || !draftSchedule || (publishableChannels.find((channel) => channel.channelId === draftChannelId)?.key === "youtube_shorts" && !draftYoutubePrivacy) || (publishableChannels.find((channel) => channel.channelId === draftChannelId)?.key === "tiktok" && !draftTikTokPrivacy)} onClick={() => void prepareDraft()} className="rounded-md bg-violet-500 px-4 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{preparingDraft ? "非公開保存・登録中…" : "素材を保存して確認待ちへ"}</button></div>
-          <p className="text-[11px] leading-5 text-amber-200 md:col-span-2">FANZAサンプルの取得・切り抜きはこの入力欄では行いません。利用許可と各媒体の投稿条件を確認した素材だけを選んでください。未監査TikTokは選択肢に出しません。</p>
+          <div className="flex items-end"><button type="button" disabled={preparingDraft || !mediaFile || !draftChannelId || !draftCaption.trim() || !draftSchedule || (publishableChannels.find((channel) => channel.channelId === draftChannelId)?.key === "youtube_shorts" && !draftYoutubePrivacy)} onClick={() => void prepareDraft()} className="rounded-md bg-violet-500 px-4 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{preparingDraft ? "非公開保存・登録中…" : "素材を保存して確認待ちへ"}</button></div>
+          <p className="text-[11px] leading-5 text-amber-200 md:col-span-2">FANZAサンプルの取得・切り抜きはこの入力欄では行いません。利用許可と各媒体の投稿条件を確認した素材だけを選んでください。</p>
         </div>
       </div>
       <div className="mt-6 border-t border-violet-900/70 pt-5">
@@ -518,7 +431,7 @@ export default function SocialAutoPublishPanel() {
                   <p className="text-xs text-amber-200">公開予定: {new Date(job.scheduled_at).toLocaleString("ja-JP")}</p>
                 </div>
                 {job.channel?.platform === "youtube_shorts" && <p className="mt-2 rounded-md border border-amber-800 bg-amber-950/30 p-2 text-xs text-amber-100">YouTube公開範囲: {job.youtube_privacy_status === "public" ? "公開" : job.youtube_privacy_status === "unlisted" ? "限定公開" : job.youtube_privacy_status === "private" ? "非公開" : "未設定（承認不可）"}</p>}
-                {job.channel?.platform === "tiktok" && <p className="mt-2 rounded-md border border-amber-800 bg-amber-950/30 p-2 text-xs text-amber-100">TikTok公開範囲: {job.tiktok_privacy_level ? TIKTOK_PRIVACY_LABELS[job.tiktok_privacy_level] : "未設定（承認不可）"}</p>}
+                {job.channel?.platform === "tiktok" && <p className="mt-2 rounded-md border border-rose-800 bg-rose-950/30 p-2 text-xs text-rose-100">TikTok運用は廃止されています。この投稿は承認できません。</p>}
                 {job.channel?.platform === "youtube_shorts" && <p className="mt-2 text-xs leading-5 text-amber-100">YouTube投稿では、対象チャンネルと公開範囲を選び、YouTube API利用条件と権利・プライバシーへの配慮を確認してください。API利用条件の案内はこの承認画面でも表示しています。</p>}
                 {job.content_kind === "video" && job.previewUrl && <video className="mt-3 max-h-[480px] w-full rounded-lg bg-black object-contain" src={job.previewUrl} controls playsInline />}
                 {job.content_kind === "image" && job.previewUrl && <img className="mt-3 max-h-[480px] w-full rounded-lg bg-black object-contain" src={job.previewUrl} alt="投稿予定素材" />}
@@ -530,8 +443,8 @@ export default function SocialAutoPublishPanel() {
                   素材を実際に確認し、センシティブな表現がないこと、素材の利用条件と投稿先への適合、本文・投稿先・公開日時がこの内容でよいことを確認しました。{job.channel?.platform === "youtube_shorts" ? " YouTubeの対象チャンネル・公開範囲とAPI利用条件の案内も確認しました。" : ""}
                 </label>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <button type="button" disabled={!reviewChecks[job.id] || Boolean(job.source_work_id && !sourceUsageChecks[job.id]) || busyReview === job.id || (job.content_kind !== "text" && !job.previewUrl)} onClick={() => void decideReview(job, "approve")} className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{busyReview === job.id ? "保存中…" : "確認して自動投稿を承認"}</button>
-                  <button type="button" disabled={busyReview === job.id} onClick={() => void decideReview(job, "reject")} className="rounded-md border border-rose-700 px-3 py-2 text-xs font-bold text-rose-200 disabled:opacity-40">見送る</button>
+                  {job.channel?.platform !== "tiktok" && <button type="button" disabled={!reviewChecks[job.id] || Boolean(job.source_work_id && !sourceUsageChecks[job.id]) || busyReview === job.id || (job.content_kind !== "text" && !job.previewUrl)} onClick={() => void decideReview(job, "approve")} className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{busyReview === job.id ? "保存中…" : "確認して自動投稿を承認"}</button>}
+                  <button type="button" disabled={busyReview === job.id} onClick={() => void decideReview(job, "reject")} className="rounded-md border border-rose-700 px-3 py-2 text-xs font-bold text-rose-200 disabled:opacity-40">{job.channel?.platform === "tiktok" ? "廃止済み投稿を見送る" : "見送る"}</button>
                 </div>
               </article>
             ))}

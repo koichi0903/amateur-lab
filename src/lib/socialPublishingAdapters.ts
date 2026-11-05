@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { createSocialPublishingPreviewUrl } from "@/lib/socialPublishingMedia";
-import { createTikTokPublishingMediaUrl } from "@/lib/tiktokPublishingMediaUrl";
 import type { SocialPlatform } from "@/lib/socialPublishingOAuth";
 
 type VideoJob = {
@@ -8,7 +7,7 @@ type VideoJob = {
   caption: string;
   media_storage_key: string;
   youtube_privacy_status?: "public" | "unlisted" | "private" | null;
-  tiktok_privacy_level?: "PUBLIC_TO_EVERYONE" | "FOLLOWER_OF_CREATOR" | "MUTUAL_FOLLOW_FRIENDS" | "SELF_ONLY" | null;
+
 };
 
 type Channel = {
@@ -131,102 +130,12 @@ async function publishMetaVideo(platform: "instagram_reels" | "threads", channel
   return { state: "published", providerPostId: published.id };
 }
 
-async function tiktokJson(response: Response) {
-  const body = await response.json().catch(() => null) as { data?: Record<string, unknown>; error?: { code?: string; message?: string } } | null;
-  if (!response.ok || !body || body.error?.code !== "ok" || !body.data) throw new Error("tiktok_provider_request_failed");
-  return body.data;
-}
-
-export type TikTokCreatorInfo = {
-  creatorUsername: string;
-  creatorNickname: string;
-  privacyLevelOptions: Array<"PUBLIC_TO_EVERYONE" | "FOLLOWER_OF_CREATOR" | "MUTUAL_FOLLOW_FRIENDS" | "SELF_ONLY">;
-  commentDisabled: boolean;
-  duetDisabled: boolean;
-  stitchDisabled: boolean;
-  maxVideoPostDurationSec: number;
-};
-
-export async function getTikTokCreatorInfo(token: string): Promise<TikTokCreatorInfo> {
-  const response = await fetch("https://open.tiktokapis.com/v2/post/publish/creator_info/query/", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
-    body: "{}",
-    signal: AbortSignal.timeout(20_000),
-  });
-  const data = await tiktokJson(response) as {
-    creator_username?: unknown; creator_nickname?: unknown; privacy_level_options?: unknown;
-    comment_disabled?: unknown; duet_disabled?: unknown; stitch_disabled?: unknown; max_video_post_duration_sec?: unknown;
-  };
-  const options = data.privacy_level_options;
-  const allowed = ["PUBLIC_TO_EVERYONE", "FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"];
-  if (typeof data.creator_username !== "string" || typeof data.creator_nickname !== "string"
-    || !Array.isArray(options) || !options.length || !options.every((value) => allowed.includes(String(value)))
-    || typeof data.comment_disabled !== "boolean" || typeof data.duet_disabled !== "boolean"
-    || typeof data.stitch_disabled !== "boolean" || !Number.isInteger(data.max_video_post_duration_sec)) {
-    throw new Error("TikTok creator settings were incomplete; refresh them before reviewing this post.");
-  }
-  return {
-    creatorUsername: data.creator_username,
-    creatorNickname: data.creator_nickname,
-    privacyLevelOptions: options as TikTokCreatorInfo["privacyLevelOptions"],
-    commentDisabled: data.comment_disabled,
-    duetDisabled: data.duet_disabled,
-    stitchDisabled: data.stitch_disabled,
-    maxVideoPostDurationSec: data.max_video_post_duration_sec as number,
-  };
-}
-
-async function publishTikTok(channel: Channel, token: string, job: VideoJob & { content_revision: number; media_sha256: string }): Promise<SocialPublishResult> {
-  if (!job.tiktok_privacy_level) throw new Error("tiktok_privacy_level_required");
-  const creator = await getTikTokCreatorInfo(token);
-  if (!creator.privacyLevelOptions.includes(job.tiktok_privacy_level)) throw new Error("tiktok_privacy_level_no_longer_available");
-  const videoUrl = createTikTokPublishingMediaUrl(job);
-  const response = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
-    body: JSON.stringify({
-      post_info: {
-        title: job.caption,
-        privacy_level: job.tiktok_privacy_level,
-        disable_comment: creator.commentDisabled,
-        disable_duet: creator.duetDisabled,
-        disable_stitch: creator.stitchDisabled,
-      },
-      source_info: { source: "PULL_FROM_URL", video_url: videoUrl },
-    }),
-    signal: AbortSignal.timeout(25_000),
-  });
-  const data = await tiktokJson(response);
-  if (typeof data.publish_id !== "string" || !data.publish_id) throw new Error("tiktok_publish_id_missing");
-  return { state: "processing", providerRequestId: data.publish_id };
-}
-
-export async function getTikTokPublishingStatus(token: string, publishId: string) {
-  const response = await fetch("https://open.tiktokapis.com/v2/post/publish/status/fetch/", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
-    body: JSON.stringify({ publish_id: publishId }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  const data = await tiktokJson(response) as { status?: string; publicly_available_post_id?: unknown; publicaly_available_post_id?: unknown; post_ids?: unknown; fail_reason?: string };
-  return {
-    status: data.status,
-    postIds: Array.isArray(data.post_ids) ? data.post_ids.filter((id): id is string => typeof id === "string" && id.length > 0) : typeof data.publicly_available_post_id === "string" ? [data.publicly_available_post_id] : typeof data.publicaly_available_post_id === "string" ? [data.publicaly_available_post_id] : [],
-    reason: typeof data.fail_reason === "string" ? data.fail_reason : null,
-  };
-}
-
 export async function publishSocialVideo(channel: Channel, token: string, job: VideoJob & { content_revision?: number; media_sha256?: string }, media: Buffer, mimeType: string): Promise<SocialPublishResult> {
   if (channel.platform === "youtube_shorts") return publishYoutube(channel, token, job, media, mimeType);
   if (channel.platform === "instagram_reels" || channel.platform === "threads") return publishMetaVideo(channel.platform, channel, token, job);
-  if (channel.platform === "tiktok") {
-    if (!Number.isInteger(job.content_revision) || !job.media_sha256) throw new Error("tiktok_approved_media_identity_missing");
-    return publishTikTok(channel, token, { ...job, content_revision: job.content_revision as number, media_sha256: job.media_sha256 });
-  }
   throw new Error("unsupported_social_platform");
 }
 
 export function isSocialPlatformValue(platform: string): platform is SocialPlatform {
-  return platform === "youtube_shorts" || platform === "instagram_reels" || platform === "threads" || platform === "tiktok";
+  return platform === "youtube_shorts" || platform === "instagram_reels" || platform === "threads";
 }
