@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/admin/requestAuth";
-import { completeOAuth, getOAuthFailureStage, isSocialPlatform } from "@/lib/socialPublishingOAuth";
+import { completeOAuth, getOAuthFailureDiagnostics, isSocialPlatform } from "@/lib/socialPublishingOAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +42,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown OAuth callback error';
     const knownProviderCode = message.match(/\b(invalid_grant|redirect_uri_mismatch|invalid_client|access_denied|invalid_request|unauthorized_client|insufficient_scope|invalid_scope|unsupported_grant_type)\b/i)?.[1] ?? null;
-    const stage = getOAuthFailureStage(error);
+    const diagnostics = getOAuthFailureDiagnostics(error);
+    const stage = diagnostics.stage;
+    const provider = diagnostics.provider;
     const category = stage ?? (/state|browser session|channel/i.test(message) ? 'oauth_state_or_channel_validation'
       : /expired/i.test(message) ? 'oauth_request_expired'
       : /encryption/i.test(message) ? 'token_encryption_configuration'
@@ -51,13 +53,20 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       : /invalid_client/i.test(message) ? 'provider_client_configuration'
       : /access_denied/i.test(message) ? 'provider_access_denied'
       : /could not save|database|authorized channel/i.test(message) ? 'channel_persistence'
-      : knownProviderCode ? 'provider_oauth_exchange'
+      : provider || knownProviderCode ? 'provider_oauth_exchange'
       : 'provider_oauth_or_account_validation');
     console.error('[social-publishing] OAuth callback failed', {
       channel: rawPlatform,
       category,
       errorName: error instanceof Error ? error.name : 'UnknownError',
-      providerCode: knownProviderCode,
+      rootErrorName: diagnostics.rootErrorName,
+      providerOperation: provider?.operation ?? null,
+      providerFailureKind: provider?.failureKind ?? null,
+      providerHttpStatus: provider?.httpStatus ?? null,
+      providerCode: provider?.providerCode ?? knownProviderCode,
+      providerType: provider?.providerType ?? null,
+      providerSubcode: provider?.providerSubcode ?? null,
+      transportErrorName: provider?.transportErrorName ?? null,
     });
     return response(false, stage ?? "unknown");
   }
