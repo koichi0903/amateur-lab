@@ -8,6 +8,3 @@ export function isSocialTokenEncryptionConfigured() {
     return false;
   }
 }
-
-
-}
