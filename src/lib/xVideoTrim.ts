@@ -7,7 +7,7 @@ import { pipeline } from "node:stream/promises";
 import { spawn } from "node:child_process";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
 import ffprobe from "@ffprobe-installer/ffprobe";
-import { validateTrimStartSeconds } from "@/lib/xMediaAssets";
+import { isOfficialFanzaDmmSampleUrl, validateTrimStartSeconds } from "@/lib/xMediaAssets";
 
 function bundledBinary(kind: "ffmpeg" | "ffprobe") {
   return kind === "ffmpeg" ? ffmpeg.path : ffprobe.path;
@@ -42,14 +42,41 @@ function runBinary(command: string, args: string[]) {
   });
 }
 
-async function downloadSource(url: string, file: string, options?: { maxBytes?: number; timeoutMs?: number; rejectRedirects?: boolean }) {
+async function downloadSource(url: string, file: string, options?: { maxBytes?: number; timeoutMs?: number; rejectRedirects?: boolean; followOfficialRedirects?: boolean }) {
   const parsed = new URL(url);
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("動画URLがHTTP/HTTPSではありません。");
-  const response = await fetch(url, {
-    cache: "no-store",
-    ...(options?.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
-    ...(options?.rejectRedirects ? { redirect: "error" as const } : {}),
-  });
+  const signal = options?.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined;
+  let response: Response;
+  if (options?.followOfficialRedirects) {
+    let currentUrl = url;
+    for (let redirectCount = 0; ; redirectCount += 1) {
+      if (!isOfficialFanzaDmmSampleUrl(currentUrl)) throw new Error("公式FANZA/DMM以外へ転送されたため取得を停止しました。");
+      response = await fetch(currentUrl, {
+        cache: "no-store",
+        redirect: "manual",
+        ...(signal ? { signal } : {}),
+      });
+      const location = response.headers.get("location");
+      if (response.status < 300 || response.status >= 400 || !location) break;
+      if (redirectCount >= 3) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error("公式サンプル動画のリダイレクト回数が上限を超えました。");
+      }
+      const nextUrl = new URL(location, currentUrl).toString();
+      if (!isOfficialFanzaDmmSampleUrl(nextUrl)) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error("公式FANZA/DMM以外へ転送されたため取得を停止しました。");
+      }
+      await response.body?.cancel().catch(() => undefined);
+      currentUrl = nextUrl;
+    }
+  } else {
+    response = await fetch(url, {
+      cache: "no-store",
+      ...(signal ? { signal } : {}),
+      ...(options?.rejectRedirects ? { redirect: "error" as const } : {}),
+    });
+  }
   if (!response.ok || !response.body) throw new Error(`元動画を取得できませんでした (${response.status})。`);
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType && !/video|mp4|octet-stream/i.test(contentType)) throw new Error(`動画ではない応答です: ${contentType}`);
@@ -106,7 +133,7 @@ export async function probeVideoFile(file: string) {
 
 export async function trimVideoForX(
   input: { sourceUrl: string; trimStartSeconds: number; trimEndSeconds?: number | null },
-  downloadOptions?: { maxBytes?: number; timeoutMs?: number; rejectRedirects?: boolean },
+  downloadOptions?: { maxBytes?: number; timeoutMs?: number; rejectRedirects?: boolean; followOfficialRedirects?: boolean },
 ) {
   const dir = await mkdtemp(join(tmpdir(), "x-growth-trim-"));
   const sourceFile = join(dir, "source.mp4");
