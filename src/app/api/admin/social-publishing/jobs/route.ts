@@ -259,10 +259,10 @@ export async function POST(request: NextRequest) {
         } finally {
           if (browser) await closeBrowser(browser);
         }
-        if (!refreshedSampleMovieUrl) {
-          return NextResponse.json({ error: "公式商品ページから新しいサンプルURLを取得できませんでした。候補を再検索してからお試しください。" }, { status: 422 });
-        }
-        sampleMovieUrl = refreshedSampleMovieUrl;
+        // Prefer a freshly captured sample URL, but keep the catalog's already verified
+        // official MP4 URL as a fallback when the product-page player cannot be refreshed.
+        // The later official-host validation and bounded video fetch still apply.
+        sampleMovieUrl = refreshedSampleMovieUrl ?? catalogWork.mp4_url;
       } else {
         sampleMovieUrl = catalogWork.mp4_url;
       }
