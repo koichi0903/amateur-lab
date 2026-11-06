@@ -269,7 +269,7 @@ export async function POST(request: NextRequest) {
     let bytes: Buffer;
     try {
       trimmed = await trimVideoForX({ sourceUrl: sampleMovieUrl, trimStartSeconds: sampleStart, trimEndSeconds: sampleEnd }, {
-        maxBytes: socialPublishingMediaMaxBytes(), timeoutMs: 25_000, rejectRedirects: true,
+        maxBytes: socialPublishingMediaMaxBytes(), timeoutMs: 25_000, followOfficialRedirects: true,
       });
       if (channel.platform === "youtube_shorts" && (trimmed.width == null || trimmed.height == null || trimmed.width > trimmed.height)) {
         await readAndCleanupTrimmedVideo(trimmed);
