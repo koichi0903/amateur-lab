@@ -17,9 +17,16 @@ function isAllowedFanzaProductUrl(value: string): boolean {
 }
 
 /** Capture the official MP4 URL from a DMM/FANZA sample player without writing to the actress catalog. */
-export async function captureFanzaSampleMovieUrl(productUrl: string, browser: Browser): Promise<string | null> {
+export async function captureFanzaSampleMovieUrl(
+  productUrl: string,
+  browser: Browser,
+  options: { navigationTimeoutMs?: number; playerTimeoutMs?: number; mediaWaitTimeoutMs?: number } = {},
+): Promise<string | null> {
   if (!isAllowedFanzaProductUrl(productUrl)) throw new Error("公式DMM/FANZAの商品ページURLではありません。");
 
+  const navigationTimeoutMs = options.navigationTimeoutMs ?? 60_000;
+  const playerTimeoutMs = options.playerTimeoutMs ?? 8_000;
+  const mediaWaitTimeoutMs = options.mediaWaitTimeoutMs ?? 7_000;
   const page = await browser.newPage();
   const watcher = watchSampleMovie(page);
   try {
@@ -39,7 +46,7 @@ export async function captureFanzaSampleMovieUrl(productUrl: string, browser: Br
       secure: true,
       sameSite: "Lax",
     }]);
-    await page.goto(productUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.goto(productUrl, { waitUntil: "domcontentloaded", timeout: navigationTimeoutMs });
 
     if (page.url().includes("/age_check/")) {
       await page.context().addCookies([{
@@ -50,13 +57,13 @@ export async function captureFanzaSampleMovieUrl(productUrl: string, browser: Br
         secure: true,
         sameSite: "Lax",
       }]);
-      await page.goto(productUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      await page.goto(productUrl, { waitUntil: "domcontentloaded", timeout: navigationTimeoutMs });
       if (page.url().includes("/age_check/")) throw new Error("年齢確認後の商品ページを開けませんでした。");
     }
 
     const hasPlayer = await page.locator('iframe[src*="/html5_player/"]').first()
-      .waitFor({ state: "attached", timeout: 8_000 }).then(() => true).catch(() => false);
-    const candidate = await watcher.waitForUrl(hasPlayer ? 7_000 : 1_000);
+      .waitFor({ state: "attached", timeout: playerTimeoutMs }).then(() => true).catch(() => false);
+    const candidate = await watcher.waitForUrl(hasPlayer ? mediaWaitTimeoutMs : Math.min(mediaWaitTimeoutMs, 1_000));
     if (!candidate) return null;
     if (!MP4_URL_PATTERN.test(candidate)) throw new Error("プレイヤーからMP4形式のURLを確認できませんでした。");
     return candidate;

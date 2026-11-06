@@ -4,7 +4,9 @@ import { isAdminRequest } from "@/lib/admin/requestAuth";
 import { isOfficialFanzaDmmSampleUrl, sourceDomain } from "@/lib/xMediaAssets";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { assertPrivateSocialPublishingBucket, createSocialPublishingPreviewUrl, loadSocialPublishingMedia, socialPublishingMediaMaxBytes } from "@/lib/socialPublishingMedia";
-import { readAndCleanupTrimmedVideo, trimVideoForX } from "@/lib/xVideoTrim";
+import { readAndCleanupTrimmedVideo, TrimVideoDiagnosticError, trimVideoForX } from "@/lib/xVideoTrim";
+import { captureFanzaSampleMovieUrl } from "@/lib/playwright/captureFanzaSampleMovie";
+import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -231,13 +233,39 @@ export async function POST(request: NextRequest) {
     if (sourceCatalogContentId !== null) {
       const { data: catalogWork, error: catalogWorkError } = await supabaseAdmin
         .from("fanza_amateur_works")
-        .select("content_id, mp4_url, iteminfo")
+        .select("content_id, api_url, mp4_url, iteminfo")
         .eq("content_id", sourceCatalogContentId)
         .eq("mp4_status", "found")
         .maybeSingle();
       if (catalogWorkError) return NextResponse.json({ error: "APIカタログ作品のサンプル情報を取得できませんでした。" }, { status: 503 });
       if (!catalogWork) return NextResponse.json({ error: "選択したAPIカタログ作品が見つかりません。検索し直してください。" }, { status: 404 });
-      sampleMovieUrl = catalogWork.mp4_url;
+      const productPageUrl = typeof catalogWork.api_url === "string" ? catalogWork.api_url : null;
+      if (productPageUrl) {
+        let browser: Awaited<ReturnType<typeof createBrowser>> | null = null;
+        let refreshedSampleMovieUrl: string | null = null;
+        try {
+          browser = await createBrowser();
+          const refreshed = await captureFanzaSampleMovieUrl(productPageUrl, browser, {
+            navigationTimeoutMs: 15_000,
+            playerTimeoutMs: 3_000,
+            mediaWaitTimeoutMs: 4_000,
+          });
+          if (refreshed && isOfficialFanzaDmmSampleUrl(refreshed)) refreshedSampleMovieUrl = refreshed;
+        } catch {
+          console.warn("[social-publishing] official product-page sample refresh failed", {
+            contentId: sourceCatalogContentId,
+            stage: "official_product_page_capture",
+          });
+        } finally {
+          if (browser) await closeBrowser(browser);
+        }
+        if (!refreshedSampleMovieUrl) {
+          return NextResponse.json({ error: "公式商品ページから新しいサンプルURLを取得できませんでした。候補を再検索してからお試しください。" }, { status: 422 });
+        }
+        sampleMovieUrl = refreshedSampleMovieUrl;
+      } else {
+        sampleMovieUrl = catalogWork.mp4_url;
+      }
       sourceMaker = makerFromItemInfo(catalogWork.iteminfo);
     } else {
       const { data: work, error: workError } = await supabaseAdmin
@@ -277,6 +305,10 @@ export async function POST(request: NextRequest) {
       }
       bytes = await readAndCleanupTrimmedVideo(trimmed);
     } catch (cause) {
+      const diagnostic = cause instanceof TrimVideoDiagnosticError
+        ? { stage: cause.stage, httpStatus: cause.httpStatus, redirectCount: cause.redirectCount }
+        : { stage: "trim_pipeline", httpStatus: null, redirectCount: null };
+      console.error("[social-publishing] sample trim failed", diagnostic);
       return NextResponse.json({ error: cause instanceof Error ? cause.message : "公式サンプルを切り抜けませんでした。" }, { status: 422 });
     }
     if (bytes.length > socialPublishingMediaMaxBytes()) return NextResponse.json({ error: "切り抜き後動画が容量上限を超えています。" }, { status: 413 });

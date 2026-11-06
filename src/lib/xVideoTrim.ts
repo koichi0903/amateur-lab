@@ -27,6 +27,18 @@ export type TrimVideoForXResult = {
   trimEndSeconds: number | null;
 };
 
+export class TrimVideoDiagnosticError extends Error {
+  constructor(
+    readonly stage: "source_fetch" | "source_redirect" | "source_response_validation" | "source_read" | "source_probe" | "transcode" | "output_probe",
+    readonly httpStatus: number | null,
+    readonly redirectCount: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "TrimVideoDiagnosticError";
+  }
+}
+
 function runBinary(command: string, args: string[]) {
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     const child = spawn(command, args, { windowsHide: true });
@@ -47,43 +59,53 @@ async function downloadSource(url: string, file: string, options?: { maxBytes?: 
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("動画URLがHTTP/HTTPSではありません。");
   const signal = options?.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined;
   let response: Response;
+  let redirectsFollowed = 0;
   if (options?.followOfficialRedirects) {
     let currentUrl = url;
     for (let redirectCount = 0; ; redirectCount += 1) {
-      if (!isOfficialFanzaDmmSampleUrl(currentUrl)) throw new Error("公式FANZA/DMM以外へ転送されたため取得を停止しました。");
-      response = await fetch(currentUrl, {
-        cache: "no-store",
-        redirect: "manual",
-        ...(signal ? { signal } : {}),
-      });
+      if (!isOfficialFanzaDmmSampleUrl(currentUrl)) throw new TrimVideoDiagnosticError("source_redirect", null, redirectsFollowed, "公式FANZA/DMM以外へ転送されたため取得を停止しました。");
+      try {
+        response = await fetch(currentUrl, {
+          cache: "no-store",
+          redirect: "manual",
+          ...(signal ? { signal } : {}),
+        });
+      } catch {
+        throw new TrimVideoDiagnosticError("source_fetch", null, redirectsFollowed, "元動画を取得できませんでした。");
+      }
       const location = response.headers.get("location");
       if (response.status < 300 || response.status >= 400 || !location) break;
       if (redirectCount >= 3) {
         await response.body?.cancel().catch(() => undefined);
-        throw new Error("公式サンプル動画のリダイレクト回数が上限を超えました。");
+        throw new TrimVideoDiagnosticError("source_redirect", response.status, redirectsFollowed, "公式サンプル動画のリダイレクト回数が上限を超えました。");
       }
       const nextUrl = new URL(location, currentUrl).toString();
       if (!isOfficialFanzaDmmSampleUrl(nextUrl)) {
         await response.body?.cancel().catch(() => undefined);
-        throw new Error("公式FANZA/DMM以外へ転送されたため取得を停止しました。");
+        throw new TrimVideoDiagnosticError("source_redirect", response.status, redirectsFollowed, "公式FANZA/DMM以外へ転送されたため取得を停止しました。");
       }
       await response.body?.cancel().catch(() => undefined);
+      redirectsFollowed += 1;
       currentUrl = nextUrl;
     }
   } else {
-    response = await fetch(url, {
-      cache: "no-store",
-      ...(signal ? { signal } : {}),
-      ...(options?.rejectRedirects ? { redirect: "error" as const } : {}),
-    });
+    try {
+      response = await fetch(url, {
+        cache: "no-store",
+        ...(signal ? { signal } : {}),
+        ...(options?.rejectRedirects ? { redirect: "error" as const } : {}),
+      });
+    } catch {
+      throw new TrimVideoDiagnosticError("source_fetch", null, redirectsFollowed, "元動画を取得できませんでした。");
+    }
   }
-  if (!response.ok || !response.body) throw new Error(`元動画を取得できませんでした (${response.status})。`);
+  if (!response.ok || !response.body) throw new TrimVideoDiagnosticError("source_fetch", response.status, redirectsFollowed, `元動画を取得できませんでした (${response.status})。`);
   const contentType = response.headers.get("content-type") ?? "";
-  if (contentType && !/video|mp4|octet-stream/i.test(contentType)) throw new Error(`動画ではない応答です: ${contentType}`);
+  if (contentType && !/video|mp4|octet-stream/i.test(contentType)) throw new TrimVideoDiagnosticError("source_response_validation", response.status, redirectsFollowed, "動画として処理できない応答でした。");
   const declaredSize = Number(response.headers.get("content-length"));
   if (options?.maxBytes && Number.isFinite(declaredSize) && declaredSize > options.maxBytes) {
     await response.body.cancel().catch(() => undefined);
-    throw new Error("元動画が設定した容量上限を超えています。");
+    throw new TrimVideoDiagnosticError("source_response_validation", response.status, redirectsFollowed, "元動画が設定した容量上限を超えています。");
   }
   let received = 0;
   const limited = async function* () {
@@ -95,7 +117,7 @@ async function downloadSource(url: string, file: string, options?: { maxBytes?: 
         received += value.byteLength;
         if (options?.maxBytes && received > options.maxBytes) {
           await reader.cancel().catch(() => undefined);
-          throw new Error("元動画が設定した容量上限を超えています。");
+          throw new TrimVideoDiagnosticError("source_read", response.status, redirectsFollowed, "元動画が設定した容量上限を超えています。");
         }
         yield Buffer.from(value);
       }
@@ -103,7 +125,13 @@ async function downloadSource(url: string, file: string, options?: { maxBytes?: 
       reader.releaseLock();
     }
   };
-  await pipeline(Readable.from(limited()), createWriteStream(file));
+  try {
+    await pipeline(Readable.from(limited()), createWriteStream(file));
+  } catch (cause) {
+    if (cause instanceof TrimVideoDiagnosticError) throw cause;
+    throw new TrimVideoDiagnosticError("source_read", response.status, redirectsFollowed, "元動画の読み込みに失敗しました。");
+  }
+  return redirectsFollowed;
 }
 
 export async function probeVideoFile(file: string) {
@@ -139,8 +167,13 @@ export async function trimVideoForX(
   const sourceFile = join(dir, "source.mp4");
   const outputFile = join(dir, "x-post-trimmed.mp4");
   try {
-    await downloadSource(input.sourceUrl, sourceFile, downloadOptions);
-    const sourceProbe = await probeVideoFile(sourceFile);
+    const redirectCount = await downloadSource(input.sourceUrl, sourceFile, downloadOptions);
+    let sourceProbe: Awaited<ReturnType<typeof probeVideoFile>>;
+    try {
+      sourceProbe = await probeVideoFile(sourceFile);
+    } catch {
+      throw new TrimVideoDiagnosticError("source_probe", null, redirectCount, "元動画を解析できませんでした。");
+    }
     const validation = validateTrimStartSeconds(input.trimStartSeconds, sourceProbe.durationSeconds);
     if (!validation.ok) throw new Error(validation.error);
     const requestedEnd = input.trimEndSeconds == null ? null : Number(input.trimEndSeconds);
@@ -170,8 +203,17 @@ export async function trimVideoForX(
       "-avoid_negative_ts", "make_zero",
       outputFile,
     );
-    await runBinary(bundledBinary("ffmpeg"), trimArgs);
-    const outputProbe = await probeVideoFile(outputFile);
+    try {
+      await runBinary(bundledBinary("ffmpeg"), trimArgs);
+    } catch {
+      throw new TrimVideoDiagnosticError("transcode", null, redirectCount, "動画を切り抜けませんでした。");
+    }
+    let outputProbe: Awaited<ReturnType<typeof probeVideoFile>>;
+    try {
+      outputProbe = await probeVideoFile(outputFile);
+    } catch {
+      throw new TrimVideoDiagnosticError("output_probe", null, redirectCount, "切り抜き後の動画を確認できませんでした。");
+    }
     const outputStat = await stat(outputFile);
     if (outputStat.size <= 0) throw new Error("トリム後動画が空です。");
     await unlink(sourceFile).catch(() => undefined);
