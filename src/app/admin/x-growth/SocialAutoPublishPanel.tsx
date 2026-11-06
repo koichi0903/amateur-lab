@@ -40,6 +40,7 @@ type ReviewJob = {
   previewUrl: string | null;
   previewError?: string;
   source_work_id?: number | null;
+  source_catalog_content_id?: string | null;
   source_maker?: string | null;
   source_usage_attested?: boolean;
   source_usage_checked_at?: string | null;
@@ -54,7 +55,10 @@ type ReviewJob = {
 };
 
 type SampleCandidate = {
-  id: number;
+  key: string;
+  id: number | null;
+  sourceWorkId: number | null;
+  sourceCatalogContentId: string | null;
   productId: string | null;
   title: string;
   maker: string | null;
@@ -85,8 +89,12 @@ export default function SocialAutoPublishPanel() {
   const [reviewJobs, setReviewJobs] = useState<ReviewJob[]>([]);
   const [recentJobs, setRecentJobs] = useState<ReviewJob[]>([]);
   const [sampleCandidates, setSampleCandidates] = useState<SampleCandidate[]>([]);
+  const [catalogSampleCandidates, setCatalogSampleCandidates] = useState<SampleCandidate[]>([]);
   const [candidateError, setCandidateError] = useState<string | null>(null);
-  const [selectedSampleId, setSelectedSampleId] = useState<number | null>(null);
+  const [catalogSampleQuery, setCatalogSampleQuery] = useState("");
+  const [catalogCandidateError, setCatalogCandidateError] = useState<string | null>(null);
+  const [searchingCatalogCandidates, setSearchingCatalogCandidates] = useState(false);
+  const [selectedSampleKey, setSelectedSampleKey] = useState("");
   const [sampleTrimStart, setSampleTrimStart] = useState("0");
   const [sampleTrimEnd, setSampleTrimEnd] = useState("15");
   const [sampleChannelId, setSampleChannelId] = useState("");
@@ -137,6 +145,27 @@ export default function SocialAutoPublishPanel() {
   useEffect(() => { void refresh(); }, [refresh]);
   const readyForConnect = Boolean(status?.schemaReady && status.tokenEncryptionConfigured);
   const publishableChannels = (status?.channels ?? []).filter((channel) => status?.privateMediaBucketVerified && channel.connected && channel.enabled && channel.missingScopes.length === 0 && channel.channelId);
+  const allSampleCandidates = [...sampleCandidates, ...catalogSampleCandidates];
+
+  const searchCatalogSampleCandidates = async () => {
+    const query = catalogSampleQuery.trim();
+    setSearchingCatalogCandidates(true);
+    setCatalogCandidateError(null);
+    try {
+      const response = await fetch(`/api/admin/social-publishing/jobs?view=sample-candidates&q=${encodeURIComponent(query)}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "APIカタログを検索できませんでした。");
+      const candidates = (payload.candidates ?? []) as SampleCandidate[];
+      setCatalogSampleCandidates(candidates);
+      if (candidates.length === 0) setCatalogCandidateError("公式動画を取得済みの作品は見つかりませんでした。");
+      if (selectedSampleKey.startsWith("catalog:")) setSelectedSampleKey("");
+    } catch (cause) {
+      setCatalogSampleCandidates([]);
+      setCatalogCandidateError(cause instanceof Error ? cause.message : "APIカタログを検索できませんでした。");
+    } finally {
+      setSearchingCatalogCandidates(false);
+    }
+  };
 
   const prepareDraft = async () => {
     if (!mediaFile || !draftChannelId || !draftCaption.trim() || !draftSchedule) return;
@@ -198,7 +227,7 @@ export default function SocialAutoPublishPanel() {
   };
 
   const prepareSampleDraft = async () => {
-    const selected = sampleCandidates.find((candidate) => candidate.id === selectedSampleId);
+    const selected = allSampleCandidates.find((candidate) => candidate.key === selectedSampleKey);
     const start = Number(sampleTrimStart);
     const end = Number(sampleTrimEnd);
     const selectedChannel = publishableChannels.find((channel) => channel.channelId === sampleChannelId);
@@ -228,7 +257,7 @@ export default function SocialAutoPublishPanel() {
           caption: sampleCaption.trim(),
           youtubePrivacyStatus: selectedChannel.key === "youtube_shorts" ? sampleYoutubePrivacy : null,
           scheduledAt: new Date(sampleSchedule).toISOString(),
-          sourceWorkId: selected.id,
+          ...(selected.sourceWorkId !== null ? { sourceWorkId: selected.sourceWorkId } : { sourceCatalogContentId: selected.sourceCatalogContentId }),
           trimStartSeconds: start,
           trimEndSeconds: end,
         }),
@@ -238,7 +267,7 @@ export default function SocialAutoPublishPanel() {
       setSampleCaption("");
       setSampleSchedule("");
       setSampleYoutubePrivacy("");
-      setSelectedSampleId(null);
+      setSelectedSampleKey("");
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "サンプルの切り抜き・確認待ち登録に失敗しました。");
@@ -269,7 +298,7 @@ export default function SocialAutoPublishPanel() {
 
   const decideReview = async (job: ReviewJob, decision: "approve" | "reject") => {
     if (decision === "approve" && !reviewChecks[job.id]) return;
-    if (decision === "approve" && job.source_work_id && !sourceUsageChecks[job.id]) return;
+    if (decision === "approve" && (job.source_work_id || job.source_catalog_content_id) && !sourceUsageChecks[job.id]) return;
     setBusyReview(job.id);
     setError(null);
     try {
@@ -350,30 +379,34 @@ export default function SocialAutoPublishPanel() {
 
       <div className="mt-6 border-t border-violet-900/70 pt-5">
         <h3 className="text-base font-black text-white">作品候補から公式サンプルを切り抜く</h3>
-        <p className="mt-1 text-xs leading-5 text-zinc-400">登録済み作品データから公式サンプルURLがある候補を出し、選んだ区間を非公開保存します。候補データは最新の公式情報とは限りません。動画にはセンシティブな場面が含まれる可能性があるため、切り抜き後の動画を公開前確認で必ず再生してください。</p>
+        <p className="mt-1 text-xs leading-5 text-zinc-400">登録済み作品または素人作品APIカタログから公式サンプルを選び、指定区間を非公開保存します。候補表示は素材の利用許可を意味しません。切り抜き後の動画を公開前確認で必ず再生してください。</p>
         {candidateError && <p role="status" className="mt-3 rounded-md border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-100">候補一覧: {candidateError}</p>}
         <div className="mt-3 grid gap-3 rounded-lg border border-zinc-800 bg-zinc-950/70 p-4">
-          {sampleCandidates.length === 0 ? <p className="text-xs text-zinc-500">公式サンプル動画付きの候補がありません。</p> : (
-            <label className="text-xs font-bold text-zinc-300">作品候補（DB保存値。ランキング・価格・レビューは要再確認）
-              <select value={selectedSampleId ?? ""} onChange={(event) => {
-                const nextId = event.target.value ? Number(event.target.value) : null;
-                setSelectedSampleId(nextId);
-              }} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white">
-                <option value="">選択してください（最大20件）</option>
-                {sampleCandidates.map((candidate) => {
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+            <label className="text-xs font-bold text-zinc-300">素人作品APIカタログを品番で検索
+              <input value={catalogSampleQuery} onChange={(event) => setCatalogSampleQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void searchCatalogSampleCandidates(); } }} placeholder="例: hsg010" maxLength={120} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm font-normal text-white" />
+            </label>
+            <button type="button" disabled={searchingCatalogCandidates || catalogSampleQuery.trim().length < 3} onClick={() => void searchCatalogSampleCandidates()} className="rounded-md border border-violet-700 px-3 py-2 text-xs font-bold text-violet-100 disabled:opacity-40">{searchingCatalogCandidates ? "検索中…" : "品番検索"}</button>
+          </div>
+          {catalogCandidateError && <p role="status" className="rounded-md border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-100">APIカタログ: {catalogCandidateError}</p>}
+          {allSampleCandidates.length === 0 ? <p className="text-xs text-zinc-500">公式サンプル動画付きの候補がありません。品番検索を試してください。</p> : (
+            <label className="text-xs font-bold text-zinc-300">作品候補（メーカー・利用条件は公開前に要確認）
+              <select value={selectedSampleKey} onChange={(event) => setSelectedSampleKey(event.target.value)} className="mt-2 block w-full rounded-md border border-zinc-700 bg-black px-3 py-2 text-sm text-white">
+                <option value="">選択してください</option>
+                {allSampleCandidates.map((candidate) => {
                   const usedOnSelectedChannel = Boolean(sampleChannelId && candidate.usedChannelIds.includes(sampleChannelId));
-                  return <option key={candidate.id} value={candidate.id} disabled={usedOnSelectedChannel}>{candidate.ranking ? `#${candidate.ranking} ` : ""}{candidate.title} / {candidate.productId ?? `work ${candidate.id}`}{usedOnSelectedChannel ? "（この投稿先で使用済み）" : ""}</option>;
+                  return <option key={candidate.key} value={candidate.key} disabled={usedOnSelectedChannel}>{candidate.ranking ? `#${candidate.ranking} ` : ""}{candidate.title} / {candidate.productId ?? candidate.sourceCatalogContentId ?? `work ${candidate.sourceWorkId ?? "?"}`}{candidate.sourceCatalogContentId ? "（APIカタログ）" : ""}{usedOnSelectedChannel ? "（この投稿先で使用済み）" : ""}</option>;
                 })}
               </select>
             </label>
           )}
-          {sampleCandidates.find((candidate) => candidate.id === selectedSampleId) && (() => {
-            const candidate = sampleCandidates.find((item) => item.id === selectedSampleId)!;
+          {allSampleCandidates.find((candidate) => candidate.key === selectedSampleKey) && (() => {
+            const candidate = allSampleCandidates.find((item) => item.key === selectedSampleKey)!;
             return <>
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
                   <p className="text-sm font-black text-white">{candidate.title}</p>
-                  <p className="mt-1 text-[11px] text-zinc-400">品番: {candidate.productId ?? "未登録"} / メーカー: {candidate.maker ?? "未登録"} / 作品ID: {candidate.id}</p>
+                  <p className="mt-1 text-[11px] text-zinc-400">品番: {candidate.productId ?? "未登録"} / メーカー: {candidate.maker ?? "未登録"} / {candidate.sourceCatalogContentId ? `APIカタログID: ${candidate.sourceCatalogContentId}` : `作品ID: ${candidate.sourceWorkId ?? "未登録"}`}</p>
                   <p className="mt-2 text-xs leading-5 text-amber-200">価格・ランキング・レビューのDB値: {candidate.salePrice ?? candidate.price ?? "未登録"}円{candidate.ranking ? ` / 保存順位 ${candidate.ranking}位` : ""}{candidate.reviewAverage != null ? ` / 評価 ${candidate.reviewAverage}` : ""}{candidate.reviewCount != null ? ` (${candidate.reviewCount}件)` : ""}. 公開文へ使う場合は公式ページで当日確認してください。</p>
                   <a className="mt-2 inline-block text-xs text-violet-300 underline" href={candidate.sampleMovieUrl} target="_blank" rel="noreferrer">公式サンプルを別タブで確認</a>
                 </div>
@@ -436,14 +469,14 @@ export default function SocialAutoPublishPanel() {
                 {job.content_kind === "video" && job.previewUrl && <video className="mt-3 max-h-[480px] w-full rounded-lg bg-black object-contain" src={job.previewUrl} controls playsInline />}
                 {job.content_kind === "image" && job.previewUrl && <img className="mt-3 max-h-[480px] w-full rounded-lg bg-black object-contain" src={job.previewUrl} alt="投稿予定素材" />}
                 {job.content_kind !== "text" && !job.previewUrl && <p className="mt-3 rounded-md border border-rose-800 bg-rose-950/30 p-3 text-xs text-rose-200">素材プレビューを取得できません{job.previewError === "asset_changed" ? "（登録後に素材が変わりました）" : ""}。確認できるまで承認できません。</p>}
-                {job.source_work_id && <><p className="mt-2 text-[11px] leading-5 text-violet-200">公式サンプル由来 / 作品ID {job.source_work_id} / メーカー {job.source_maker ?? "未記録"} / {job.source_sample_host ?? "ホスト未記録"} / 切り抜き {job.trim_start_seconds ?? "?"}〜{job.trim_end_seconds ?? "?"}秒。元URLハッシュは記録済みです。</p><p className="mt-1 text-[11px] leading-5"><a className="text-violet-300 underline" href="https://support.dmm.com/affiliate/article/44123" target="_blank" rel="noreferrer">DMMの利用条件</a><span className="mx-2 text-zinc-500">/</span><a className="text-violet-300 underline" href="https://docs.google.com/forms/d/e/1FAIpQLSdH2qwHdfDrfwKKHbeV9wQYHYzYvjB30qkgJNAVUQY8z1VHRw/viewform" target="_blank" rel="noreferrer">最新の利用可能メーカー一覧</a></p><label className="mt-3 flex items-start gap-2 text-xs leading-5 text-amber-200"><input type="checkbox" checked={Boolean(sourceUsageChecks[job.id])} onChange={(event) => setSourceUsageChecks((current) => ({ ...current, [job.id]: event.target.checked }))} className="mt-1" />メーカー「{job.source_maker ?? "未記録"}」が現在の利用可能一覧にあり、このサンプルの切り抜き条件を確認しました。編集は短縮・切り抜きだけで、別シーン・文字・音声は追加していません。</label></>}
+                {(job.source_work_id || job.source_catalog_content_id) && <><p className="mt-2 text-[11px] leading-5 text-violet-200">公式サンプル由来 / {job.source_work_id ? `作品ID ${job.source_work_id}` : `APIカタログID ${job.source_catalog_content_id}`} / メーカー {job.source_maker ?? "未記録"} / {job.source_sample_host ?? "ホスト未記録"} / 切り抜き {job.trim_start_seconds ?? "?"}〜{job.trim_end_seconds ?? "?"}秒。元URLハッシュは記録済みです。</p><p className="mt-1 text-[11px] leading-5"><a className="text-violet-300 underline" href="https://support.dmm.com/affiliate/article/44123" target="_blank" rel="noreferrer">DMMの利用条件</a><span className="mx-2 text-zinc-500">/</span><a className="text-violet-300 underline" href="https://docs.google.com/forms/d/e/1FAIpQLSdH2qwHdfDrfwKKHbeV9wQYHYzYvjB30qkgJNAVUQY8z1VHRw/viewform" target="_blank" rel="noreferrer">最新の利用可能メーカー一覧</a></p><label className="mt-3 flex items-start gap-2 text-xs leading-5 text-amber-200"><input type="checkbox" checked={Boolean(sourceUsageChecks[job.id])} onChange={(event) => setSourceUsageChecks((current) => ({ ...current, [job.id]: event.target.checked }))} className="mt-1" />メーカー「{job.source_maker ?? "未記録"}」が現在の利用可能一覧にあり、このサンプルの切り抜き条件を確認しました。編集は短縮・切り抜きだけで、別シーン・文字・音声は追加していません。</label></>}
                 <pre className="mt-3 whitespace-pre-wrap break-words rounded-md border border-zinc-800 bg-black/40 p-3 font-sans text-sm text-zinc-100">{job.caption}</pre>
                 <label className="mt-3 flex items-start gap-2 text-xs leading-5 text-zinc-300">
                   <input type="checkbox" checked={Boolean(reviewChecks[job.id])} onChange={(event) => setReviewChecks((current) => ({ ...current, [job.id]: event.target.checked }))} className="mt-1" />
                   素材を実際に確認し、センシティブな表現がないこと、素材の利用条件と投稿先への適合、本文・投稿先・公開日時がこの内容でよいことを確認しました。{job.channel?.platform === "youtube_shorts" ? " YouTubeの対象チャンネル・公開範囲とAPI利用条件の案内も確認しました。" : ""}
                 </label>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {job.channel?.platform !== "tiktok" && <button type="button" disabled={!reviewChecks[job.id] || Boolean(job.source_work_id && !sourceUsageChecks[job.id]) || busyReview === job.id || (job.content_kind !== "text" && !job.previewUrl)} onClick={() => void decideReview(job, "approve")} className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{busyReview === job.id ? "保存中…" : "確認して自動投稿を承認"}</button>}
+                  {job.channel?.platform !== "tiktok" && <button type="button" disabled={!reviewChecks[job.id] || Boolean((job.source_work_id || job.source_catalog_content_id) && !sourceUsageChecks[job.id]) || busyReview === job.id || (job.content_kind !== "text" && !job.previewUrl)} onClick={() => void decideReview(job, "approve")} className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{busyReview === job.id ? "保存中…" : "確認して自動投稿を承認"}</button>}
                   <button type="button" disabled={busyReview === job.id} onClick={() => void decideReview(job, "reject")} className="rounded-md border border-rose-700 px-3 py-2 text-xs font-bold text-rose-200 disabled:opacity-40">{job.channel?.platform === "tiktok" ? "廃止済み投稿を見送る" : "見送る"}</button>
                 </div>
               </article>

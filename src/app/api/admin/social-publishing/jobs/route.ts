@@ -34,6 +34,7 @@ async function getSampleCandidates() {
     .filter((work) => Number.isSafeInteger(work.id) && work.id > 0 && isOfficialFanzaDmmSampleUrl(work.sample_movie_url))
     .slice(0, 20)
     .map((work) => ({
+      key: `works:${work.id}`, sourceWorkId: work.id, sourceCatalogContentId: null,
       id: work.id, productId: work.product_id, title: work.title, maker: work.maker, price: work.price, salePrice: work.sale_price,
       discountRate: work.discount_rate, ranking: work.ranking, rankingScore: work.ranking_score,
       reviewAverage: work.review_average, reviewCount: work.review_count, releaseDate: work.release_date,
@@ -45,15 +46,103 @@ async function getSampleCandidates() {
   });
 }
 
+function makerFromItemInfo(iteminfo: unknown) {
+  if (!iteminfo || typeof iteminfo !== "object" || Array.isArray(iteminfo)) return null;
+  const rawMakers = (iteminfo as Record<string, unknown>).maker;
+  const makers = Array.isArray(rawMakers) ? rawMakers : rawMakers ? [rawMakers] : [];
+  for (const maker of makers) {
+    if (!maker || typeof maker !== "object" || Array.isArray(maker)) continue;
+    const name = (maker as Record<string, unknown>).name;
+    if (typeof name === "string" && name.trim()) return name.trim();
+  }
+  return null;
+}
+
+async function getFanzaAmateurSampleCandidates(query: string) {
+  const normalizedQuery = query.trim();
+  if (!/^[a-zA-Z0-9_-]{3,120}$/.test(normalizedQuery)) {
+    return NextResponse.json({ error: "品番は英数字・ハイフン・アンダースコアの3〜120文字で入力してください。" }, { status: 400 });
+  }
+
+  const [{ data, error }, { data: usedJobs, error: jobsError }] = await Promise.all([
+    supabaseAdmin
+      .from("fanza_amateur_works")
+      .select("content_id, product_id, title, iteminfo, image_url, api_date, rank, mp4_url, mp4_status")
+      .eq("mp4_status", "found")
+      .not("mp4_url", "is", null)
+      .or(`content_id.ilike.${normalizedQuery},product_id.ilike.${normalizedQuery}`)
+      .order("api_date", { ascending: false, nullsFirst: false })
+      .limit(20),
+    supabaseAdmin
+      .from("social_publishing_jobs")
+      .select("source_catalog_content_id, channel_id")
+      .not("source_catalog_content_id", "is", null)
+      .limit(5000),
+  ]);
+  if (error) return NextResponse.json({ error: "素人作品APIカタログを検索できませんでした。" }, { status: 503 });
+  if (jobsError) {
+    const migrationMissing = jobsError.code === "42703" || jobsError.code === "PGRST204";
+    return NextResponse.json({ error: migrationMissing ? "投稿キューのカタログ作品対応migrationが未適用です。" : "投稿履歴を確認できないため、重複除外付きの候補を作れません。" }, { status: 503 });
+  }
+
+  const usedByContentId = new Map<string, Set<string>>();
+  for (const job of usedJobs ?? []) {
+    if (typeof job.source_catalog_content_id !== "string" || typeof job.channel_id !== "string") continue;
+    const channels = usedByContentId.get(job.source_catalog_content_id) ?? new Set<string>();
+    channels.add(job.channel_id);
+    usedByContentId.set(job.source_catalog_content_id, channels);
+  }
+
+  const candidates = (data ?? [])
+    .filter((row) => typeof row.content_id === "string" && typeof row.mp4_url === "string" && isOfficialFanzaDmmSampleUrl(row.mp4_url))
+    .map((row) => {
+      const image = row.image_url && typeof row.image_url === "object" && !Array.isArray(row.image_url)
+        ? row.image_url as Record<string, unknown>
+        : {};
+      return {
+        key: `catalog:${row.content_id}`,
+        sourceWorkId: null,
+        sourceCatalogContentId: row.content_id,
+        id: null,
+        productId: typeof row.product_id === "string" ? row.product_id : row.content_id,
+        title: typeof row.title === "string" && row.title.trim() ? row.title : row.content_id,
+        maker: makerFromItemInfo(row.iteminfo),
+        price: null,
+        salePrice: null,
+        discountRate: null,
+        ranking: typeof row.rank === "number" ? row.rank : null,
+        rankingScore: null,
+        reviewAverage: null,
+        reviewCount: null,
+        releaseDate: typeof row.api_date === "string" ? row.api_date : null,
+        imageUrl: typeof image.large === "string" ? image.large : typeof image.small === "string" ? image.small : null,
+        sampleMovieUrl: row.mp4_url as string,
+        isOnSale: null,
+        saleEndAt: null,
+        usedChannelIds: [...(usedByContentId.get(row.content_id) ?? [])],
+      };
+    });
+  return NextResponse.json({ candidates, fetchedAt: new Date().toISOString(), source: "fanza_amateur_works; official sample URL and maker must be reviewed before approval" }, {
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
+function isMissingCatalogSourceColumn(error: { code?: string } | null) {
+  return error?.code === "42703" || error?.code === "PGRST204";
+}
+
 export async function GET(request: NextRequest) {
   if (!(await isAdminRequest(request))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (request.nextUrl.searchParams.get("view") === "sample-candidates") return getSampleCandidates();
+  if (request.nextUrl.searchParams.get("view") === "sample-candidates") {
+    const query = request.nextUrl.searchParams.get("q");
+    return query === null ? getSampleCandidates() : getFanzaAmateurSampleCandidates(query);
+  }
   const { data, error } = await supabaseAdmin
     .from("social_publishing_jobs")
-    .select("id, idempotency_key, content_kind, caption, youtube_privacy_status, media_storage_key, media_sha256, source_work_id, source_sample_url_hash, source_sample_host, source_maker, source_usage_attested, source_usage_checked_at, trim_start_seconds, trim_end_seconds, scheduled_at, status, content_revision, review_status, review_attested, approved_revision, reviewed_at, provider_request_id, provider_post_id, published_at, last_error_code, channel:social_publishing_channels(platform, account_label)")
+    .select("id, idempotency_key, content_kind, caption, youtube_privacy_status, media_storage_key, media_sha256, source_work_id, source_catalog_content_id, source_sample_url_hash, source_sample_host, source_maker, source_usage_attested, source_usage_checked_at, trim_start_seconds, trim_end_seconds, scheduled_at, status, content_revision, review_status, review_attested, approved_revision, reviewed_at, provider_request_id, provider_post_id, published_at, last_error_code, channel:social_publishing_channels(platform, account_label)")
     .order("scheduled_at", { ascending: true })
     .limit(50);
-  if (error) return NextResponse.json({ error: "Could not load the publishing queue." }, { status: 503 });
+  if (error) return NextResponse.json({ error: isMissingCatalogSourceColumn(error) ? "投稿キューのカタログ作品対応migrationが未適用です。" : "Could not load the publishing queue." }, { status: 503 });
   const bucket = process.env.SOCIAL_PUBLISHING_MEDIA_BUCKET;
   const jobs = await Promise.all((data ?? []).map(async (job) => {
     if (!bucket || !job.media_storage_key || job.status !== "awaiting_user_review") return { ...job, previewUrl: null };
@@ -81,9 +170,10 @@ export async function POST(request: NextRequest) {
   const youtubePrivacyStatus = payload?.youtubePrivacyStatus === "public" || payload?.youtubePrivacyStatus === "unlisted" || payload?.youtubePrivacyStatus === "private" ? payload.youtubePrivacyStatus : null;
   let mediaStorageKey = typeof payload?.mediaStorageKey === "string" ? payload.mediaStorageKey.trim() : null;
   const sourceWorkId = typeof payload?.sourceWorkId === "number" && Number.isSafeInteger(payload.sourceWorkId) ? payload.sourceWorkId : null;
+  const sourceCatalogContentId = typeof payload?.sourceCatalogContentId === "string" ? payload.sourceCatalogContentId.trim() : null;
   const trimStartSeconds = typeof payload?.trimStartSeconds === "number" ? payload.trimStartSeconds : null;
   const trimEndSeconds = typeof payload?.trimEndSeconds === "number" ? payload.trimEndSeconds : null;
-  const sampleCandidateRequest = sourceWorkId !== null || trimStartSeconds !== null || trimEndSeconds !== null;
+  const sampleCandidateRequest = sourceWorkId !== null || sourceCatalogContentId !== null || trimStartSeconds !== null || trimEndSeconds !== null;
   const scheduledAt = typeof payload?.scheduledAt === "string" ? new Date(payload.scheduledAt) : null;
   if (!channelId || !/^[a-zA-Z0-9:_-]{8,160}$/.test(idempotencyKey) || !["video", "image", "text"].includes(String(contentKind)) || caption.length > 5000 || !scheduledAt || Number.isNaN(scheduledAt.getTime())) {
     return NextResponse.json({ error: "Invalid scheduled post fields." }, { status: 400 });
@@ -91,7 +181,13 @@ export async function POST(request: NextRequest) {
   if (contentKind === "text" ? mediaStorageKey !== null : (!sampleCandidateRequest && (!mediaStorageKey || mediaStorageKey.startsWith("http") || mediaStorageKey.includes("..")))) {
     return NextResponse.json({ error: "Media must be a private storage key, not a public URL." }, { status: 400 });
   }
-  if (sampleCandidateRequest && (sourceWorkId === null || trimStartSeconds === null || trimEndSeconds === null || trimStartSeconds < 0 || trimEndSeconds <= trimStartSeconds || trimEndSeconds - trimStartSeconds > 60)) {
+  if (sourceCatalogContentId !== null && !/^[a-zA-Z0-9_-]{3,120}$/.test(sourceCatalogContentId)) {
+    return NextResponse.json({ error: "APIカタログの作品IDが不正です。候補を検索し直してください。" }, { status: 400 });
+  }
+  if (sourceWorkId !== null && sourceCatalogContentId !== null) {
+    return NextResponse.json({ error: "作品候補の種類が重複しています。候補を選び直してください。" }, { status: 400 });
+  }
+  if (sampleCandidateRequest && (sourceWorkId === null && sourceCatalogContentId === null || trimStartSeconds === null || trimEndSeconds === null || trimStartSeconds < 0 || trimEndSeconds <= trimStartSeconds || trimEndSeconds - trimStartSeconds > 60)) {
     return NextResponse.json({ error: "公式サンプルの切り抜き範囲は0〜60秒以内で指定してください。" }, { status: 400 });
   }
   const normalizedTrimStart = trimStartSeconds === null ? null : Math.round(trimStartSeconds * 10) / 10;
@@ -124,29 +220,42 @@ export async function POST(request: NextRequest) {
   let sourceSampleUrl: string | null = null;
   let sourceMaker: string | null = null;
   if (sampleCandidateRequest) {
-    const { data: previousUse, error: previousUseError } = await supabaseAdmin
-      .from("social_publishing_jobs")
-      .select("id")
-      .eq("channel_id", channelId)
-      .eq("source_work_id", sourceWorkId as number)
-      .limit(1)
-      .maybeSingle();
-    if (previousUseError) return NextResponse.json({ error: "この投稿先の過去利用を確認できません。" }, { status: 503 });
+    let previousUseQuery = supabaseAdmin.from("social_publishing_jobs").select("id").eq("channel_id", channelId);
+    previousUseQuery = sourceCatalogContentId !== null
+      ? previousUseQuery.eq("source_catalog_content_id", sourceCatalogContentId)
+      : previousUseQuery.eq("source_work_id", sourceWorkId as number);
+    const { data: previousUse, error: previousUseError } = await previousUseQuery.limit(1).maybeSingle();
+    if (previousUseError) return NextResponse.json({ error: isMissingCatalogSourceColumn(previousUseError) ? "投稿キューのカタログ作品対応migrationが未適用です。" : "この投稿先の過去利用を確認できません。" }, { status: 503 });
     if (previousUse) return NextResponse.json({ error: "この作品は同じ投稿先で既に使用されています。別の候補を選んでください。" }, { status: 409 });
-    const { data: work, error: workError } = await supabaseAdmin
-      .from("works")
-      .select("id, sample_movie_url, maker")
-      .eq("id", sourceWorkId as number)
-      .maybeSingle();
-    if (workError) return NextResponse.json({ error: "作品サンプル情報を取得できませんでした。" }, { status: 503 });
-    const sampleMovieUrl = work?.sample_movie_url;
-    if (!work || typeof sampleMovieUrl !== "string" || !isOfficialFanzaDmmSampleUrl(sampleMovieUrl)) {
+    let sampleMovieUrl: unknown = null;
+    if (sourceCatalogContentId !== null) {
+      const { data: catalogWork, error: catalogWorkError } = await supabaseAdmin
+        .from("fanza_amateur_works")
+        .select("content_id, mp4_url, iteminfo")
+        .eq("content_id", sourceCatalogContentId)
+        .eq("mp4_status", "found")
+        .maybeSingle();
+      if (catalogWorkError) return NextResponse.json({ error: "APIカタログ作品のサンプル情報を取得できませんでした。" }, { status: 503 });
+      if (!catalogWork) return NextResponse.json({ error: "選択したAPIカタログ作品が見つかりません。検索し直してください。" }, { status: 404 });
+      sampleMovieUrl = catalogWork.mp4_url;
+      sourceMaker = makerFromItemInfo(catalogWork.iteminfo);
+    } else {
+      const { data: work, error: workError } = await supabaseAdmin
+        .from("works")
+        .select("id, sample_movie_url, maker")
+        .eq("id", sourceWorkId as number)
+        .maybeSingle();
+      if (workError) return NextResponse.json({ error: "作品サンプル情報を取得できませんでした。" }, { status: 503 });
+      sampleMovieUrl = work?.sample_movie_url;
+      sourceMaker = typeof work?.maker === "string" ? work.maker.trim() : null;
+    }
+    if (typeof sampleMovieUrl !== "string" || !isOfficialFanzaDmmSampleUrl(sampleMovieUrl)) {
       return NextResponse.json({ error: "HTTPSの公式FANZA/DMMサンプル動画が見つかりません。" }, { status: 400 });
     }
-    if (typeof work.maker !== "string" || !work.maker.trim()) {
+    if (typeof sourceMaker !== "string" || !sourceMaker.trim()) {
       return NextResponse.json({ error: "メーカー名を確認できないため、利用条件を確認できる候補ではありません。" }, { status: 409 });
     }
-    sourceMaker = work.maker.trim();
+    sourceMaker = sourceMaker.trim();
     sourceSampleUrl = sampleMovieUrl;
     const sampleStart = normalizedTrimStart as number;
     const sampleEnd = normalizedTrimEnd as number;
@@ -193,6 +302,7 @@ export async function POST(request: NextRequest) {
     media_storage_key: mediaStorageKey,
     media_sha256: media.sha256,
     source_work_id: sourceWorkId,
+    source_catalog_content_id: sourceCatalogContentId,
     source_sample_url_hash: sourceSampleUrl ? createHash("sha256").update(sourceSampleUrl).digest("hex") : null,
     source_sample_host: sourceSampleUrl ? sourceDomain(sourceSampleUrl) : null,
     source_maker: sampleCandidateRequest ? sourceMaker : null,
@@ -207,7 +317,7 @@ export async function POST(request: NextRequest) {
   }).select("id, idempotency_key, scheduled_at, status, content_revision, review_status").single();
   if (error) {
     if (sampleCandidateRequest && mediaStorageKey) await supabaseAdmin.storage.from(process.env.SOCIAL_PUBLISHING_MEDIA_BUCKET!.trim()).remove([mediaStorageKey]);
-    return NextResponse.json({ error: error.code === "23505" ? (sampleCandidateRequest ? "この作品は同じ投稿先で既に使用されています。別の候補を選んでください。" : "Duplicate idempotency key.") : "Could not save post for review." }, { status: error.code === "23505" ? 409 : 503 });
+    return NextResponse.json({ error: isMissingCatalogSourceColumn(error) ? "投稿キューのカタログ作品対応migrationが未適用です。" : error.code === "23505" ? (sampleCandidateRequest ? "この作品は同じ投稿先で既に使用されています。別の候補を選んでください。" : "Duplicate idempotency key.") : "Could not save post for review." }, { status: error.code === "23505" ? 409 : 503 });
   }
   return NextResponse.json({ job: data }, { status: 201, headers: { "Cache-Control": "no-store" } });
 }
