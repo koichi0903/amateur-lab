@@ -36,15 +36,16 @@ export async function PATCH(
   const revision = Number(payload.contentRevision);
   const { data: job, error: jobError } = await supabaseAdmin
     .from("social_publishing_jobs")
-    .select("id, channel_id, content_kind, youtube_privacy_status, caption, media_storage_key, media_sha256, source_work_id, source_maker, scheduled_at, status, content_revision, review_status")
+    .select("id, channel_id, content_kind, youtube_privacy_status, caption, media_storage_key, media_sha256, source_work_id, source_catalog_content_id, source_maker, scheduled_at, status, content_revision, review_status")
     .eq("id", id)
     .maybeSingle();
   if (jobError) return NextResponse.json({ error: "Could not load post review state." }, { status: 503 });
   if (!job) return NextResponse.json({ error: "Post not found." }, { status: 404 });
-  if (job.source_work_id !== null && (typeof job.source_maker !== "string" || !job.source_maker.trim())) {
+  const hasOfficialSampleSource = job.source_work_id !== null || job.source_catalog_content_id !== null;
+  if (hasOfficialSampleSource && (typeof job.source_maker !== "string" || !job.source_maker.trim())) {
     return NextResponse.json({ error: "公式サンプルのメーカーを確認できないため、この投稿は承認できません。" }, { status: 409 });
   }
-  if (payload.decision === "approve" && job.source_work_id !== null && payload.sourceUsageAttested !== true) {
+  if (payload.decision === "approve" && hasOfficialSampleSource && payload.sourceUsageAttested !== true) {
     return NextResponse.json({ error: "公式サンプルのメーカー利用条件を確認し、適合を確認してください。" }, { status: 400 });
   }
   if (job.status !== "awaiting_user_review" || job.review_status !== "pending" || job.content_revision !== revision) {
@@ -92,8 +93,8 @@ export async function PATCH(
       status: approved ? "scheduled" : "rejected",
       review_status: approved ? "approved" : "rejected",
       review_attested: approved && payload.reviewAttested === true,
-      source_usage_attested: approved && job.source_work_id !== null && payload.sourceUsageAttested === true,
-      source_usage_checked_at: approved && job.source_work_id !== null && payload.sourceUsageAttested === true ? now.toISOString() : null,
+      source_usage_attested: approved && hasOfficialSampleSource && payload.sourceUsageAttested === true,
+      source_usage_checked_at: approved && hasOfficialSampleSource && payload.sourceUsageAttested === true ? now.toISOString() : null,
       approved_revision: approved ? revision : null,
       reviewed_at: now.toISOString(),
       updated_at: now.toISOString(),
