@@ -133,7 +133,7 @@ export async function probeVideoFile(file: string) {
 
 export async function trimVideoForX(
   input: { sourceUrl: string; trimStartSeconds: number; trimEndSeconds?: number | null },
-  downloadOptions?: { maxBytes?: number; timeoutMs?: number; rejectRedirects?: boolean },
+  downloadOptions?: { maxBytes?: number; timeoutMs?: number; rejectRedirects?: boolean; followOfficialRedirects?: boolean },
 ) {
   const dir = await mkdtemp(join(tmpdir(), "x-growth-trim-"));
   const sourceFile = join(dir, "source.mp4");
