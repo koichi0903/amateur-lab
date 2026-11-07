@@ -84,11 +84,12 @@ const nextConfig: NextConfig = {
   ],
   outputFileTracingIncludes: {
     ...(shouldBundleServerlessChromium ? { "/*": chromiumFiles } : {}),
-    "/api/admin/social-publishing/jobs": videoProcessingFiles,
+    // These endpoints launch Chromium to capture the official sample in the authenticated browser context.
+    "/api/admin/social-publishing/jobs": [...chromiumFiles, ...videoProcessingFiles],
     "/api/admin/social-publishing/media-upload": videoProcessingFiles,
     "/api/admin/x-growth/media/download": videoProcessingFiles,
     "/api/admin/bluesky-post": videoProcessingFiles,
-    "/api/admin/bluesky-post/video": videoProcessingFiles,
+    "/api/admin/bluesky-post/video": [...chromiumFiles, ...videoProcessingFiles],
     "/api/admin/bijyo-reserved": videoProcessingFiles,
     "/api/admin/bijyo-reserved/video": videoProcessingFiles,
     "/api/admin/amateur-x-post": videoProcessingFiles,
