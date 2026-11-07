@@ -7,7 +7,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isOfficialFanzaDmmSampleUrl } from "@/lib/xMediaAssets";
 import { trimVideoForX } from "@/lib/xVideoTrim";
 import { FANZA_AMATEUR_FLOOR, getFanzaAmateurAffiliateId } from "@/lib/dmm/fanzaAmateurCatalog";
-import { captureFanzaSampleMovieUrl } from "@/lib/playwright/captureFanzaSampleMovie";
+import { captureFanzaSampleMovieAsset, captureFanzaSampleMovieUrl } from "@/lib/playwright/captureFanzaSampleMovie";
 import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
 
 type RecordValue = Record<string, unknown>;
@@ -141,10 +141,10 @@ export async function getBlueskySampleWorkMedia(rawContentId: string) {
   const contentId = normalizeContentId(rawContentId);
   if (!contentId) throw new Error("品番の形式を確認してください。");
   const [result, manualResult] = await Promise.all([supabaseAdmin.from("fanza_amateur_works")
-    .select("content_id,title,api_date,is_listed,mp4_url,mp4_status,image_url,sample_image_url,raw_item")
+    .select("content_id,title,api_date,api_url,is_listed,mp4_url,mp4_status,image_url,sample_image_url,raw_item")
     .eq("content_id", contentId)
     .maybeSingle(), supabaseAdmin.from("bluesky_sample_work_registry")
-    .select("content_id,title,api_date,mp4_url,mp4_status,image_url,sample_image_url,sample_movie_url")
+    .select("content_id,title,api_date,api_url,mp4_url,mp4_status,image_url,sample_image_url,sample_movie_url")
     .eq("content_id", contentId)
     .maybeSingle()]);
   if (result.error) throw new Error(`作品データを取得できませんでした: ${result.error.message}`);
@@ -159,6 +159,9 @@ export async function getBlueskySampleWorkMedia(rawContentId: string) {
   return {
     contentId: String(row.content_id),
     title: typeof row.title === "string" ? row.title : null,
+    apiUrl: typeof result.data?.api_url === "string"
+      ? result.data.api_url
+      : typeof manual?.api_url === "string" ? manual.api_url : null,
     releaseDate: typeof row.api_date === "string" ? row.api_date.slice(0, 10) : null,
     isListed: result.data ? result.data.is_listed === true : true,
     officialWorkImageUrl: officialWorkImage(row.image_url ?? manual?.image_url),
@@ -172,7 +175,28 @@ export async function createBlueskyTrimmedSample(rawContentId: string, startSeco
   const work = await getBlueskySampleWorkMedia(rawContentId);
   if (!work) throw new Error("作品が登録データに見つかりません。");
   if (!work.sampleMovieUrl || !work.sampleMovieReady) throw new Error("公式サンプル動画が登録済みの作品ではありません。");
-  const result = await trimVideoForX({ sourceUrl: work.sampleMovieUrl, trimStartSeconds: startSeconds, trimEndSeconds: endSeconds });
+  let sourceUrl = work.sampleMovieUrl;
+  let sourceBytes: Buffer | undefined;
+  if (work.apiUrl) {
+    const browser = await createBrowser();
+    try {
+      const sample = await captureFanzaSampleMovieAsset(work.apiUrl, browser, {
+        maxBytes: 100 * 1024 * 1024,
+        requestTimeoutMs: 25_000,
+      });
+      if (!sample) throw new Error("公式プレイヤーから最新のサンプル動画を取得できませんでした。");
+      sourceUrl = sample.url;
+      sourceBytes = sample.bytes;
+    } finally {
+      await closeBrowser(browser);
+    }
+  }
+  const result = await trimVideoForX({
+    sourceUrl,
+    sourceBytes,
+    trimStartSeconds: startSeconds,
+    trimEndSeconds: endSeconds,
+  }, { maxBytes: 100 * 1024 * 1024, timeoutMs: 25_000, followOfficialRedirects: true });
   return { ...result, filename: `bluesky-${work.contentId.replace(/[^a-z0-9_-]/gi, "_")}.mp4` };
 }
 

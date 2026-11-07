@@ -1,6 +1,7 @@
 import "server-only";
 
-import type { Browser } from "playwright-core";
+import type { APIResponse, Browser, Page } from "playwright-core";
+import { isOfficialFanzaDmmSampleUrl } from "@/lib/xMediaAssets";
 import { watchSampleMovie } from "@/lib/playwright/sampleMovie";
 
 const MP4_URL_PATTERN = /^https?:\/\/.+\.mp4(?:$|[?#])/i;
@@ -16,12 +17,14 @@ function isAllowedFanzaProductUrl(value: string): boolean {
   }
 }
 
-/** Capture the official MP4 URL from a DMM/FANZA sample player without writing to the actress catalog. */
-export async function captureFanzaSampleMovieUrl(
+type CaptureOptions = { navigationTimeoutMs?: number; playerTimeoutMs?: number; mediaWaitTimeoutMs?: number };
+
+async function withCapturedFanzaSampleMovie<T>(
   productUrl: string,
   browser: Browser,
-  options: { navigationTimeoutMs?: number; playerTimeoutMs?: number; mediaWaitTimeoutMs?: number } = {},
-): Promise<string | null> {
+  options: CaptureOptions,
+  consume: (page: Page, movieUrl: string) => Promise<T>,
+): Promise<T | null> {
   if (!isAllowedFanzaProductUrl(productUrl)) throw new Error("公式DMM/FANZAの商品ページURLではありません。");
 
   const navigationTimeoutMs = options.navigationTimeoutMs ?? 60_000;
@@ -66,9 +69,98 @@ export async function captureFanzaSampleMovieUrl(
     const candidate = await watcher.waitForUrl(hasPlayer ? mediaWaitTimeoutMs : Math.min(mediaWaitTimeoutMs, 1_000));
     if (!candidate) return null;
     if (!MP4_URL_PATTERN.test(candidate)) throw new Error("プレイヤーからMP4形式のURLを確認できませんでした。");
-    return candidate;
+    if (!isOfficialFanzaDmmSampleUrl(candidate)) throw new Error("公式DMM/FANZA以外の動画URLを検出したため停止しました。");
+    return await consume(page, candidate);
   } finally {
     watcher.stop();
     await page.close().catch(() => undefined);
   }
+}
+
+/** Capture the official MP4 URL from a DMM/FANZA sample player without writing to the actress catalog. */
+export async function captureFanzaSampleMovieUrl(
+  productUrl: string,
+  browser: Browser,
+  options: CaptureOptions = {},
+): Promise<string | null> {
+  return withCapturedFanzaSampleMovie(productUrl, browser, options, async (_page, movieUrl) => movieUrl);
+}
+
+export class FanzaSampleFetchError extends Error {
+  constructor(readonly httpStatus: number | null, message: string) {
+    super(message);
+    this.name = "FanzaSampleFetchError";
+  }
+}
+
+/** Capture and fetch the sample in the same Playwright context so the official host receives its page referrer and session cookies. */
+export async function captureFanzaSampleMovieAsset(
+  productUrl: string,
+  browser: Browser,
+  options: CaptureOptions & { maxBytes: number; requestTimeoutMs?: number },
+): Promise<{ url: string; bytes: Buffer } | null> {
+  if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes <= 0) throw new Error("サンプル動画の容量上限が不正です。");
+
+  return withCapturedFanzaSampleMovie(productUrl, browser, options, async (page, capturedUrl) => {
+    const userAgent = await page.evaluate(() => navigator.userAgent);
+    let currentUrl = capturedUrl;
+    for (let redirects = 0; redirects <= 3; redirects += 1) {
+      if (!isOfficialFanzaDmmSampleUrl(currentUrl)) throw new FanzaSampleFetchError(null, "公式DMM/FANZA以外への転送を検出したため停止しました。");
+      let response: APIResponse;
+      try {
+        response = await page.request.get(currentUrl, {
+          timeout: options.requestTimeoutMs ?? 25_000,
+          maxRedirects: 0,
+          headers: {
+            Accept: "video/mp4,video/*;q=0.9,application/octet-stream;q=0.8,*/*;q=0.5",
+            Referer: page.url(),
+            "User-Agent": userAgent,
+          },
+        });
+      } catch {
+        throw new FanzaSampleFetchError(null, "公式サンプル動画を取得できませんでした。");
+      }
+
+      const status = response.status();
+      const headers = response.headers();
+      const location = headers.location;
+      if (status >= 300 && status < 400 && location) {
+        await response.dispose().catch(() => undefined);
+        if (redirects >= 3) throw new FanzaSampleFetchError(status, "公式サンプル動画の転送回数が上限を超えました。");
+        currentUrl = new URL(location, currentUrl).toString();
+        continue;
+      }
+      if (!response.ok()) {
+        await response.dispose().catch(() => undefined);
+        throw new FanzaSampleFetchError(status, `公式サンプル動画を取得できませんでした（HTTP ${status}）。`);
+      }
+
+      const contentType = headers["content-type"] ?? "";
+      const declaredSize = Number(headers["content-length"]);
+      if (contentType && !/video|mp4|octet-stream/i.test(contentType)) {
+        await response.dispose().catch(() => undefined);
+        throw new FanzaSampleFetchError(status, "動画形式ではない応答が返りました。");
+      }
+      if (Number.isFinite(declaredSize) && declaredSize > options.maxBytes) {
+        await response.dispose().catch(() => undefined);
+        throw new FanzaSampleFetchError(status, "元動画が設定した容量上限を超えています。");
+      }
+
+      try {
+        const bytes = await response.body();
+        if (bytes.byteLength > options.maxBytes) throw new FanzaSampleFetchError(status, "元動画が設定した容量上限を超えています。");
+        if (status === 206) {
+          const contentRange = headers["content-range"] ?? "";
+          const totalMatch = /\/(\d+)$/.exec(contentRange);
+          if (!totalMatch || Number(totalMatch[1]) > bytes.byteLength) {
+            throw new FanzaSampleFetchError(status, "公式サンプル動画が部分応答だったため、完全な動画を取得できませんでした。");
+          }
+        }
+        return { url: capturedUrl, bytes };
+      } finally {
+        await response.dispose().catch(() => undefined);
+      }
+    }
+    throw new FanzaSampleFetchError(null, "公式サンプル動画の取得を完了できませんでした。");
+  });
 }

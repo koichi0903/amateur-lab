@@ -1,5 +1,5 @@
 import { createWriteStream } from "node:fs";
-import { mkdtemp, readFile, rm, stat, unlink } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { Readable } from "node:stream";
@@ -160,14 +160,22 @@ export async function probeVideoFile(file: string) {
 }
 
 export async function trimVideoForX(
-  input: { sourceUrl: string; trimStartSeconds: number; trimEndSeconds?: number | null },
+  input: { sourceUrl: string; sourceBytes?: Uint8Array; trimStartSeconds: number; trimEndSeconds?: number | null },
   downloadOptions?: { maxBytes?: number; timeoutMs?: number; rejectRedirects?: boolean; followOfficialRedirects?: boolean },
 ) {
   const dir = await mkdtemp(join(tmpdir(), "x-growth-trim-"));
   const sourceFile = join(dir, "source.mp4");
   const outputFile = join(dir, "x-post-trimmed.mp4");
   try {
-    const redirectCount = await downloadSource(input.sourceUrl, sourceFile, downloadOptions);
+    let redirectCount = 0;
+    if (input.sourceBytes) {
+      if (downloadOptions?.maxBytes && input.sourceBytes.byteLength > downloadOptions.maxBytes) {
+        throw new TrimVideoDiagnosticError("source_response_validation", null, 0, "元動画が設定した容量上限を超えています。");
+      }
+      await writeFile(sourceFile, input.sourceBytes);
+    } else {
+      redirectCount = await downloadSource(input.sourceUrl, sourceFile, downloadOptions);
+    }
     let sourceProbe: Awaited<ReturnType<typeof probeVideoFile>>;
     try {
       sourceProbe = await probeVideoFile(sourceFile);
