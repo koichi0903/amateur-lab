@@ -28,8 +28,7 @@ async function withCapturedFanzaSampleMovie<T>(
   if (!isAllowedFanzaProductUrl(productUrl)) throw new Error("公式DMM/FANZAの商品ページURLではありません。");
 
   const navigationTimeoutMs = options.navigationTimeoutMs ?? 60_000;
-  const playerTimeoutMs = options.playerTimeoutMs ?? 8_000;
-  const mediaWaitTimeoutMs = options.mediaWaitTimeoutMs ?? 7_000;
+  const mediaWaitTimeoutMs = options.mediaWaitTimeoutMs ?? 15_000;
   const page = await browser.newPage();
   const watcher = watchSampleMovie(page);
   try {
@@ -64,10 +63,35 @@ async function withCapturedFanzaSampleMovie<T>(
       if (page.url().includes("/age_check/")) throw new Error("年齢確認後の商品ページを開けませんでした。");
     }
 
-    const hasPlayer = await page.locator('iframe[src*="/html5_player/"]').first()
-      .waitFor({ state: "attached", timeout: playerTimeoutMs }).then(() => true).catch(() => false);
-    const candidate = await watcher.waitForUrl(hasPlayer ? mediaWaitTimeoutMs : Math.min(mediaWaitTimeoutMs, 1_000));
-    if (!candidate) return null;
+    // DMM has changed its embedded-player iframe paths over time. Do not use
+    // one iframe URL pattern to shorten the media-detection window.
+    const candidate = await watcher.waitForUrl(mediaWaitTimeoutMs);
+    if (!candidate) {
+      const frameStates = await Promise.all(page.frames().map((frame) => frame.evaluate(() => {
+        const videos = Array.from(document.querySelectorAll("video"));
+        return {
+          videoCount: videos.length,
+          sourcedVideoCount: videos.filter((video) => Boolean(video.currentSrc || video.getAttribute("src"))).length,
+          playingVideoCount: videos.filter((video) => !video.paused).length,
+        };
+      }).catch(() => ({ videoCount: 0, sourcedVideoCount: 0, playingVideoCount: 0 }))));
+      let pageLocation: { host: string; path: string } | null = null;
+      try {
+        const pageUrl = new URL(page.url());
+        pageLocation = { host: pageUrl.hostname, path: pageUrl.pathname };
+      } catch {
+        pageLocation = null;
+      }
+      console.warn("[fanza-sample] player media URL not detected", {
+        pageLocation,
+        frameCount: page.frames().length,
+        iframeCount: await page.locator("iframe").count().catch(() => 0),
+        videoCount: frameStates.reduce((total, frame) => total + frame.videoCount, 0),
+        sourcedVideoCount: frameStates.reduce((total, frame) => total + frame.sourcedVideoCount, 0),
+        playingVideoCount: frameStates.reduce((total, frame) => total + frame.playingVideoCount, 0),
+      });
+      return null;
+    }
     if (!MP4_URL_PATTERN.test(candidate)) throw new Error("プレイヤーからMP4形式のURLを確認できませんでした。");
     if (!isOfficialFanzaDmmSampleUrl(candidate)) throw new Error("公式DMM/FANZA以外の動画URLを検出したため停止しました。");
     return await consume(page, candidate);
@@ -164,3 +188,4 @@ export async function captureFanzaSampleMovieAsset(
     throw new FanzaSampleFetchError(null, "公式サンプル動画の取得を完了できませんでした。");
   });
 }
+
