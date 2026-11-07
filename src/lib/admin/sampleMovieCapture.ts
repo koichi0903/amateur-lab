@@ -2,6 +2,7 @@ export type SampleMovieCaptureState = {
   stage: string | null | undefined;
   sampleMovieUrl: string | null | undefined;
   sampleMovieCheckedAt: string | null | undefined;
+  sampleMovieStatus?: "pending" | "found" | "no_video" | null;
   isNewRegistration?: boolean;
   promotedFromReserved?: boolean;
 };
@@ -14,9 +15,11 @@ export function shouldCaptureSampleMovie({
   stage,
   sampleMovieUrl,
   sampleMovieCheckedAt,
+  sampleMovieStatus,
   isNewRegistration = false,
   promotedFromReserved = false,
 }: SampleMovieCaptureState): boolean {
+  if (sampleMovieStatus === "no_video") return false;
   if (isNewRegistration) return true;
   if (sampleMovieUrl) return false;
   if (promotedFromReserved) return true;

@@ -33,6 +33,7 @@ type NewWork = {
   playwright_status: string | null;
   sample_movie_url: string | null;
   sample_movie_checked_at: string | null;
+  sample_movie_status: "pending" | "found" | "no_video";
 };
 
 async function loadAllProductIds(): Promise<Set<string>> {
@@ -69,7 +70,7 @@ async function loadNewWorks(): Promise<NewWork[]> {
     const { data, error } = await supabase
       .from("works")
       .select(
-        "product_id, release_date, list_price, sale_price, playwright_status, sample_movie_url, sample_movie_checked_at",
+        "product_id, release_date, list_price, sale_price, playwright_status, sample_movie_url, sample_movie_checked_at, sample_movie_status",
       )
       .eq("stage", "NEW")
       .order("product_id")
@@ -219,6 +220,7 @@ export async function updateNewWorks() {
             stage: "NEW",
             sampleMovieUrl: work.sample_movie_url,
             sampleMovieCheckedAt: work.sample_movie_checked_at,
+            sampleMovieStatus: work.sample_movie_status,
           });
 
           // PENDING means initial Playwright completion is still required even

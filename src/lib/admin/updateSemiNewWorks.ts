@@ -26,6 +26,7 @@ type SemiNewWork = {
   playwright_status: string | null;
   sample_movie_url: string | null;
   sample_movie_checked_at: string | null;
+  sample_movie_status: "pending" | "found" | "no_video";
 };
 
 async function loadSemiNewWorks(): Promise<SemiNewWork[]> {
@@ -36,7 +37,7 @@ async function loadSemiNewWorks(): Promise<SemiNewWork[]> {
     const { data, error } = await supabase
       .from("works")
       .select(
-        "product_id, price, list_price, sale_price, url, playwright_status, sample_movie_url, sample_movie_checked_at",
+        "product_id, price, list_price, sale_price, url, playwright_status, sample_movie_url, sample_movie_checked_at, sample_movie_status",
       )
       .eq("stage", "SEMI_NEW")
       .order("product_id")
@@ -116,6 +117,7 @@ export async function updateSemiNewWorks() {
                   stage: "SEMI_NEW",
                   sampleMovieUrl: work.sample_movie_url,
                   sampleMovieCheckedAt: work.sample_movie_checked_at,
+                  sampleMovieStatus: work.sample_movie_status,
                 }),
               });
 
@@ -149,6 +151,7 @@ export async function updateSemiNewWorks() {
             stage: "SEMI_NEW",
             sampleMovieUrl: work.sample_movie_url,
             sampleMovieCheckedAt: work.sample_movie_checked_at,
+            sampleMovieStatus: work.sample_movie_status,
           });
           const isPriceChanged =
             latestPrice != null && dbPrice !== latestPrice;
