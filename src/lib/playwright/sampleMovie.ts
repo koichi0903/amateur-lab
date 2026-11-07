@@ -23,6 +23,11 @@ async function findMovieUrlInFrames(page: Page): Promise<string | null> {
         ];
 
         for (const video of videos) {
+          // Muted playback is permitted by Chromium autoplay policy and makes
+          // the official player request the sample without a user gesture.
+          video.muted = true;
+          video.defaultMuted = true;
+          video.playsInline = true;
           if (video.paused) void video.play().catch(() => undefined);
         }
 
@@ -96,3 +101,4 @@ export function watchSampleMovie(page: Page) {
     },
   };
 }
+
