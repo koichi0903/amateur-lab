@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { assertPrivateSocialPublishingBucket, createSocialPublishingPreviewUrl, loadSocialPublishingMedia, socialPublishingMediaMaxBytes } from "@/lib/socialPublishingMedia";
 import { readAndCleanupTrimmedVideo, TrimVideoDiagnosticError, trimVideoForX } from "@/lib/xVideoTrim";
 import { captureFanzaSampleMovieAsset, FanzaSampleFetchError } from "@/lib/playwright/captureFanzaSampleMovie";
+import { getFanzaAmateurSamplePlayerUrl, normalizeFanzaAmateurCatalogItem } from "@/lib/dmm/fanzaAmateurCatalog";
 import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
 
 export const dynamic = "force-dynamic";
@@ -234,45 +235,40 @@ export async function POST(request: NextRequest) {
     if (sourceCatalogContentId !== null) {
       const { data: catalogWork, error: catalogWorkError } = await supabaseAdmin
         .from("fanza_amateur_works")
-        .select("content_id, api_url, mp4_url, iteminfo")
+        .select("content_id, mp4_url, iteminfo, raw_item")
         .eq("content_id", sourceCatalogContentId)
         .eq("mp4_status", "found")
         .maybeSingle();
       if (catalogWorkError) return NextResponse.json({ error: "APIカタログ作品のサンプル情報を取得できませんでした。" }, { status: 503 });
       if (!catalogWork) return NextResponse.json({ error: "選択したAPIカタログ作品が見つかりません。検索し直してください。" }, { status: 404 });
-      const productPageUrl = typeof catalogWork.api_url === "string" ? catalogWork.api_url : null;
-      if (productPageUrl) {
-        let browser: Awaited<ReturnType<typeof createBrowser>> | null = null;
-        let capturedSample: Awaited<ReturnType<typeof captureFanzaSampleMovieAsset>> = null;
-        let captureHttpStatus: number | null = null;
+      const catalogItem = normalizeFanzaAmateurCatalogItem(catalogWork.raw_item);
+      const samplePlayerUrl = catalogItem ? getFanzaAmateurSamplePlayerUrl(catalogItem) : null;
+      let browser: Awaited<ReturnType<typeof createBrowser>> | null = null;
+      let capturedSample: Awaited<ReturnType<typeof captureFanzaSampleMovieAsset>> = null;
+      if (samplePlayerUrl) {
         try {
           browser = await createBrowser();
-          capturedSample = await captureFanzaSampleMovieAsset(productPageUrl, browser, {
+          capturedSample = await captureFanzaSampleMovieAsset(samplePlayerUrl, browser, {
             maxBytes: socialPublishingMediaMaxBytes(),
             requestTimeoutMs: 25_000,
           });
         } catch (error) {
-          captureHttpStatus = error instanceof FanzaSampleFetchError ? error.httpStatus : null;
-          console.warn("[social-publishing] official product-page sample fetch failed", {
+          console.warn("[social-publishing] official sample player capture failed", {
             contentId: sourceCatalogContentId,
-            stage: error instanceof FanzaSampleFetchError ? "browser_context_media_fetch" : "official_product_page_capture",
+            stage: error instanceof FanzaSampleFetchError ? "player_media_fetch" : "sample_player_capture",
             httpStatus: error instanceof FanzaSampleFetchError ? error.httpStatus : null,
           });
         } finally {
           if (browser) await closeBrowser(browser);
         }
-        // Use the same fresh player capture as the SKU-based Bluesky workflow.
-        // A catalog MP4 can be stale or reject server-side fetches, so never fall back to it.
-        if (!capturedSample || !isOfficialFanzaDmmSampleUrl(capturedSample.url)) {
-          return NextResponse.json({
-            error: captureHttpStatus === 403
-              ? "公式動画の取得がHTTP 403で拒否されました。ブラウザーセッション経由の取得でも拒否されています。"
-              : "公式プレイヤーから動画を取得できませんでした。候補を更新して再試行してください。",
-          }, { status: 422 });
-        }
+      }
+      if (capturedSample && isOfficialFanzaDmmSampleUrl(capturedSample.url)) {
         sampleMovieUrl = capturedSample.url;
         sourceSampleBytes = capturedSample.bytes;
       } else {
+        // Match the existing admin trim route: use the stored official MP4 URL
+        // directly. Never navigate to the product page, which can redirect to
+        // the account password screen in serverless browser sessions.
         sampleMovieUrl = catalogWork.mp4_url;
       }
       sourceMaker = makerFromItemInfo(catalogWork.iteminfo);
