@@ -156,7 +156,7 @@ export async function captureFanzaSampleMovieAsset(
             throw new FanzaSampleFetchError(status, "公式サンプル動画が部分応答だったため、完全な動画を取得できませんでした。");
           }
         }
-        return { url: capturedUrl, bytes: Buffer.from(bytes) };
+        return { url: capturedUrl, bytes };
       } finally {
         await response.dispose().catch(() => undefined);
       }
