@@ -5,7 +5,7 @@ import { isOfficialFanzaDmmSampleUrl, sourceDomain } from "@/lib/xMediaAssets";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { assertPrivateSocialPublishingBucket, createSocialPublishingPreviewUrl, loadSocialPublishingMedia, socialPublishingMediaMaxBytes } from "@/lib/socialPublishingMedia";
 import { readAndCleanupTrimmedVideo, TrimVideoDiagnosticError, trimVideoForX } from "@/lib/xVideoTrim";
-import { captureFanzaSampleMovieUrl } from "@/lib/playwright/captureFanzaSampleMovie";
+import { captureFanzaSampleMovieAsset, FanzaSampleFetchError } from "@/lib/playwright/captureFanzaSampleMovie";
 import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
 
 export const dynamic = "force-dynamic";
@@ -221,6 +221,7 @@ export async function POST(request: NextRequest) {
   if (contentKind !== "video") return NextResponse.json({ error: "This first automatic-publishing release accepts reviewed video posts only." }, { status: 400 });
   let sourceSampleUrl: string | null = null;
   let sourceMaker: string | null = null;
+  let sourceSampleBytes: Buffer | null = null;
   if (sampleCandidateRequest) {
     let previousUseQuery = supabaseAdmin.from("social_publishing_jobs").select("id").eq("channel_id", channelId);
     previousUseQuery = sourceCatalogContentId !== null
@@ -242,27 +243,35 @@ export async function POST(request: NextRequest) {
       const productPageUrl = typeof catalogWork.api_url === "string" ? catalogWork.api_url : null;
       if (productPageUrl) {
         let browser: Awaited<ReturnType<typeof createBrowser>> | null = null;
-        let refreshedSampleMovieUrl: string | null = null;
+        let capturedSample: Awaited<ReturnType<typeof captureFanzaSampleMovieAsset>> = null;
+        let captureHttpStatus: number | null = null;
         try {
           browser = await createBrowser();
-          const refreshed = await captureFanzaSampleMovieUrl(productPageUrl, browser);
-          if (refreshed && isOfficialFanzaDmmSampleUrl(refreshed)) refreshedSampleMovieUrl = refreshed;
-        } catch {
-          console.warn("[social-publishing] official product-page sample refresh failed", {
+          capturedSample = await captureFanzaSampleMovieAsset(productPageUrl, browser, {
+            maxBytes: socialPublishingMediaMaxBytes(),
+            requestTimeoutMs: 25_000,
+          });
+        } catch (error) {
+          captureHttpStatus = error instanceof FanzaSampleFetchError ? error.httpStatus : null;
+          console.warn("[social-publishing] official product-page sample fetch failed", {
             contentId: sourceCatalogContentId,
-            stage: "official_product_page_capture",
+            stage: error instanceof FanzaSampleFetchError ? "browser_context_media_fetch" : "official_product_page_capture",
+            httpStatus: error instanceof FanzaSampleFetchError ? error.httpStatus : null,
           });
         } finally {
           if (browser) await closeBrowser(browser);
         }
         // Use the same fresh player capture as the SKU-based Bluesky workflow.
         // A catalog MP4 can be stale or reject server-side fetches, so never fall back to it.
-        if (!refreshedSampleMovieUrl) {
+        if (!capturedSample || !isOfficialFanzaDmmSampleUrl(capturedSample.url)) {
           return NextResponse.json({
-            error: "公式プレイヤーから最新のサンプル動画を取得できませんでした。候補を更新して再試行してください。",
+            error: captureHttpStatus === 403
+              ? "公式動画の取得がHTTP 403で拒否されました。ブラウザーセッション経由の取得でも拒否されています。"
+              : "公式プレイヤーから動画を取得できませんでした。候補を更新して再試行してください。",
           }, { status: 422 });
         }
-        sampleMovieUrl = refreshedSampleMovieUrl;
+        sampleMovieUrl = capturedSample.url;
+        sourceSampleBytes = capturedSample.bytes;
       } else {
         sampleMovieUrl = catalogWork.mp4_url;
       }
@@ -296,7 +305,7 @@ export async function POST(request: NextRequest) {
     let trimmed: Awaited<ReturnType<typeof trimVideoForX>>;
     let bytes: Buffer;
     try {
-      trimmed = await trimVideoForX({ sourceUrl: sampleMovieUrl, trimStartSeconds: sampleStart, trimEndSeconds: sampleEnd }, {
+      trimmed = await trimVideoForX({ sourceUrl: sampleMovieUrl, sourceBytes: sourceSampleBytes ?? undefined, trimStartSeconds: sampleStart, trimEndSeconds: sampleEnd }, {
         maxBytes: socialPublishingMediaMaxBytes(), timeoutMs: 25_000, followOfficialRedirects: true,
       });
       if (channel.platform === "youtube_shorts" && (trimmed.width == null || trimmed.height == null || trimmed.width > trimmed.height)) {
