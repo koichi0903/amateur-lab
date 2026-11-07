@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isOfficialFanzaDmmSampleUrl } from "@/lib/xMediaAssets";
 import { trimVideoForX } from "@/lib/xVideoTrim";
-import { FANZA_AMATEUR_FLOOR, getFanzaAmateurAffiliateId } from "@/lib/dmm/fanzaAmateurCatalog";
+import { FANZA_AMATEUR_FLOOR, getFanzaAmateurAffiliateId, getFanzaAmateurSamplePlayerUrl, normalizeFanzaAmateurCatalogItem } from "@/lib/dmm/fanzaAmateurCatalog";
 import { captureFanzaSampleMovieAsset, captureFanzaSampleMovieUrl } from "@/lib/playwright/captureFanzaSampleMovie";
 import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
 
@@ -103,15 +103,19 @@ export async function registerBlueskySampleWork(rawContentId: string) {
     .maybeSingle();
   if (existingError) throw new Error(`登録済み素材を確認できませんでした: ${existingError.message}`);
 
+  const apiCatalogItem = normalizeFanzaAmateurCatalogItem(rawItem);
+  const samplePlayerUrl = apiCatalogItem ? getFanzaAmateurSamplePlayerUrl(apiCatalogItem) : null;
   let capturedMovieUrl: string | null = null;
   let browser: Awaited<ReturnType<typeof createBrowser>> | null = null;
-  try {
-    browser = await createBrowser();
-    capturedMovieUrl = await captureFanzaSampleMovieUrl(officialUrl, browser);
-  } catch (error) {
-    console.warn("Bluesky official sample capture failed", error instanceof Error ? error.message : "unknown");
-  } finally {
-    if (browser) await closeBrowser(browser);
+  if (samplePlayerUrl) {
+    try {
+      browser = await createBrowser();
+      capturedMovieUrl = await captureFanzaSampleMovieUrl(samplePlayerUrl, browser);
+    } catch {
+      console.warn("Bluesky official sample player capture failed", { contentId, stage: "sample_player_capture" });
+    } finally {
+      if (browser) await closeBrowser(browser);
+    }
   }
 
   const previousMovieUrl = typeof existing?.mp4_url === "string" && isOfficialFanzaDmmSampleUrl(existing.mp4_url)
@@ -156,6 +160,19 @@ export async function getBlueskySampleWorkMedia(rawContentId: string) {
   const mainMovie = typeof result.data?.mp4_url === "string" && isOfficialFanzaDmmSampleUrl(result.data.mp4_url) ? result.data.mp4_url : null;
   const registeredMovie = typeof manual?.mp4_url === "string" && isOfficialFanzaDmmSampleUrl(manual.mp4_url) ? manual.mp4_url : null;
   const movie = registeredMovie ?? mainMovie;
+  const rawCatalogItem = isRecord(row.raw_item)
+    ? {
+        ...row.raw_item,
+        sampleMovieURL: row.raw_item.sampleMovieURL ?? manual?.sample_movie_url,
+      }
+    : {
+        content_id: row.content_id,
+        title: row.title,
+        URL: typeof result.data?.api_url === "string" ? result.data.api_url : manual?.api_url,
+        sampleMovieURL: manual?.sample_movie_url,
+      };
+  const catalogItem = normalizeFanzaAmateurCatalogItem(rawCatalogItem);
+  const samplePlayerUrl = catalogItem ? getFanzaAmateurSamplePlayerUrl(catalogItem) : null;
   return {
     contentId: String(row.content_id),
     title: typeof row.title === "string" ? row.title : null,
@@ -167,6 +184,7 @@ export async function getBlueskySampleWorkMedia(rawContentId: string) {
     officialWorkImageUrl: officialWorkImage(row.image_url ?? manual?.image_url),
     sampleImageUrls: sampleImages(row.sample_image_url, row.raw_item, manual?.sample_image_url),
     sampleMovieUrl: movie,
+    samplePlayerUrl,
     sampleMovieReady: Boolean(movie && (registeredMovie ? manual?.mp4_status === "found" : result.data?.mp4_status === "found")),
   };
 }
@@ -177,18 +195,25 @@ export async function createBlueskyTrimmedSample(rawContentId: string, startSeco
   if (!work.sampleMovieUrl || !work.sampleMovieReady) throw new Error("公式サンプル動画が登録済みの作品ではありません。");
   let sourceUrl = work.sampleMovieUrl;
   let sourceBytes: Buffer | undefined;
-  if (work.apiUrl) {
-    const browser = await createBrowser();
+  if (work.samplePlayerUrl) {
+    let browser: Awaited<ReturnType<typeof createBrowser>> | null = null;
     try {
-      const sample = await captureFanzaSampleMovieAsset(work.apiUrl, browser, {
+      browser = await createBrowser();
+      const sample = await captureFanzaSampleMovieAsset(work.samplePlayerUrl, browser, {
         maxBytes: 100 * 1024 * 1024,
         requestTimeoutMs: 25_000,
       });
-      if (!sample) throw new Error("公式プレイヤーから最新のサンプル動画を取得できませんでした。");
-      sourceUrl = sample.url;
-      sourceBytes = sample.bytes;
+      if (sample && isOfficialFanzaDmmSampleUrl(sample.url)) {
+        sourceUrl = sample.url;
+        sourceBytes = sample.bytes;
+      }
+    } catch {
+      console.warn("Bluesky official sample player refresh failed", {
+        contentId: work.contentId,
+        stage: "sample_player_capture",
+      });
     } finally {
-      await closeBrowser(browser);
+      if (browser) await closeBrowser(browser);
     }
   }
   const result = await trimVideoForX({
