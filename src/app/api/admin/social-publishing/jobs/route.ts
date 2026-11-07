@@ -10,7 +10,7 @@ import { closeBrowser, createBrowser } from "@/lib/playwright/browserManager";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 async function getSampleCandidates() {
   const [{ data, error }, { data: usedJobs, error: jobsError }] = await Promise.all([
@@ -245,11 +245,7 @@ export async function POST(request: NextRequest) {
         let refreshedSampleMovieUrl: string | null = null;
         try {
           browser = await createBrowser();
-          const refreshed = await captureFanzaSampleMovieUrl(productPageUrl, browser, {
-            navigationTimeoutMs: 15_000,
-            playerTimeoutMs: 3_000,
-            mediaWaitTimeoutMs: 4_000,
-          });
+          const refreshed = await captureFanzaSampleMovieUrl(productPageUrl, browser);
           if (refreshed && isOfficialFanzaDmmSampleUrl(refreshed)) refreshedSampleMovieUrl = refreshed;
         } catch {
           console.warn("[social-publishing] official product-page sample refresh failed", {
@@ -259,10 +255,14 @@ export async function POST(request: NextRequest) {
         } finally {
           if (browser) await closeBrowser(browser);
         }
-        // Prefer a freshly captured sample URL, but keep the catalog's already verified
-        // official MP4 URL as a fallback when the product-page player cannot be refreshed.
-        // The later official-host validation and bounded video fetch still apply.
-        sampleMovieUrl = refreshedSampleMovieUrl ?? catalogWork.mp4_url;
+        // Use the same fresh player capture as the SKU-based Bluesky workflow.
+        // A catalog MP4 can be stale or reject server-side fetches, so never fall back to it.
+        if (!refreshedSampleMovieUrl) {
+          return NextResponse.json({
+            error: "公式プレイヤーから最新のサンプル動画を取得できませんでした。候補を更新して再試行してください。",
+          }, { status: 422 });
+        }
+        sampleMovieUrl = refreshedSampleMovieUrl;
       } else {
         sampleMovieUrl = catalogWork.mp4_url;
       }
