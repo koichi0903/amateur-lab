@@ -7,14 +7,13 @@ import WorkCategorySwitch from "@/components/catalog/WorkCategorySwitch";
 import WorkImage from "@/components/home/WorkImage";
 import FanzaAmateurTopCard from "@/components/catalog/FanzaAmateurTopCard";
 import CollectionPageJsonLd from "@/app/components/CollectionPageJsonLd";
-import { getFanzaAmateurActressIndex, getFanzaAmateurActressWorks } from "@/lib/dmm/fanzaAmateurCatalog";
+import { getFanzaAmateurActressSummary, getFanzaAmateurActressWorks } from "@/lib/dmm/fanzaAmateurCatalog";
 import { pageMetadata, SITE_URL } from "@/lib/seo";
 
 export const AMATEUR_ACTRESS_PAGE_SIZE = 60;
 
 async function getActressSummary(actressName: string) {
-  const result = await getFanzaAmateurActressIndex({ query: actressName, sort: "count-desc", page: 1 });
-  return result.items.find((item) => item.name === actressName) ?? null;
+  return getFanzaAmateurActressSummary(actressName);
 }
 
 export async function amateurActressMetadata(actressName: string, page = 1): Promise<Metadata> {

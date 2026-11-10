@@ -55,6 +55,24 @@ export function getCanonicalFanzaAmateurActressName(name: string) {
   return FANZA_AMATEUR_ACTRESS_ALIASES[name] ?? name;
 }
 
+const getCachedFanzaAmateurActressSummary = unstable_cache(
+  async (name: string) => {
+    const { data, error } = await supabaseAdmin.rpc("get_fanza_amateur_actress_summary", {
+      p_name: name,
+    });
+    if (error) throw new Error(`素人出演女優を読み込めませんでした: ${error.message}`);
+    return ((data ?? [])[0] ?? null) as FanzaAmateurActressSummary | null;
+  },
+  ["fanza-amateur-actress-summary-v1"],
+  { revalidate: 3_600, tags: ["fanza-amateur-actress"] },
+);
+
+export async function getFanzaAmateurActressSummary(name: string) {
+  const safeName = name.trim().slice(0, 100);
+  if (!safeName) return null;
+  return getCachedFanzaAmateurActressSummary(getCanonicalFanzaAmateurActressName(safeName));
+}
+
 type CatalogPageRow = {
   raw_item: unknown;
   fetched_at: string;
