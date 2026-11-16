@@ -2,8 +2,7 @@ import type { Metadata } from "next";
 import { catalogMetadata, decodeCatalogName } from "@/components/catalog/CatalogMetadata";
 import GenreDetailContent from "@/components/catalog/GenreDetailPage";
 
-export const revalidate = 86400;
-export const dynamic = "force-dynamic";
+export const revalidate = 86400;
 export async function generateMetadata({ params, searchParams }: { params: Promise<{ name: string }>; searchParams: Promise<{ sort?: string }> }): Promise<Metadata> {
   const [{ name }, query] = await Promise.all([params, searchParams]);
   return catalogMetadata("genre", decodeCatalogName(name), 1, query.sort);

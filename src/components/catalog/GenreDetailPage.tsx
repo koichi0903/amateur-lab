@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { unstable_cache } from "next/cache";
 import { SlidersHorizontal } from "lucide-react";
 import { notFound } from "next/navigation";
 import Header from "@/components/layout/Header";
@@ -10,8 +11,19 @@ import { buildInsightsForWorkIds, type HomePriceInsightWork } from "@/lib/getHom
 
 export const revalidate = 86400;
 
+const getCachedGenreInsights = unstable_cache(
+  async (workIds: number[]) => buildInsightsForWorkIds(
+    workIds.map((id) => ({ id } as Work)),
+    new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+    { requireBuyTimingSignal: false },
+  ),
+  ["genre-page-price-insights-v1"],
+  { revalidate: 900, tags: ["genre-price-insights"] },
+);
+
 async function buildGenreInsights(works: Work[]) {
-  return buildInsightsForWorkIds(works, new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(), { requireBuyTimingSignal: false }).catch(() => [] as HomePriceInsightWork[]);
+  const workIds = works.map(({ id }) => id).filter((id) => Number.isSafeInteger(id) && id > 0);
+  return getCachedGenreInsights(workIds).catch(() => [] as HomePriceInsightWork[]);
 }
 
 export default async function GenreDetailPage({ genreName, currentPage, kind = "genre", sort = "popular" }: { genreName: string; currentPage: number; kind?: CatalogWorkKind; sort?: GenreWorkSort }) {

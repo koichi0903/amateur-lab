@@ -94,27 +94,34 @@ function priceNumber(value: unknown): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+const getCachedConfirmedPerformers = unstable_cache(
+  async (contentIds: string[]) => {
+    const { data, error } = await supabaseAdmin
+      .from("fanza_amateur_performer_matches")
+      .select("content_id,performer_name")
+      .eq("verification_status", "confirmed")
+      .in("content_id", contentIds);
+    if (error) throw new Error(`確認済み出演者を読み込めませんでした: ${error.message}`);
+
+    const namesByContentId = new Map<string, string[]>();
+    for (const row of data ?? []) {
+      const name = asText(row.performer_name);
+      if (!name) continue;
+      const names = namesByContentId.get(row.content_id) ?? [];
+      if (!names.includes(name)) names.push(name);
+      namesByContentId.set(row.content_id, names);
+    }
+    return Object.fromEntries(namesByContentId);
+  },
+  ["fanza-amateur-confirmed-performers-v1"],
+  { revalidate: 3_600, tags: ["fanza-amateur-catalog"] },
+);
+
 export async function addConfirmedPerformersToAmateurItems(items: FanzaAmateurCatalogItem[]) {
   const contentIds = [...new Set(items.map(({ content_id }) => content_id).filter(Boolean))];
   if (!contentIds.length) return items;
-
-  const { data, error } = await supabaseAdmin
-    .from("fanza_amateur_performer_matches")
-    .select("content_id,performer_name")
-    .eq("verification_status", "confirmed")
-    .in("content_id", contentIds);
-  if (error) throw new Error(`確認済み出演者を読み込めませんでした: ${error.message}`);
-
-  const namesByContentId = new Map<string, string[]>();
-  for (const row of data ?? []) {
-    const name = asText(row.performer_name);
-    if (!name) continue;
-    const names = namesByContentId.get(row.content_id) ?? [];
-    if (!names.includes(name)) names.push(name);
-    namesByContentId.set(row.content_id, names);
-  }
-
-  return items.map((item) => ({ ...item, confirmedPerformers: namesByContentId.get(item.content_id) ?? [] }));
+  const namesByContentId = await getCachedConfirmedPerformers(contentIds);
+  return items.map((item) => ({ ...item, confirmedPerformers: namesByContentId[item.content_id] ?? [] }));
 }
 
 async function loadAmateurSummaryPriceHistory(contentIds: string[], observedSince: string) {
@@ -509,7 +516,7 @@ type AmateurActressWorkRow = {
   total_count: number | string;
 };
 
-export async function getFanzaAmateurActressWorks({ name, page = 1, pageSize = 60, sort = "newest" }: {
+async function loadFanzaAmateurActressWorks({ name, page = 1, pageSize = 60, sort = "newest" }: {
   name: string;
   page?: number;
   pageSize?: number;
@@ -589,6 +596,16 @@ export async function getFanzaAmateurActressWorks({ name, page = 1, pageSize = 6
     };
   });
   return { cards, totalCount, totalPages: Math.ceil(totalCount / safePageSize), page: safePage };
+}
+
+const getCachedFanzaAmateurActressWorks = unstable_cache(
+  loadFanzaAmateurActressWorks,
+  ["fanza-amateur-actress-works-v1"],
+  { revalidate: 3_600, tags: ["fanza-amateur-actress"] },
+);
+
+export async function getFanzaAmateurActressWorks(args: { name: string; page?: number; pageSize?: number; sort?: "newest" | "review" }) {
+  return getCachedFanzaAmateurActressWorks(args);
 }
 
 export async function getFanzaAmateurCatalogPage({ page, sort }: { page: number; sort: FanzaAmateurSort }) {
