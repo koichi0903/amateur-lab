@@ -114,7 +114,7 @@ const getCachedConfirmedPerformers = unstable_cache(
     return Object.fromEntries(namesByContentId);
   },
   ["fanza-amateur-confirmed-performers-v1"],
-  { revalidate: 3_600, tags: ["fanza-amateur-catalog"] },
+  { revalidate: 86_400, tags: ["fanza-amateur-catalog"] },
 );
 
 export async function addConfirmedPerformersToAmateurItems(items: FanzaAmateurCatalogItem[]) {
@@ -601,7 +601,7 @@ async function loadFanzaAmateurActressWorks({ name, page = 1, pageSize = 60, sor
 const getCachedFanzaAmateurActressWorks = unstable_cache(
   loadFanzaAmateurActressWorks,
   ["fanza-amateur-actress-works-v1"],
-  { revalidate: 3_600, tags: ["fanza-amateur-actress"] },
+  { revalidate: 86_400, tags: ["fanza-amateur-catalog", "fanza-amateur-actress"] },
 );
 
 export async function getFanzaAmateurActressWorks(args: { name: string; page?: number; pageSize?: number; sort?: "newest" | "review" }) {
