@@ -27,6 +27,7 @@ export default function robots(): MetadataRoute.Robots {
         "Claude-Web",
         "cohere-ai",
         "Diffbot",
+        "ElevenlabsCrawler",
         "FacebookBot",
         "Google-Extended",
         "GPTBot",
