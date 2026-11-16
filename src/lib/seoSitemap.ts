@@ -5,10 +5,7 @@ import {
   type EntityIndexKind,
 } from "@/lib/catalog/entityIndexSummaries";
 import { SITE_URL } from "@/lib/seo";
-import {
-  getSeoIndexedWorkIds,
-  isWorkIndexable,
-} from "@/lib/seoQuality";
+import { isWorkIndexable } from "@/lib/seoQuality";
 import { supabase } from "@/lib/supabase";
 import { analyzerGuideArticles } from "@/lib/analyzerGuideContent";
 import { editorialGuides, reportDefinitions } from "@/lib/editorialContent";
@@ -108,29 +105,33 @@ const QUALITY_WORK_COLUMNS = [
 
 const getQualityWorks = unstable_cache(
   async (): Promise<SitemapWork[]> => {
-    const indexedIds = getSeoIndexedWorkIds();
     const candidates: SitemapWork[] = [];
-    for (let from = 0; from < indexedIds.length; from += WORK_QUERY_BATCH_SIZE) {
+    let afterId = 0;
+    while (true) {
       const { data, error } = await supabase
         .from("works")
         .select(QUALITY_WORK_COLUMNS)
-        .in("id", indexedIds.slice(from, from + WORK_QUERY_BATCH_SIZE))
-        .neq("stage", "DISCONTINUED")
+        .gt("id", afterId)
+        .or("stage.is.null,stage.neq.DISCONTINUED")
         .gte("price", 1)
         .not("image_url", "is", null)
         .neq("image_url", "")
         .not("affiliate_url", "is", null)
         .neq("affiliate_url", "")
         .order("id", { ascending: true })
+        .limit(WORK_QUERY_BATCH_SIZE)
 
       if (error) throw error;
       const rows = (data ?? []) as unknown as SitemapWork[];
+      if (rows.length === 0) break;
       candidates.push(...rows);
+      afterId = rows[rows.length - 1].id;
+      if (rows.length < WORK_QUERY_BATCH_SIZE) break;
     }
 
     return candidates.filter(isWorkIndexable).sort((a, b) => a.id - b.id);
   },
-  ["seo-sitemap-work-index-pilot-2026-10-20-v1"],
+  ["seo-sitemap-all-eligible-works-2026-11-16-v1"],
   { revalidate: 3600 },
 );
 
