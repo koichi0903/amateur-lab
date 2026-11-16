@@ -179,31 +179,23 @@ const getRelatedWorks = cache(
   ) =>
     unstable_cache(
       async () => {
-    const sources = [
-      { column: "series", value: mainSeries, weight: 45 },
-      { column: "actress", value: mainActress, weight: 40 },
-      { column: "genre", value: mainGenre, weight: 25 },
-      { column: "maker", value: mainMaker, weight: 15 },
-    ].filter((source) => source.value);
+    if (!mainSeries && !mainActress && !mainGenre && !mainMaker) return [];
 
-    if (!sources.length) return [];
+    const { data, error } = await supabase.rpc("get_work_related_candidates", {
+      p_work_id: workId,
+      p_actress: mainActress || null,
+      p_series: mainSeries || null,
+      p_genre: mainGenre || null,
+      p_maker: mainMaker || null,
+    });
+    if (error) {
+      console.error("[work-detail] failed to load related works", { workId, error });
+      return [];
+    }
 
-    const results = await Promise.all(
-      sources.map(async (source) => {
-        const { data } = await supabase
-          .from("works")
-          .select("id,product_id,title,actress,genre,maker,series,image_url,score,review_average,review_count,price,sale_price,list_price,discount_rate,sale_end_at,affiliate_url,stage")
-          .ilike(source.column, `%${source.value}%`)
-          .neq("id", workId)
-          .order("score", { ascending: false, nullsFirst: false })
-          .limit(18);
-
-        return (data ?? []).map((work) => ({ work, weight: source.weight }));
-      }),
-    );
-
-    const candidates = new Map<number, { work: (typeof results)[number][number]["work"]; relevance: number }>();
-    for (const result of results.flat()) {
+    const results = (data ?? []) as Array<{ work: Work; weight: number }>;
+    const candidates = new Map<number, { work: Work; relevance: number }>();
+    for (const result of results) {
       const current = candidates.get(result.work.id);
       const relevance =
         (current?.relevance ?? 0) +
