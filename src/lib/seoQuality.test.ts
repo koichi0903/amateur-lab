@@ -67,10 +67,10 @@ test("固定対象でも販売停止や購入情報の技術的不備があれ�
   }
 });
 
-test("固定対象外の作品は高スコアやレビューだけで自動追加しない", () => {
+test("固定対象外でも購入情報がそろえば対象になる", () => {
   assert.equal(
-    isWorkIndexable({ ...work, id: 10000, score: 100, review_count: 999 }),
-    false,
+    isWorkIndexable({ ...work, id: 10000, score: 0, review_count: 0 }),
+    true,
   );
 });
 
