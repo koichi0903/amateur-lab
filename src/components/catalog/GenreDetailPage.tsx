@@ -18,7 +18,7 @@ const getCachedGenreInsights = unstable_cache(
     { requireBuyTimingSignal: false },
   ),
   ["genre-page-price-insights-v1"],
-  { revalidate: 900, tags: ["genre-price-insights"] },
+  { revalidate: 86_400, tags: ["home-price-insights", "entity-works"] },
 );
 
 async function buildGenreInsights(works: Work[]) {

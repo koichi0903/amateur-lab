@@ -125,7 +125,7 @@ async function loadGenreContext(name: string) {
 const getCachedCatalogWorksPage = unstable_cache(
   loadCatalogWorksPage,
   ["catalog-entity-page-v1"],
-  { revalidate: 900, tags: ["entity-works", "catalog-works"] },
+  { revalidate: 86_400, tags: ["entity-works", "catalog-works"] },
 );
 
 export const getCatalogWorksPage = cache(getCachedCatalogWorksPage);
