@@ -1,13 +1,10 @@
-// The current indexable cohort is frozen for the pilot so volatile sales,
-// rankings, review counts, and aggregate scores cannot eject pages day to day.
+// Eligibility is based on whether the live work page can serve a purchase
+// decision. A frozen pilot ID list must not exclude otherwise complete pages.
 export const WORK_INDEX_MIN_PRICE = 1;
 import {
-  SEO_INDEXED_WORK_IDS,
   SEO_PRESERVED_WORK_IDS,
   SEO_PRICE_HISTORY_PILOT_SERIES,
 } from "./seoIndexPilotManifest.ts";
-
-const indexedWorkIdSet = new Set<number>(SEO_INDEXED_WORK_IDS);
 
 export type WorkIndexabilityInput = {
   id?: number | null;
@@ -36,7 +33,6 @@ function hasValue(value: string | null): boolean {
 export function isWorkIndexable(work: WorkIndexabilityInput): boolean {
   return (
     typeof work.id === "number" &&
-    indexedWorkIdSet.has(work.id) &&
     work.stage !== "DISCONTINUED" &&
     (work.price ?? 0) >= WORK_INDEX_MIN_PRICE &&
     hasValue(work.image_url) &&
@@ -49,7 +45,9 @@ export function getSeoPilotDefaultPriceSeries(workId: number) {
 }
 
 export function getSeoIndexedWorkIds(): number[] {
-  return [...indexedWorkIdSet].sort((a, b) => a - b);
+  // Retained for historical pilot reporting only, never page eligibility.
+  return [...SEO_PRESERVED_WORK_IDS, ...SEO_PRICE_HISTORY_PILOT_SERIES.keys()]
+    .sort((a, b) => a - b);
 }
 
 export function isSeoPreservedWorkId(workId: number): boolean {
