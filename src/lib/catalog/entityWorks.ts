@@ -122,7 +122,13 @@ async function loadGenreContext(name: string) {
   return { error: result.error, works: (result.data ?? []) as Work[] };
 }
 
-export const getCatalogWorksPage = cache(loadCatalogWorksPage);
+const getCachedCatalogWorksPage = unstable_cache(
+  loadCatalogWorksPage,
+  ["catalog-entity-page-v1"],
+  { revalidate: 900, tags: ["entity-works", "catalog-works"] },
+);
+
+export const getCatalogWorksPage = cache(getCachedCatalogWorksPage);
 export const getGenreWorksPage = cache((name: string, page: number, sort: GenreWorkSort = "popular") => loadCatalogWorksPage("genre", name, page, sort));
 export const getGenreContext = cache(loadGenreContext);
 

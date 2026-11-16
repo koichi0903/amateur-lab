@@ -53,7 +53,7 @@ export async function AmateurActressDetailPage({ actressName, currentPage }: { a
   const [pageResult, contextResult, newestResult] = await Promise.all([
     getFanzaAmateurActressWorks({ name: actressName, page: safeCurrentPage, pageSize: AMATEUR_ACTRESS_PAGE_SIZE, sort: "newest" }),
     getFanzaAmateurActressWorks({ name: actressName, page: 1, pageSize: 300, sort: "review" }),
-    getFanzaAmateurActressWorks({ name: actressName, page: 1, pageSize: 4, sort: "newest" }),
+    safeCurrentPage === 1 ? Promise.resolve(null) : getFanzaAmateurActressWorks({ name: actressName, page: 1, pageSize: 4, sort: "newest" }),
   ]);
 
   const currentCards = pageResult.cards;
@@ -62,7 +62,7 @@ export async function AmateurActressDetailPage({ actressName, currentPage }: { a
     .filter((card) => priceOf(card) > 0)
     .sort((a, b) => costPerformanceScore(b) - costPerformanceScore(a) || (b.item.reviewAverage ?? 0) - (a.item.reviewAverage ?? 0) || (b.item.review?.count ?? 0) - (a.item.review?.count ?? 0))
     .slice(0, 6);
-  const newestWorks = newestResult.cards.slice(0, 4);
+  const newestWorks = (newestResult?.cards ?? pageResult.cards).slice(0, 4);
   const pageHref = (targetPage: number) => targetPage > 1
     ? `/amateur/actress/${encodeURIComponent(actressName)}/page/${targetPage}`
     : `/amateur/actress/${encodeURIComponent(actressName)}`;

@@ -84,10 +84,11 @@ export default async function FanzaAmateurWorkPage({ params }: { params: Promise
   if (!result) notFound();
 
   const { item, fetchedAt, priceHistory, mp4Url } = result;
-  const [itemWithPerformers] = await addConfirmedPerformersToAmateurItems([item]);
+  const relatedItemsWithoutPerformers = await getFanzaAmateurRelatedWorks(item);
+  const itemsWithPerformers = await addConfirmedPerformersToAmateurItems([item, ...relatedItemsWithoutPerformers]);
+  const [itemWithPerformers, ...relatedItems] = itemsWithPerformers;
   const rawItem = item as unknown as Record<string, unknown>;
   const samples = sampleImages(item);
-  const relatedItems = await addConfirmedPerformersToAmateurItems(await getFanzaAmateurRelatedWorks(item));
   const relatedWorks: FanzaAmateurHomeCard[] = relatedItems.map((related) => ({
     item: related,
     priceHistory: [],
