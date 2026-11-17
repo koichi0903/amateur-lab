@@ -170,7 +170,7 @@ const getCachedEntityWorks = unstable_cache(
     };
   },
   ["entity-works-v1"],
-  { revalidate: 900, tags: ["entity-works"] },
+  { revalidate: 43200, tags: ["entity-works"] },
 );
 
 async function loadEntityWorksPage(
