@@ -6,12 +6,6 @@ const PRICE_TASKS = new Set(["sale", "ended-sale", "missing-prices"]);
 const DISCOVERY_TASKS = new Set(["review", "ranking", "score"]);
 
 const ENTITY_PATHS = ["/actress", "/genre", "/maker"];
-const ENTITY_PAGE_PATTERNS = [
-  "/genre/[name]",
-  "/genre/[name]/page/[page]",
-  "/maker/[name]",
-  "/maker/[name]/page/[page]",
-];
 
 export const PUBLIC_CACHE_TASKS = new Set([
   "reserve",
@@ -100,9 +94,6 @@ export async function revalidatePublicCacheForTasks(
   }
 
   for (const path of paths) revalidatePath(path);
-  if (tags.has("entity-works")) {
-    for (const path of ENTITY_PAGE_PATTERNS) revalidatePath(path, "page");
-  }
 
   if (knownTasks.includes("amateur-api-catalog")) {
     for (const path of ["/amateur/[contentId]", "/amateur/genre/[name]", "/amateur/maker/[name]"]) {
