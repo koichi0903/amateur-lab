@@ -31,7 +31,6 @@ type SitemapWork = {
 
 const PAGE_SIZE = 1000;
 const AMATEUR_ACTRESS_PAGE_SIZE = 1000;
-const WORK_QUERY_BATCH_SIZE = 200;
 const CACHE_CONTROL = "public, s-maxage=3600, stale-while-revalidate=86400";
 const staticEntries: SitemapEntry[] = [
   { url: SITE_URL, changeFrequency: "daily", priority: 1 },
@@ -103,35 +102,44 @@ const QUALITY_WORK_COLUMNS = [
   "id", "created_at", "updated_at", "stage", "price", "image_url", "affiliate_url",
 ].join(",");
 
-const getQualityWorks = unstable_cache(
-  async (): Promise<SitemapWork[]> => {
-    const candidates: SitemapWork[] = [];
-    let afterId = 0;
-    while (true) {
-      const { data, error } = await supabase
-        .from("works")
-        .select(QUALITY_WORK_COLUMNS)
-        .gt("id", afterId)
-        .or("stage.is.null,stage.neq.DISCONTINUED")
-        .gte("price", 1)
-        .not("image_url", "is", null)
-        .neq("image_url", "")
-        .not("affiliate_url", "is", null)
-        .neq("affiliate_url", "")
-        .order("id", { ascending: true })
-        .limit(WORK_QUERY_BATCH_SIZE)
+const getQualityWorkCount = unstable_cache(
+  async (): Promise<number> => {
+    const { count, error } = await supabase
+      .from("works")
+      .select("id", { count: "exact", head: true })
+      .or("stage.is.null,stage.neq.DISCONTINUED")
+      .gte("price", 1)
+      .not("image_url", "is", null)
+      .neq("image_url", "")
+      .not("affiliate_url", "is", null)
+      .neq("affiliate_url", "");
 
-      if (error) throw error;
-      const rows = (data ?? []) as unknown as SitemapWork[];
-      if (rows.length === 0) break;
-      candidates.push(...rows);
-      afterId = rows[rows.length - 1].id;
-      if (rows.length < WORK_QUERY_BATCH_SIZE) break;
-    }
-
-    return candidates.filter(isWorkIndexable).sort((a, b) => a.id - b.id);
+    if (error) throw error;
+    return count ?? 0;
   },
-  ["seo-sitemap-all-eligible-works-2026-11-16-v1"],
+  ["seo-sitemap-quality-work-count-v2"],
+  { revalidate: 3600 },
+);
+
+const getQualityWorkPage = unstable_cache(
+  async (chunkNumber: number): Promise<SitemapWork[]> => {
+    const from = (chunkNumber - 1) * PAGE_SIZE;
+    const { data, error } = await supabase
+      .from("works")
+      .select(QUALITY_WORK_COLUMNS)
+      .or("stage.is.null,stage.neq.DISCONTINUED")
+      .gte("price", 1)
+      .not("image_url", "is", null)
+      .neq("image_url", "")
+      .not("affiliate_url", "is", null)
+      .neq("affiliate_url", "")
+      .order("id", { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    return ((data ?? []) as unknown as SitemapWork[]).filter(isWorkIndexable);
+  },
+  ["seo-sitemap-quality-work-page-v2"],
   { revalidate: 3600 },
 );
 
@@ -140,7 +148,7 @@ export function getStaticSitemapEntries(): SitemapEntry[] {
 }
 
 export async function getWorkSitemapPaths(): Promise<string[]> {
-  const count = (await getQualityWorks()).length;
+  const count = await getQualityWorkCount();
   return Array.from(
     { length: Math.ceil(count / PAGE_SIZE) },
     (_, index) => `/sitemaps/works-${index + 1}.xml`,
@@ -150,8 +158,9 @@ export async function getWorkSitemapPaths(): Promise<string[]> {
 export async function getWorkSitemapEntries(
   chunkNumber: number,
 ): Promise<SitemapEntry[]> {
-  const from = (chunkNumber - 1) * PAGE_SIZE;
-  const works = (await getQualityWorks()).slice(from, from + PAGE_SIZE);
+  if (!Number.isInteger(chunkNumber) || chunkNumber < 1) return [];
+
+  const works = await getQualityWorkPage(chunkNumber);
 
   return works.map((work) => ({
     url: `${SITE_URL}/works/${work.id}`,
