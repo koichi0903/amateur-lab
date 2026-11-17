@@ -40,7 +40,13 @@ export default function robots(): MetadataRoute.Robots {
         userAgent,
         disallow: "/",
       })),
-      ...["AhrefsBot", "AwarioBot", "SemrushBot"].map((userAgent) => ({
+      ...[
+        "AhrefsBot",
+        "AwarioBot",
+        "MJ12bot",
+        "Reflectionbot",
+        "SemrushBot",
+      ].map((userAgent) => ({
         userAgent,
         disallow: "/works/",
       })),
