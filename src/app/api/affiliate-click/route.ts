@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isAffiliatePlacement } from "@/lib/affiliatePlacements";
 import { normalizeAffiliateSource } from "@/lib/affiliateTracking";
 import { normalizeCtaVariant } from "@/lib/ctaExperiment";
+import { HAKKUTSU_SITE_DMM_AFFILIATE_ID } from "@/lib/dmm/siteAffiliateUrl";
 import {
   isOperatorLandingPath,
   normalizeExternalAttribution,
@@ -87,6 +88,7 @@ export async function POST(request: Request) {
 
   const clickEvent = {
     work_id: workId,
+    affiliate_id: HAKKUTSU_SITE_DMM_AFFILIATE_ID,
     placement,
     source_page: sourcePage,
     cta_variant: ctaVariant,
@@ -101,6 +103,7 @@ export async function POST(request: Request) {
   if (error && isMissingXPostKey(error)) {
     const fallback = await supabaseAdmin.from("affiliate_clicks").insert({
       work_id: workId,
+      affiliate_id: HAKKUTSU_SITE_DMM_AFFILIATE_ID,
       placement,
       source_page: sourcePage,
       cta_variant: ctaVariant,
@@ -114,6 +117,7 @@ export async function POST(request: Request) {
   if (error && isMissingAttribution(error)) {
     const fallback = await supabaseAdmin.from("affiliate_clicks").insert({
       work_id: workId,
+      affiliate_id: HAKKUTSU_SITE_DMM_AFFILIATE_ID,
       placement,
       source_page: sourcePage,
       cta_variant: ctaVariant,
@@ -125,6 +129,7 @@ export async function POST(request: Request) {
   if (error && isMissingCtaVariant(error)) {
     const fallback = await supabaseAdmin.from("affiliate_clicks").insert({
       work_id: workId,
+      affiliate_id: HAKKUTSU_SITE_DMM_AFFILIATE_ID,
       placement,
       source_page: sourcePage,
     });
