@@ -26,7 +26,7 @@ export async function generateMetadata({ params }: { params: Promise<{ contentId
     });
   }
 
-  const { item } = result;
+  const { item, indexable } = result;
   const genres = (item.iteminfo?.genre ?? []).map(({ name }) => name.trim()).filter(Boolean).slice(0, 4);
   const price = displayText(item.prices?.price);
   const date = displayText(item.date);
@@ -42,9 +42,8 @@ export async function generateMetadata({ params }: { params: Promise<{ contentId
     description: `${item.title}の作品情報。${detail}`.slice(0, 160),
     canonical: `/amateur/${encodeURIComponent(item.content_id)}`,
     image: item.imageUrl || "/ogp-20261028.png",
-    // Product pages currently have sparse, API-sourced copy and limited price history.
-    // Keep them discoverable through internal links without indexing thousands of thin pages.
-    robots: { index: false, follow: true },
+    // Publish every listed amateur work that satisfies the four quality conditions.
+    robots: { index: indexable, follow: true },
   });
 }
 

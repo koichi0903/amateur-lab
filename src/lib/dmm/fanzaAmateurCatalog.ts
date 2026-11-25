@@ -6,6 +6,7 @@ import { HAKKUTSU_SITE_DMM_AFFILIATE_ID } from "@/lib/dmm/siteAffiliateUrl";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildFanzaAmateurRelatedWorkQueryArgs } from "@/lib/dmm/fanzaAmateurRelatedWorkQuery";
 import { expandFanzaAmateurPriceSnapshotRows, type FanzaAmateurPriceHistoryRow, type FanzaAmateurPriceSnapshotRow } from "@/lib/dmm/fanzaAmateurPriceHistory";
+import { getAmateurWorkPrice, isAmateurWorkIndexable } from "@/lib/amateurWorkIndexability";
 
 export const FANZA_AMATEUR_FLOOR = "videoc";
 export const FANZA_AMATEUR_PAGE_SIZE = 24;
@@ -298,7 +299,7 @@ export type FanzaAmateurPriceHistoryEntry = {
 async function loadFanzaAmateurCatalogWork(contentId: string) {
   const { data, error } = await supabaseAdmin
     .from("fanza_amateur_works")
-      .select("raw_item,fetched_at,image_url,sample_image_url,mp4_url")
+      .select("raw_item,fetched_at,image_url,sample_image_url,mp4_url,affiliate_url,is_listed,missing_since,prices")
     .eq("content_id", contentId)
     .maybeSingle();
   if (error) throw new Error(`素人作品を読み込めませんでした: ${error.message}`);
@@ -308,6 +309,14 @@ async function loadFanzaAmateurCatalogWork(contentId: string) {
   if (!item) return null;
 
     const savedImages = isRecord(data.image_url) ? data.image_url : {};
+    const indexable = isAmateurWorkIndexable({
+      contentId: item.content_id,
+      isListed: data.is_listed === true,
+      missingSince: typeof data.missing_since === "string" ? data.missing_since : null,
+      imageUrl: asText(savedImages.large) || asText(savedImages.small) || asText(savedImages.list) || null,
+      affiliateUrl: asText(data.affiliate_url) || null,
+      price: getAmateurWorkPrice(data.prices),
+    });
     item.imageURL = {
       ...(item.imageURL ?? {}),
       large: asText(savedImages.large) || item.imageURL?.large,
@@ -355,6 +364,7 @@ async function loadFanzaAmateurCatalogWork(contentId: string) {
 
   return {
     item,
+    indexable,
     fetchedAt: data.fetched_at as string,
     mp4Url: asText(data.mp4_url) || null,
     priceHistory: priceHistory as FanzaAmateurPriceHistoryEntry[],

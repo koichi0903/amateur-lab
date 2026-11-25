@@ -1,6 +1,8 @@
 import {
   getAmateurActressSitemapEntries,
   getAmateurActressSitemapPaths,
+  getAmateurWorkSitemapEntries,
+  getAmateurWorkSitemapPaths,
   getCatalogSitemapEntries,
   getStaticSitemapEntries,
   getWorkSitemapEntries,
@@ -40,6 +42,16 @@ export async function GET(_request: Request, context: SitemapRouteContext) {
     }
 
     return renderSitemap(await getAmateurActressSitemapEntries(chunkNumber));
+  }
+
+  const amateurWorkChunk = /^amateur-works-(\d+)\.xml$/.exec(name);
+  if (amateurWorkChunk) {
+    const chunkNumber = Number.parseInt(amateurWorkChunk[1], 10);
+    const paths = await getAmateurWorkSitemapPaths();
+    if (chunkNumber < 1 || chunkNumber > paths.length) {
+      return new Response("Not Found", { status: 404 });
+    }
+    return renderSitemap(await getAmateurWorkSitemapEntries(chunkNumber));
   }
 
   const workChunk = /^works-(\d+)\.xml$/.exec(name);
