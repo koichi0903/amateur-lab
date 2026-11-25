@@ -4,7 +4,7 @@ export const ENTITY_INDEX_THRESHOLDS: Record<
   EntityQualityKind,
   { minWorks: number }
 > = {
-  actress: { minWorks: 10 },
+  actress: { minWorks: 1 },
   genre: { minWorks: 10 },
   maker: { minWorks: 5 },
   series: { minWorks: 5 },

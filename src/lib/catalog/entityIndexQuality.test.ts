@@ -1,51 +1,51 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GSC_TARGET_ACTRESS_NAMES } from "./actressGsc635Manifest";
 import { isEntityIndexable } from "./entityIndexQuality";
 
-test("GSC target actress manifest is exactly 635 unique names", () => {
-  assert.equal(GSC_TARGET_ACTRESS_NAMES.size, 635);
-});
-
-test("actress pages with enough works and an image are indexable regardless of score", () => {
+test("an actress with one work and a representative work image is indexable", () => {
   assert.equal(
     isEntityIndexable("actress", {
-      name: "not-in-fixed-cohort",
-      count: 10,
+      name: "one-work-actress",
+      count: 1,
       maxScore: 0,
-      imageUrl: "https://example.com/actress.jpg",
+      imageUrl: "https://example.com/work.jpg",
     }),
     true,
   );
 });
 
-test("actress pages still require enough works and an image", () => {
-  const target = [...GSC_TARGET_ACTRESS_NAMES][0];
-  for (const summary of [
-    { name: target, count: 9, maxScore: 0, imageUrl: "https://example.com/a.jpg" },
-    { name: target, count: 10, maxScore: 0, imageUrl: " " },
-  ]) {
-    assert.equal(isEntityIndexable("actress", summary), false);
-  }
-});
-
-test("other entity types also ignore scores while retaining their work threshold", () => {
+test("actresses with no works or no available image remain noindex", () => {
   assert.equal(
-    isEntityIndexable("genre", {
-      name: "genre",
-      count: 10,
-      maxScore: 0,
-      imageUrl: "https://example.com/genre.jpg",
-    }),
-    true,
-  );
-  assert.equal(
-    isEntityIndexable("maker", {
-      name: "maker",
-      count: 4,
+    isEntityIndexable("actress", {
+      name: "no-work-actress",
+      count: 0,
       maxScore: 100,
-      imageUrl: "https://example.com/maker.jpg",
+      imageUrl: "https://example.com/work.jpg",
     }),
     false,
   );
+  assert.equal(
+    isEntityIndexable("actress", {
+      name: "missing-image-actress",
+      count: 1,
+      maxScore: 100,
+      imageUrl: null,
+    }),
+    false,
+  );
+});
+
+test("genre, maker, and series work thresholds are unchanged", () => {
+  const summary = {
+    name: "entity",
+    count: 1,
+    maxScore: 0,
+    imageUrl: "https://example.com/image.jpg",
+  };
+  assert.equal(isEntityIndexable("genre", { ...summary, count: 9 }), false);
+  assert.equal(isEntityIndexable("genre", { ...summary, count: 10 }), true);
+  assert.equal(isEntityIndexable("maker", { ...summary, count: 4 }), false);
+  assert.equal(isEntityIndexable("maker", { ...summary, count: 5 }), true);
+  assert.equal(isEntityIndexable("series", { ...summary, count: 4 }), false);
+  assert.equal(isEntityIndexable("series", { ...summary, count: 5 }), true);
 });
