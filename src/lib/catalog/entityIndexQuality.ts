@@ -1,15 +1,13 @@
-import { GSC_TARGET_ACTRESS_NAMES } from "./actressGsc635Manifest";
-
 export type EntityQualityKind = "actress" | "maker" | "series" | "genre";
 
 export const ENTITY_INDEX_THRESHOLDS: Record<
   EntityQualityKind,
-  { minWorks: number; minScore: number }
+  { minWorks: number }
 > = {
-  actress: { minWorks: 10, minScore: 60 },
-  genre: { minWorks: 10, minScore: 60 },
-  maker: { minWorks: 5, minScore: 50 },
-  series: { minWorks: 5, minScore: 50 },
+  actress: { minWorks: 10 },
+  genre: { minWorks: 10 },
+  maker: { minWorks: 5 },
+  series: { minWorks: 5 },
 };
 
 type EntityQualitySummary = {
@@ -26,8 +24,6 @@ export function isEntityIndexable(
   const threshold = ENTITY_INDEX_THRESHOLDS[kind];
   return (
     summary.count >= threshold.minWorks &&
-    (summary.maxScore >= threshold.minScore ||
-      (kind === "actress" && GSC_TARGET_ACTRESS_NAMES.has(summary.name))) &&
     Boolean(summary.imageUrl?.trim())
   );
 }
