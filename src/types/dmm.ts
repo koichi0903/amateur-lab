@@ -40,6 +40,18 @@ affiliateURL?: string;  // アフィリエイトURL
     };
   };
 
+  campaign?:
+    | Array<{
+        title?: string;
+        date_begin?: string;
+        date_end?: string;
+      }>
+    | {
+        title?: string;
+        date_begin?: string;
+        date_end?: string;
+      };
+
   review?: {
     average: string;
     count: number;
