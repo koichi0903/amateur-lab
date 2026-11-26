@@ -9,6 +9,7 @@ const PUBLIC_API_PATHS = new Set([
   "/api/contact",
   "/api/favorites",
   "/api/amateur",
+  "/api/guide-affiliate-click",
   "/api/push/subscribe",
   "/api/work-page-view",
 ]);
