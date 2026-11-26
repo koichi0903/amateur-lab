@@ -15,11 +15,23 @@ export async function POST(request: Request) {
     return new NextResponse(null, { status: 204 });
   }
 
+  const isNativePing = (request.headers.get("content-type") ?? "")
+    .toLowerCase()
+    .startsWith("text/ping");
+
   let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  if (isNativePing) {
+    const url = new URL(request.url);
+    payload = {
+      guideSlug: url.searchParams.get("guideSlug") ?? "",
+      ctaKey: url.searchParams.get("ctaKey") ?? "",
+    };
+  } else {
+    try {
+      payload = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
   }
 
   const guideSlug =
@@ -34,6 +46,11 @@ export async function POST(request: Request) {
       : "";
 
   if (!GUIDE_CTA_KEYS[guideSlug]?.has(ctaKey)) {
+    console.warn("[guide-affiliate-click] rejected invalid CTA", {
+      guideSlug,
+      ctaKey,
+      nativePing: isNativePing,
+    });
     return NextResponse.json({ error: "Invalid guide CTA" }, { status: 400 });
   }
 
@@ -41,7 +58,7 @@ export async function POST(request: Request) {
     typeof payload === "object" && payload !== null && "requestId" in payload &&
     typeof payload.requestId === "string"
       ? payload.requestId.slice(0, 80)
-      : undefined;
+      : request.headers.get("x-vercel-id") ?? undefined;
 
   const { data, error } = await supabaseAdmin
     .from("affiliate_clicks")
@@ -61,6 +78,7 @@ export async function POST(request: Request) {
       requestId,
       guideSlug,
       ctaKey,
+      nativePing: isNativePing,
       affiliateId: HAKKUTSU_SITE_DMM_AFFILIATE_ID,
       code: error.code,
       message: typeof error.message === "string" ? error.message.slice(0, 240) : undefined,
@@ -68,8 +86,6 @@ export async function POST(request: Request) {
       hint: typeof error.hint === "string" ? error.hint.slice(0, 240) : undefined,
     });
 
-    // Keep outbound navigation working while returning a visible server failure
-    // to fetch-based clients and preserving a diagnostic log for beacon requests.
     return NextResponse.json({ error: "Could not record guide CTA click" }, { status: 503 });
   }
 
@@ -78,6 +94,7 @@ export async function POST(request: Request) {
     clickId: data.id,
     guideSlug,
     ctaKey,
+    nativePing: isNativePing,
     affiliateId: HAKKUTSU_SITE_DMM_AFFILIATE_ID,
   });
 
