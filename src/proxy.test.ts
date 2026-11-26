@@ -52,6 +52,31 @@ test("allows public amateur genre API without admin authentication", async () =>
   }
 });
 
+test("allows public guide CTA tracking API without admin authentication", async () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalAdminUsername = process.env.ADMIN_USERNAME;
+  const originalAdminPassword = process.env.ADMIN_PASSWORD;
+  delete mutableEnv.ADMIN_USERNAME;
+  delete mutableEnv.ADMIN_PASSWORD;
+  mutableEnv.NODE_ENV = "production";
+
+  try {
+    const response = await proxy(
+      request("/api/guide-affiliate-click", "example.com"),
+    );
+
+    assert.equal(response.headers.get("x-middleware-next"), "1");
+    assert.equal(response.headers.get("www-authenticate"), null);
+  } finally {
+    if (originalNodeEnv === undefined) delete mutableEnv.NODE_ENV;
+    else mutableEnv.NODE_ENV = originalNodeEnv;
+    if (originalAdminUsername === undefined) delete mutableEnv.ADMIN_USERNAME;
+    else mutableEnv.ADMIN_USERNAME = originalAdminUsername;
+    if (originalAdminPassword === undefined) delete mutableEnv.ADMIN_PASSWORD;
+    else mutableEnv.ADMIN_PASSWORD = originalAdminPassword;
+  }
+});
+
 test("does not bypass unrelated admin authentication in local production mode", async () => {
   const originalNodeEnv = process.env.NODE_ENV;
   delete mutableEnv.ADMIN_USERNAME;
