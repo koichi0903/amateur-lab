@@ -22,9 +22,7 @@ export default function GuideAffiliateLink({
   className,
   children,
 }: Props) {
-  const pingUrl = `/api/guide-affiliate-click?guideSlug=${encodeURIComponent(guideSlug)}&ctaKey=${encodeURIComponent(ctaKey)}`;
-
-  const recordAnalyticsClick = (_event: MouseEvent<HTMLAnchorElement>) => {
+  const recordClick = (_event: MouseEvent<HTMLAnchorElement>) => {
     try {
       (window as WindowWithGtag).gtag?.("event", "affiliate_click", {
         placement: "guide-cta",
@@ -36,13 +34,44 @@ export default function GuideAffiliateLink({
         transport_type: "beacon",
       });
     } catch (error) {
-      // Analytics must not interfere with the browser-native click ping.
       console.error("[guide-affiliate-click] analytics event failed", {
         guideSlug,
         ctaKey,
         error: error instanceof Error ? error.message : "unknown",
       });
     }
+
+    const payload = JSON.stringify({
+      guideSlug,
+      ctaKey,
+      requestId: typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+    });
+
+    // The affiliate anchor opens a new tab, so this page remains alive.
+    // A keepalive fetch is sent on every click instead of relying on beacon's
+    // queue-accepted signal, which did not produce a server-side record.
+    void fetch("/api/guide-affiliate-click", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: payload,
+      keepalive: true,
+    }).then((response) => {
+      if (!response.ok) {
+        console.error("[guide-affiliate-click] request failed", {
+          guideSlug,
+          ctaKey,
+          status: response.status,
+        });
+      }
+    }).catch((error: unknown) => {
+      console.error("[guide-affiliate-click] request could not be sent", {
+        guideSlug,
+        ctaKey,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+    });
   };
 
   return (
@@ -50,9 +79,8 @@ export default function GuideAffiliateLink({
       href={href}
       target="_blank"
       rel="sponsored noopener noreferrer"
-      ping={pingUrl}
       className={className}
-      onClick={recordAnalyticsClick}
+      onClick={recordClick}
     >
       {children}
     </a>
