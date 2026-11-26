@@ -38,7 +38,9 @@ export default function GuideAffiliateLink({
     const payload = JSON.stringify({
       guideSlug,
       ctaKey,
-      requestId: crypto.randomUUID(),
+      requestId: typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
     });
     const beaconBody = new Blob([payload], { type: "application/json" });
 
