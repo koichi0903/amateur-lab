@@ -19,10 +19,9 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 import { saveDmmItem } from "./save";
 import { restoreDiscontinuedWorks } from "./restoreDiscontinuedWorks";
-import { updateWorkWithApiPrices } from "./updateWorkWithApiPrices";
+import { updateWork } from "./updateWork";
 import { notifySeriesAlertsForProducts } from "@/lib/pushNotifications";
 import { shouldCaptureSampleMovie } from "./sampleMovieCapture";
-import { shouldSkipUnchangedNewWorkUpdate } from "./newWorkUpdatePolicy";
 
 type NewProduct = Awaited<ReturnType<typeof getNewItems>>["products"][number];
 
@@ -34,44 +33,8 @@ type NewWork = {
   playwright_status: string | null;
   sample_movie_url: string | null;
   sample_movie_checked_at: string | null;
+  sample_movie_status: "pending" | "found" | "no_video";
 };
-
-type NewWorkUpdateOutcome = "updated" | "unchanged" | "incomplete";
-type NewWorkUpdateFailure = { productId: string; reason: string };
-
-export class NewWorkPartialUpdateError extends Error {
-  constructor(message: string, public readonly workIds: string[]) {
-    super(message);
-    this.name = "NewWorkPartialUpdateError";
-  }
-}
-
-function formatNewWorkProgressMessage(input: {
-  processed: number;
-  total: number;
-  updated: number;
-  unchanged: number;
-  skipped: number;
-  unresolved: number;
-  examples: string[];
-  priorResultsUnknown: boolean;
-}) {
-  const { processed, total, updated, unchanged, skipped, unresolved, examples, priorResultsUnknown } = input;
-  const exampleText = examples.length > 0 ? `。未完了例: ${examples.slice(0, 5).join(", ")}` : "";
-  const priorText = priorResultsUnknown ? "。再開前に処理済みの結果記録がありません" : "";
-  return `INFO: 新作更新 ${processed}/${total}件。今回の区間: 更新 ${updated}件、変更なし ${unchanged}件、更新不要/対象外 ${skipped}件、失敗/未確認 ${unresolved}件（登録工程を含む）${exampleText}${priorText}`;
-}
-
-function readPersistedNewWorkProgress(message: string | null | undefined) {
-  if (!message?.startsWith("INFO: 新作更新 ")) return null;
-  const counts = message.match(/失敗\/未確認\s+(\d+)件/);
-  if (!counts) return null;
-  const examples = message.match(/未完了例: ([^。]+)/)?.[1]
-    ?.split(",")
-    .map((value) => value.trim())
-    .filter(Boolean) ?? [];
-  return { unresolved: Number(counts[1]), examples };
-}
 
 async function loadAllProductIds(): Promise<Set<string>> {
   const productIds = new Set<string>();
@@ -107,7 +70,7 @@ async function loadNewWorks(): Promise<NewWork[]> {
     const { data, error } = await supabase
       .from("works")
       .select(
-        "product_id, release_date, list_price, sale_price, playwright_status, sample_movie_url, sample_movie_checked_at",
+        "product_id, release_date, list_price, sale_price, playwright_status, sample_movie_url, sample_movie_checked_at, sample_movie_status",
       )
       .eq("stage", "NEW")
       .order("product_id")
@@ -128,16 +91,15 @@ async function loadNewWorks(): Promise<NewWork[]> {
 async function registerMissingNewWorks(
   products: NewProduct[],
   browser: Browser,
-): Promise<NewWorkUpdateFailure[]> {
+): Promise<void> {
   const existingIds = await loadAllProductIds();
   const missingProducts = products.filter(
     (product) => !existingIds.has(product.productId),
   );
-  const failures: NewWorkUpdateFailure[] = [];
 
   if (missingProducts.length === 0) {
     console.log("[NEW_REGISTER] 未登録作品はありません");
-    return failures;
+    return;
   }
 
   console.log(`[NEW_REGISTER] 未登録${missingProducts.length}件を登録します`);
@@ -147,49 +109,36 @@ async function registerMissingNewWorks(
 
     await Promise.all(
       batch.map(async (product) => {
+        const item = await getDmmItem(product.productId);
+
+        if (!item) {
+          console.warn(`[NEW_REGISTER_SKIP] DMM API未取得 ${product.productId}`);
+          return;
+        }
+
+        const saved = await saveDmmItem(item, undefined, "NEW");
+
+        if (!saved) {
+          console.warn(
+            `[NEW_REGISTER_SKIP] DB登録失敗または登録済み ${product.productId}`,
+          );
+          return;
+        }
+
         try {
-          const item = await getDmmItem(product.productId);
-
-          if (!item) {
-            failures.push({ productId: product.productId, reason: "DMM APIから作品情報を取得できませんでした" });
-            console.warn(`[NEW_REGISTER_SKIP] DMM API未取得 ${product.productId}`);
-            return;
-          }
-
-          const saved = await saveDmmItem(item, undefined, "NEW");
-
-          if (!saved) {
-            failures.push({ productId: product.productId, reason: "DB登録結果を確認できませんでした" });
-            console.warn(
-              `[NEW_REGISTER_SKIP] DB登録失敗または登録済み ${product.productId}`,
-            );
-            return;
-          }
-
-          try {
-            await updatePlaywrightItem(
-              product.productId,
-              item.URL ?? item.affiliateURL,
-              browser,
-              product.listPrice,
-              { captureSampleMovie: true },
-            );
-            console.log(`[NEW_REGISTER_OK] ${product.productId}`);
-          } catch (error) {
-            // The row remains PENDING; the regular update pass below retries its
-            // prices and sample movie within this same run.
-            console.error(
-              `[NEW_REGISTER_PLAYWRIGHT_ERROR] ${product.productId}`,
-              error,
-            );
-          }
+          await updatePlaywrightItem(
+            product.productId,
+            item.URL ?? item.affiliateURL,
+            browser,
+            product.listPrice,
+            { captureSampleMovie: true },
+          );
+          console.log(`[NEW_REGISTER_OK] ${product.productId}`);
         } catch (error) {
-          failures.push({
-            productId: product.productId,
-            reason: error instanceof Error ? error.name : "UnknownError",
-          });
+          // The row remains PENDING. A later normal pass can complete pricing,
+          // but sample movie discovery is intentionally limited to this insert.
           console.error(
-            `[NEW_REGISTER_ERROR] ${product.productId}`,
+            `[NEW_REGISTER_PLAYWRIGHT_ERROR] ${product.productId}`,
             error,
           );
         }
@@ -200,20 +149,6 @@ async function registerMissingNewWorks(
       `[NEW_REGISTER] ${Math.min(i + batch.length, missingProducts.length)}/${missingProducts.length}`,
     );
   }
-
-  return failures;
-}
-
-async function updateRegisteredNewWork(
-  productId: string,
-  browser: Browser,
-  listPrice: number | null,
-  captureSampleMovie: boolean,
-): Promise<NewWorkUpdateOutcome> {
-  return updateWorkWithApiPrices(productId, browser, listPrice, {
-    captureSampleMovie,
-    logPrefix: "NEW_API_PRICE",
-  });
 }
 
 export async function updateNewWorks() {
@@ -234,7 +169,7 @@ export async function updateNewWorks() {
 
     // Restore the original new-work sync: register missing FANZA products via
     // DMM API, then use Playwright once to capture every price variation.
-    const registrationFailures = await registerMissingNewWorks(products, browser);
+    await registerMissingNewWorks(products, browser);
 
     // Start the regular update pass with a fresh browser after registration.
     await closeBrowser(browser);
@@ -244,31 +179,6 @@ export async function updateNewWorks() {
 
     if (works.length === 0) {
       console.log("更新対象の新作はありません");
-      if (registrationFailures.length > 0) {
-        await beginJob(JOBS.NEW_UPDATE, registrationFailures.length);
-        jobStarted = true;
-        const examples = registrationFailures.map((failure) => `${failure.productId} (${failure.reason})`);
-        const message = formatNewWorkProgressMessage({
-          processed: registrationFailures.length,
-          total: registrationFailures.length,
-          updated: 0,
-          unchanged: 0,
-          skipped: 0,
-          unresolved: registrationFailures.length,
-          examples,
-          priorResultsUnknown: false,
-        });
-        await updateJob(
-          JOBS.NEW_UPDATE,
-          registrationFailures.length,
-          registrationFailures.at(-1)!.productId,
-          message,
-        );
-        throw new NewWorkPartialUpdateError(
-          `${message.replace(/^INFO: /, "")}。登録に失敗した作品を確認してください。`,
-          registrationFailures.map((failure) => failure.productId),
-        );
-      }
       return { workIds: updatedWorkIds };
     }
 
@@ -278,20 +188,6 @@ export async function updateNewWorks() {
     const processedCount = job.processed_count ?? 0;
     const targets = works.slice(processedCount);
     let current = processedCount;
-    let updatedCount = 0;
-    let unchangedCount = 0;
-    let skippedCount = 0;
-    const newWorkIds = new Set(works.map((work) => work.product_id));
-    const failures: NewWorkUpdateFailure[] = registrationFailures.filter(
-      (failure) => !newWorkIds.has(failure.productId),
-    );
-    const resumedWithProgress = job.status === "running" && processedCount > 0;
-    const persistedProgress = resumedWithProgress
-      ? readPersistedNewWorkProgress(job.error_message)
-      : null;
-    const priorResultsUnknown = resumedWithProgress && !persistedProgress;
-    const priorUnresolvedCount = persistedProgress?.unresolved ?? (priorResultsUnknown ? processedCount : 0);
-    const priorFailureExamples = persistedProgress?.examples ?? [];
 
     console.log(
       `新作更新開始 (${processedCount}/${works.length}から再開)`,
@@ -305,24 +201,16 @@ export async function updateNewWorks() {
           const latest = productMap.get(work.product_id);
 
           if (!latest) {
-            try {
-              const { error } = await supabase
-                .from("works")
-                .update({ stage: "SEMI_NEW" })
-                .eq("product_id", work.product_id);
+            const { error } = await supabase
+              .from("works")
+              .update({ stage: "SEMI_NEW" })
+              .eq("product_id", work.product_id);
 
-              if (error) throw error;
+            if (error) throw error;
 
-              updatedWorkIds.push(work.product_id);
-              skippedCount += 1;
-              console.log(`[STAGE] ${work.product_id} NEW → SEMI_NEW`);
-            } catch (error) {
-              failures.push({
-                productId: work.product_id,
-                reason: error instanceof Error ? error.name : "UnknownError",
-              });
-              console.error(`[ERROR] stage移行失敗 ${work.product_id}`, error);
-            }
+            updatedWorkIds.push(work.product_id);
+
+            console.log(`[STAGE] ${work.product_id} NEW → SEMI_NEW`);
             return;
           }
 
@@ -332,17 +220,19 @@ export async function updateNewWorks() {
             stage: "NEW",
             sampleMovieUrl: work.sample_movie_url,
             sampleMovieCheckedAt: work.sample_movie_checked_at,
+            sampleMovieStatus: work.sample_movie_status,
           });
 
           // PENDING means initial Playwright completion is still required even
           // when the headline price already matches the listing page.
-          if (shouldSkipUnchangedNewWorkUpdate({
-            playwrightStatus: work.playwright_status,
-            databasePrice: dbPrice,
-            latestPrice,
-            captureSampleMovie,
-          })) {
-            skippedCount += 1;
+          if (
+            work.playwright_status !== "PENDING" &&
+            !work.playwright_status?.startsWith("UNAVAILABLE_") &&
+            dbPrice != null &&
+            latestPrice != null &&
+            dbPrice === latestPrice &&
+            !captureSampleMovie
+          ) {
             console.log(`[SKIP] ${work.product_id} price=${dbPrice}`);
             return;
           }
@@ -352,26 +242,15 @@ export async function updateNewWorks() {
           );
 
           try {
-            const outcome = await updateRegisteredNewWork(
+            const changed = await updateWork(
               work.product_id,
+              null,
               browser,
               latest.listPrice,
-              captureSampleMovie,
+              { captureSampleMovie },
             );
-            if (outcome === "updated") {
-              updatedCount += 1;
-              updatedWorkIds.push(work.product_id);
-            } else if (outcome === "unchanged") {
-              unchangedCount += 1;
-            } else {
-              failures.push({ productId: work.product_id, reason: "価格更新を確認できませんでした" });
-              console.error(`[ERROR] update未完了 ${work.product_id}: Playwright/API結果が未確定`);
-            }
+            if (changed) updatedWorkIds.push(work.product_id);
           } catch (error) {
-            failures.push({
-              productId: work.product_id,
-              reason: error instanceof Error ? error.name : "UnknownError",
-            });
             console.error(`[ERROR] update失敗 ${work.product_id}`, error);
           }
         }),
@@ -386,57 +265,12 @@ export async function updateNewWorks() {
       }
 
       const lastWork = batch[batch.length - 1];
-      const currentExamples = [
-        ...priorFailureExamples,
-        ...failures.map((failure) => `${failure.productId} (${failure.reason})`),
-      ];
-      await updateJob(
-        JOBS.NEW_UPDATE,
-        current,
-        lastWork.product_id,
-        formatNewWorkProgressMessage({
-          processed: current,
-          total: works.length,
-          updated: updatedCount,
-          unchanged: unchangedCount,
-          skipped: skippedCount,
-          unresolved: priorUnresolvedCount + failures.length,
-          examples: [...new Set(currentExamples)],
-          priorResultsUnknown,
-        }),
-      );
+      await updateJob(JOBS.NEW_UPDATE, current, lastWork.product_id);
 
       console.log(`${current}/${works.length}`);
     }
 
-    const unresolvedCount = priorUnresolvedCount + failures.length;
-    const failureExamples = [...new Set([
-      ...priorFailureExamples,
-      ...failures.map((failure) => `${failure.productId} (${failure.reason})`),
-    ])];
-    const resultSummary = formatNewWorkProgressMessage({
-      processed: works.length,
-      total: works.length,
-      updated: updatedCount,
-      unchanged: unchangedCount,
-      skipped: skippedCount,
-      unresolved: unresolvedCount,
-      examples: failureExamples,
-      priorResultsUnknown,
-    });
-
-    if (unresolvedCount > 0 || priorResultsUnknown) {
-      const unresolvedIds = failures.map((failure) => failure.productId);
-      const workIds = [...new Set([...updatedWorkIds, ...unresolvedIds])];
-      throw new NewWorkPartialUpdateError(
-        priorResultsUnknown
-          ? `${resultSummary.replace(/^INFO: /, "")}。再開前に処理済みだった${processedCount}件の個別結果を確認できないため、全件成功とは判定できません。先頭から再実行してください。`
-          : `${resultSummary.replace(/^INFO: /, "")}。未完了作品を確認するため、ジョブを失敗扱いにしました。`,
-        workIds,
-      );
-    }
-
-    await finishJob(JOBS.NEW_UPDATE, resultSummary);
+    await finishJob(JOBS.NEW_UPDATE);
     try {
       await notifySeriesAlertsForProducts(updatedWorkIds);
     } catch (notificationError) {
@@ -459,3 +293,5 @@ export async function updateNewWorks() {
     await closeBrowser(browser);
   }
 }
+
+
