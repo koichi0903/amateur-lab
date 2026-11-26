@@ -5,15 +5,24 @@ import { JobStoppedError } from "./JobStoppedError";
 export async function updateJob(
   jobName: JobName,
   processedCount: number,
-  productId: string
+  productId: string,
+  errorMessage?: string | null,
 ) {
+  const updates: {
+    processed_count: number;
+    last_product_id: string;
+    updated_at: string;
+    error_message?: string | null;
+  } = {
+    processed_count: processedCount,
+    last_product_id: productId,
+    updated_at: new Date().toISOString(),
+  };
+  if (errorMessage !== undefined) updates.error_message = errorMessage;
+
   const { data, error } = await supabase
     .from("jobs")
-    .update({
-      processed_count: processedCount,
-      last_product_id: productId,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updates)
     .eq("job_name", jobName)
     .eq("status", "running")
     .select("job_name")
@@ -27,3 +36,4 @@ export async function updateJob(
     throw new JobStoppedError(jobName);
   }
 }
+
