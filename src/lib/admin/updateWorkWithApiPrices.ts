@@ -57,7 +57,7 @@ async function preserveReleaseDateWhenApiOmitsIt(
 export async function updateWorkWithApiPrices(
   productId: string,
   browser: Browser,
-  listPrice: number | null,
+  listPrice?: number | null,
   options: UpdateWorkWithApiPricesOptions = {},
 ): Promise<ApiPriceUpdateOutcome> {
   const { captureSampleMovie = false, logPrefix = "API_PRICE" } = options;
@@ -145,3 +145,4 @@ export async function updateWorkWithApiPrices(
   );
   return metadataChanged || priceDataChanged ? "updated" : "unchanged";
 }
+
