@@ -7,7 +7,6 @@ import {
   failJob,
   finishJob,
   JOBS,
-  updateJob,
   updateJobProgress,
 } from "@/lib/jobs";
 import {
@@ -20,7 +19,7 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 import { saveDmmItem } from "./save";
 import { restoreDiscontinuedWorks } from "./restoreDiscontinuedWorks";
-import { updateWorkWithApiPrices } from "./updateWorkWithApiPrices";
+import { updateWork } from "./updateWork";
 
 type ReserveProduct = Awaited<
   ReturnType<typeof getReserveItems>
@@ -29,34 +28,6 @@ type ReserveProduct = Awaited<
 type ReservedWork = {
   product_id: string;
 };
-
-type ReserveUpdateFailure = { productId: string; reason: string };
-
-export class ReservePartialUpdateError extends Error {
-  constructor(message: string, public readonly workIds: string[]) {
-    super(message);
-    this.name = "ReservePartialUpdateError";
-  }
-}
-
-function errorReason(error: unknown): string {
-  if (!(error instanceof Error)) return "UnknownError";
-  return error.message.slice(0, 160) || error.name;
-}
-
-function formatReserveProgressMessage(input: {
-  processed: number;
-  total: number;
-  updated: number;
-  unchanged: number;
-  failures: ReserveUpdateFailure[];
-}) {
-  const examples = [...new Set(
-    input.failures.map(({ productId, reason }) => `${productId} (${reason})`),
-  )].slice(0, 5);
-  const exampleText = examples.length > 0 ? `。未完了例: ${examples.join(", ")}` : "";
-  return `INFO: 予約作品更新 ${input.processed}/${input.total}件。更新 ${input.updated}件、変更なし ${input.unchanged}件、失敗/未確認 ${input.failures.length}件${exampleText}`;
-}
 
 async function loadAllProductIds(): Promise<Set<string>> {
   const productIds = new Set<string>();
@@ -111,7 +82,7 @@ async function registerMissingReservedWorks(
     total: number,
     productId?: string,
   ) => Promise<void>,
-): Promise<ReserveUpdateFailure[]> {
+): Promise<void> {
   const existingIds = await loadAllProductIds();
   const missingProducts = products.filter(
     (product) => !existingIds.has(product.productId),
@@ -120,10 +91,8 @@ async function registerMissingReservedWorks(
   if (missingProducts.length === 0) {
     console.log("[RESERVE_REGISTER] 未登録作品はありません");
     await onProgress?.(0, 0);
-    return [];
+    return;
   }
-
-  const failures: ReserveUpdateFailure[] = [];
 
   console.log(
     `[RESERVE_REGISTER] 未登録${missingProducts.length}件を登録します`,
@@ -138,10 +107,6 @@ async function registerMissingReservedWorks(
           const item = await getDmmItem(product.productId);
 
           if (!item) {
-            failures.push({
-              productId: product.productId,
-              reason: "DMM APIから作品情報を取得できませんでした",
-            });
             console.warn(
               `[RESERVE_REGISTER_SKIP] DMM API未取得 ${product.productId}`,
             );
@@ -149,38 +114,20 @@ async function registerMissingReservedWorks(
           }
 
           const saved = await saveDmmItem(item, undefined, "RESERVED");
-          if (!saved) {
-            failures.push({
-              productId: product.productId,
-              reason: "DB登録結果を確認できませんでした",
-            });
-            return;
-          }
+          if (!saved) return;
 
-          try {
-            await updatePlaywrightItem(
-              product.productId,
-              item.URL ?? item.affiliateURL,
-              browser,
-              product.listPrice,
-              { captureSampleMovie: true },
-            );
-          } catch (error) {
-            // The regular API price pass below still retries this saved work.
-            console.error(
-              `[RESERVE_REGISTER_PLAYWRIGHT_ERROR] ${product.productId}`,
-              error,
-            );
-          }
+          await updatePlaywrightItem(
+            product.productId,
+            item.URL ?? item.affiliateURL,
+            browser,
+            product.listPrice,
+            { captureSampleMovie: true },
+          );
 
           console.log(`[RESERVE_REGISTER_OK] ${product.productId}`);
         } catch (error) {
           // The row remains PENDING. A later normal pass can complete pricing,
           // but sample movie discovery is intentionally limited to this insert.
-          failures.push({
-            productId: product.productId,
-            reason: errorReason(error),
-          });
           console.error(
             `[RESERVE_REGISTER_ERROR] ${product.productId}`,
             error,
@@ -196,8 +143,6 @@ async function registerMissingReservedWorks(
       batch.at(-1)?.productId,
     );
   }
-
-  return failures;
 }
 
 export async function updateReserveWorks() {
@@ -208,16 +153,7 @@ export async function updateReserveWorks() {
   try {
     const job = await beginJob(JOBS.RESERVE, 0);
     jobStarted = true;
-    const previousProcessedCount = job.processed_count ?? 0;
-    // Earlier reserve runs advanced processed_count even when a work failed.
-    // Rescan the full list after an interrupted run so such failures cannot be
-    // skipped when this job resumes.
-    const resumeProcessedCount = 0;
-    if (previousProcessedCount > 0) {
-      console.warn(
-        `[RESERVE_RESUME_RESCAN] previous progress=${previousProcessedCount}; restarting work scan from 0/${job.total_count ?? 0}`,
-      );
-    }
+    const resumeProcessedCount = job.processed_count ?? 0;
     await updateJobProgress(JOBS.RESERVE, {
       processedCount: resumeProcessedCount,
       totalCount: job.total_count ?? 0,
@@ -252,7 +188,7 @@ export async function updateReserveWorks() {
         total: products.length,
       },
     });
-    const registrationFailures = await registerMissingReservedWorks(
+    await registerMissingReservedWorks(
       products,
       browser,
       async (processed, total, productId) => {
@@ -276,19 +212,6 @@ export async function updateReserveWorks() {
     const works = await loadReservedWorks();
     if (works.length === 0) {
       console.log("更新対象の予約作品はありません");
-      if (registrationFailures.length > 0) {
-        const message = formatReserveProgressMessage({
-          processed: 0,
-          total: registrationFailures.length,
-          updated: 0,
-          unchanged: 0,
-          failures: registrationFailures,
-        });
-        throw new ReservePartialUpdateError(
-          `${message.replace(/^INFO: /, "")}。未登録作品を確認するため、ジョブを失敗扱いにしました。`,
-          registrationFailures.map(({ productId }) => productId),
-        );
-      }
       await finishJob(JOBS.RESERVE);
       return { workIds: updatedWorkIds };
     }
@@ -311,13 +234,6 @@ export async function updateReserveWorks() {
       `予約作品更新開始 (${processedCount}/${works.length}から再開)`,
     );
 
-    const reservedIds = new Set(works.map(({ product_id }) => product_id));
-    const failures = registrationFailures.filter(
-      ({ productId }) => !reservedIds.has(productId),
-    );
-    let updatedCount = 0;
-    let unchangedCount = 0;
-
     for (let i = 0; i < targets.length; i += UPDATE_CONFIG.parallel) {
       const batch = targets.slice(i, i + UPDATE_CONFIG.parallel);
       const batchBrowser = browser;
@@ -330,33 +246,19 @@ export async function updateReserveWorks() {
           try {
             // Always refresh DMM details while a product is reserved. The
             // release date can move even when the headline price is unchanged.
-            const outcome = await updateWorkWithApiPrices(
+            const changed = await updateWork(
               work.product_id,
+              null,
               batchBrowser,
               latest?.listPrice ?? null,
-              {
-                logPrefix: "RESERVE_API_PRICE",
-                // A RESERVED work that leaves the reservation listing is being
-                // promoted to NEW below. Recheck the sample movie even when the
-                // reservation-time check already recorded checked_at.
-                captureSampleMovie: !latest,
-              },
+              // A RESERVED work that leaves the reservation listing is being
+              // promoted to NEW below. Recheck the sample movie even when the
+              // reservation-time check already recorded checked_at.
+              latest
+                ? undefined
+                : { captureSampleMovie: true },
             );
-            if (outcome === "updated") {
-              updatedCount += 1;
-              updatedWorkIds.push(work.product_id);
-            } else if (outcome === "unchanged") {
-              unchangedCount += 1;
-            } else {
-              failures.push({
-                productId: work.product_id,
-                reason: "価格更新を確認できませんでした",
-              });
-              console.error(
-                `[RESERVE_UPDATE_INCOMPLETE] ${work.product_id}: API/Playwright結果が未確定`,
-              );
-              return;
-            }
+            if (changed) updatedWorkIds.push(work.product_id);
 
             if (!latest) {
               const { error } = await supabase
@@ -366,7 +268,7 @@ export async function updateReserveWorks() {
 
               if (error) throw error;
 
-              if (outcome !== "updated") updatedWorkIds.push(work.product_id);
+              if (!changed) updatedWorkIds.push(work.product_id);
 
               console.log(`[STAGE] ${work.product_id} RESERVED → NEW`);
             } else {
@@ -374,10 +276,6 @@ export async function updateReserveWorks() {
             }
           } catch (error) {
             console.error(`[RESERVE_UPDATE_ERROR] ${work.product_id}`, error);
-            failures.push({
-              productId: work.product_id,
-              reason: errorReason(error),
-            });
           }
         }),
       );
@@ -391,14 +289,6 @@ export async function updateReserveWorks() {
       }
 
       const lastWork = batch[batch.length - 1];
-      const message = formatReserveProgressMessage({
-        processed: current,
-        total: works.length,
-        updated: updatedCount,
-        unchanged: unchangedCount,
-        failures,
-      });
-      await updateJob(JOBS.RESERVE, current, lastWork.product_id, message);
       await updateJobProgress(JOBS.RESERVE, {
         processedCount: current,
         totalCount: works.length,
@@ -412,30 +302,7 @@ export async function updateReserveWorks() {
       console.log(`${current}/${works.length}`);
     }
 
-    if (failures.length > 0) {
-      const message = formatReserveProgressMessage({
-        processed: works.length,
-        total: works.length,
-        updated: updatedCount,
-        unchanged: unchangedCount,
-        failures,
-      });
-      throw new ReservePartialUpdateError(
-        `${message.replace(/^INFO: /, "")}。未完了作品を確認するため、ジョブを失敗扱いにしました。`,
-        failures.map(({ productId }) => productId),
-      );
-    }
-
-    await finishJob(
-      JOBS.RESERVE,
-      formatReserveProgressMessage({
-        processed: works.length,
-        total: works.length,
-        updated: updatedCount,
-        unchanged: unchangedCount,
-        failures: [],
-      }),
-    );
+    await finishJob(JOBS.RESERVE);
     console.log("予約作品更新完了");
     return { workIds: updatedWorkIds };
   } catch (error) {
@@ -453,3 +320,5 @@ export async function updateReserveWorks() {
     if (browser) await closeBrowser(browser);
   }
 }
+
+
