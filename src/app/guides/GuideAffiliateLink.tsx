@@ -22,60 +22,25 @@ export default function GuideAffiliateLink({
   className,
   children,
 }: Props) {
-  const recordClick = (_event: MouseEvent<HTMLAnchorElement>) => {
-    const eventParams = {
-      placement: "guide-cta",
-      source_page: "guides",
-      guide_slug: guideSlug,
-      guide_cta_key: ctaKey,
-      affiliate_id: HAKKUTSU_SITE_DMM_AFFILIATE_ID,
-      link_url: href,
-      transport_type: "beacon",
-    };
+  const pingUrl = `/api/guide-affiliate-click?guideSlug=${encodeURIComponent(guideSlug)}&ctaKey=${encodeURIComponent(ctaKey)}`;
 
-    (window as WindowWithGtag).gtag?.("event", "affiliate_click", eventParams);
-
-    const payload = JSON.stringify({
-      guideSlug,
-      ctaKey,
-      requestId: typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
-    });
-    const beaconBody = new Blob([payload], { type: "application/json" });
-
-    // Queue tracking before the browser opens the outbound link in a new tab.
-    // Fall back to keepalive fetch only when the browser refuses the beacon.
-    let beaconQueued = false;
+  const recordAnalyticsClick = (_event: MouseEvent<HTMLAnchorElement>) => {
     try {
-      beaconQueued = navigator.sendBeacon(
-        "/api/guide-affiliate-click",
-        beaconBody,
-      );
-    } catch {
-      beaconQueued = false;
-    }
-
-    if (!beaconQueued) {
-      void fetch("/api/guide-affiliate-click", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: payload,
-        keepalive: true,
-      }).then((response) => {
-        if (!response.ok) {
-          console.error("[guide-affiliate-click] request failed", {
-            guideSlug,
-            ctaKey,
-            status: response.status,
-          });
-        }
-      }).catch((error: unknown) => {
-        console.error("[guide-affiliate-click] request could not be sent", {
-          guideSlug,
-          ctaKey,
-          error: error instanceof Error ? error.message : "unknown",
-        });
+      (window as WindowWithGtag).gtag?.("event", "affiliate_click", {
+        placement: "guide-cta",
+        source_page: "guides",
+        guide_slug: guideSlug,
+        guide_cta_key: ctaKey,
+        affiliate_id: HAKKUTSU_SITE_DMM_AFFILIATE_ID,
+        link_url: href,
+        transport_type: "beacon",
+      });
+    } catch (error) {
+      // Analytics must not interfere with the browser-native click ping.
+      console.error("[guide-affiliate-click] analytics event failed", {
+        guideSlug,
+        ctaKey,
+        error: error instanceof Error ? error.message : "unknown",
       });
     }
   };
@@ -85,8 +50,9 @@ export default function GuideAffiliateLink({
       href={href}
       target="_blank"
       rel="sponsored noopener noreferrer"
+      ping={pingUrl}
       className={className}
-      onClick={recordClick}
+      onClick={recordAnalyticsClick}
     >
       {children}
     </a>
