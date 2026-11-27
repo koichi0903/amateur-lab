@@ -2,6 +2,7 @@ import { supabase } from "../../../lib/supabase";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import WorkDetailHero from "../../components/WorkDetailHero";
+import { WorkDetailPurchaseCta, WorkDetailPurchaseProvider } from "../../components/WorkDetailPurchase";
 import RelatedWorks from "../../components/RelatedWorks";
 import Breadcrumb from "@/app/components/Breadcrumb";
 import BreadcrumbJsonLd from "@/app/components/BreadcrumbJsonLd";
@@ -411,6 +412,7 @@ export default async function WorkDetailPage(
       <ProductJsonLd work={work} />
 
       {/* Hero */}
+      <WorkDetailPurchaseProvider initialPrice={mobileDisplayPrice ?? null}>
       <section className="mt-0 p-0 sm:p-8">
 <WorkDetailHero
   key={work.id}
@@ -445,7 +447,10 @@ export default async function WorkDetailPage(
         </section>
       )}
 
+      {work.affiliate_url && <WorkDetailPurchaseCta workId={work.id} href={work.affiliate_url} />}
+
       <RelatedWorks works={(relatedWorks ?? []).filter((candidate) => !purchaseAlternativeIds.has(candidate.id))} />
+      </WorkDetailPurchaseProvider>
 
     </div>
   </main>
