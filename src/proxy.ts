@@ -32,6 +32,9 @@ const LOCAL_UPDATE_API_PATHS = new Set([
   "/api/update-sale",
   "/api/update-semi-new",
 ]);
+const LOCAL_SCHEDULE_API_PATHS = new Set([
+  "/api/admin/fanza-amateur-api-catalog",
+]);
 const LOCAL_ADMIN_API_PATHS = new Set([
   "/api/dmm",
   "/api/register-work",
@@ -175,6 +178,16 @@ export async function proxy(request: NextRequest) {
 
   if (
     LOCAL_UPDATE_API_PATHS.has(pathname) &&
+    isLoopbackRequest
+  ) {
+    return NextResponse.next();
+  }
+
+  // Scheduled catalog POSTs use a per-run token validated by the route.
+  // Limit this bypass to loopback POSTs; admin reads still require admin auth.
+  if (
+    request.method === "POST" &&
+    LOCAL_SCHEDULE_API_PATHS.has(pathname) &&
     isLoopbackRequest
   ) {
     return NextResponse.next();
