@@ -3,12 +3,13 @@
 import { trackFanzaAmateurAffiliateClick } from "@/lib/trackFanzaAmateurAffiliateClick";
 import { withHakkutsuSiteAffiliateId } from "@/lib/dmm/siteAffiliateUrl";
 
-export default function FanzaAmateurAffiliateLink({ href, contentId, sourcePage, placement = "detail-sidebar", price }: {
+export default function FanzaAmateurAffiliateLink({ href, contentId, sourcePage, placement = "detail-sidebar", price, label = "FANZAで見る" }: {
   href: string;
   contentId: string;
   sourcePage: "amateur" | "amateur_detail";
   placement?: "listing-card" | "detail-sidebar";
   price?: number | null;
+  label?: string;
 }) {
   return (
     <a
@@ -18,7 +19,7 @@ export default function FanzaAmateurAffiliateLink({ href, contentId, sourcePage,
       className="flex h-14 min-h-12 items-center justify-center rounded-xl bg-pink-600 px-5 text-sm font-black text-white shadow-sm transition hover:bg-pink-700"
       onClick={() => trackFanzaAmateurAffiliateClick({ contentId, sourcePage, placement })}
     >
-      FANZAで見る{price != null ? `（¥${price.toLocaleString("ja-JP")}）` : ""}
+      {label}{price != null ? ` ¥${price.toLocaleString("ja-JP")}` : ""}
     </a>
   );
 }
