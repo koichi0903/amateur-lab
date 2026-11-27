@@ -4,12 +4,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import PriceChart from "@/app/components/PriceChart";
+import SaleCountdown from "@/components/home/SaleCountdown";
 import FanzaAmateurAffiliateLink from "@/components/catalog/FanzaAmateurAffiliateLink";
 import AmateurFavoriteButton from "@/components/favorites/AmateurFavoriteButton";
 import FanzaAmateurPriceAlertButton from "@/components/catalog/FanzaAmateurPriceAlertButton";
 import type { FanzaAmateurCatalogItem, FanzaAmateurPriceHistoryEntry } from "@/lib/dmm/fanzaAmateurCatalog";
 
-const priceTypeOrder = ["stream", "download", "hd", "iosdl", "androiddl"];
+const priceTypeOrder = ["stream", "download", "hd", "iosdl", "androiddl", "4k"];
 
 function formatPriceType(type: string) {
   const labels: Record<string, string> = {
@@ -18,6 +19,7 @@ function formatPriceType(type: string) {
     hd: "HD",
     iosdl: "iOS",
     androiddl: "Android",
+    "4k": "4K",
   };
   return labels[type] ?? type;
 }
@@ -47,6 +49,11 @@ function parsePrice(value: string | null | undefined) {
   return digits ? Number(digits) : null;
 }
 
+function parseCampaignDate(value: string) {
+  const normalized = value.trim().replace(" ", "T");
+  return Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(normalized) ? normalized : `${normalized}+09:00`);
+}
+
 function formatDate(value: string | null | undefined) {
   if (!value) return "未取得";
   const date = new Date(value);
@@ -58,6 +65,7 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
   const coverUrl = item.imageURL?.large || item.imageURL?.small || item.imageURL?.list || item.imageUrl;
   const playableMovieUrl = isOfficialMp4(sampleMovieMp4Url) ? sampleMovieMp4Url : null;
   const [preferNativeSamplePlayer, setPreferNativeSamplePlayer] = useState(false);
+  const [nativeSampleFailed, setNativeSampleFailed] = useState(false);
   useEffect(() => {
     const updatePreference = () => setPreferNativeSamplePlayer(window.matchMedia("(pointer: coarse)").matches || window.matchMedia("(max-width: 767px)").matches || navigator.maxTouchPoints > 0);
     updatePreference();
@@ -82,31 +90,36 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
     observer.observe(player);
     return () => observer.disconnect();
   }, [officialSampleEmbedUrl]);
-  const priceTypes = useMemo(() => [...new Set(priceHistory.map((entry) => entry.price_type).filter((type) => type !== "summary"))].sort((a, b) => {
+  const deliveries = item.prices.deliveries?.delivery ?? [];
+  const priceTypes = useMemo(() => [...new Set([
+    ...priceHistory.map((entry) => entry.price_type).filter((type) => type !== "summary"),
+    ...deliveries.map((delivery) => delivery.type).filter(Boolean),
+  ])].sort((a, b) => {
     const aIndex = priceTypeOrder.indexOf(a);
     const bIndex = priceTypeOrder.indexOf(b);
     if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
     if (aIndex === -1) return 1;
     if (bIndex === -1) return -1;
     return aIndex - bIndex;
-  }), [priceHistory]);
+  }), [priceHistory, deliveries]);
   const [selectedPriceType, setSelectedPriceType] = useState("");
-  const currentPrice = item.currentPrice;
-  const representativePriceType = priceTypes.find((type) => {
-    const deliveryPrice = item.prices.deliveries?.delivery?.find((delivery) => delivery.type === type)?.price;
-    return parsePrice(deliveryPrice) === currentPrice;
-  }) ?? priceTypes[0] ?? "";
+  const representativePriceType = priceTypes.find((type) =>
+    parsePrice(deliveries.find((delivery) => delivery.type === type)?.price) === item.currentPrice,
+  ) ?? priceTypes[0] ?? "";
   const activePriceType = priceTypes.includes(selectedPriceType) ? selectedPriceType : representativePriceType;
-  const listPrice = parsePrice(item.prices?.list_price);
-  const discount = currentPrice != null && listPrice != null && listPrice > currentPrice
-    ? Math.round((1 - currentPrice / listPrice) * 100)
+  const currentDeliveryPrice = deliveries.find((delivery) => delivery.type === activePriceType);
+  const selectedPlanPrice = parsePrice(currentDeliveryPrice?.price) ??
+    (activePriceType === representativePriceType ? item.currentPrice : null);
+  const selectedPlanListPrice = parsePrice(currentDeliveryPrice?.list_price) ??
+    (activePriceType === representativePriceType ? parsePrice(item.prices?.list_price) : null);
+  const discount = selectedPlanPrice != null && selectedPlanListPrice != null && selectedPlanListPrice > selectedPlanPrice
+    ? Math.round((1 - selectedPlanPrice / selectedPlanListPrice) * 100)
     : 0;
   const activeHistory = priceHistory
     .filter((entry) => entry.price_type === activePriceType)
     .map((entry) => ({ entry, price: parsePrice(entry.price) }))
     .filter((entry): entry is { entry: FanzaAmateurPriceHistoryEntry; price: number } => entry.price != null)
     .sort((a, b) => a.entry.observed_at.localeCompare(b.entry.observed_at));
-  const currentDeliveryPrice = item.prices.deliveries?.delivery?.find((delivery) => delivery.type === activePriceType);
   const currentChartPrice = parsePrice(currentDeliveryPrice?.price);
   const chartHistory = [...activeHistory];
   if (currentChartPrice != null && fetchedAt) {
@@ -126,6 +139,13 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
   }));
   const lowestPrice = activeHistory.length ? Math.min(...activeHistory.map(({ price }) => price)) : null;
   const samplePlayerAvailable = Boolean(officialSampleEmbedUrl || playableMovieUrl);
+  const fallbackSampleImage = sampleImages[0] ?? coverUrl;
+  const activeCampaign = item.campaigns.find(({ dateBegin, dateEnd }) => {
+    const now = Date.now();
+    const start = parseCampaignDate(dateBegin);
+    const end = parseCampaignDate(dateEnd);
+    return Number.isFinite(start) && Number.isFinite(end) && start <= now && now <= end;
+  });
   const performers = item.confirmedPerformers ?? [];
   const makers = item.iteminfo?.maker?.map((maker) => maker.name).filter(Boolean) ?? [];
   const seriesList = item.iteminfo?.series?.map((series) => series.name).filter(Boolean) ?? [];
@@ -137,14 +157,21 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
         <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border bg-zinc-950 shadow-lg">
           {selected !== null && sampleImages[selected] ? (
             <Image src={sampleImages[selected]} alt={`${item.title}のサンプル画像 ${selected + 1}`} fill priority sizes="(max-width: 1024px) 100vw, 720px" unoptimized className="object-contain" />
+          ) : nativeSampleFailed ? (
+            <div className="relative h-full w-full bg-zinc-950">
+              {fallbackSampleImage ? <Image src={fallbackSampleImage} alt={`${item.title}の公式サンプル画像`} fill sizes="(max-width: 1024px) 100vw, 720px" unoptimized className="object-contain" /> : <div className="flex h-full items-center justify-center text-white">サンプル画像は未取得です</div>}
+              <div className="absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-black/80 to-transparent p-4 pt-12">
+                <FanzaAmateurAffiliateLink href={item.affiliateURL} contentId={item.content_id} sourcePage="amateur_detail" label="FANZAでサンプルを見る" />
+              </div>
+            </div>
           ) : preferNativeSamplePlayer && playableMovieUrl ? (
-            <video key={playableMovieUrl} autoPlay muted controls playsInline preload="metadata" poster={coverUrl ?? undefined} className="h-full w-full object-contain" aria-label={`${item.title}の公式サンプル動画`}><source src={playableMovieUrl} type="video/mp4" /></video>
+            <video key={playableMovieUrl} autoPlay muted controls playsInline preload="metadata" poster={coverUrl ?? undefined} onError={() => setNativeSampleFailed(true)} className="h-full w-full object-contain" aria-label={`${item.title}の公式サンプル動画`}><source src={playableMovieUrl} type="video/mp4" /></video>
           ) : compactOfficialSampleEmbedUrl ? (
             <div ref={officialPlayerRef} className="relative h-full w-full overflow-hidden">
               <iframe key={compactOfficialSampleEmbedUrl} src={compactOfficialSampleEmbedUrl} title={`${item.title}の公式サンプル動画`} loading="lazy" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" className="absolute inset-0 h-full w-full border-0" />
             </div>
           ) : playableMovieUrl ? (
-            <video key={playableMovieUrl} autoPlay muted controls playsInline preload="metadata" poster={coverUrl ?? undefined} className="h-full w-full object-contain" aria-label={`${item.title}の公式サンプル動画`}><source src={playableMovieUrl} type="video/mp4" /></video>
+            <video key={playableMovieUrl} autoPlay muted controls playsInline preload="metadata" poster={coverUrl ?? undefined} onError={() => setNativeSampleFailed(true)} className="h-full w-full object-contain" aria-label={`${item.title}の公式サンプル動画`}><source src={playableMovieUrl} type="video/mp4" /></video>
           ) : coverUrl ? (
             <Image src={coverUrl} alt={item.title} fill priority sizes="(max-width: 1024px) 100vw, 720px" unoptimized className="bg-white object-contain" />
           ) : (
@@ -162,12 +189,21 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
             <Image src={src} alt="" fill sizes="96px" unoptimized className="object-cover" />
           </button>)}
         </div>}
+        <div className="mt-3 flex items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 p-3" role="note" aria-label="FANZA公式サンプルの代替導線">
+          <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-md bg-white">
+            {fallbackSampleImage ? <Image src={fallbackSampleImage} alt={`${item.title}のサンプル画像`} fill sizes="96px" unoptimized className="object-cover" /> : <span className="flex h-full items-center justify-center text-[10px] text-slate-500">画像未取得</span>}
+          </div>
+          <div className="min-w-0 flex-1"><p className="text-xs font-semibold leading-5 text-slate-700">動画を再生できない場合も、公式サンプルを確認できます。</p><FanzaAmateurAffiliateLink href={item.affiliateURL} contentId={item.content_id} sourcePage="amateur_detail" label="FANZAでサンプルを見る" /></div>
+        </div>
       </div>
 
       <div className="min-w-0">
         <h1 className="mt-2 text-xl font-black leading-[1.375] text-slate-950 sm:text-2xl">{item.title}</h1>
         <div className="mt-5 border-y border-slate-200 py-4">
-          <div className="flex flex-wrap items-end gap-3"><strong className="text-4xl font-black leading-none text-pink-600 sm:text-5xl">{currentPrice != null ? `¥${currentPrice.toLocaleString("ja-JP")}` : "価格未取得"}</strong>{discount > 0 && listPrice != null && <><span className="text-sm text-slate-400 line-through">¥{listPrice.toLocaleString("ja-JP")}</span><span className="rounded bg-pink-100 px-2 py-1 text-xs font-black text-pink-700">{discount}%OFF</span></>}</div>
+          <div className="flex flex-wrap items-end gap-3"><strong className="text-4xl font-black leading-none text-pink-600 sm:text-5xl">{selectedPlanPrice != null ? `¥${selectedPlanPrice.toLocaleString("ja-JP")}` : "価格未取得"}</strong>{discount > 0 && selectedPlanListPrice != null && <><span className="text-sm text-slate-400 line-through">¥{selectedPlanListPrice.toLocaleString("ja-JP")}</span><span className="rounded bg-pink-100 px-2 py-1 text-xs font-black text-pink-700">{discount}%OFF</span></>}</div>
+          {lowestPrice != null && selectedPlanPrice === lowestPrice && <div className="mt-2 flex flex-wrap items-center gap-2"><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-800">記録上の最安値</span><span className="text-sm font-bold text-emerald-800">今が買い時です</span></div>}
+          {activeCampaign && <div className="mt-3 flex justify-start"><SaleCountdown saleEndAt={activeCampaign.dateEnd} /></div>}
+          {item.affiliateURL && <FanzaAmateurAffiliateLink href={item.affiliateURL} contentId={item.content_id} sourcePage="amateur_detail" price={selectedPlanPrice} label="FANZAで購入する" /> }
           <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-500"><span>発売日：<strong className="text-slate-800">{item.date?.slice(0, 10) || "未取得"}</strong></span>{volume && <span>収録時間：<strong className="text-slate-800">{volume}</strong></span>}<span>レビュー：<strong className="text-slate-800">★ {item.reviewAverage != null ? item.reviewAverage.toFixed(1) : "—"}（{item.review?.count ?? 0}件）</strong></span></div>
         </div>
         <div className="flex min-w-0 flex-wrap gap-2">
@@ -175,20 +211,20 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
           {makers.map((maker) => <Link key={`maker-${maker}`} href={`/amateur/search?maker=${encodeURIComponent(maker)}`} className="max-w-full break-words rounded-full bg-green-100 px-3 py-1 text-sm font-semibold text-green-700">🏢 {maker}</Link>)}
           {genres.map((genre) => <Link key={`genre-${genre}`} href={`/amateur/search?genre=${encodeURIComponent(genre)}`} className="max-w-full break-words rounded-full bg-indigo-100 px-3 py-1 text-sm font-semibold text-indigo-700">🏷 {genre}</Link>)}
         </div>
-        <p className="mt-3 text-sm leading-6 text-slate-600">現在価格：{currentPrice != null ? `${currentPrice.toLocaleString("ja-JP")}円` : "未取得"}<br />素人作品データ取得日：{formatDate(fetchedAt)}<br />{lowestPrice != null ? `発掘LABの記録上の最安値（${activePriceType || "価格"}）：${lowestPrice.toLocaleString("ja-JP")}円。` : "価格履歴から最安値を判定するデータはまだありません。"}<br />作品コード：{item.content_id}</p>
+        <p className="mt-3 text-sm leading-6 text-slate-600">現在価格：{selectedPlanPrice != null ? `${selectedPlanPrice.toLocaleString("ja-JP")}円` : "未取得"}<br />素人作品データ取得日：{formatDate(fetchedAt)}<br />{lowestPrice != null ? `発掘LABの記録上の最安値（${activePriceType || "価格"}）：${lowestPrice.toLocaleString("ja-JP")}円。` : "価格履歴から最安値を判定するデータはまだありません。"}<br />作品コード：{item.content_id}</p>
         <div className="mt-6 mb-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-3 border-t pt-4"><h2 className="mb-3 text-lg font-bold">価格推移</h2><div className="flex flex-wrap gap-2">{priceTypes.map((type) => <button key={type} type="button" onClick={() => setSelectedPriceType(type)} className={`rounded-full border px-3 py-1 text-sm transition ${activePriceType === type ? "bg-pink-500 text-white" : "bg-pink-50 hover:bg-pink-100"}`}>{formatPriceType(type)}</button>)}</div></div>
+          <div className="mb-3 border-t pt-4"><h2 className="mb-3 text-lg font-bold">価格推移</h2><div className="flex flex-wrap gap-2">{priceTypes.map((type) => <button key={type} type="button" onClick={() => setSelectedPriceType(type)} className={`rounded-full border px-3 py-1 text-sm transition ${activePriceType === type ? "bg-pink-500 text-white" : "bg-pink-50 hover:bg-pink-100"}`}>{formatPriceType(type)}{parsePrice(deliveries.find((delivery) => delivery.type === type)?.price) != null ? ` ¥${parsePrice(deliveries.find((delivery) => delivery.type === type)?.price)!.toLocaleString("ja-JP")}` : " 価格未取得"}</button>)}</div></div>
           {chartData.length > 0 ? <PriceChart data={chartData} /> : <p className="py-8 text-center text-sm text-slate-500">価格推移はまだありません。</p>}
           <div className="text-xs text-slate-500">履歴 {activeHistory.length}点{chartHistory.length > activeHistory.length ? "・最新取得価格を含む" : ""}</div>
         </div>
-        <div className="flex items-stretch gap-2">
-          <div className="min-w-0 flex-1"><FanzaAmateurAffiliateLink href={item.affiliateURL} contentId={item.content_id} sourcePage="amateur_detail" price={currentPrice} /></div>
+        <div className="flex justify-end">
           <AmateurFavoriteButton contentId={item.content_id} iconOnly className="flex h-14 w-[72px] shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-2xl leading-none text-slate-600 transition hover:border-pink-200 hover:bg-pink-50" />
         </div>
         <FanzaAmateurPriceAlertButton contentId={item.content_id} workTitle={item.title} makers={[...new Set(item.iteminfo?.maker?.map((maker) => maker.name.trim()).filter(Boolean) ?? [])]} />
         {seriesList.length > 0 && <div className="mt-5 flex min-w-0 flex-wrap gap-2 border-t border-slate-200 pt-4">
           {seriesList.map((series) => <Link key={`series-${series}`} href={`/amateur/search?q=${encodeURIComponent(series)}`} className="max-w-full break-words rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">▣ {series}</Link>)}
         </div>}
+        {item.affiliateURL && <div className="mt-6 border-t border-slate-200 pt-5"><FanzaAmateurAffiliateLink href={item.affiliateURL} contentId={item.content_id} sourcePage="amateur_detail" price={selectedPlanPrice} label="FANZAで購入する" /></div>}}
       </div>
     </section>
   );
