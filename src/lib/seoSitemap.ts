@@ -63,6 +63,7 @@ const staticEntries: SitemapEntry[] = [
     priority: 0.9,
   })),
   { url: `${SITE_URL}/reports`, changeFrequency: "daily", priority: 0.9 },
+  { url: `${SITE_URL}/reports/fanza-sale-trends-2026`, changeFrequency: "monthly", priority: 0.8 },
   ...reportDefinitions.map((report) => ({
     url: `${SITE_URL}/reports/${report.slug}`,
     changeFrequency: "daily" as const,
