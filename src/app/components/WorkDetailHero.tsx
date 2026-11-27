@@ -22,6 +22,8 @@ import {
 import PriceAlertButton from "./PriceAlertButton";
 import { getSampleMovieFallbackCopy } from "@/lib/sampleMovieFallback";
 import { isOfficialSampleMovieUrl } from "@/lib/officialSampleMovie";
+import SaleCountdown from "@/components/home/SaleCountdown";
+import { useWorkDetailPurchasePrice } from "./WorkDetailPurchase";
 
 type Props = {
   work: Work;
@@ -67,6 +69,8 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
   const [selected, setSelected] = useState<"movie" | number>("movie");
   const [viewerOpen, setViewerOpen] = useState(false);
   const [preferNativeSamplePlayer, setPreferNativeSamplePlayer] = useState(false);
+  const [nativeSampleFailed, setNativeSampleFailed] = useState(false);
+  const { setPrice: setPurchasePrice } = useWorkDetailPurchasePrice();
   const [selectedPriceSeriesKey, setSelectedPriceSeriesKey] = useState(() => {
     const representativeSeries = displayPrice != null && displayPrice > 0
       ? getPriceSeries(priceHistory).find((series) => {
@@ -124,9 +128,18 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
   const currentLabel = displayPrice != null && displayPrice > 0 ? `¥${displayPrice.toLocaleString("ja-JP")}` : "価格未取得";
   const hasDiscount = Boolean(displayPrice && regularPrice && regularPrice > displayPrice);
   const selectedPriceSummary = getPriceSeriesSummary(priceHistory, activePriceSeriesKey);
+  const selectedSeriesPrice = selectedPriceSummary?.latest.price ?? displayPrice;
+  const isSelectedSeriesAtRecordLow = Boolean(
+    selectedPriceSummary && selectedPriceSummary.latest.price === selectedPriceSummary.lowestPrice,
+  );
+  const fallbackSampleImage = sampleImages[0]?.image_url ?? work.image_url;
   const priceCheckedAt = selectedPriceSummary
     ? formatPriceHistoryDate(selectedPriceSummary.lastDate)
     : formatDate(priceHistory[0]?.changed_at);
+  useEffect(() => {
+    setPurchasePrice(selectedSeriesPrice);
+  }, [selectedSeriesPrice, setPurchasePrice]);
+
   const durationLabel = formatDuration(work.duration);
   const priceStatus = hasDiscount
     ? `現在の代表価格はセール中：通常${regularPrice?.toLocaleString("ja-JP")}円が${displayPrice?.toLocaleString("ja-JP")}円（${discountRate}%OFF）`
@@ -151,13 +164,13 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
     <div className="min-w-0">
       <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border bg-zinc-950 shadow-lg">
         {discountRate > 0 && <div className="absolute left-3 top-3 z-10 rounded-lg bg-pink-600 px-3 py-1 text-xs font-black text-white shadow">{discountRate}%OFF</div>}
-        {!showImage && !preferNativeSamplePlayer && compactOfficialSampleEmbedUrl ? <div ref={officialPlayerRef} className="relative h-full w-full overflow-hidden"><iframe key={compactOfficialSampleEmbedUrl} src={compactOfficialSampleEmbedUrl} title={`${work.title} 公式無料サンプル動画`} className="absolute inset-0 h-full w-full border-0" scrolling="no" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" /></div> : playableMovieUrl && !showImage ? <video key={playableMovieUrl} autoPlay={preferNativeSamplePlayer} muted={preferNativeSamplePlayer} controls playsInline preload="metadata" poster={work.image_url ?? undefined} className="h-full w-full object-contain" aria-label={`${work.title} 公式無料サンプル動画`}><source src={playableMovieUrl} type="video/mp4" /></video> : showImage ? <button type="button" onClick={() => setViewerOpen(true)} className="relative block h-full w-full cursor-zoom-in" aria-label={`${work.title}のサンプル画像${selected + 1}を拡大する`}><Image src={sampleImages[selected].image_url} alt={work.title} fill sizes="(max-width: 1024px) 100vw, 720px" className="object-contain" /><span className="absolute bottom-3 right-3 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">{selected + 1} / {sampleImages.length}</span></button> : <div className="relative h-full w-full"><Image src={work.image_url ?? ""} alt={work.title} fill sizes="(max-width: 1024px) 100vw, 720px" className="bg-white object-contain" />{officialWorkUrl ? <div className="absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-black/70 to-transparent p-4 pt-12"><AffiliateLink href={officialWorkUrl} workId={work.id} placement="sample-movie-fallback" sourcePage="direct" deliveryMode={sampleFallback.deliveryMode} ariaLabel={`${work.title}のサンプルをFANZA公式で確認する`} className="flex min-h-11 max-w-lg items-center justify-center gap-2 rounded-lg bg-white px-4 py-3 text-center text-sm font-black text-zinc-900 shadow-lg hover:bg-pink-50"><PlayCircle size={20} className="shrink-0 text-pink-600" /><span>{sampleFallback.label}</span><ExternalLink size={15} className="shrink-0 text-zinc-500" /></AffiliateLink></div> : <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white"><ImageIcon size={13} />作品画像</div>}</div>}
+        {!showImage && !preferNativeSamplePlayer && compactOfficialSampleEmbedUrl ? <div ref={officialPlayerRef} className="relative h-full w-full overflow-hidden"><iframe key={compactOfficialSampleEmbedUrl} src={compactOfficialSampleEmbedUrl} title={`${work.title} 公式無料サンプル動画`} className="absolute inset-0 h-full w-full border-0" scrolling="no" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" /></div> : playableMovieUrl && !showImage && !nativeSampleFailed ? <video key={playableMovieUrl} autoPlay={preferNativeSamplePlayer} muted={preferNativeSamplePlayer} controls playsInline preload="metadata" poster={work.image_url ?? undefined} onError={() => setNativeSampleFailed(true)} className="h-full w-full object-contain" aria-label={`${work.title} 公式無料サンプル動画`}><source src={playableMovieUrl} type="video/mp4" /></video> : nativeSampleFailed && !showImage && officialWorkUrl ? <div className="relative h-full w-full bg-zinc-900">{fallbackSampleImage && <Image src={fallbackSampleImage} alt={work.title} fill sizes="(max-width: 1024px) 100vw, 720px" className="object-contain" />}<div className="absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-black/80 to-transparent p-4 pt-12"><AffiliateLink href={officialWorkUrl} workId={work.id} placement="sample-movie-fallback" sourcePage="direct" deliveryMode={sampleFallback.deliveryMode} ariaLabel={work.title + "のサンプルをFANZAで見る"} className="flex min-h-11 max-w-lg items-center justify-center gap-2 rounded-lg bg-white px-4 py-3 text-center text-sm font-black text-zinc-900 shadow-lg hover:bg-pink-50"><PlayCircle size={20} className="shrink-0 text-pink-600" /><span>FANZAでサンプルを見る</span><ExternalLink size={15} className="shrink-0 text-zinc-500" /></AffiliateLink></div></div> : showImage ? <button type="button" onClick={() => setViewerOpen(true)} className="relative block h-full w-full cursor-zoom-in" aria-label={`${work.title}のサンプル画像${selected + 1}を拡大する`}><Image src={sampleImages[selected].image_url} alt={work.title} fill sizes="(max-width: 1024px) 100vw, 720px" className="object-contain" /><span className="absolute bottom-3 right-3 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">{selected + 1} / {sampleImages.length}</span></button> : <div className="relative h-full w-full"><Image src={work.image_url ?? ""} alt={work.title} fill sizes="(max-width: 1024px) 100vw, 720px" className="bg-white object-contain" />{officialWorkUrl ? <div className="absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-black/70 to-transparent p-4 pt-12"><AffiliateLink href={officialWorkUrl} workId={work.id} placement="sample-movie-fallback" sourcePage="direct" deliveryMode={sampleFallback.deliveryMode} ariaLabel={`${work.title}のサンプルをFANZA公式で確認する`} className="flex min-h-11 max-w-lg items-center justify-center gap-2 rounded-lg bg-white px-4 py-3 text-center text-sm font-black text-zinc-900 shadow-lg hover:bg-pink-50"><PlayCircle size={20} className="shrink-0 text-pink-600" /><span>{sampleFallback.label}</span><ExternalLink size={15} className="shrink-0 text-zinc-500" /></AffiliateLink></div> : <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white"><ImageIcon size={13} />作品画像</div>}</div>}
       </div>
       <div className="mt-3 flex min-w-0 gap-2 overflow-x-auto pb-1" aria-label="動画・画像サムネイル">
         <button type="button" onClick={() => setSelected("movie")} aria-label="サンプル動画または作品画像を表示" aria-pressed={selected === "movie"} className={`relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border-2 transition ${selected === "movie" ? "border-pink-500 ring-2 ring-pink-300" : "border-zinc-300"}`}><Image src={work.image_url ?? ""} alt="" fill sizes="96px" className="object-cover" />{hasSampleDestination && <span className="absolute inset-0 flex items-center justify-center bg-black/30"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-black"><PlayCircle size={20} /></span></span>}</button>
         {sampleImages.map((image, index) => <button key={image.sort_order} type="button" onClick={() => setSelected(index)} aria-label={`サンプル画像${index + 1}を表示`} aria-pressed={selected === index} className={`relative h-16 w-24 shrink-0 overflow-hidden rounded-lg border-2 transition ${selected === index ? "border-pink-500 ring-2 ring-pink-300" : "border-zinc-300"}`}><Image src={image.image_url} alt="" fill sizes="96px" className="object-cover" /></button>)}
       </div>
-      {selected === "movie" && !playableMovieUrl && !officialSampleEmbedUrl && officialWorkUrl && <p className="mt-1 text-center text-[11px] font-medium leading-5 text-zinc-500">{sampleFallback.note}</p>}
+      {selected === "movie" && officialWorkUrl && <div className="mt-3 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3" role="note" aria-label="動画が再生できない場合のサンプル表示"><div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-md bg-white">{fallbackSampleImage && <Image src={fallbackSampleImage} alt={work.title + "の公式サンプル画像"} fill sizes="96px" className="object-cover" />}</div><div className="min-w-0 flex-1"><p className="text-xs font-semibold leading-5 text-slate-700">動画が再生できない場合は、サンプル画像をご覧ください。</p><AffiliateLink href={officialWorkUrl} workId={work.id} placement="sample-movie-fallback" sourcePage="direct" deliveryMode={sampleFallback.deliveryMode} ariaLabel={work.title + "のサンプルをFANZAで見る"} className="mt-1 inline-flex min-h-8 items-center gap-1 text-sm font-black text-pink-700 underline underline-offset-2"><span>FANZAでサンプルを見る</span><ExternalLink size={13} /></AffiliateLink></div></div>}
       {viewerOpen && selected !== "movie" && <ImageViewer images={sampleImages} current={selected} onClose={() => setViewerOpen(false)} onPrev={() => setSelected(selected === 0 ? sampleImages.length - 1 : selected - 1)} onNext={() => setSelected((selected + 1) % sampleImages.length)} />}
     </div>
 
@@ -166,6 +179,7 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
       <div className="mt-5 border-y border-slate-200 py-4">
         <div className="mb-1 text-xs font-semibold text-slate-500">現在の代表価格</div>
         <div className="flex items-end gap-3"><strong className="text-[48px] font-black leading-none text-pink-600">{currentLabel}</strong>{hasDiscount && <><span className="text-sm text-slate-400 line-through">¥{regularPrice?.toLocaleString("ja-JP")}</span><span className="rounded bg-pink-100 px-2 py-1 text-xs font-black text-pink-700">{discountRate}%OFF</span></>}</div>
+        {work.affiliate_url && <AffiliateLink href={work.affiliate_url} workId={work.id} placement="detail-sidebar" sourcePage="direct" ariaLabel={work.title + "を表示中の系列価格でFANZA購入する"} className="mt-3 flex min-h-12 w-full items-center justify-center rounded-lg bg-pink-600 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-pink-700">FANZAで購入する{selectedSeriesPrice != null && selectedSeriesPrice > 0 ? ` ¥${selectedSeriesPrice.toLocaleString("ja-JP")}` : ""}</AffiliateLink>}
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-500"><span>発売日：<strong className="text-slate-800">{formatDate(work.release_date)}</strong></span>{durationLabel && <span>{durationLabel}</span>}<span>レビュー：<strong className="text-slate-800">★ {work.review_average > 0 ? work.review_average.toFixed(1) : "—"}（{work.review_count ?? 0}件）</strong></span></div>
       </div>
       <p className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-600">{workSummary}</p>
@@ -182,6 +196,8 @@ export default function WorkDetailHero({ work, sampleImages, sampleMovieUrl, off
                 <div className="font-bold text-pink-700">¥{selectedPriceSummary.latest.price.toLocaleString("ja-JP")}
                   {selectedPriceSummary.latest.isSale && <span className="ml-1 text-xs font-medium text-red-600">セール記録</span>}
                 </div>
+                {isSelectedSeriesAtRecordLow && <div className="mt-1 flex flex-wrap items-center gap-2"><span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-bold text-emerald-800">記録上の最安値</span><span className="text-xs font-bold text-emerald-800">今が買い時です</span></div>}
+                {selectedPriceSummary.latest.isSale && work.sale_end_at && <div className="mt-2 flex justify-start"><SaleCountdown saleEndAt={work.sale_end_at} /></div>}
                 {selectedPriceSummary.latest.item.sale_price != null && selectedPriceSummary.latest.item.normal_price != null && <div className="text-xs text-slate-500">通常価格 ¥{selectedPriceSummary.latest.item.normal_price.toLocaleString("ja-JP")}</div>}
               </div>
               <div>
