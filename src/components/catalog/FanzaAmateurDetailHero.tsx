@@ -142,9 +142,11 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
   const fallbackSampleImage = sampleImages[0] ?? coverUrl;
   const activeCampaign = item.campaigns.find(({ dateBegin, dateEnd }) => {
     const now = Date.now();
-    const start = parseCampaignDate(dateBegin);
+    const start = dateBegin ? parseCampaignDate(dateBegin) : null;
     const end = parseCampaignDate(dateEnd);
-    return Number.isFinite(start) && Number.isFinite(end) && start <= now && now <= end;
+    return Number.isFinite(end) &&
+      (start === null || (Number.isFinite(start) && start <= now)) &&
+      now <= end;
   });
   const performers = item.confirmedPerformers ?? [];
   const makers = item.iteminfo?.maker?.map((maker) => maker.name).filter(Boolean) ?? [];
@@ -224,7 +226,7 @@ export default function FanzaAmateurDetailHero({ item, fetchedAt, volume, offici
         {seriesList.length > 0 && <div className="mt-5 flex min-w-0 flex-wrap gap-2 border-t border-slate-200 pt-4">
           {seriesList.map((series) => <Link key={`series-${series}`} href={`/amateur/search?q=${encodeURIComponent(series)}`} className="max-w-full break-words rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">▣ {series}</Link>)}
         </div>}
-        {item.affiliateURL && <div className="mt-6 border-t border-slate-200 pt-5"><FanzaAmateurAffiliateLink href={item.affiliateURL} contentId={item.content_id} sourcePage="amateur_detail" price={selectedPlanPrice} label="FANZAで購入する" /></div>}}
+        {item.affiliateURL && <div className="mt-6 border-t border-slate-200 pt-5"><FanzaAmateurAffiliateLink href={item.affiliateURL} contentId={item.content_id} sourcePage="amateur_detail" price={selectedPlanPrice} label="FANZAで購入する" /></div>}
       </div>
     </section>
   );
