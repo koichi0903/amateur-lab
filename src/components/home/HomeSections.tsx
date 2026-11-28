@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { Work } from "@/types/work";
 import type { HomePriceInsightWork } from "@/lib/getHomePriceInsights";
 import FanzaStyleWorkCard from "@/components/catalog/FanzaStyleWorkCard";
+import FanzaAmateurTopCard from "@/components/catalog/FanzaAmateurTopCard";
+import type { FanzaAmateurHomeCard } from "@/lib/dmm/fanzaAmateurCatalog";
 
 export function SaleSection({
   works,
@@ -51,6 +53,29 @@ export function NewSection({
         </div>
       ) : (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">新着作品を取得中です。</div>
+      )}
+    </section>
+  );
+}
+
+export function AmateurSaleSection({ cards }: { cards: FanzaAmateurHomeCard[] }) {
+  return (
+    <section className="mx-auto mt-10 max-w-[1500px] px-4 sm:px-6 lg:px-8">
+      <div className="mb-6 flex items-end justify-between gap-4">
+        <div>
+          <p className="text-sm font-black text-pink-700">FANZA AMATEUR SALE</p>
+          <h2 className="mt-2 text-2xl font-black sm:text-3xl">素人のセール人気順</h2>
+        </div>
+        <Link href="/amateur" className="shrink-0 text-sm font-black text-pink-700 hover:underline">もっと見る →</Link>
+      </div>
+      {cards.length ? (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+          {cards.slice(0, 12).map((card) => (
+            <FanzaAmateurTopCard key={card.item.content_id} card={card} showRank={false} showRecordedLow sourcePage="amateur" />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">素人のセール作品を取得中です。</div>
       )}
     </section>
   );
