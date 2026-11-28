@@ -2,7 +2,7 @@ import Header from "@/components/layout/Header";
 import type { Metadata } from "next";
 import Hero from "@/components/home/hero/Hero";
 import RankingSection from "@/components/home/ranking/RankingSection";
-import { NewSection, SaleSection } from "@/components/home/HomeSections";
+import { AmateurSaleSection, NewSection, SaleSection } from "@/components/home/HomeSections";
 import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { buildInsightsForWorks, type HomePriceInsightWork } from "@/lib/getHomePriceInsights";
@@ -11,6 +11,7 @@ import { NON_VR_GENRE_OR_FILTER, isNonVrWork, isVrWork } from "@/lib/vr";
 import { sortTrendingWorks } from "@/lib/trendingRanking";
 import { pageMetadata } from "@/lib/seo";
 import { getActiveSaleValueCampaign } from "@/lib/saleValueCampaigns";
+import { getFanzaAmateurHomeSections } from "@/lib/dmm/fanzaAmateurCatalog";
 
 export const metadata: Metadata = pageMetadata({
   title: "FANZA作品の買い時・過去最安値・価格比較 | 発掘LAB",
@@ -44,7 +45,7 @@ async function recoverHomeData<T>(
 
 export default async function Home() {
   const now = new Date();
-  const [rankingResult, saleResult, newResult, vrRankingResult] =
+  const [rankingResult, saleResult, amateurCampaignResult, newResult, vrRankingResult] =
     await Promise.all([
       recoverHomeData("ranking", getHomeRanking(), []),
       recoverHomeData("sale", (async () => supabase
@@ -56,6 +57,7 @@ export default async function Home() {
         .order("realtime_rank", { ascending: true, nullsFirst: false })
         .order("review_count", { ascending: false, nullsFirst: false })
         .limit(20))(), { success: true, data: [], error: null, count: 0, status: 200, statusText: "OK" }),
+      recoverHomeData("amateur sale", getFanzaAmateurHomeSections().then((sections) => sections.campaign), []),
       recoverHomeData("new", (async () => supabase
         .from("works")
         .select("id,product_id,title,image_url,actress,genre,maker,score,price,sale_price,list_price,discount_rate,review_average,review_count,release_date,sale_end_at,affiliate_url")
@@ -73,6 +75,7 @@ export default async function Home() {
 
   const rankingWorks = rankingResult as Work[];
   const saleWorks = ((saleResult.data ?? []) as Work[]).filter(isNonVrWork).slice(0, 12);
+  const amateurCampaignCards = amateurCampaignResult.slice(0, 12);
   const newWorks = ((newResult.data ?? []) as Work[]).filter(isNonVrWork).slice(0, 12);
   const vrWorks = sortTrendingWorks(((vrRankingResult.data ?? []) as Work[]).filter(isVrWork)).slice(0, 12);
   const topCardPriceInsights = await recoverHomeData(
@@ -94,6 +97,7 @@ export default async function Home() {
         <Hero activeCampaign={getActiveSaleValueCampaign(now)} />
         <RankingSection works={rankingWorks} priceInsightsByWorkId={topCardPriceInsightsById} />
         <SaleSection works={saleWorks} priceInsightsByWorkId={topCardPriceInsightsById} />
+        <AmateurSaleSection cards={amateurCampaignCards} />
         <NewSection works={newWorks} priceInsightsByWorkId={topCardPriceInsightsById} />
         <RankingSection works={vrWorks} priceInsightsByWorkId={topCardPriceInsightsById} title="VR人気ランキング" moreHref="/vr" eyebrow="VR × 人気 × レビュー" />
       </main>

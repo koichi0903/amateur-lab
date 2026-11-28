@@ -27,7 +27,7 @@ function campaignIsActive(dateBegin: string, dateEnd: string) {
   return (!Number.isFinite(start) || start <= now) && (!Number.isFinite(end) || end >= now);
 }
 
-export default function FanzaAmateurTopCard({ card, showChart = true, showRank = true, sourcePage = "amateur" }: { card: FanzaAmateurHomeCard; showChart?: boolean; showRank?: boolean; sourcePage?: "amateur" | "amateur_detail" }) {
+export default function FanzaAmateurTopCard({ card, showChart = true, showRank = true, sourcePage = "amateur", showRecordedLow = false }: { card: FanzaAmateurHomeCard; showChart?: boolean; showRank?: boolean; sourcePage?: "amateur" | "amateur_detail"; showRecordedLow?: boolean }) {
   const { item } = card;
   const [useSampleImage, setUseSampleImage] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
@@ -86,6 +86,10 @@ export default function FanzaAmateurTopCard({ card, showChart = true, showRank =
         </div>
         {activeCampaign && <SaleCountdown saleEndAt={activeCampaign.dateEnd} />}
       </div>
+      {showRecordedLow && <div className="mt-2 rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-black text-emerald-800">
+        <p>直近90日の記録最安値</p>
+        {card.lowestObservedPrice != null ? <p className="mt-0.5 font-bold">¥{card.lowestObservedPrice.toLocaleString("ja-JP")} / {currentPrice === card.lowestObservedPrice ? "現在価格と同額" : currentPrice != null && currentPrice < card.lowestObservedPrice ? "記録を更新" : "現在価格との差 " + (currentPrice != null ? "¥" + (currentPrice - card.lowestObservedPrice).toLocaleString("ja-JP") : "未取得")}</p> : <p className="mt-0.5 font-bold">履歴未取得</p>}
+      </div>}
       <div className="mt-2 flex min-h-5 items-center justify-between text-[11px] font-bold text-slate-500"><span className="text-amber-500">★ {item.reviewAverage != null && item.reviewAverage > 0 ? item.reviewAverage.toFixed(1) : "-"}</span><span>({item.review?.count ?? 0})</span></div>
       {showChart && currentPrice != null && card.priceHistory.length > 0 && <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1"><MiniPriceHistoryChart points={card.priceHistory} windowStartAt={card.priceWindowStartAt} windowEndAt={card.priceWindowEndAt} lowPrice={card.lowestObservedPrice ?? currentPrice} currentPrice={currentPrice} variant="compact" /></div>}
       <div className="mt-auto flex flex-col gap-1.5 pt-2">
