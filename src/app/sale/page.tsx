@@ -7,6 +7,8 @@ import { supabase } from "@/lib/supabase";
 import type { Work } from "@/types/work";
 import { pageMetadata } from "@/lib/seo";
 import { buildInsightsForWorks, type HomePriceInsightWork } from "@/lib/getHomePriceInsights";
+import SaleValueCampaignBanner from "@/components/sale/SaleValueCampaignBanner";
+import { getActiveSaleValueCampaign } from "@/lib/saleValueCampaigns";
 
 const PAGE_SIZE = 24;
 export const revalidate = 86400;
@@ -119,6 +121,7 @@ export default async function SalePage({ searchParams }: { searchParams: Promise
         <section className="bg-white">
           <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
             <h1 className="text-2xl font-black tracking-tight">今日（{today}）のFANZAセール情報</h1>
+            <SaleValueCampaignBanner campaign={getActiveSaleValueCampaign()} />
             <form action="/sale" className="mt-5 flex max-w-[860px] flex-wrap items-end gap-3">
               <label className="w-[calc(100%-88px)] text-xs font-black text-slate-600 sm:w-[220px]">並び順<select name="sort" defaultValue={sort} className="mt-1 block h-11 w-full rounded border border-slate-200 bg-white px-3 text-sm font-bold"><option value="popular">人気順</option><option value="discount">割引率が高い順</option><option value="price">価格が安い順</option><option value="rating">レビュー評価順</option><option value="ending">終了が近い順</option></select></label>
               <label className="hidden w-full text-xs font-black text-slate-600 sm:block sm:w-[220px]">上限価格<select name="maxPrice" defaultValue={maxPrice ?? ""} className="mt-1 block h-11 w-full rounded border border-slate-200 bg-white px-3 text-sm font-bold"><option value="">指定なし</option><option value="500">500円以下</option><option value="1000">1,000円以下</option><option value="2000">2,000円以下</option></select></label>
