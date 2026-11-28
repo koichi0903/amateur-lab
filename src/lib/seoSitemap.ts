@@ -9,6 +9,7 @@ import { isWorkIndexable } from "@/lib/seoQuality";
 import { supabase } from "@/lib/supabase";
 import { analyzerGuideArticles } from "@/lib/analyzerGuideContent";
 import { editorialGuides, reportDefinitions } from "@/lib/editorialContent";
+import { saleValueCampaigns } from "@/lib/saleValueCampaigns";
 import { getFanzaAmateurActressIndex } from "@/lib/dmm/fanzaAmateurCatalog";
 import { getAmateurActressSitemapPaths as buildAmateurActressSitemapPaths, getAmateurActressSitemapUrls } from "@/lib/amateurActressSitemap";
 import { getAmateurWorkPrice, getAmateurWorkSitemapPaths as buildAmateurWorkSitemapPaths, isAmateurWorkIndexable } from "@/lib/amateurWorkIndexability";
@@ -38,6 +39,11 @@ const staticEntries: SitemapEntry[] = [
   { url: SITE_URL, changeFrequency: "daily", priority: 1 },
   ...["ranking", "new", "sale", "deals", "discovery", "price-insights", "vr"].map((path) => ({
     url: `${SITE_URL}/${path}`,
+    changeFrequency: "daily" as const,
+    priority: 0.9,
+  })),
+  ...saleValueCampaigns.map((campaign) => ({
+    url: `${SITE_URL}/sale/value/${campaign.slug}`,
     changeFrequency: "daily" as const,
     priority: 0.9,
   })),

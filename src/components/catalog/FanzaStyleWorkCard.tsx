@@ -31,7 +31,7 @@ const tagsOf = (work: Work) => {
     : genres.slice(0, 4).map((genre) => ({ label: genre, href: `/genre/${encodeURIComponent(genre)}` }));
 };
 
-export default function FanzaStyleWorkCard({ work, sourcePage = "direct", itemListName, insight, rank, compact = false, showChart = true, dark = false }: { work: Work; sourcePage?: AffiliateSource; itemListName?: string; insight?: HomePriceInsightWork; rank?: number; compact?: boolean; showChart?: boolean; dark?: boolean }) {
+export default function FanzaStyleWorkCard({ work, sourcePage = "direct", itemListName, insight, rank, compact = false, showChart = true, dark = false, valueComparison }: { work: Work; sourcePage?: AffiliateSource; itemListName?: string; insight?: HomePriceInsightWork; rank?: number; compact?: boolean; showChart?: boolean; dark?: boolean; valueComparison?: { currentPrice: number; recordedLow: number | null } }) {
   const saleEndAt = parseDatabaseDate(work.sale_end_at)?.getTime();
   // Sale state must follow the real-time end timestamp, even while page data is cached.
   // eslint-disable-next-line react-hooks/purity -- time-sensitive sale expiry is intentional.
@@ -64,6 +64,12 @@ export default function FanzaStyleWorkCard({ work, sourcePage = "direct", itemLi
         </div>
         {isSale && work.sale_end_at && <SaleCountdown saleEndAt={work.sale_end_at} />}
       </div>
+      {valueComparison && <div className={`mt-2 rounded-lg px-2 py-1.5 text-[10px] font-black ${dark ? "bg-zinc-800 text-zinc-300" : "bg-emerald-50 text-emerald-800"}`}>
+        {valueComparison.recordedLow != null && valueComparison.recordedLow > 0 ? <>
+          <p>{valueComparison.currentPrice < valueComparison.recordedLow ? "記録上の最安値を更新" : valueComparison.currentPrice === valueComparison.recordedLow ? "記録上の最安値タイ" : "記録上の最安値より上"}</p>
+          <p className="mt-0.5 font-bold">記録最安 ¥{valueComparison.recordedLow.toLocaleString("ja-JP")} / 現在との差 {valueComparison.currentPrice - valueComparison.recordedLow > 0 ? "+" : ""}¥{(valueComparison.currentPrice - valueComparison.recordedLow).toLocaleString("ja-JP")}</p>
+        </> : <p>記録上の最安値データなし</p>}
+      </div>}
       <div className={`mt-2 flex min-h-5 items-center justify-between text-[11px] font-bold ${dark ? "text-zinc-500" : "text-slate-500"}`}><span className="text-amber-500">★ {work.review_average > 0 ? work.review_average.toFixed(1) : "-"}</span><span>({work.review_count ?? 0})</span></div>
       {showChart && insight && <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1"><MiniPriceHistoryChart points={insight.priceHistory} windowStartAt={insight.priceWindowStartAt} windowEndAt={insight.priceWindowEndAt} lowPrice={insight.low90Price} currentPrice={insight.currentPrice} variant="compact" /></div>}
       <div className="mt-auto flex flex-col gap-1.5 pt-2"><>{work.affiliate_url ? <AffiliateLink href={work.affiliate_url} workId={work.id} placement="listing-card" sourcePage={sourcePage} className="flex min-h-9 w-full items-center justify-center rounded-lg bg-pink-600 px-2 text-[11px] font-black text-white hover:bg-pink-700">FANZAで見る</AffiliateLink> : <span className={`flex min-h-9 w-full items-center justify-center rounded-lg px-2 text-[11px] font-black ${dark ? "bg-zinc-800 text-zinc-500" : "bg-slate-100 text-slate-400"}`}>FANZAで見る</span>}</><TrackedWorkLink href={workDetailHref(work.id, sourcePage)} workId={work.id} title={work.title} itemListName={selectionListName} index={rank} className={`flex min-h-8 w-full items-center justify-center rounded-lg border px-2 text-[10px] font-black ${dark ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800" : "border-pink-200 text-pink-700 hover:bg-pink-50"}`}>詳細を見る</TrackedWorkLink></div>
