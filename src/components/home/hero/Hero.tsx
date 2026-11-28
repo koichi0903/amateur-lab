@@ -4,8 +4,10 @@ import Link from "next/link";
 import { Heart, Sparkles } from "lucide-react";
 import { useState } from "react";
 import WorkCategorySwitch from "@/components/catalog/WorkCategorySwitch";
+import SaleValueCampaignBanner from "@/components/sale/SaleValueCampaignBanner";
+import type { SaleValueCampaign } from "@/lib/saleValueCampaigns";
 
-export default function Hero({ activeCatalog = "fanza" }: { activeCatalog?: "fanza" | "amateur" }) {
+export default function Hero({ activeCatalog = "fanza", activeCampaign = null }: { activeCatalog?: "fanza" | "amateur"; activeCampaign?: SaleValueCampaign | null }) {
   const [isOpen, setIsOpen] = useState(true);
   const isAmateur = activeCatalog === "amateur";
 
@@ -14,6 +16,7 @@ export default function Hero({ activeCatalog = "fanza" }: { activeCatalog?: "fan
       <div className="mx-auto max-w-[1500px]">
         <div className="px-1 pb-4 sm:px-2">
           <h1 className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{isAmateur ? "FANZA素人作品" : "FANZA作品の価格と買い時を比較"}</h1>
+          {!isAmateur && <SaleValueCampaignBanner campaign={activeCampaign} />}
           <p className="mt-2 text-sm leading-6 text-slate-600">{isAmateur ? "素人作品だけを、レビュー・キャンペーン・新着の棚から探せます。" : "現在価格、過去最安値、レビュー、セール終了時期を見ながら、今チェックしたい作品を探せます。"}</p>
           <div className="mt-4">
             <WorkCategorySwitch active={activeCatalog} />
