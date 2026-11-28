@@ -10,6 +10,7 @@ import { getHomeRanking } from "@/lib/getHomeRanking";
 import { NON_VR_GENRE_OR_FILTER, isNonVrWork, isVrWork } from "@/lib/vr";
 import { sortTrendingWorks } from "@/lib/trendingRanking";
 import { pageMetadata } from "@/lib/seo";
+import { getActiveSaleValueCampaign } from "@/lib/saleValueCampaigns";
 
 export const metadata: Metadata = pageMetadata({
   title: "FANZA作品の買い時・過去最安値・価格比較 | 発掘LAB",
@@ -90,7 +91,7 @@ export default async function Home() {
     <>
       <Header />
       <main className="min-h-screen bg-[#f8fafc] text-slate-950">
-        <Hero />
+        <Hero activeCampaign={getActiveSaleValueCampaign(now)} />
         <RankingSection works={rankingWorks} priceInsightsByWorkId={topCardPriceInsightsById} />
         <SaleSection works={saleWorks} priceInsightsByWorkId={topCardPriceInsightsById} />
         <NewSection works={newWorks} priceInsightsByWorkId={topCardPriceInsightsById} />
